@@ -1,0 +1,35 @@
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    # `borrow-or-share`, reached through the QSL and IR pins.
+    "MIT-0",
+    # `ar_archive_writer`, a build dependency of `stacker` (QSL and IR pins).
+    "Apache-2.0 WITH LLVM-exception",
+    # The agent-ix crates this driver depends on (QSL, CG, IR, RT and their
+    # first-party closure). This crate is AGPL-3.0-or-later too.
+    "AGPL-3.0-or-later",
+    "AGPL-3.0-only",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+wildcards = "warn"
+
+[advisories]
+version = 2
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+[sources.allow-org]
+github = ["agent-ix"]

@@ -1,0 +1,46 @@
+[package]
+name = "quire-driver"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.1"
+description = "Orchestrating driver: calls QSL (compile, emit, route) and CG (negotiate, generate) across repositories (ADR-011 T-13)."
+authors = ["Peter Krenesky <kreneskyp@gmail.com>"]
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/agent-ix/quire-driver"
+publish = false
+
+[lib]
+name = "quire_driver"
+path = "src/lib.rs"
+
+# ADR-011 §6.1 driver row: the driver depends on the QSL layer crates and on
+# CG, and nothing depends on it. It is downstream of CG because CG -> QSL
+# (`qsl-replay`) is a normal edge and Cargo refuses a package cycle.
+#
+# Revisions (informational, not a gate): QSL is pinned at the revision CG's
+# `qsl-replay` dependency names, and CG at the head of
+# agent-ix/quire-contract-codegen#174 (branch `ir-254-pin-cascade`), so QSL,
+# IR and `quire-contract-model` each resolve to one revision in this lock.
+# `tests/dependency_edges.rs` checks the edges, not these revisions.
+[dependencies]
+qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
+qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
+qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
+qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
+qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
+quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "d3281720c0471f6aba9eb1ee4c21d74c352e0fa2" }
+thiserror = "=2.0.20"
+
+[dev-dependencies]
+serde_json = "=1.0.151"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = "deny"
