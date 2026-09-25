@@ -36,8 +36,9 @@ driver row) and ADR-012 §7. It is the one crate that calls both QSL and CG
 
 It compiles a unit through QSL, converts every registered backend to its CG
 kind, has CG negotiate every requested item, routes the supported items
-through QSL `route` and hands them to CG generation. It sits downstream of
-QSL and CG, and nothing depends on it.
+through QSL `route`. Handing the routed items to CG generation is not wired
+yet; see FR-001 Status. It sits downstream of QSL and CG, and nothing in its
+lock depends on it.
 
 ## 3. System Overview
 
@@ -64,4 +65,4 @@ on it.
 ## References
 
 - QSL ADR-011, ADR-012 and ADR-013 (agent-ix/quire-spec-language).
-- QSL-1 (agent-ix/quire-spec-language#248).
+- QSL-1 (Linear), the ticket that owns this crate.

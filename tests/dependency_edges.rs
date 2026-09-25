@@ -1,32 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! FR-001-AC-1 (TC-005): the driver's dependency edges match ADR-011 §6.1's
 //! driver row and §7.1's crate graph, read from `cargo metadata`'s resolved
-//! graph.
+//! graph. QSL packages are identified by their source URL, and normal and
+//! build edges both count.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
 
 use serde_json::Value;
 
-/// The QSL layer crates of ADR-011 §6.1's crate map, plus K.
-const QSL_LAYER_CRATES: &[&str] = &[
-    "qsl-foundation",
-    "qsl-cst",
-    "qsl-source",
-    "qsl-forms",
-    "qsl-semantics",
-    "qsl-package",
-    "qsl-eval",
-    "qsl-route",
-    "qsl-replay",
-    "quire-exact",
-];
+/// The source of every package built from the QSL repository.
+const QSL_SOURCE: &str = "git+https://github.com/agent-ix/quire-spec-language";
+/// The QSL root crate, which is not a layer crate (ADR-011 §6.1 crate map).
+const QSL_ROOT: &str = "quire-spec-language";
+
+struct Package {
+    name: String,
+    source: Option<String>,
+}
+
+impl Package {
+    fn is_qsl(&self) -> bool {
+        self.source
+            .as_deref()
+            .is_some_and(|source| source.starts_with(QSL_SOURCE))
+    }
+}
 
 struct Graph {
-    /// Package id -> name.
-    names: BTreeMap<String, String>,
-    /// Package id -> (dependency package id, has a normal edge).
-    deps: BTreeMap<String, Vec<(String, bool)>>,
+    packages: BTreeMap<String, Package>,
+    /// Package id -> the package ids it reaches by a normal or build edge.
+    deps: BTreeMap<String, Vec<String>>,
     root: String,
 }
 
@@ -44,14 +48,17 @@ impl Graph {
             String::from_utf8_lossy(&output.stderr)
         );
         let metadata: Value = serde_json::from_slice(&output.stdout).expect("metadata is JSON");
-        let names = metadata["packages"]
+        let packages = metadata["packages"]
             .as_array()
             .expect("packages")
             .iter()
             .map(|p| {
                 (
                     p["id"].as_str().expect("id").to_owned(),
-                    p["name"].as_str().expect("name").to_owned(),
+                    Package {
+                        name: p["name"].as_str().expect("name").to_owned(),
+                        source: p["source"].as_str().map(str::to_owned),
+                    },
                 )
             })
             .collect();
@@ -64,14 +71,14 @@ impl Graph {
                     .as_array()
                     .expect("deps")
                     .iter()
-                    .map(|dep| {
-                        let normal = dep["dep_kinds"]
+                    .filter(|dep| {
+                        dep["dep_kinds"]
                             .as_array()
                             .expect("dep_kinds")
                             .iter()
-                            .any(|k| k["kind"].is_null());
-                        (dep["pkg"].as_str().expect("pkg").to_owned(), normal)
+                            .any(|k| k["kind"].is_null() || k["kind"] == "build")
                     })
+                    .map(|dep| dep["pkg"].as_str().expect("pkg").to_owned())
                     .collect();
                 (node["id"].as_str().expect("node id").to_owned(), edges)
             })
@@ -80,25 +87,25 @@ impl Graph {
             .as_str()
             .expect("root")
             .to_owned();
-        Self { names, deps, root }
+        Self {
+            packages,
+            deps,
+            root,
+        }
     }
 
-    fn name(&self, id: &str) -> &str {
-        &self.names[id]
+    fn package(&self, id: &str) -> &Package {
+        &self.packages[id]
     }
 
-    fn normal_deps(&self, id: &str) -> BTreeSet<&str> {
-        self.deps[id]
-            .iter()
-            .filter(|(_, normal)| *normal)
-            .map(|(dep, _)| dep.as_str())
-            .collect()
+    fn deps_of(&self, id: &str) -> impl Iterator<Item = &Package> {
+        self.deps[id].iter().map(|dep| self.package(dep))
     }
 
     fn ids_named(&self, name: &str) -> Vec<&str> {
-        self.names
+        self.packages
             .iter()
-            .filter(|(_, n)| n.as_str() == name)
+            .filter(|(_, p)| p.name == name)
             .map(|(id, _)| id.as_str())
             .collect()
     }
@@ -107,14 +114,13 @@ impl Graph {
 #[test]
 fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let graph = Graph::load();
-    assert_eq!(graph.name(&graph.root), "quire-driver");
+    assert_eq!(graph.package(&graph.root).name, "quire-driver");
 
-    // §6.1 driver row: the driver's normal edges are the QSL layer crates
-    // and CG, and one error-derive crate. Never the QSL root crate.
+    // §6.1 driver row: the driver's normal and build edges are QSL layer
+    // crates, CG and one error-derive crate. Never the QSL root crate.
     let direct: BTreeSet<&str> = graph
-        .normal_deps(&graph.root)
-        .into_iter()
-        .map(|id| graph.name(id))
+        .deps_of(&graph.root)
+        .map(|p| p.name.as_str())
         .collect();
     let expected: BTreeSet<&str> = [
         "qsl-foundation",
@@ -128,54 +134,45 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     .into_iter()
     .collect();
     assert_eq!(direct, expected);
-    for name in &direct {
-        assert!(
-            QSL_LAYER_CRATES.contains(name)
-                || *name == "quire-contract-codegen"
-                || *name == "thiserror",
-            "`{name}` is not on the driver row's allow-list"
-        );
-    }
+    let driver_qsl: Vec<&Package> = graph.deps_of(&graph.root).filter(|p| p.is_qsl()).collect();
+    assert_eq!(driver_qsl.len(), 5, "five QSL edges, by source");
+    assert!(driver_qsl.iter().all(|p| p.name != QSL_ROOT));
 
-    // Nothing depends on the driver.
-    for (id, edges) in &graph.deps {
+    // Nothing in this lock depends on the driver.
+    assert_eq!(graph.ids_named("quire-driver").len(), 1);
+    for id in graph.deps.keys() {
         assert!(
-            edges.iter().all(|(dep, _)| *dep != graph.root),
+            graph.deps_of(id).all(|p| p.name != "quire-driver"),
             "`{}` depends on quire-driver",
-            graph.name(id)
+            graph.package(id).name
         );
     }
 
-    // §7.1 / FB-05: CG's one normal QSL-workspace edge is `qsl-replay`.
+    // §7.1 / FB-05: CG's one normal or build edge into QSL is `qsl-replay`.
     let cg = graph.ids_named("quire-contract-codegen");
     assert_eq!(cg.len(), 1, "one CG revision");
-    let cg_qsl: Vec<&str> = graph
-        .normal_deps(cg[0])
-        .into_iter()
-        .map(|id| graph.name(id))
-        .filter(|name| QSL_LAYER_CRATES.contains(name) || *name == "quire-spec-language")
-        .collect();
-    assert_eq!(cg_qsl, ["qsl-replay"]);
+    let cg_qsl: Vec<&Package> = graph.deps_of(cg[0]).filter(|p| p.is_qsl()).collect();
+    let cg_qsl_names: Vec<&str> = cg_qsl.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(cg_qsl_names, ["qsl-replay"]);
 
-    // One revision of each QSL layer crate, so the driver's QSL crates and
-    // CG's `qsl-replay` are the same packages.
-    for name in QSL_LAYER_CRATES {
-        let ids = graph.ids_named(name);
+    // The driver's QSL crates and CG's `qsl-replay` come from one QSL
+    // revision, and each QSL package other than the root resolves once. The
+    // root crate arrives transitively through IR at another revision
+    // (Cargo.toml's revision note), which this test does not gate.
+    let revisions: BTreeSet<&str> = driver_qsl
+        .iter()
+        .chain(&cg_qsl)
+        .map(|p| p.source.as_deref().expect("git source"))
+        .collect();
+    assert_eq!(revisions.len(), 1, "{revisions:?}");
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for package in graph.packages.values().filter(|p| p.is_qsl()) {
+        *counts.entry(package.name.as_str()).or_default() += 1;
+    }
+    for (name, count) in counts {
         assert!(
-            ids.len() <= 1,
-            "`{name}` resolves to {} revisions: {ids:?}",
-            ids.len()
+            name == QSL_ROOT || count == 1,
+            "`{name}` resolves to {count} revisions"
         );
     }
-    let driver_replay: Vec<&str> = graph
-        .normal_deps(&graph.root)
-        .into_iter()
-        .filter(|id| graph.name(id) == "qsl-replay")
-        .collect();
-    let cg_replay: Vec<&str> = graph
-        .normal_deps(cg[0])
-        .into_iter()
-        .filter(|id| graph.name(id) == "qsl-replay")
-        .collect();
-    assert_eq!(driver_replay, cg_replay);
 }

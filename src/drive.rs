@@ -100,11 +100,10 @@ pub fn drive(
         )
         .map_err(DriverRefusal::Compile)?;
 
-    // Step 3: every registered BackendId through CG's one conversion.
-    let kinds = convert_backends(upstream, registry)?;
-
-    // Step 4: the candidate step, then E7.
+    // T-13 order: the `route` candidate step, then every registered
+    // BackendId through CG's one conversion, then E7.
     let (envelope, candidate_sets) = envelope(registry, items)?;
+    let kinds = convert_backends(upstream, registry)?;
     let settlements = upstream
         .negotiate(&envelope)
         .map_err(DriverRefusal::Envelope)?;
@@ -120,7 +119,7 @@ pub fn drive(
         }));
     }
 
-    // Step 5: route the `supported` items, and only those.
+    // The routing step: the `supported` items, and only those.
     let routed = route_supported(upstream, &settlements, &candidate_sets, &kinds)?;
 
     Ok(Driven {
@@ -188,7 +187,11 @@ fn envelope(
     let mut request_items = Vec::with_capacity(items.len());
     let mut candidate_sets = Vec::with_capacity(items.len());
     for item in items {
-        writer.item(item.node, &item.requirements);
+        let index = writer.item(item.node, &item.requirements);
+        let extent = writer
+            .items()
+            .get(index.get())
+            .map(|written| cg_extent(written.extent()));
         let label = item.requirements.kind().to_wire();
         let kind = cg::CapabilityKind::from_label(label).map_or_else(
             || cg::RequestedKind::Unknown(label.to_owned()),
@@ -208,13 +211,10 @@ fn envelope(
         candidate_sets.push(set);
         request_items.push(cg::RequestItem {
             kind,
-            extent: None,
+            extent,
             named_backend: item.backend.as_ref().map(|id| id.as_str().to_owned()),
             candidates,
         });
-    }
-    for (request_item, written) in request_items.iter_mut().zip(writer.items()) {
-        request_item.extent = Some(cg_extent(written.extent()));
     }
 
     Ok((
