@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! The driver's command-level refusals (ADR-011 §2.3, §5; ADR-012 §7.2).
-//! #225 renders them; this module only types them.
+//! AGE-394 (the lifecycle and CLI design) renders them; this module only types
+//! them.
 
 use qsl_foundation::Code;
 use qsl_replay::spine::{CompileRefusal, SpineStage};
@@ -25,7 +26,7 @@ pub enum DriverRefusal {
         backends: Vec<BackendId>,
     },
     /// CG refused the whole FR-331 envelope before settling any item.
-    #[error("CG refused the negotiation envelope: {0:?}")]
+    #[error("CG refused the negotiation envelope: {}", envelope_message(.0))]
     Envelope(EnvelopeRefusal),
     /// An upstream answer broke an invariant the driver relies on. Not a
     /// refusal of the input.
@@ -98,6 +99,10 @@ pub enum OutcomeKind {
 
 impl DriverRefusal {
     /// The catalog code, rendered `code` or `code/cause`.
+    ///
+    /// For [`DriverRefusal::Registration`] this is the first refusal's code
+    /// in (identity, manifest digest) order; each refusal in the vector
+    /// carries its own `catalog_code()`.
     pub fn code(&self) -> String {
         match self {
             Self::Registration(refusals) => refusals.first().map_or_else(
@@ -118,13 +123,14 @@ impl DriverRefusal {
         match self {
             Self::Registration(_) => DriverStage::Registry,
             Self::Compile(refusal) => DriverStage::Compile(refusal.stage()),
-            Self::UnknownBackend { .. } => DriverStage::Conversion,
+            Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
+                DriverStage::Conversion
+            }
             Self::Envelope(_) => DriverStage::Negotiation,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
             Self::Fault(
                 DriverFault::SettlementCount { .. }
-                | DriverFault::SupportedOutsideCandidates { .. }
-                | DriverFault::VocabularyMismatch { .. },
+                | DriverFault::SupportedOutsideCandidates { .. },
             ) => DriverStage::Negotiation,
         }
     }
@@ -150,4 +156,39 @@ fn join(backends: &[BackendId]) -> String {
         .map(BackendId::as_str)
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn envelope_message(refusal: &EnvelopeRefusal) -> String {
+    match refusal {
+        EnvelopeRefusal::InvalidCapability {
+            cause,
+            member,
+            received,
+        } => format!("invalid_capability/{cause}: `{member}` is `{received}`"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    /// FR-001-AC-5 (TC-004): an internal fault is its own outcome kind, with
+    /// code `runtime_invariant`, never a refusal.
+    #[test]
+    fn tc_004_a_fault_is_an_internal_fault_with_runtime_invariant() {
+        let fault = DriverRefusal::Fault(DriverFault::SupportedOutsideCandidates {
+            request_index: 0,
+            backend: "kani".to_owned(),
+        });
+        assert_eq!(fault.kind(), OutcomeKind::Fault);
+        assert_eq!(fault.code(), "runtime_invariant");
+        assert_eq!(fault.stage(), DriverStage::Negotiation);
+
+        let fault = DriverRefusal::Fault(DriverFault::VocabularyMismatch {
+            label: "new-kind".to_owned(),
+        });
+        assert_eq!(fault.kind(), OutcomeKind::Fault);
+        assert_eq!(fault.code(), "runtime_invariant");
+        assert_eq!(fault.stage(), DriverStage::Conversion);
+    }
 }

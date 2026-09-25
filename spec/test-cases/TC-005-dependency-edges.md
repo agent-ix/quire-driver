@@ -17,15 +17,20 @@ Scope: FR-001-AC-1.
 ## Test Procedure
 
 1. Run `cargo metadata --locked --offline` and read the resolved graph.
+   Count normal and build edges. Identify QSL packages by their source,
+   `git+https://github.com/agent-ix/quire-spec-language`.
 
 Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_list`.
 
 ## Expected Results
 
-- The driver's normal dependencies are exactly `qsl-foundation`,
+- The driver's normal and build dependencies are exactly `qsl-foundation`,
   `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`,
   `quire-contract-codegen` and `thiserror`. The QSL root crate is not one.
-- No package depends on `quire-driver`.
-- CG's one normal edge into the QSL layer crates is `qsl-replay`.
-- Each QSL layer crate resolves to one revision, and the driver's
-  `qsl-replay` is CG's.
+- One package is named `quire-driver`, and no edge in the lock reaches a
+  package of that name: nothing in this lock depends on the driver.
+- CG's one normal or build edge into QSL is `qsl-replay`.
+- The driver's five QSL crates and CG's `qsl-replay` share one source
+  revision. Each QSL package other than the root crate resolves once. The
+  root crate `quire-spec-language` arrives transitively through IR at
+  another revision (f1700a9); this test states that and does not gate it.

@@ -26,5 +26,6 @@ Test: `tests/drive.rs`, `tc_001_tc_003_steps_run_in_order_and_route_only_support
 ## Expected Results
 
 - The call log is: compile, the conversion of `kani`, one negotiation of
-  three items, one routing call.
+  three items, one routing call. (The candidate step calls no upstream
+  function the recorder sees.)
 - The emitted v2 bytes are not empty.

@@ -18,7 +18,7 @@ typed reason why none can.
 
 ## Context
 
-QSL compiles and routes; CG negotiates and generates. Neither may call the
+QSL compiles and routes; CG negotiates (and will generate). Neither may call the
 other in that direction, so the driver calls both (QSL ADR-011 §6.1 driver
 row, T-13).
 

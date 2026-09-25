@@ -11,22 +11,24 @@
 //! 1. S1 to S4: `qsl_replay::spine::compile`.
 //! 2. E4: the same call emits the `quire.checked-package/v2` bytes and their
 //!    `package_id` ([`Driven::emitted`]).
-//! 3. The pre-negotiation conversion (ADR-012 §7.2, MD-2): every registered
+//! 3. The `route` candidate step: each requested item's candidate set.
+//! 4. The pre-negotiation conversion (ADR-012 §7.2, MD-2): every registered
 //!    `BackendId` goes through CG's one total conversion
 //!    (`BackendKind::from_identity`). When any has no CG kind, the run is
 //!    refused with `invalid_capability`/`unknown-backend`, naming each
 //!    unconverted id in bytewise order, and nothing is negotiated.
-//! 4. The `route` candidate step, then E7: CG `negotiate_backend_provider`
-//!    over the FR-331 envelope built from the registry and the candidate
-//!    sets.
-//! 5. The `route` routing step, after negotiation, over the items settled
+//! 5. E7: CG `negotiate_backend_provider` over the FR-331 envelope built
+//!    from the registry and the candidate sets.
+//! 6. The `route` routing step, after negotiation, over the items settled
 //!    `supported` only. Each routed item carries its `BackendId` and its CG
 //!    backend kind ([`Routed`]).
-//! 6. CG generation with those `BackendId`s. **Not wired.** CG has no
+//! 7. CG generation with those `BackendId`s. **Not wired.** CG has no
 //!    generation entry point keyed by a routed backend; [`Driven::routed`]
-//!    is the input it would take. See the crate README.
+//!    is the input it would take. See FR-001 Status. The E5 hand-off to IR
+//!    is not wired either.
 //!
-//! Command-level refusals are [`DriverRefusal`]. #225 renders them.
+//! Command-level refusals are [`DriverRefusal`]. AGE-394 (the lifecycle and CLI
+//! design) renders them.
 //!
 //! The registry is an ordinary value the caller builds with
 //! [`build_registry`] from provider manifests and passes in. It is never

@@ -11,7 +11,7 @@ use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{CompileRefusal, Compiled, SpineLimits, SpineStage};
 use qsl_route::routing::Disposition;
 use qsl_route::{BackendId, Candidate, ManifestDigest};
-use qsl_semantics::check::Capability;
+use qsl_semantics::check::{Capability, CheckingLimits};
 use qsl_semantics::family::{ClaimExtent, Requirements};
 use quire_contract_codegen::{
     BackendKind, BackendProviderEnvelope, EnvelopeRefusal, ItemSettlement,
@@ -272,12 +272,29 @@ fn tc_004_command_level_refusals_are_typed() {
     };
 
     let refusal = drive(&recorder, broken, &registry, &[]).expect_err("the unit does not parse");
-    assert!(matches!(
-        refusal.stage(),
-        DriverStage::Compile(SpineStage::Source | SpineStage::Forms)
-    ));
+    assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Source));
+    assert_eq!(refusal.code(), "invalid_syntax");
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
     assert_eq!(recorder.calls(), [Call::Compile]);
+
+    // A stage limit is its own outcome kind: `not not not true` is four
+    // deep, over a checking depth of 3.
+    let deep = CompileInput {
+        bytes: b"language \"ix:native\" edition \"1-draft\";\n\
+            profile v = \"quire.value.complete/v1\" version \"1\" digest \
+            \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
+            function f using v(): Boolean pure { not not not true }\n",
+        limits: SpineLimits {
+            checking: CheckingLimits::new(u64::MAX, 3).expect("valid limits"),
+            ..SpineLimits::default()
+        },
+        ..input(&packages)
+    };
+    let refusal = drive(&Recorder::default(), deep, &registry, &[])
+        .expect_err("depth 3 stops a body four deep");
+    assert_eq!(refusal.kind(), OutcomeKind::Limit);
+    assert_eq!(refusal.code(), "stage_limit_exceeded");
+    assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Check));
 
     let refusal = build_registry(&[
         manifest("kani", 1, &["value-validity"]),

@@ -1,6 +1,6 @@
 # quire-driver
 
-Orchestrating driver: calls QSL (compile, emit, route) and CG (negotiate, generate) across repositories (ADR-011 T-13).
+Orchestrating driver: calls QSL (compile, emit, route) and CG (negotiate) across repositories (ADR-011 T-13).
 
 ## Commands
 
