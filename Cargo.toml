@@ -18,9 +18,9 @@ path = "src/lib.rs"
 # (`qsl-replay`) is a normal edge and Cargo refuses a package cycle.
 #
 # Revisions (informational, not a gate): the QSL layer crates are pinned at
-# the revision CG's `qsl-replay` dependency names (daa0178), and CG at the head
-# of agent-ix/quire-contract-codegen#174 (branch `ir-254-pin-cascade`), so the
-# QSL layer crates, `quire-contract-ir` and CG each resolve to one revision.
+# the revision CG's `qsl-replay` dependency names (daa0178), and CG at
+# f27e98c on agent-ix/quire-contract-codegen main (the squash-merge of #174),
+# so the QSL layer crates, `quire-contract-ir` and CG each resolve to one revision.
 # Two things do not: IR's root crate still depends on the QSL root crate
 # `quire-spec-language` at f1700a9 (reached through `quire-contract-ir` and
 # `quire-protocol`), and that brings a second `quire-contract-model` (53cc03c
@@ -32,7 +32,7 @@ qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", rev = "
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
-quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "d3281720c0471f6aba9eb1ee4c21d74c352e0fa2" }
+quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "f27e98ccef5933f59f4f4a47ef57681e727b6764" }
 thiserror = "=2.0.20"
 
 [dev-dependencies]
