@@ -44,15 +44,19 @@ the admitted package only at the `package_id` E4 emitted.
 - The requested items: each checked item's requirement record (node,
   capability kind, extent) and the backend the request names, if any.
 - The generation input: one optional context per CG backend kind. The Kani
-  context is the FR-014 claim map, the subject path, the unwind bound and
-  the attestation binding. The tool pins are always `KaniToolPins::pinned()`.
+  context is the subject path, the unwind bound and the attestation
+  binding. The tool pins are always `KaniToolPins::pinned()`. The caller
+  supplies no claim map: CG derives each routed item's claim from the
+  node's own operation and bound (IR-294).
 
 ## Outputs
 
 - The in-process checked package, the emitted v2 package, IR's admitted
   `CheckedPackageV2`, CG's settlement of every item in request order, each
   routed item with its `BackendId` and CG backend kind, and CG's generation
-  output in ascending request index.
+  output in ascending request index. That output's `claim_map` is the
+  FR-014 claim map CG derived for the Kani group, `Some` whenever one ran;
+  a caller writes it as `claim-map.json`.
 - Or one command-level refusal.
 
 ## Behavior
@@ -73,9 +77,14 @@ the admitted package only at the `package_id` E4 emitted.
 - A routed item whose kind has no context refuses the run with
   `invalid-request`. CG's other generation refusals map to `invalid-request`
   (a malformed Kani context), a limit refusal (`resource_exhausted`, the
-  Kani item ceiling) or an internal fault (a kind disagreement, a duplicate
-  request index, an empty or unpinned Kani request, none of which the
-  driver produces).
+  Kani item ceiling or an oversized generated source) or an internal fault
+  (a kind disagreement, a duplicate request index, an empty or unpinned
+  Kani request, a claim-map or location-map serialization failure, or an
+  unknown Contract Runtime variant -- none of which the driver produces).
+- A node whose operation has no derivable claim (CG's `NoDerivableClaim`)
+  settles `Unsupported` with `no_derivable_claim`, naming the node and CG's
+  derivation refusal, and carries no harness. It does not reject its
+  siblings, and does not refuse the run.
 - Each command-level refusal SHALL carry its step, its catalog code and an
   outcome kind: refusal, limit refusal or internal fault. A provider
   manifest that does not register, a spine refusal, the unknown-backend
@@ -108,7 +117,7 @@ the admitted package only at the `package_id` E4 emitted.
   step, routing step).
 - CG `negotiate_backend_provider` and `BackendKind::from_identity`
   (agent-ix/quire-contract-codegen#86); CG `generate_routed` (CG FR-022,
-  IR-293).
+  IR-293, IR-294).
 - IR `quire-contract-model`: `read_checked_package`, `CheckedPackageV2`,
   `CheckedNodeId`.
 
@@ -116,7 +125,9 @@ the admitted package only at the `package_id` E4 emitted.
 
 Steps 1 to 7 and the E5 hand-off are implemented.
 
-The Kani claim map is supplied by the caller; IR-294 has CG derive it.
+The Kani claim map is derived by CG from the package and the routed node
+alone (IR-294); the caller supplies no claim map, and the driver surfaces
+CG's derived claim map in its output.
 
 E5's evidence is the unit's bytes, the caller's domain package documents,
 QSL's pinned `DefinitionLock` digests and its root feature, and the

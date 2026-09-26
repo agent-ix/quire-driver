@@ -1432,7 +1432,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-codegen"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-codegen?rev=8fb0630a715125a19703f286267db1611dfbe05f#8fb0630a715125a19703f286267db1611dfbe05f"
+source = "git+https://github.com/agent-ix/quire-contract-codegen?rev=142f9661e78d4e6d8571b499901e4179cc1b32f9#142f9661e78d4e6d8571b499901e4179cc1b32f9"
 dependencies = [
  "qsl-replay 0.1.0 (git+https://github.com/agent-ix/quire-spec-language?rev=daa0178b0ab82b6e1dc4a7868044d2596ec51374)",
  "quire-contract-ir",
@@ -1530,7 +1530,6 @@ dependencies = [
  "qsl-semantics 0.1.0 (git+https://github.com/agent-ix/quire-spec-language?rev=daa0178b0ab82b6e1dc4a7868044d2596ec51374)",
  "quire-contract-codegen",
  "quire-contract-model 0.1.0 (git+https://github.com/agent-ix/quire-contract-ir?rev=48ab5dc29213c3975a5fe8f04ecbb3d1c2b345bb)",
- "quire-contract-runtime",
  "serde_json",
  "thiserror",
 ]

@@ -13,8 +13,7 @@ use qsl_route::{BackendId, Candidate, CandidateOutcome, ManifestDigest, Mode, Re
 use qsl_semantics::family::Requirements;
 use quire_contract_codegen as cg;
 use quire_contract_codegen::{
-    AttestationContext, BackendKind, ClaimMap, ExactScalarClaim, ItemSettlement, KaniToolPins,
-    RoutedGeneration,
+    AttestationContext, BackendKind, ItemSettlement, KaniToolPins, RoutedGeneration,
 };
 use quire_contract_model::{CheckedNodeId, CheckedPackageV2};
 
@@ -83,9 +82,6 @@ pub struct GenerationInput<'a> {
 /// `KaniToolPins::pinned()`. Fields have CG FR-015's meanings.
 #[derive(Clone, Copy, Debug)]
 pub struct KaniInput<'a> {
-    /// The FR-014 claim map, generated from the same checked package. The
-    /// caller supplies it until CG derives it (IR-294).
-    pub claim_map: &'a ClaimMap<ExactScalarClaim>,
     /// Rust path of the customer subject.
     pub subject_path: &'a str,
     /// Loop unwind bound.
@@ -110,7 +106,9 @@ pub struct Driven {
     /// order.
     pub routed: Vec<Routed>,
     /// CG's generation output for the routed items, in ascending request
-    /// index. Empty when nothing was routed.
+    /// index. Empty when nothing was routed. Its `claim_map` is the FR-014
+    /// claim map CG derived for the Kani group (IR-294), `Some` whenever one
+    /// ran; a caller writes it as `claim-map.json`.
     pub generation: RoutedGeneration,
 }
 
@@ -216,7 +214,6 @@ fn generate(
     let pins = KaniToolPins::pinned();
     let contexts = cg::GenerationContexts {
         kani: generation.kani.map(|kani| cg::KaniGenerationContext {
-            claim_map: kani.claim_map,
             subject_path: kani.subject_path,
             pins: &pins,
             unwind: kani.unwind,

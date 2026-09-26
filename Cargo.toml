@@ -19,9 +19,11 @@ path = "src/lib.rs"
 # (`qsl-replay`) is a normal edge and Cargo refuses a package cycle.
 #
 # Revisions (informational, not a gate): the QSL layer crates are pinned at
-# daa0178 (unchanged; QSL-255b PR 2 moves this next), and CG at 8fb0630 on
-# agent-ix/quire-contract-codegen main (the squash-merge of #177, IR-297),
-# which pins `quire-contract-ir` at 48ab5dc (IR-296). The driver's direct
+# daa0178 (unchanged; QSL-255b PR 2 moves this next), and CG at 142f966 on
+# agent-ix/quire-contract-codegen main (#178, IR-294: `generate_routed` derives
+# each routed item's Kani claim from the node's operation and bound, so the
+# driver no longer builds or supplies a claim map). That CG revision still
+# pins `quire-contract-ir` at 48ab5dc (IR-296), unchanged from before. The driver's direct
 # `quire-contract-model` is set to the same 48ab5dc, so it is the same
 # package as CG's IR dependency: `tests/dependency_edges.rs` checks this by
 # identity, not just by revision string.
@@ -50,17 +52,13 @@ qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", rev = "
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
-quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "8fb0630a715125a19703f286267db1611dfbe05f" }
+quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "142f9661e78d4e6d8571b499901e4179cc1b32f9" }
 quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", rev = "48ab5dc29213c3975a5fe8f04ecbb3d1c2b345bb" }
 # E5: the diagnostics catalog reference is read back from the emitted wire,
 # because QSL exports no accessor for it (QSL-260). This dependency goes when
 # it does (FR-001 Status).
 serde_json = "=1.0.151"
 thiserror = "=2.0.20"
-
-[dev-dependencies]
-# The Kani claim map a test hands the driver names an RT integer domain.
-quire-contract-runtime = { git = "https://github.com/agent-ix/quire-contract-runtime", rev = "c52442a56a879cb5ce02a63bcbe430b85bf74a6d", features = ["exact"] }
 
 [profile.release]
 lto = "thin"
