@@ -79,3 +79,16 @@ are in `AGENTS.md`/`CLAUDE.md`, `clippy.toml` and the `[lints]` table.
   these two untracked SR files, which validate.
 - Probe (`scratchpad/rv7/probe/tests/probe.rs`, outside the repo): 1 passed.
   It printed the dispositions cited in FND-001 and FND-002.
+
+## Dispositions
+
+Re-checked at 670c56e91c5d3cac64a07315f3a3ee2d8d876ae7 (fix round, one commit on top of 9c1a9bd).
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 670c56e. FR-001:176-189, TC-006 step 9 and the `OVERFLOW_UNIT` doc now say the return-context refusal at check is "one shape, not a general guarantee", and they name the dead-branch unit that reaches `ResultBoundUnreachable`. The test is renamed `tc_006_x_plus_100_in_the_return_context_is_refused_at_check`, so it no longer overclaims. |
+| FND-002 | fixed | 670c56e. FR-001's "Real limits remain" and README.md:27-38 now list three things. First, path conditions are ignored until IR-304, with the dead-branch and live-branch `[(0, 9), (100, 100)]` measurements. Second, `RequiresBound` applies to any operand that is neither bounded nor a literal, with the nested `(x + 1) + 1`, `x * -1` and `-(x + 1)` cases. Third, the distinct-bound `AmbiguousBound` rule. |
+| FND-003 | fixed | 670c56e. The README now says "narrowed to more than one distinct bound, or consumed by both a narrowing conversion and any other node", and says conversions to the same bound are deduplicated. FR-001 adds the same sentence. That sentence is still from reading CG's `narrowing` code, not measured, and no test backs it. It is accurate against CG edade59. |
+| FND-004 | fixed | 670c56e. Both intent tests now assert `harness.identity.operation_identity == "quire.op.integer.add"`. They also assert that the rendered `harness.rust.contents` contains the result-bound pair: `rt::Integer::from(0_i64), rt::Integer::from(10_i64)` for `x + 1` and `rt::Integer::from(10_i64), rt::Integer::from(29_i64)` for `x + y`. That pair does not collide with the argument `assume` lines. A substring over rendered source is weaker than a typed field, but the identity has no result-bound field. |
+
+Disposition-pass gates at 670c56e: the coder's `driver-ir302-ci.log` starts with `head=670c56e…` and ends `exit=0`. The reviewer's `rv-driver-7b-ci.log` (`make ci`) starts with `head=670c56e…` and ends `exit=0`, and `tests/drive.rs` shows 16 passed, 0 ignored. `quire coverage` shows 0 unbacked rows, 0 status lies and 0 untracked symbols. No new findings.

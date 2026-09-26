@@ -52,3 +52,11 @@ reachable case is untested.
 - Stubs: none. `src/` is unchanged by this PR.
 - Intent-test oracle strength: node id and argument ranges are pinned, but the
   operation identity and the result bound are not (SR-011 FND-004).
+
+## Dispositions
+
+Re-checked at 670c56e91c5d3cac64a07315f3a3ee2d8d876ae7.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 670c56e. TC-006 has a new step 10 (`if x > 20 then x + 100 else 0`) with an expected result. `tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable` (tests/drive.rs:864) asserts three things. It asserts that the driver's output equals a direct `generate_routed` call, and that no harness is produced. It also asserts, by full equality, the typed disposition `Unsupported { ResultBoundUnreachable { "quire.op.integer.add", 0, 10, "100", "109" } }`. The test carries `/// FR-001-AC-6 (TC-006)`. Step 9's expected result no longer claims the refusal is unreachable. |
