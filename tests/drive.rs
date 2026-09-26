@@ -375,7 +375,7 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
         &checked,
         &[RoutedGenerationItem {
             request_index: 0,
-            node_id: add,
+            node_id: add.clone(),
             backend: backend.clone(),
             kind: BackendKind::Kani,
         }],
@@ -394,19 +394,35 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
     assert_eq!(driven.generation.items.len(), 1);
     assert_eq!(driven.generation.items[0].request_index, 0);
     assert_eq!(driven.generation.items[0].backend, backend);
-    // QSL-261, IR-296, IR-297: IR's scalar lowering reaches an unbounded
-    // type in `x + 1`'s closure, so CG settles it `RequiresBound` with no
-    // harness. This fails once IR-296 lands; update it to the harness then.
+    // QSL-261 is resolved by IR-296 and IR-297. IR-296 makes
+    // `require_bounds` stop treating a type reached only as a literal's
+    // `type` annotation as the closure's bound -- here, the unbounded type
+    // of the literal `1` -- so it no longer masks `x`'s own `[0, 9]` bound,
+    // which was always reachable. IR-297 makes CG's `exact_scalar` follow
+    // `bounded_domain` to its base and read bounds written as bindings. So
+    // CG settles the `+` `Supported` with a scalar harness over `x`'s
+    // domain. A unit with two bounded parameters still settles `Unsupported`
+    // (oracle refusal `AmbiguousBound`; IR-298, IR-299), which this unit
+    // does not exercise.
     let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
     assert!(
-        matches!(
-            record.disposition,
-            ObligationDisposition::RequiresBound { .. }
-        ),
+        matches!(record.disposition, ObligationDisposition::Supported { .. }),
         "{:?}",
         record.disposition
     );
-    assert!(harness.is_none());
+    let harness = harness
+        .as_ref()
+        .expect("a supported item carries its harness");
+    assert_eq!(harness.identity.node_id, add);
+    // `+`'s two operands (CG's own tc_033 shape): both bounded by `x`'s own
+    // `[0, 9]` domain.
+    let bounds: Vec<(i64, i64)> = harness
+        .identity
+        .arguments
+        .iter()
+        .map(|argument| (argument.minimum, argument.maximum))
+        .collect();
+    assert_eq!(bounds, [(0, 9), (0, 9)]);
 
     assert_eq!(
         recorder.calls(),

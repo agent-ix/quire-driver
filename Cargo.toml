@@ -19,24 +19,39 @@ path = "src/lib.rs"
 # (`qsl-replay`) is a normal edge and Cargo refuses a package cycle.
 #
 # Revisions (informational, not a gate): the QSL layer crates are pinned at
-# the revision CG's `qsl-replay` dependency names (daa0178), and CG at
-# 65fe686 on agent-ix/quire-contract-codegen main (the squash-merge of #175),
-# and `quire-contract-model` at b52c263, the revision CG and the QSL layer
-# crates name, so the QSL layer crates, `quire-contract-ir`, the model crate
-# and CG each resolve to one revision.
-# Two things do not: IR's root crate still depends on the QSL root crate
-# `quire-spec-language` at f1700a9 (reached through `quire-contract-ir` and
-# `quire-protocol`), and that brings a second `quire-contract-model` (53cc03c
-# beside b52c263). CG's own lock has the same two. They go when IR drops its
-# QSL edge (agent-ix/quire-contract-ir#141).
+# daa0178 (unchanged; QSL-255b PR 2 moves this next), and CG at 8fb0630 on
+# agent-ix/quire-contract-codegen main (the squash-merge of #177, IR-297),
+# which pins `quire-contract-ir` at 48ab5dc (IR-296). The driver's direct
+# `quire-contract-model` is set to the same 48ab5dc, so it is the same
+# package as CG's IR dependency: `tests/dependency_edges.rs` checks this by
+# identity, not just by revision string.
+# QSL's layer crates still bring a second `quire-contract-model` copy
+# (b52c263) transitively via `qsl-replay`, at the QSL revision above. A third
+# copy (7b1ec7a) arrives because `quire-contract-ir` at 48ab5dc itself depends
+# on the QSL root crate `quire-spec-language` at 9395be4 -- already QSL's own
+# main; it is the driver's own QSL pin (daa0178) above that has not caught up
+# -- which pins its own `quire-contract-model`. All three are informational,
+# not a gate: no IR type crosses between the driver's model copy and either
+# of the others at compile time (they are different Rust types even with the
+# same name), so this either compiles or it doesn't. QSL-255b PR 2 (QSL's own
+# `quire-contract-model` pin moving to 48ab5dc) removes only the b52c263
+# copy; the 7b1ec7a copy stays until IR's root crate drops its QSL edge
+# (agent-ix/quire-contract-ir#141).
+#
+# E4 (emit) and E5 (`src/handoff.rs`, read) run under different model
+# revisions until QSL and the driver converge on one: E4 is written by QSL
+# daa0178 under model b52c263, E5 reads it under the driver's own model
+# 48ab5dc, which adds new refusals (IR-287, IR-289, IR-24, `RevisionMismatch`)
+# beyond what daa0178's writer emits. So a `HandoffRefused` in this window can
+# be that version skew, not necessarily a QSL bug.
 [dependencies]
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
-quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "65fe6867532c3f8c9080fe48a84430b7b1c076f3" }
-quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", rev = "b52c26380cb312e6005474d70ba2b88a37246ffe" }
+quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "8fb0630a715125a19703f286267db1611dfbe05f" }
+quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", rev = "48ab5dc29213c3975a5fe8f04ecbb3d1c2b345bb" }
 # E5: the diagnostics catalog reference is read back from the emitted wire,
 # because QSL exports no accessor for it (QSL-260). This dependency goes when
 # it does (FR-001 Status).
