@@ -35,16 +35,6 @@ pub enum DriverRefusal {
     /// E5: IR's reader stopped at one of its limits.
     #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
     HandoffLimit(CheckedPackageIncomplete),
-    /// A routed item names a node the checked package does not hold.
-    #[error(
-        "request item {request_index} names node {node}, which the checked package does not hold"
-    )]
-    UnknownNode {
-        /// The item's request index.
-        request_index: usize,
-        /// The node the item names.
-        node: WireNodeId,
-    },
     /// CG generation refused the routed items as a whole.
     #[error("CG generation refused the routed items: {}", generation_message(.0))]
     Generation(RoutedGenerationError),
@@ -101,6 +91,22 @@ pub enum DriverFault {
         /// The admitted `package_id` digest.
         admitted: String,
     },
+    /// A routed item names a node the checked package does not hold.
+    /// Every item's node comes from `CheckedPackage::graph().requirements()`,
+    /// and `checked` is IR's own admission of the bytes that same package
+    /// emitted, at the same `package_id` -- so this can only happen if E4
+    /// emitted, or E5 admitted, a graph missing a node QSL's own requirement
+    /// record names. Not a caller input: no request the driver builds from
+    /// `items_from_requirements` can name a node outside its own package.
+    #[error(
+        "request item {request_index} names node {node}, which the checked package does not hold"
+    )]
+    UnknownNode {
+        /// The item's request index.
+        request_index: usize,
+        /// The node the item names.
+        node: WireNodeId,
+    },
 }
 
 /// The step a [`DriverRefusal`] comes from.
@@ -152,7 +158,6 @@ impl DriverRefusal {
                 format!("invalid_capability/{cause}")
             }
             Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
-            Self::UnknownNode { .. } => Code::DanglingReference.as_str().to_owned(),
             Self::Generation(error) => generation_code(error).as_str().to_owned(),
             Self::Fault(_) => Code::RuntimeInvariant.as_str().to_owned(),
         }
@@ -172,7 +177,9 @@ impl DriverRefusal {
             | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
                 DriverStage::Handoff
             }
-            Self::UnknownNode { .. } | Self::Generation(_) => DriverStage::Generation,
+            Self::Generation(_) | Self::Fault(DriverFault::UnknownNode { .. }) => {
+                DriverStage::Generation
+            }
             Self::Fault(
                 DriverFault::SettlementCount { .. }
                 | DriverFault::SupportedOutsideCandidates { .. },
@@ -195,8 +202,7 @@ impl DriverRefusal {
             Self::Registration(_)
             | Self::Compile(_)
             | Self::UnknownBackend { .. }
-            | Self::Envelope(_)
-            | Self::UnknownNode { .. } => OutcomeKind::Refused,
+            | Self::Envelope(_) => OutcomeKind::Refused,
             Self::Fault(_) => OutcomeKind::Fault,
         }
     }
@@ -364,6 +370,7 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 
 #[cfg(test)]
 mod tests {
+    use qsl_foundation::digest::WireNodeId;
     use quire_contract_codegen::{
         KaniObligationError, OracleGenerationError, RoutedGenerationError,
     };
@@ -420,6 +427,18 @@ mod tests {
         let fault = DriverRefusal::Generation(RoutedGenerationError::Oracle(
             OracleGenerationError::ClaimMapSerialization,
         ));
+        assert_eq!(fault.kind(), OutcomeKind::Fault);
+        assert_eq!(fault.code(), "runtime_invariant");
+        assert_eq!(fault.stage(), DriverStage::Generation);
+
+        // A routed item naming a node the checked package does not hold is
+        // an E4/E5 inconsistency, not a caller input: every item's node
+        // comes from the same package's own `requirements()`, so only a
+        // broken invariant between emission and admission reaches this.
+        let fault = DriverRefusal::Fault(DriverFault::UnknownNode {
+            request_index: 1,
+            node: WireNodeId::from_digest([9; 32]),
+        });
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.code(), "runtime_invariant");
         assert_eq!(fault.stage(), DriverStage::Generation);

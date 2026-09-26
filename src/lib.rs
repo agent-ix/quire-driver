@@ -11,7 +11,12 @@
 //! 1. S1 to S4: `qsl_replay::spine::compile`.
 //! 2. E4: the same call emits the `quire.checked-package/v2` bytes and their
 //!    `package_id` ([`Driven::emitted`]).
-//! 3. The `route` candidate step: each requested item's candidate set.
+//! 3. The `route` candidate step: each item's candidate set. The items are
+//!    not supplied by the caller: they are written from the compiled unit's
+//!    own checked requirement records
+//!    (`qsl_package::CheckedPackage::graph().requirements()`, FR-062,
+//!    FR-075), one item per record in occurrence-key order
+//!    (`qsl_route::request::items_from_requirements`).
 //! 4. The pre-negotiation conversion (ADR-012 §7.2, MD-2): every registered
 //!    `BackendId` goes through CG's one total conversion
 //!    (`BackendKind::from_identity`). When any has no CG kind, the run is
@@ -46,7 +51,7 @@ mod refusal;
 mod registry;
 mod upstream;
 
-pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, RequestedItem, Routed};
+pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, Routed};
 pub use refusal::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
 pub use registry::{build_registry, ProviderManifest};
 pub use upstream::{QslCg, Upstream};

@@ -18,16 +18,17 @@ Scope: FR-001-AC-4.
 ## Test Procedure
 
 1. Build a registry holding `kani`, advertising `value-validity` bounded.
-2. Drive a complete-V1 unit with three items (see TC-003) and a Kani
-   context (see TC-006) through a recorder that logs each upstream call
-   and then makes it.
+2. Drive `function negate using v(z: Int[0, 9]): Int[-9, 0] pure { -z }`,
+   which writes one requirement record (see TC-003), with a Kani context
+   (see TC-006), through a recorder that logs each upstream call and then
+   makes it.
 
-Test: `tests/drive.rs`, `tc_001_tc_003_tc_006_steps_run_in_order_through_generation`.
+Test: `tests/drive.rs`, `tc_001_tc_006_steps_run_in_order_through_generation`.
 
 ## Expected Results
 
 - The call log is: compile, the E5 read, the conversion of `kani`, one
-  negotiation of three items, one routing call, one generation call over
+  negotiation of one item, one routing call, one generation call over
   one item. (The candidate step calls no upstream
   function the recorder sees.)
 - The emitted v2 bytes are not empty.
