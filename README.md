@@ -20,17 +20,24 @@ lives downstream of both. Nothing depends on it.
    its admitted `CheckedNodeId`, its routed backend and its kind, and the
    caller's `GenerationInput` (for Kani: subject path, unwind, attestation;
    pins are `KaniToolPins::pinned()`). CG derives each routed item's Kani
-   claim from the node's own operation and bound (IR-294); the derived
-   claim map is returned in `generation.claim_map`, `Some` whenever a Kani
-   group ran.
+   claim from the node's own operation and bound (IR-294, IR-298); the
+   derived claim map is returned in `generation.claim_map`, `Some`
+   whenever a Kani group ran. CG also returns the FR-014 oracle crate it
+   generated in `generation.oracle_artifacts` (IR-300), which the driver
+   does not yet write out (Kani execution is blocked on IR-301).
 
 The registry is a value built with `build_registry` from provider manifests
-and passed in as an argument.
+and passed in as an argument. The diagnostics catalog reference E5's
+evidence needs comes from `qsl_package::diagnostics_catalog()` (QSL-260).
 
 ## Not wired yet
 
-- **Requirement records.** `qsl-package` does not expose a `CheckedPackage`'s
-  per-item requirement records, so the caller passes the requested items.
+- **Requirement records.** `qsl_package::CheckedPackage::graph().requirements()`
+  exists (QSL-258), but it is empty for every unit this crate compiles today
+  (the only shipped family requests no capability kind for a function
+  declaration) and, even populated, is keyed by checked declaration, not by
+  the arbitrary body node a Kani item names. So the caller still passes the
+  requested items directly.
 
 ## Commands
 

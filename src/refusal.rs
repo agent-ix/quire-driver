@@ -101,9 +101,6 @@ pub enum DriverFault {
         /// The admitted `package_id` digest.
         admitted: String,
     },
-    /// The emitted bytes carry no readable diagnostics catalog reference.
-    #[error("the emitted checked package has no readable diagnostics catalog")]
-    DiagnosticsCatalog,
 }
 
 /// The step a [`DriverRefusal`] comes from.
@@ -149,7 +146,7 @@ impl DriverRefusal {
                 || "invalid_capability".to_owned(),
                 |refusal| refusal.catalog_code().to_string(),
             ),
-            Self::Compile(refusal) => refusal.code().as_str().to_owned(),
+            Self::Compile(refusal) => compile_code(refusal),
             Self::UnknownBackend { .. } => "invalid_capability/unknown-backend".to_owned(),
             Self::Envelope(EnvelopeRefusal::InvalidCapability { cause, .. }) => {
                 format!("invalid_capability/{cause}")
@@ -172,11 +169,9 @@ impl DriverRefusal {
             Self::Envelope(_) => DriverStage::Negotiation,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
             Self::HandoffLimit(_)
-            | Self::Fault(
-                DriverFault::HandoffRefused(_)
-                | DriverFault::PackageIdMismatch { .. }
-                | DriverFault::DiagnosticsCatalog,
-            ) => DriverStage::Handoff,
+            | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
+                DriverStage::Handoff
+            }
             Self::UnknownNode { .. } | Self::Generation(_) => DriverStage::Generation,
             Self::Fault(
                 DriverFault::SettlementCount { .. }
@@ -243,6 +238,44 @@ fn oracle_code(error: &OracleGenerationError) -> Code {
         OracleGenerationError::ClaimMapSerialization
         | OracleGenerationError::LocationMapSerialization
         | OracleGenerationError::UnknownRuntimeVariant { .. } => Code::RuntimeInvariant,
+    }
+}
+
+/// `CompileRefusal`'s own `code()` is the bare catalog `Code`; its doc
+/// promises `code/cause` (e.g. `missing_import/missing-selection`) wherever
+/// the refusing stage names one. `code()` carries no cause on its own, so
+/// this renders `code/cause` when [`compile_cause`] finds one, or the bare
+/// code otherwise.
+fn compile_code(refusal: &CompileRefusal) -> String {
+    let code = refusal.code().as_str();
+    match compile_cause(refusal) {
+        Some(cause) => format!("{code}/{cause}"),
+        None => code.to_owned(),
+    }
+}
+
+/// The catalog cause a `CompileRefusal` names, where its refusing stage
+/// records one: `Check`'s first refusal, `Link`, an ADR-015 D-1 `Import` or
+/// `DependencyInput` refusal, or (through a `Dependency` wrapper) the
+/// library refusal it carries. Exhaustive, not a catch-all: `Source`,
+/// `Forms`, `Intake` (a `model` declaration's own domain-package intake,
+/// not an ADR-015 D-1 import), `Assembly`, `Emit` and `Omitted` name no
+/// cause in QSL's own catalog today.
+fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
+    match refusal {
+        CompileRefusal::Source(_)
+        | CompileRefusal::Forms { .. }
+        | CompileRefusal::Intake { .. }
+        | CompileRefusal::Assembly { .. }
+        | CompileRefusal::Emit(_)
+        | CompileRefusal::Omitted(_) => None,
+        CompileRefusal::Check { refusals, .. } => {
+            refusals.first().and_then(|refusal| refusal.cause.cause())
+        }
+        CompileRefusal::DependencyInput(refusal) => refusal.cause(),
+        CompileRefusal::Import { refusal, .. } => refusal.cause(),
+        CompileRefusal::Dependency { refusal, .. } => compile_cause(refusal),
+        CompileRefusal::Link(refusal) => refusal.cause(),
     }
 }
 

@@ -29,6 +29,15 @@ pub struct ProviderManifest {
 /// refused (an absent or unknown kind or mode, or a duplicate backend
 /// identity), the run is refused with every refusal, ordered by backend
 /// identity then manifest digest.
+///
+/// `Registry::register`'s own `Err` is what that one call caused or
+/// observed, not a diff against the registry's prior state, so it can
+/// repeat a conflict an earlier call in this same loop already reported.
+/// Rather than accumulate those (and dedup them by hand), this collects
+/// only the vocabulary refusals `BackendDescriptor::admit` produces during
+/// the loop, then reads every duplicate-backend conflict once, after the
+/// loop, from `Registry::refusals` -- the registry's own stable, deduped
+/// account of every identity conflict it currently holds.
 pub fn build_registry(manifests: &[ProviderManifest]) -> Result<Registry, DriverRefusal> {
     let mut registry = Registry::new();
     let mut refusals = Vec::new();
@@ -47,13 +56,14 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<Registry, Driver
         );
         match admitted {
             Ok(descriptor) => {
-                if let Err(refusal) = registry.register(descriptor) {
-                    refusals.push(refusal);
-                }
+                // The conflict is read back, deduped, from `refusals()`
+                // below; a successful registration needs nothing here.
+                let _ = registry.register(descriptor);
             }
             Err(refusal) => refusals.push(refusal),
         }
     }
+    refusals.extend(registry.refusals());
     if refusals.is_empty() {
         Ok(registry)
     } else {
