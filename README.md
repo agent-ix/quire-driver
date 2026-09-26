@@ -20,11 +20,24 @@ lives downstream of both. Nothing depends on it.
    its admitted `CheckedNodeId`, its routed backend and its kind, and the
    caller's `GenerationInput` (for Kani: subject path, unwind, attestation;
    pins are `KaniToolPins::pinned()`). CG derives each routed item's Kani
-   claim from the node's own operation and bound (IR-294, IR-298); the
-   derived claim map is returned in `generation.claim_map`, `Some`
-   whenever a Kani group ran. CG also returns the FR-014 oracle crate it
-   generated in `generation.oracle_artifacts` (IR-300), which the driver
-   does not yet write out (Kani execution is blocked on IR-301).
+   claim from the node's own operation and bound (IR-294, IR-298, IR-302):
+   a unary operation over a bounded parameter, and a binary operation with
+   a bounded operand beside a literal or beside another independently
+   bounded operand (QSL's own narrowing `conversion` shape), all settle
+   `Supported`. Real limits remain: an operand that is neither bounded nor
+   a literal (a plain-`Integer` parameter, a nested subexpression, or a
+   negative literal, which QSL emits as a negate node) still settles
+   `RequiresBound`; a node narrowed to more than one distinct bound, or
+   consumed by both a narrowing conversion and any other node, still
+   settles `Unsupported`/`AmbiguousBound` (several narrowing conversions to
+   the *same* bound dedupe and settle `Supported`), until IR-304; and path
+   conditions are ignored until IR-304 -- CG ranges every operand over its
+   full declared domain regardless of the `if` guard that reaches it, live
+   or proved dead. The derived claim map is returned in
+   `generation.claim_map`, `Some` whenever a Kani group ran. CG also
+   returns the FR-014 oracle crate it generated in
+   `generation.oracle_artifacts` (IR-300), which the driver does not yet
+   write out (Kani execution is blocked on IR-301).
 
 The registry is a value built with `build_registry` from provider manifests
 and passed in as an argument. The diagnostics catalog reference E5's
