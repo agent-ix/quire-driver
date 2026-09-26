@@ -111,6 +111,7 @@ impl Graph {
     }
 }
 
+/// FR-001-AC-1 (TC-005)
 #[test]
 fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let graph = Graph::load();

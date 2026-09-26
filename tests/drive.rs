@@ -40,7 +40,9 @@ const UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// QSL represents as a reference to a plain-typed literal value node with
 /// no bound of its own: since `x` owns a bound and `1`'s reference does
 /// not, CG's IR-298 rule settles this `+` `RequiresBound`, not `Supported`
-/// (`NEGATE_UNIT` below is the one-owned-bound case that is supported).
+/// -- CG's current regression, tracked as IR-302, not the intended outcome
+/// (`NEGATE_UNIT` below is the one-owned-bound case that already settles
+/// `Supported`).
 const INT_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
@@ -529,12 +531,12 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
     // argument over `z`'s own domain (`scalar_result_bound`'s
     // single-candidate arm resolves it directly; no own-bound filtering
     // runs at all). `INT_UNIT`'s `x + 1` and `TWO_PARAM_UNIT`'s `x + y` are
-    // the two-operand cases this bump introduces new rules for: a literal
-    // operand beside one that owns a bound now settles `RequiresBound`
-    // (`tc_006_a_literal_beside_an_owned_bound_requires_bound`), and two
-    // independently owned operand bounds with the result unreachable any
-    // other way settle `AmbiguousBound`
-    // (`tc_006_two_independently_bounded_operands_is_ambiguous_not_supported`).
+    // the two-operand cases CG's IR-298 currently settles `RequiresBound`
+    // and `AmbiguousBound` on, not `Supported` -- a regression tracked as
+    // IR-302, not the intended rule (see
+    // `tc_006_x_plus_1_settles_supported` and
+    // `tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`,
+    // both `#[ignore]`d until it lands).
     let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
     assert!(
         matches!(record.disposition, ObligationDisposition::Supported { .. }),
@@ -953,7 +955,10 @@ fn tc_004_command_level_refusals_are_typed() {
     )
     .expect_err("depth 3 stops a body four deep");
     assert_eq!(refusal.kind(), OutcomeKind::Limit);
-    assert_eq!(refusal.code(), "stage_limit_exceeded");
+    assert_eq!(
+        refusal.code(),
+        "stage_limit_exceeded/nesting-depth-exceeded"
+    );
     assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Check));
 
     // Two manifests, one identity, two distinct digests: both conflict,

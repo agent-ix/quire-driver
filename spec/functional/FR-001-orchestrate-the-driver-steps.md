@@ -97,6 +97,11 @@ the admitted package only at the `package_id` E4 emitted.
   upstream answer that breaks the driver's invariants is an internal fault;
   that includes IR refusing, or admitting at another `package_id`, the bytes
   QSL just emitted.
+- `build_registry` registers every manifest first, then reads
+  `Registry::refusals()` once: one duplicate-backend refusal per distinct
+  conflicting digest, not one per conflicting `register` call. Repeating an
+  already-conflicting digest (manifests A, B, then A again) does not add a
+  third refusal for it.
 - The driver's normal and build dependencies SHALL be the QSL layer crates,
   CG, IR's model crate `quire-contract-model` (at the revision CG's IR crate
   uses) and `thiserror` (QSL ADR-011 §6.1 driver row), and nothing in its

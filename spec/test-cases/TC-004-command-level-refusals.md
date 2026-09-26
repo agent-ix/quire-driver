@@ -20,7 +20,9 @@ Scope: FR-001-AC-5.
 1. Drive a unit that does not parse.
 2. Drive a unit whose body `not not not true` is four deep, with a checking
    depth limit of 3.
-3. Build a registry from two manifests of `kani` with different digests.
+3. Build a registry from two manifests of `kani` with different digests, then
+   from three: the same two, plus a third repeating the first digest (A, B,
+   A).
 4. Build a registry from a manifest advertising `not-a-kind`.
 5. Take a `DriverRefusal::Fault` for a `supported` settlement outside its
    candidates, one for a vocabulary mismatch, one for an E5 `package_id`
@@ -38,9 +40,14 @@ and `tc_004_handoff_and_generation_limits_are_limits`.
 
 - Step 1 refuses at the source stage with `invalid_syntax`, outcome kind
   refusal, and only the compile call was made.
-- Step 2 refuses at the check stage with `stage_limit_exceeded`, outcome
-  kind limit.
-- Step 3 refuses at the registry with `invalid_capability`/`duplicate-backend`.
+- Step 2 refuses at the check stage with
+  `stage_limit_exceeded`/`nesting-depth-exceeded`, outcome kind limit.
+- Step 3 refuses at the registry with `invalid_capability`/`duplicate-backend`,
+  one refusal per distinct conflicting digest (two), ascending: the A, B, A
+  case still yields exactly those same two, not a third for the repeated
+  digest -- `build_registry` reads `Registry::refusals()` once, after every
+  manifest is registered, rather than accumulating what each `register` call
+  individually returned.
 - Step 4 refuses with `invalid_capability`/`unknown-kind`.
 - Step 5's faults have outcome kind fault and code `runtime_invariant`, at
   the negotiation, conversion, hand-off and generation steps.
