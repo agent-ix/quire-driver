@@ -72,3 +72,12 @@ stubs, but two spec and trace gaps remain.
   - The pass-through tests assert full `RoutedGeneration` equality with a
     direct `generate_routed` call. A mutation that clears `claim_map` fails
     both (see SR-009).
+
+## Dispositions
+
+Re-checked at agent-ix/quire-driver@93cac44023ab9054dbfcbb0d526b275f8047a879.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 93cac44. FR-001 Behavior now states that `build_registry` gives one duplicate-backend refusal per distinct conflicting digest, including the A, B, A case. TC-004 step 3's procedure and expected result now cover the A, B, A case, matching tests/drive.rs. |
+| FND-002 | fixed | 93cac44. `/// FR-001-AC-1 (TC-005)` is now on `tc_005_driver_edges_match_the_adr_011_allow_list`. `quire coverage --scope . --json` reports FR-001 as 8 of 8 backed, with 0 unbacked rows, 0 status lies and 0 untracked symbols. |

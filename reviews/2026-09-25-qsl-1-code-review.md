@@ -85,3 +85,12 @@ exits 0.
 | `make ci` (fmt-check, clippy -D warnings, test, deny, audit-unsafe, docs, quire validate spec) at 46ea012 | pass, exit=0: unit 2 passed; dependency_edges 1 passed; drive 12 passed, 2 ignored |
 | `cargo test --test drive -- --include-ignored` | 12 passed, 2 failed; both failures are the IR-302 intent tests, failing for the documented reason |
 | Coder's log `driver-qsl1-final-ci.log` | first line `head=46ea01228ce32ac661ba4be4097992be8ed0c6ef`, last line `exit=0` |
+
+## Dispositions
+
+Re-checked at agent-ix/quire-driver@93cac44023ab9054dbfcbb0d526b275f8047a879, where `make ci` exits 0.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 93cac44. `compile_cause` now matches every `CompileRefusal` variant with no catch-all. It renders the cause of Check's first refusal and of a Link refusal. TC-004 step 2 and `tc_004_command_level_refusals_are_typed` now expect `stage_limit_exceeded/nesting-depth-exceeded`, which passes. `kind()` still reads the upstream bare `Code`, so the Limit classification is unaffected. The Link, DependencyInput and Dependency arms remain untested: every `LinkRefusal` variant concerns a dependency, and the driver's empty `DependencyInput` cannot produce one. That is accepted as unreachable today. |
+| FND-002 | fixed | 93cac44. The `tc_001_tc_003_tc_006` comment and the `INT_UNIT` doc now call `RequiresBound`/`AmbiguousBound` CG's IR-302 regression, and they cite the two `#[ignore]`d intent tests, which exist. Outside reviews/, no reference to the removed test names remains. |
