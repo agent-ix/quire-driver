@@ -394,19 +394,18 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
     assert_eq!(driven.generation.items.len(), 1);
     assert_eq!(driven.generation.items[0].request_index, 0);
     assert_eq!(driven.generation.items[0].backend, backend);
-    // QSL-261, IR-296, IR-297: IR's scalar lowering reaches an unbounded
-    // type in `x + 1`'s closure, so CG settles it `RequiresBound` with no
-    // harness. This fails once IR-296 lands; update it to the harness then.
+    // QSL-261 is resolved by IR-296 and IR-297: IR's scalar lowering now
+    // reaches the parameter's own `[0, 9]` bound in `x + 1`'s closure, so CG
+    // settles it `Supported` with a scalar harness. Two bounded parameters
+    // still give `AmbiguousBound` (IR-298, IR-299), which this unit does not
+    // exercise.
     let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
     assert!(
-        matches!(
-            record.disposition,
-            ObligationDisposition::RequiresBound { .. }
-        ),
+        matches!(record.disposition, ObligationDisposition::Supported { .. }),
         "{:?}",
         record.disposition
     );
-    assert!(harness.is_none());
+    assert!(harness.is_some());
 
     assert_eq!(
         recorder.calls(),

@@ -128,12 +128,15 @@ IR's `/diagnostics/catalog` staleness check is vacuous until QSL exports
 it. The read-back and the normal `serde_json` dependency go then.
 
 On a QSL-emitted package, CG's Kani arm settles the `+` of
-`x + 1` (`x: Int[0, 9]`) `RequiresBound` today: IR's scalar lowering reaches
-an unbounded type in the node's closure (QSL-261; the missing harness
-traces to IR-296 and IR-297). So the tests' generation output is a record
-with no harness, and TC-006 asserts exactly that, so it fails once IR-296
-lands. The driver passes CG's output through
+`x + 1` (`x: Int[0, 9]`) `Supported` with a scalar harness: QSL-261 is
+resolved by IR-296 and IR-297, whose scalar lowering now reaches the
+parameter's own `[0, 9]` bound in the node's closure instead of an unbounded
+type. So the tests' generation output is a record with a harness, and
+TC-006 asserts exactly that. The driver passes CG's output through
 unchanged.
+
+A unit with two bounded parameters still settles `AmbiguousBound` (IR-298,
+IR-299), a known limit this crate's tests do not exercise.
 
 `qsl-package` does not yet expose the per-item requirement records of a
 `CheckedPackage`, so the caller supplies the requested items (QSL-258).
