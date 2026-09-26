@@ -26,13 +26,18 @@ Scope: FR-001-AC-5.
 4. Build a registry from a manifest advertising `not-a-kind`.
 5. Take a `DriverRefusal::Fault` for a `supported` settlement outside its
    candidates, one for a vocabulary mismatch, one for an E5 `package_id`
-   mismatch, and a generation refusal for a duplicate request index.
+   mismatch, a generation refusal for a duplicate request index, and one
+   for a routed item naming a node the checked package does not hold
+   (`DriverFault::UnknownNode`).
 6. Take an E5 reader limit and CG's Kani item ceiling.
 7. Drive the TC-006 integer unit through an upstream whose IR read answers
    with another unit's admitted package, then with a refusal.
+8. With `kani` registered for `operation-contract` only, drive the TC-003
+   negation unit naming `kani` as the request's backend.
 
-Tests: `tests/drive.rs`, `tc_004_command_level_refusals_are_typed` and
-`tc_004_e5_identity_and_refusal_are_faults`;
+Tests: `tests/drive.rs`, `tc_004_command_level_refusals_are_typed`,
+`tc_004_e5_identity_and_refusal_are_faults` and
+`tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported`;
 `src/refusal.rs`, `tc_004_a_fault_is_an_internal_fault_with_runtime_invariant`
 and `tc_004_handoff_and_generation_limits_are_limits`.
 
@@ -50,9 +55,13 @@ and `tc_004_handoff_and_generation_limits_are_limits`.
   individually returned.
 - Step 4 refuses with `invalid_capability`/`unknown-kind`.
 - Step 5's faults have outcome kind fault and code `runtime_invariant`, at
-  the negotiation, conversion, hand-off and generation steps.
+  the negotiation, conversion, hand-off and generation steps; the
+  `UnknownNode` fault is at the generation step.
 - Step 7 faults with `PackageIdMismatch`, then `HandoffRefused`, both at
   the hand-off step with `runtime_invariant`; the call log ends at the IR
   read, with no backend conversion and no negotiation.
 - Step 6's are limit refusals: `stage_limit_exceeded` at the hand-off and
   `resource_exhausted` at generation.
+- Step 8 settles `unsupported`, naming `kani` in the cause
+  (`unsupported-requested-capability`): `kani` is registered but does not
+  advertise `value-validity`. Nothing routes.

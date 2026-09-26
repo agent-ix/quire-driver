@@ -191,10 +191,10 @@ fn generate(
             .node();
         let node_id = nodes
             .get(node.to_string().as_str())
-            .ok_or(DriverRefusal::UnknownNode {
+            .ok_or(DriverRefusal::Fault(DriverFault::UnknownNode {
                 request_index,
                 node,
-            })?;
+            }))?;
         generation_items.push(cg::RoutedGenerationItem {
             request_index,
             node_id: (*node_id).clone(),

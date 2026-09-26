@@ -79,9 +79,16 @@ the admitted package only at the `package_id` E4 emitted.
   not call `route`.
 - Types cross between QSL and CG as their wire spellings (QSL ADR-013 T-7).
 - Each routed item's node is the admitted package's `CheckedNodeId` whose
-  digest spells the item's `WireNodeId`, found by lookup. A routed item
-  whose node the package does not hold refuses the run with
-  `dangling_reference` before CG is called.
+  digest spells the item's `WireNodeId`, found by lookup. Every item's node
+  comes from the same compiled package's own
+  `CheckedGraph::requirements()`, and `checked` is IR's own admission of
+  the bytes that same package emitted, at the same `package_id`, so this
+  lookup cannot miss on any input the driver itself builds a request from.
+  A routed item whose node the package does not hold is not a caller
+  refusal: it is an internal fault (`runtime_invariant`), reachable only
+  through an E4/E5 inconsistency (E4 emitted, or E5 admitted, a graph
+  missing a node QSL's own requirement record names), and the run stops
+  before CG is called.
 - The driver SHALL call CG generation only after routing, only for routed
   items, and not at all when nothing is routed.
 - A routed item whose kind has no context refuses the run with
@@ -102,7 +109,8 @@ the admitted package only at the `package_id` E4 emitted.
   `stage_limit_exceeded` and an IR reader limit are limit refusals. An
   upstream answer that breaks the driver's invariants is an internal fault;
   that includes IR refusing, or admitting at another `package_id`, the bytes
-  QSL just emitted.
+  QSL just emitted, and a routed item naming a node the checked package does
+  not hold.
 - `build_registry` registers every manifest first, then reads
   `Registry::refusals()` once: one duplicate-backend refusal per distinct
   conflicting digest, not one per conflicting `register` call. Repeating an
@@ -122,7 +130,7 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-3 | `route` is called only after negotiation, and only for `supported` items. | Test (TC-003) |
 | FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the E5 read, the candidate step, conversion, negotiation, routing, generation. | Test (TC-001) |
 | FR-001-AC-5 | Each command-level refusal carries its step, catalog code and outcome kind. A `Compile` refusal's code renders `code/cause` when the refusing stage names a cause (e.g. `missing_import`/`missing-selection`), not just the bare code. | Test (TC-004, TC-007, TC-008) |
-| FR-001-AC-6 | CG generation is called once, after routing, over the routed items only, each with its request index, its admitted `CheckedNodeId`, its routed backend and its kind; its output is keyed by request index, ascending; a missing kind context or an unknown node refuses the run. | Test (TC-006, TC-007) |
+| FR-001-AC-6 | CG generation is called once, after routing, over the routed items only, each with its request index, its admitted `CheckedNodeId`, its routed backend and its kind; its output is keyed by request index, ascending; a missing kind context refuses the run, and a routed item naming a node the checked package does not hold is an internal fault. | Test (TC-006, TC-007) |
 | FR-001-AC-7 | The E5 read admits the emitted v2 bytes at the emitted `package_id`; an admitted package at another `package_id`, or an IR refusal, is an internal fault at the hand-off before any backend conversion. | Test (TC-004, TC-006) |
 | FR-001-AC-8 | CG generation's output carries the FR-014 claim map CG derived for the Kani group (IR-294), `Some` whenever one ran; a node whose operation has no derivable claim settles `Unsupported` with `no_derivable_claim` and does not affect its routed siblings' records or harnesses. | Test (TC-006) |
 
@@ -217,11 +225,12 @@ Real limits remain, all refusals rather than internal faults:
   ambiguous.
 
 `tests/drive.rs` covers these shapes:
-`tc_001_tc_003_tc_006_steps_run_in_order_through_generation` (the unary
-case), `tc_006_x_plus_1_settles_supported`,
+`tc_001_tc_006_steps_run_in_order_through_generation` (the unary case),
+`tc_006_x_plus_1_settles_supported`,
 `tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`,
 `tc_006_x_plus_100_in_the_return_context_is_refused_at_check` and
-`tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable`,
+`tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable` (which
+also asserts the dead branch's own `if` guard, a second routed item),
 alongside the unconditional pass-through checks
 (`tc_006_x_plus_1_generation_passes_through_unchanged`,
 `tc_006_x_plus_y_generation_passes_through_unchanged`). The driver passes
