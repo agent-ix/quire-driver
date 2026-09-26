@@ -14,17 +14,16 @@ use qsl_route::{BackendId, Candidate, ManifestDigest};
 use qsl_semantics::check::{Capability, CheckingLimits};
 use qsl_semantics::family::{ClaimExtent, Requirements};
 use quire_contract_codegen::{
-    generate_exact_scalar_oracles, generate_routed, AttestationContext, BackendKind,
-    BackendProviderEnvelope, ClaimMap, EnvelopeRefusal, ExactScalarClaim, ExactScalarItem,
-    ExactScalarOperation, GenerationContexts, IntegerOperator, ItemSettlement,
-    KaniGenerationContext, KaniToolPins, KindOutput, ObligationDisposition, RoutedGeneration,
-    RoutedGenerationError, RoutedGenerationItem, IR_CANDIDATE_REVISION,
+    generate_routed, AttestationContext, BackendKind, BackendProviderEnvelope,
+    ClaimDerivationRefusal, ClaimDisposition, EnvelopeRefusal, GenerationContexts, ItemSettlement,
+    KaniGenerationContext, KaniToolPins, KindOutput, ObligationDisposition, OperationProvenance,
+    RoutedGeneration, RoutedGenerationError, RoutedGenerationItem, UnsupportedObligation,
+    IR_CANDIDATE_REVISION,
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
     CheckedPackageRefusal, CheckedPackageRefusalCode, CheckedPackageV2,
 };
-use quire_contract_runtime::exact::{Integer, IntegerDomain, IntegerInterval};
 use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
     GenerationInput, KaniInput, OutcomeKind, ProviderManifest, QslCg, RequestedItem, Upstream,
@@ -41,6 +40,18 @@ const INT_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
     function inc using v(x: Int[0, 9]): Int[0, 10] pure { x + 1 }\n";
+
+/// A unit with an integer `=` (`quire.op.integer.eq`, also a `binary`
+/// expression): CG's derivation names no operator family for it
+/// (`family_of_identity` has no `quire.op.integer.eq` arm), so it has no
+/// derivable claim. It also carries an integer `+`, a sibling CG does
+/// derive a claim for, so a routed run over both shows the unsupported
+/// item does not affect its sibling.
+const EQ_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
+    profile v = \"quire.value.complete/v1\" version \"1\" digest \
+    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
+    function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure { x = y }\n\
+    function inc using v(z: Int[0, 9]): Int[0, 10] pure { z + 1 }\n";
 
 /// A fixed attestation binding (a test value, never a sealed record).
 const RECORD_DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -186,6 +197,13 @@ fn int_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
     }
 }
 
+fn eq_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+    CompileInput {
+        bytes: EQ_UNIT.as_bytes(),
+        ..input(packages)
+    }
+}
+
 /// `INT_UNIT` driven with no items: its E5 package.
 fn int_package() -> Driven {
     let registry = build_registry(&[]).expect("an empty registry builds");
@@ -198,6 +216,20 @@ fn int_package() -> Driven {
         GenerationInput::default(),
     )
     .expect("the integer unit drives")
+}
+
+/// `EQ_UNIT` driven with no items: its E5 package.
+fn eq_package() -> Driven {
+    let registry = build_registry(&[]).expect("an empty registry builds");
+    let packages = BTreeMap::new();
+    drive(
+        &QslCg,
+        eq_input(&packages),
+        &registry,
+        &[],
+        GenerationInput::default(),
+    )
+    .expect("the equality unit drives")
 }
 
 /// The one expression node of `form` in `package`: IR's id and its wire
@@ -213,21 +245,23 @@ fn expression(package: &CheckedPackageV2, form: &str) -> (CheckedNodeId, WireNod
     (node.node_id.clone(), wire)
 }
 
-/// The FR-014 claim map of the `+` node, as the caller supplies it.
-fn claim_map(package: &CheckedPackageV2, add: &CheckedNodeId) -> ClaimMap<ExactScalarClaim> {
-    let domain = IntegerDomain::Bounded(
-        IntegerInterval::new(Integer::from(0_i64), Integer::from(9_i64)).expect("a valid interval"),
-    );
-    let items = [ExactScalarItem {
-        node_id: add.clone(),
-        operation: ExactScalarOperation::IntegerArithmetic {
-            operator: IntegerOperator::Add,
-            domain,
-        },
-    }];
-    generate_exact_scalar_oracles(package, &items)
-        .expect("CG generates the claim map")
-        .claim_map
+/// The one expression node whose `operation.identity` is `identity`: IR's id
+/// and its wire spelling.
+fn expression_by_identity(
+    package: &CheckedPackageV2,
+    identity: &str,
+) -> (CheckedNodeId, WireNodeId) {
+    let node = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| {
+            node.node_tag.as_ref() == "expression"
+                && node.body["operation"]["identity"].as_str() == Some(identity)
+        })
+        .unwrap_or_else(|| panic!("the unit has a {identity} expression"));
+    let wire = WireNodeId::from_hex(&node.node_id.digest).expect("a wire node id");
+    (node.node_id.clone(), wire)
 }
 
 fn attestation() -> AttestationContext<'static> {
@@ -237,10 +271,12 @@ fn attestation() -> AttestationContext<'static> {
     }
 }
 
-fn kani_input(claim_map: &ClaimMap<ExactScalarClaim>) -> GenerationInput<'_> {
+/// The Kani generation input. IR-294 has CG derive each routed item's claim
+/// from the node's own operation and bound, so the caller supplies no claim
+/// map any more.
+fn kani_input() -> GenerationInput<'static> {
     GenerationInput {
         kani: Some(KaniInput {
-            claim_map,
             subject_path: "crate::subject",
             unwind: 1,
             attestation: attestation(),
@@ -319,7 +355,6 @@ fn tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order() {
 fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
     let checked = int_package().checked;
     let (add, add_wire) = expression(&checked, "binary");
-    let claims = claim_map(&checked, &add);
 
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -339,7 +374,7 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
         int_input(&packages),
         &registry,
         &items,
-        kani_input(&claims),
+        kani_input(),
     )
     .expect("the run completes");
 
@@ -381,7 +416,6 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
         }],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
-                claim_map: &claims,
                 subject_path: "crate::subject",
                 pins: &pins,
                 unwind: 1,
@@ -424,6 +458,26 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
         .collect();
     assert_eq!(bounds, [(0, 9), (0, 9)]);
 
+    // FR-001-AC-8 (IR-294): the Kani group derived a claim map, which holds
+    // the routed node with a generated claim (CG did derive `+`'s operator
+    // family).
+    let claim_map = driven
+        .generation
+        .claim_map
+        .as_ref()
+        .expect("a Kani group ran, so a claim map is derived");
+    let add_claim = claim_map
+        .items
+        .iter()
+        .find(|claim| claim.node_id == add)
+        .unwrap_or_else(|| panic!("no claim for the `+` node: {:?}", claim_map.items));
+    assert!(
+        matches!(add_claim.result, ClaimDisposition::Generated(_)),
+        "{:?}",
+        add_claim.result
+    );
+    serde_json::to_vec_pretty(claim_map).expect("the derived claim map serializes");
+
     assert_eq!(
         recorder.calls(),
         [
@@ -445,9 +499,8 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
 #[test]
 fn tc_006_generation_output_ascends_by_request_index() {
     let checked = int_package().checked;
-    let (add, add_wire) = expression(&checked, "binary");
+    let (_add, add_wire) = expression(&checked, "binary");
     let (_, conversion_wire) = expression(&checked, "conversion");
-    let claims = claim_map(&checked, &add);
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
@@ -463,7 +516,7 @@ fn tc_006_generation_output_ascends_by_request_index() {
         int_input(&packages),
         &registry,
         &items,
-        kani_input(&claims),
+        kani_input(),
     )
     .expect("the run completes");
 
@@ -738,4 +791,124 @@ fn tc_006_e5_admits_text_and_rational_units() {
         );
         assert_eq!(recorder.calls()[..2], [Call::Compile, Call::ReadPackage]);
     }
+}
+
+/// FR-001-AC-8 (TC-006): a routed node whose operation has no derivable
+/// claim (`quire.op.integer.eq`; CG's derivation names no operator family
+/// for it) settles `Unsupported` with `no_derivable_claim`, and its routed
+/// sibling (`quire.op.integer.add`, which CG does derive a claim for) is
+/// unaffected: the same disposition and harness as a run with only the
+/// sibling. The derived claim map holds both nodes, each with its own
+/// disposition, and serializes.
+#[test]
+fn tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected() {
+    let checked = eq_package().checked;
+    let (eq, eq_wire) = expression_by_identity(&checked, "quire.op.integer.eq");
+    let (add, add_wire) = expression_by_identity(&checked, "quire.op.integer.add");
+
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let recorder = Recorder::default();
+    let items = [
+        item_at(eq_wire, Capability::ValueValidity, None),
+        item_at(add_wire, Capability::ValueValidity, None),
+    ];
+
+    let driven = drive(
+        &recorder,
+        eq_input(&packages),
+        &registry,
+        &items,
+        kani_input(),
+    )
+    .expect("the run completes");
+
+    assert_eq!(driven.routed.len(), 2);
+    assert_eq!(driven.generation.items.len(), 2);
+    assert!(driven.generation.rejected.is_empty());
+
+    let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
+    assert_eq!(driven.generation.items[0].request_index, 0);
+    assert!(harness.is_none(), "an underivable item carries no harness");
+    assert_eq!(
+        record.disposition,
+        ObligationDisposition::Unsupported {
+            reason: UnsupportedObligation::NoDerivableClaim {
+                node_id: eq.clone(),
+                reason: ClaimDerivationRefusal::OperationNotDerivable {
+                    operation_identity: "quire.op.integer.eq".to_owned(),
+                },
+            }
+        }
+    );
+
+    // The sibling settles Supported with its own harness, unaffected by the
+    // eq item's refusal.
+    let KindOutput::Kani { record, harness } = &driven.generation.items[1].output;
+    assert_eq!(driven.generation.items[1].request_index, 1);
+    assert!(
+        matches!(record.disposition, ObligationDisposition::Supported { .. }),
+        "{:?}",
+        record.disposition
+    );
+    let harness = harness
+        .as_ref()
+        .expect("the derivable sibling carries its harness");
+    assert_eq!(harness.identity.node_id, add);
+
+    // The `+` item's disposition and harness equal what a run with only the
+    // add item produces: the underivable eq item did not affect it.
+    let alone_registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let alone_packages = BTreeMap::new();
+    let alone = drive(
+        &QslCg,
+        eq_input(&alone_packages),
+        &alone_registry,
+        &[item_at(add_wire, Capability::ValueValidity, None)],
+        kani_input(),
+    )
+    .expect("the add-only run completes");
+    assert_eq!(alone.generation.items.len(), 1);
+    let KindOutput::Kani {
+        record: alone_record,
+        harness: alone_harness,
+    } = &alone.generation.items[0].output;
+    assert_eq!(record.disposition, alone_record.disposition);
+    assert_eq!(harness, alone_harness.as_ref().expect("a harness"));
+
+    // The derived claim map holds both nodes: the eq node's own
+    // `NoDerivableClaim`-underlying refusal (its operation is `Underived`,
+    // since nobody declared it), and the add node's generated claim.
+    let claim_map = driven
+        .generation
+        .claim_map
+        .as_ref()
+        .expect("a Kani group ran, so a claim map is derived");
+    let eq_claim = claim_map
+        .items
+        .iter()
+        .find(|claim| claim.node_id == eq)
+        .unwrap_or_else(|| panic!("no claim for the eq node: {:?}", claim_map.items));
+    assert!(
+        matches!(eq_claim.result, ClaimDisposition::Refused { .. }),
+        "{:?}",
+        eq_claim.result
+    );
+    assert_eq!(
+        eq_claim.operation.provenance,
+        OperationProvenance::Underived
+    );
+    let add_claim = claim_map
+        .items
+        .iter()
+        .find(|claim| claim.node_id == add)
+        .unwrap_or_else(|| panic!("no claim for the add node: {:?}", claim_map.items));
+    assert!(
+        matches!(add_claim.result, ClaimDisposition::Generated(_)),
+        "{:?}",
+        add_claim.result
+    );
+    serde_json::to_vec_pretty(claim_map).expect("the derived claim map serializes");
 }

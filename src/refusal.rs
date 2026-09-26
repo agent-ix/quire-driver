@@ -7,7 +7,9 @@ use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::Code;
 use qsl_replay::spine::{CompileRefusal, SpineStage};
 use qsl_route::{BackendId, RegistrationRefusal};
-use quire_contract_codegen::{EnvelopeRefusal, KaniObligationError, RoutedGenerationError};
+use quire_contract_codegen::{
+    EnvelopeRefusal, KaniObligationError, OracleGenerationError, RoutedGenerationError,
+};
 use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageRefusal};
 
 /// Why [`crate::drive`] or [`crate::build_registry`] produced no result.
@@ -209,7 +211,11 @@ impl DriverRefusal {
 /// with the kind CG's own conversion gave it, once per request index, and
 /// always passes the pinned Kani tools, so those refusals are internal
 /// faults. A missing kind context or a malformed Kani context is the
-/// caller's request; the Kani item ceiling is a limit.
+/// caller's request; the Kani item ceiling and an oversized oracle source
+/// are limits; a claim-map or location-map serialization failure and an
+/// unknown Contract Runtime variant are internal faults (IR-294's Kani arm
+/// derives the claim map itself; nothing the driver supplies can cause
+/// them).
 fn generation_code(error: &RoutedGenerationError) -> Code {
     match error {
         RoutedGenerationError::BackendKindDisagrees { .. }
@@ -226,6 +232,17 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
             | KaniObligationError::InvalidUnwind { .. }
             | KaniObligationError::InvalidAttestationContext,
         ) => Code::InvalidRequest,
+        RoutedGenerationError::Oracle(oracle) => oracle_code(oracle),
+    }
+}
+
+/// The catalog code of a whole-generation FR-014 oracle failure.
+fn oracle_code(error: &OracleGenerationError) -> Code {
+    match error {
+        OracleGenerationError::SourceTooLarge { .. } => Code::ResourceExhausted,
+        OracleGenerationError::ClaimMapSerialization
+        | OracleGenerationError::LocationMapSerialization
+        | OracleGenerationError::UnknownRuntimeVariant { .. } => Code::RuntimeInvariant,
     }
 }
 
@@ -259,6 +276,29 @@ fn generation_message(error: &RoutedGenerationError) -> String {
         RoutedGenerationError::Kani(error) => {
             format!("the Kani arm refused: {}", kani_message(error))
         }
+        RoutedGenerationError::Oracle(error) => {
+            format!(
+                "the derived claim map failed to generate: {}",
+                oracle_message(error)
+            )
+        }
+    }
+}
+
+fn oracle_message(error: &OracleGenerationError) -> String {
+    match error {
+        OracleGenerationError::SourceTooLarge { bytes } => {
+            format!("the generated source is {bytes} byte(s), over the ceiling")
+        }
+        OracleGenerationError::ClaimMapSerialization => {
+            "the claim map could not be serialized".to_owned()
+        }
+        OracleGenerationError::LocationMapSerialization => {
+            "the location map could not be serialized".to_owned()
+        }
+        OracleGenerationError::UnknownRuntimeVariant { enum_name } => {
+            format!("Contract Runtime's `{enum_name}` yielded an unknown variant")
+        }
     }
 }
 
@@ -291,7 +331,9 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 
 #[cfg(test)]
 mod tests {
-    use quire_contract_codegen::{KaniObligationError, RoutedGenerationError};
+    use quire_contract_codegen::{
+        KaniObligationError, OracleGenerationError, RoutedGenerationError,
+    };
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
@@ -329,6 +371,25 @@ mod tests {
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.code(), "runtime_invariant");
         assert_eq!(fault.stage(), DriverStage::Generation);
+
+        // IR-294: a whole-generation FR-014 oracle failure the driver never
+        // produces is still an internal fault, not a refusal: an unknown
+        // Contract Runtime variant and a claim-map serialization failure.
+        let fault = DriverRefusal::Generation(RoutedGenerationError::Oracle(
+            OracleGenerationError::UnknownRuntimeVariant {
+                enum_name: "IntegerDomain",
+            },
+        ));
+        assert_eq!(fault.kind(), OutcomeKind::Fault);
+        assert_eq!(fault.code(), "runtime_invariant");
+        assert_eq!(fault.stage(), DriverStage::Generation);
+
+        let fault = DriverRefusal::Generation(RoutedGenerationError::Oracle(
+            OracleGenerationError::ClaimMapSerialization,
+        ));
+        assert_eq!(fault.kind(), OutcomeKind::Fault);
+        assert_eq!(fault.code(), "runtime_invariant");
+        assert_eq!(fault.stage(), DriverStage::Generation);
     }
 
     /// FR-001-AC-5 (TC-004): E5's reader limit and CG's Kani item ceiling
@@ -347,6 +408,15 @@ mod tests {
 
         let limit = DriverRefusal::Generation(RoutedGenerationError::Kani(
             KaniObligationError::TooManyItems { count: 9 },
+        ));
+        assert_eq!(limit.kind(), OutcomeKind::Limit);
+        assert_eq!(limit.code(), "resource_exhausted");
+        assert_eq!(limit.stage(), DriverStage::Generation);
+
+        // IR-294: an oversized generated oracle source is a limit, the same
+        // as the Kani item ceiling.
+        let limit = DriverRefusal::Generation(RoutedGenerationError::Oracle(
+            OracleGenerationError::SourceTooLarge { bytes: 1 },
         ));
         assert_eq!(limit.kind(), OutcomeKind::Limit);
         assert_eq!(limit.code(), "resource_exhausted");
