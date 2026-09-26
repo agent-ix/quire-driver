@@ -90,3 +90,25 @@ section.
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-006 | low | The `items_from_requirements` use of `named` (the candidate-set narrowing) has no test. Mutant M1 (`None` in place of `named`) leaves all 19 drive tests green, because CG re-derives the same `unknown-backend` cause from the envelope's `named_backend`. Failure scenario: the driver sends CG a candidate set that ignores the named backend, and nothing notices until CG gains a second backend kind. Fix: capture the envelope in `Recorder::negotiate` and assert `items[0].candidates == Candidates::UnknownBackend("missing")` for `named = Some("missing")`. Also correct the test doc comment's false claim (SR-013 FND-007). | src/drive.rs:129; tests/drive.rs:705-735 |
+
+### Round 2
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-006 | fixed b113d4c | `Recorder::negotiate` now captures the negotiation envelope. `tc_001_a_named_unregistered_backend_settles_invalid_request` drives `named = Some("missing")` and asserts `envelope.items[0].candidates == Candidates::UnknownBackend("missing")`, which only `items_from_requirements` threading `named` through `Registry::candidates` can produce. Mutant M1 (`None` in place of `named` there) now fails this test with `Candidates::Set([kani])` instead. |
+| FND-003 | fixed b113d4c (fully) | AC-6's "admitted `CheckedNodeId`" half closed by SR-013 FND-006's fix (the mixed test now asserts the generated node's identity via a direct `generate_routed` comparison). |
+| FND-004 | fixed b113d4c (fully) | The candidate-narrowing half of `named` closed by FND-006's fix above; the envelope half was already backed at debdda4 (mutant M2 caught). |
+
+Re-run at b113d4c26b3f3707d7e99df783888d218928b221 with
+`scratchpad/rv-drv8/mutants.sh` against a detached worktree at that commit;
+each mutant applied, tested with `cargo test -q --test drive`, restored
+after (confirmed clean via `git status --porcelain`). All four now fail
+(killed): MA and MB by
+`tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_index`,
+M1 by `tc_001_a_named_unregistered_backend_settles_invalid_request`, M2 by
+`tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported`.
+
+Disposition-pass gate: `make ci` at b113d4c, log
+`/tmp/claude-1000/-home-peter-dev/09ab4eba-c376-42ef-aaec-be2e14ce86e4/scratchpad/qsl-1-routes-ci-r2.log`,
+first line `b113d4c26b3f3707d7e99df783888d218928b221`, last line `exit=0`.
+`tests/drive.rs` shows 19 passed (unchanged). No new findings.

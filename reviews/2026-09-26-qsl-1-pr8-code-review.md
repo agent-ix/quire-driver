@@ -148,3 +148,30 @@ one:
 - M1: survives.
 - M2 (`named_backend: None` in `envelope`): red, caught by the
   registered-named test.
+
+### Round 2
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-006 | fixed b113d4c | `tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_index` now compares the generated item against a direct `generate_routed` call over the `-` item alone (`request_index: 1`), by full equality. Mutant MB (`generate` resolving the node by position in `routed` instead of by `request_index`) now fails that test. |
+| FND-007 | fixed b113d4c | The false claim in `tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported`'s doc comment is corrected: it now states that the unregistered-backend test's settlement alone cannot distinguish the two uses of `named`, and points at the `Recorder` envelope capture that does. |
+| FND-001 | fixed b113d4c (fully) | The generation half closed by FND-006's fix above; the route half was already fixed at debdda4. Both halves of AC-3/AC-6 now have an oracle. |
+
+Re-run at b113d4c26b3f3707d7e99df783888d218928b221 with
+`scratchpad/rv-drv8/mutants.sh` against a detached worktree at that commit,
+each mutant applied, tested with `cargo test -q --test drive`, and the
+source restored after (confirmed clean via `git status --porcelain`):
+- MA: `test result: FAILED. 18 passed; 1 failed` — caught by
+  `tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_index`.
+- MB: `test result: FAILED. 18 passed; 1 failed` — caught by the same test.
+- M1: `test result: FAILED. 18 passed; 1 failed` — caught by
+  `tc_001_a_named_unregistered_backend_settles_invalid_request`.
+- M2: `test result: FAILED. 18 passed; 1 failed` — caught by
+  `tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported`.
+
+All four mutants are now killed. Disposition-pass gate:
+`make ci` at b113d4c, log
+`/tmp/claude-1000/-home-peter-dev/09ab4eba-c376-42ef-aaec-be2e14ce86e4/scratchpad/qsl-1-routes-ci-r2.log`,
+first line `b113d4c26b3f3707d7e99df783888d218928b221`, last line `exit=0`.
+Tests: 2 unit, 1 dependency-edges and 19 in `tests/drive.rs`, all passing
+with 0 ignored. No new findings.
