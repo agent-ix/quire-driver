@@ -28,13 +28,22 @@ path = "src/lib.rs"
 # QSL's layer crates still bring a second `quire-contract-model` copy
 # (b52c263) transitively via `qsl-replay`, at the QSL revision above. A third
 # copy (7b1ec7a) arrives because `quire-contract-ir` at 48ab5dc itself depends
-# on the QSL root crate `quire-spec-language` at a revision QSL has not
-# reached yet, which pins its own `quire-contract-model`. Both are
-# informational, not a gate: no IR type crosses between the driver's model
-# copy and either of the others at compile time (they are different Rust
-# types even with the same name), so this either compiles or it doesn't. They
-# converge to one copy when QSL bumps its own `quire-contract-model` pin
-# (QSL-255b PR 2).
+# on the QSL root crate `quire-spec-language` at 9395be4 -- already QSL's own
+# main; it is the driver's own QSL pin (daa0178) above that has not caught up
+# -- which pins its own `quire-contract-model`. All three are informational,
+# not a gate: no IR type crosses between the driver's model copy and either
+# of the others at compile time (they are different Rust types even with the
+# same name), so this either compiles or it doesn't. QSL-255b PR 2 (QSL's own
+# `quire-contract-model` pin moving to 48ab5dc) removes only the b52c263
+# copy; the 7b1ec7a copy stays until IR's root crate drops its QSL edge
+# (agent-ix/quire-contract-ir#141).
+#
+# E4 (emit) and E5 (`src/handoff.rs`, read) run under different model
+# revisions until QSL and the driver converge on one: E4 is written by QSL
+# daa0178 under model b52c263, E5 reads it under the driver's own model
+# 48ab5dc, which adds new refusals (IR-287, IR-289, IR-24, `RevisionMismatch`)
+# beyond what daa0178's writer emits. So a `HandoffRefused` in this window can
+# be that version skew, not necessarily a QSL bug.
 [dependencies]
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }

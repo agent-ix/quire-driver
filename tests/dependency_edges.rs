@@ -188,9 +188,11 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     // Beyond that, several QSL layer crates and `quire-contract-model` itself
     // resolve to more than one revision, because `quire-contract-ir` (CG's
     // IR edge) depends on the QSL root crate `quire-spec-language` at a
-    // revision QSL has not reached yet (Cargo.toml's revision note). That is
-    // informational, not gated here: it converges when QSL bumps its own
-    // `quire-contract-ir` pin (QSL-255b PR 2), and whether an IR type crosses
+    // revision the driver's own QSL pin has not caught up to (Cargo.toml's
+    // revision note). That is informational, not gated here: QSL-255b PR 2
+    // removes the QSL-layer copy of `quire-contract-model`, but the copy
+    // reached through this root-crate edge stays until IR's root crate drops
+    // its QSL edge (agent-ix/quire-contract-ir#141). Whether an IR type crosses
     // between the model copies is a compile-time question this crate's own
     // build already answers, not one `cargo metadata` can.
 }

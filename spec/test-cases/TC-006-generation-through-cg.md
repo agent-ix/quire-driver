@@ -42,9 +42,10 @@ Tests: `tests/drive.rs`,
   and it equals step 1's package.
 - The driver's generation output equals step 3's, with one item at request
   index 0 and the `kani` wire pair. Its record is `Supported` with a scalar
-  harness: QSL-261 is resolved by IR-296 and IR-297. A unit with two bounded
-  parameters still settles `AmbiguousBound` (IR-298, IR-299), a known limit
-  this test case does not exercise.
+  harness over `x`'s `[0, 9]` domain: QSL-261 is resolved by IR-296 and
+  IR-297. A unit with two bounded parameters still settles `Unsupported`
+  (oracle refusal `AmbiguousBound`; IR-298, IR-299), a known limit this test
+  case does not exercise.
 - Step 4 routes indexes 0 and 2, generates once over two items, and the
   output's request indexes are `[0, 2]`.
 - Step 5: E5 admits both packages at their emitted `package_id`. A float

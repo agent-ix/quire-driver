@@ -34,6 +34,7 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
   package of that name: nothing in this lock depends on the driver.
 - CG's one normal or build edge into QSL is `qsl-replay`.
 - The driver's five QSL crates and CG's `qsl-replay` share one source
-  revision. Each QSL package other than the root crate resolves once. The
-  root crate `quire-spec-language` arrives transitively through IR at
-  another revision (f1700a9); this test states that and does not gate it.
+  revision, and the driver's `quire-contract-model` is the package id CG's
+  IR edge depends on. Other copies of `quire-contract-model` and of QSL
+  layer crates, reached only through CG's IR edge or through QSL's own
+  edges, are informational (Cargo.toml's revision note) and not gated here.

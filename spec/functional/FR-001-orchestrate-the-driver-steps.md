@@ -93,7 +93,7 @@ the admitted package only at the `package_id` E4 emitted.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-001-AC-1 | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model`, `serde_json` and `thiserror`, the driver's `quire-contract-model` is the one CG's IR crate depends on, nothing in its lock depends on it, CG's one QSL edge is `qsl-replay`, the driver's QSL crates and CG's `qsl-replay` share one QSL revision, and each QSL package other than the root crate resolves to one revision. | Test (TC-005) |
+| FR-001-AC-1 | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model`, `serde_json` and `thiserror`, the driver's `quire-contract-model` is the one CG's IR crate depends on, nothing in its lock depends on it, CG's one QSL edge is `qsl-replay`, and the driver's QSL crates and CG's `qsl-replay` share one QSL revision. Other copies of `quire-contract-model` and of QSL layer crates, reached only through CG's IR edge or QSL's own edges, are informational and not gated. | Test (TC-005) |
 | FR-001-AC-2 | A run whose registry holds a `BackendId` with no CG kind refuses before any negotiation, with `invalid_capability`/`unknown-backend` and the unconverted ids in bytewise order. | Test (TC-002) |
 | FR-001-AC-3 | `route` is called only after negotiation, and only for `supported` items. | Test (TC-003) |
 | FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the E5 read, the candidate step, conversion, negotiation, routing, generation. | Test (TC-001) |
@@ -129,14 +129,18 @@ it. The read-back and the normal `serde_json` dependency go then.
 
 On a QSL-emitted package, CG's Kani arm settles the `+` of
 `x + 1` (`x: Int[0, 9]`) `Supported` with a scalar harness: QSL-261 is
-resolved by IR-296 and IR-297, whose scalar lowering now reaches the
-parameter's own `[0, 9]` bound in the node's closure instead of an unbounded
-type. So the tests' generation output is a record with a harness, and
-TC-006 asserts exactly that. The driver passes CG's output through
+resolved by IR-296 and IR-297. IR-296 makes `require_bounds` stop treating a
+type reached only as a literal's `type` annotation as the closure's bound --
+here, the unbounded type of the literal `1` -- so it no longer masks `x`'s
+own `[0, 9]` bound, which was always reachable. IR-297 makes CG's
+`exact_scalar` follow `bounded_domain` to its base and read bounds written
+as bindings. So the tests' generation output is a record with a harness,
+and TC-006 asserts exactly that. The driver passes CG's output through
 unchanged.
 
-A unit with two bounded parameters still settles `AmbiguousBound` (IR-298,
-IR-299), a known limit this crate's tests do not exercise.
+A unit with two bounded parameters still settles `Unsupported` (oracle
+refusal `AmbiguousBound`; IR-298, IR-299), a known limit this crate's tests
+do not exercise.
 
 `qsl-package` does not yet expose the per-item requirement records of a
 `CheckedPackage`, so the caller supplies the requested items (QSL-258).
