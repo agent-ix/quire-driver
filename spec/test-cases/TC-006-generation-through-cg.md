@@ -44,8 +44,11 @@ Tests: `tests/drive.rs`,
 `tc_006_generation_output_ascends_by_request_index`,
 `tc_006_e5_admits_text_and_rational_units`,
 `tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected`,
-`tc_006_a_literal_beside_an_owned_bound_requires_bound` and
-`tc_006_two_independently_bounded_operands_is_ambiguous_not_supported`.
+`tc_006_x_plus_1_generation_passes_through_unchanged`,
+`tc_006_x_plus_y_generation_passes_through_unchanged`,
+`tc_006_x_plus_1_settles_supported` (ignored, IR-302) and
+`tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`
+(ignored, IR-302).
 
 ## Expected Results
 
@@ -72,16 +75,18 @@ Tests: `tests/drive.rs`,
   sibling. The derived claim map holds both nodes: the `=` node's claim is
   `Refused` with an `Underived` operation provenance (nobody declared it),
   the `-` node's is `Generated`, and the whole map serializes.
-- Step 7: the `+` item's record is `RequiresBound`, naming the literal `1`'s
-  own unbounded type, and carries no harness. `x` owns a bound and the
-  literal (a reference to its own plain-typed value node, never an inline
-  literal term in QSL's own output) does not, so IR-298's rule for a
-  plain-typed reference beside an owned bound applies, not the exempted
-  inline-literal case.
-- Step 8: the `+` item's record is `Unsupported` with `OracleRefused`
-  wrapping CG's `AmbiguousBound` refusal (the base integer scalar type,
-  `IntegerRange` form), and carries no harness. `x` and `y` each own a
-  bound and nothing else is reachable from the `+` node itself (the
-  return type's narrowing `conversion` is unreachable from its own
-  operand), so removing both operands' own bounds from the candidates
-  leaves none.
+- Steps 7 and 8's intended outcome, once IR-302 is fixed, is `Supported`:
+  step 7's `+` item ranges its one argument over `x`'s own `[0, 9]` domain
+  (the literal `1` needs no bound of its own); step 8's `+` item ranges its
+  two arguments over `x`'s `[0, 9]` and `y`'s `[10, 20]` domains
+  independently. Today, through real QSL output, CG's IR-298 rule settles
+  step 7 `RequiresBound` (naming the literal's own unbounded type: QSL
+  represents every literal as a reference to its own plain-typed value
+  node, never inline) and step 8 `Unsupported` (`AmbiguousBound`: `x` and
+  `y` each own a bound and nothing else is reachable from the `+` node
+  itself, so removing both leaves none) -- this is CG's own regression,
+  tracked as IR-302, not the driver's expected behavior. The driver's own
+  tests assert the pass-through invariant unconditionally (the driver's
+  output equals a direct `generate_routed` call, whatever CG settles) and
+  keep the intended-`Supported` assertions `#[ignore]`d until IR-302
+  lands.

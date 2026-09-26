@@ -17,7 +17,11 @@ relationships:
 The driver SHALL run one request through these steps, in this order (QSL
 ADR-011 T-13, ADR-012 §7.2):
 
-1. S1 to S4 through `qsl_replay::spine::compile`.
+1. S1 to S4 through `qsl_replay::spine::compile`, with an empty
+   `DependencyInput` (ADR-015 D-1): the driver does not yet support
+   compiling a unit's `import`s against caller-supplied library source, so
+   any `import` refuses at the intake stage,
+   `missing_import`/`missing-selection`.
 2. E4: the `quire.checked-package/v2` bytes and `package_id` that the same
    call emits.
 3. The `route` candidate step for each requested item.
@@ -106,7 +110,7 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-2 | A run whose registry holds a `BackendId` with no CG kind refuses before any negotiation, with `invalid_capability`/`unknown-backend` and the unconverted ids in bytewise order. | Test (TC-002) |
 | FR-001-AC-3 | `route` is called only after negotiation, and only for `supported` items. | Test (TC-003) |
 | FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the E5 read, the candidate step, conversion, negotiation, routing, generation. | Test (TC-001) |
-| FR-001-AC-5 | Each command-level refusal carries its step, catalog code and outcome kind. | Test (TC-004, TC-007) |
+| FR-001-AC-5 | Each command-level refusal carries its step, catalog code and outcome kind. A `Compile` refusal's code renders `code/cause` when the refusing stage names a cause (e.g. `missing_import`/`missing-selection`), not just the bare code. | Test (TC-004, TC-007, TC-008) |
 | FR-001-AC-6 | CG generation is called once, after routing, over the routed items only, each with its request index, its admitted `CheckedNodeId`, its routed backend and its kind; its output is keyed by request index, ascending; a missing kind context or an unknown node refuses the run. | Test (TC-006, TC-007) |
 | FR-001-AC-7 | The E5 read admits the emitted v2 bytes at the emitted `package_id`; an admitted package at another `package_id`, or an IR refusal, is an internal fault at the hand-off before any backend conversion. | Test (TC-004, TC-006) |
 | FR-001-AC-8 | CG generation's output carries the FR-014 claim map CG derived for the Kani group (IR-294), `Some` whenever one ran; a node whose operation has no derivable claim settles `Unsupported` with `no_derivable_claim` and does not affect its routed siblings' records or harnesses. | Test (TC-006) |
@@ -173,11 +177,18 @@ QSL-emitted package:
   builds directly but real QSL compilation does not appear to produce for
   a bounded-context arithmetic expression.
 
-`tests/drive.rs` covers all three shapes
-(`tc_001_tc_003_tc_006_steps_run_in_order_through_generation`,
-`tc_006_a_literal_beside_an_owned_bound_requires_bound`,
-`tc_006_two_independently_bounded_operands_is_ambiguous_not_supported`).
-The driver passes CG's output through unchanged in every case.
+The `x + 1` and `x + y` shapes above are CG's current, regressed behavior,
+not the intended one -- tracked as IR-302. `tests/drive.rs` asserts the
+pass-through invariant unconditionally for both
+(`tc_006_x_plus_1_generation_passes_through_unchanged`,
+`tc_006_x_plus_y_generation_passes_through_unchanged`), alongside
+`tc_001_tc_003_tc_006_steps_run_in_order_through_generation`'s own
+unary-operand pass-through check, and keeps the intended-outcome tests
+`#[ignore]`d until IR-302 lands
+(`tc_006_x_plus_1_settles_supported`,
+`tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`). The
+driver passes CG's output through unchanged in every case, regardless of
+which of CG's shapes it settles.
 
 CG at IR-300 (#180) also returns `RoutedGeneration::oracle_artifacts`, the
 FR-014 crate the Kani arm generated (`Cargo.toml`, `src/lib.rs` and

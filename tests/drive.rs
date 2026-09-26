@@ -14,11 +14,11 @@ use qsl_route::{BackendId, Candidate, ManifestDigest, RegistrationCause};
 use qsl_semantics::check::{Capability, CheckingLimits};
 use qsl_semantics::family::{ClaimExtent, Requirements};
 use quire_contract_codegen::{
-    generate_routed, AttestationContext, BackendKind, BackendProviderEnvelope, BoundForm,
-    ClaimDerivationRefusal, ClaimDisposition, EnvelopeRefusal, ExactScalarRefusal,
-    GenerationContexts, ItemSettlement, KaniGenerationContext, KaniToolPins, KindOutput,
-    ObligationDisposition, OperationProvenance, RoutedGeneration, RoutedGenerationError,
-    RoutedGenerationItem, UnsupportedObligation, IR_CANDIDATE_REVISION,
+    generate_routed, AttestationContext, BackendKind, BackendProviderEnvelope,
+    ClaimDerivationRefusal, ClaimDisposition, EnvelopeRefusal, GenerationContexts, ItemSettlement,
+    KaniGenerationContext, KaniToolPins, KindOutput, ObligationDisposition, OperationProvenance,
+    RoutedGeneration, RoutedGenerationError, RoutedGenerationItem, UnsupportedObligation,
+    IR_CANDIDATE_REVISION,
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
@@ -75,9 +75,11 @@ const EQ_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// bounded operands has exactly the two operands' own bounds reachable and
 /// nothing else; IR-298 requires exactly one bound that is nobody's own to
 /// resolve the result role, and removing both operands' own bounds here
-/// leaves zero, which is `AmbiguousBound`, not `Supported`
-/// (`tc_006_two_independently_bounded_operands_is_ambiguous_not_supported`
-/// covers this as CG and QSL now actually behave).
+/// leaves zero, which is `AmbiguousBound`, not `Supported` (IR-302; see
+/// `tc_006_x_plus_y_generation_passes_through_unchanged` for how CG and QSL
+/// actually behave today, and
+/// `tc_006_x_plus_y_settles_supported_with_independent_argument_bounds` for
+/// the intended outcome).
 const NEGATE_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
@@ -90,6 +92,16 @@ const TWO_PARAM_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
     function add using v(x: Int[0, 9], y: Int[10, 20]): Int[10, 29] pure { x + y }\n";
+
+/// A unit that `import`s a library the driver's `DependencyInput::default()`
+/// (ADR-015 D-1) supplies nothing for: S4 source resolution refuses it at
+/// I1, `missing_import`/`missing-selection`.
+const IMPORT_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
+    profile v = \"quire.value.complete/v1\" version \"1\" digest \
+    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
+    import \"test/library\" version \"1\" digest \
+    \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\" as lib;\n\
+    function f using v(): Boolean pure { true }\n";
 
 /// A fixed attestation binding (a test value, never a sealed record).
 const RECORD_DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -325,22 +337,6 @@ fn expression(package: &CheckedPackageV2, form: &str) -> (CheckedNodeId, WireNod
     (node.node_id.clone(), wire)
 }
 
-/// The package's plain, unbounded `integer` scalar type node: every
-/// `bounded_domain` of form `integer_range` types its members by this same
-/// base type (content-addressed, so one node serves the whole package).
-fn base_integer_type(package: &CheckedPackageV2) -> CheckedNodeId {
-    package
-        .graph()
-        .nodes
-        .iter()
-        .find(|node| {
-            node.node_tag.as_ref() == "scalar_type" && node.semantic_form.as_ref() == "integer"
-        })
-        .expect("the package has a plain integer scalar type")
-        .node_id
-        .clone()
-}
-
 /// The one expression node whose `operation.identity` is `identity`: IR's id
 /// and its wire spelling.
 fn expression_by_identity(
@@ -566,15 +562,15 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
         .claim_map
         .as_ref()
         .expect("a Kani group ran, so a claim map is derived");
-    let add_claim = claim_map
+    let neg_claim = claim_map
         .items
         .iter()
         .find(|claim| claim.node_id == neg)
-        .unwrap_or_else(|| panic!("no claim for the `+` node: {:?}", claim_map.items));
+        .unwrap_or_else(|| panic!("no claim for the `-` node: {:?}", claim_map.items));
     assert!(
-        matches!(add_claim.result, ClaimDisposition::Generated(_)),
+        matches!(neg_claim.result, ClaimDisposition::Generated(_)),
         "{:?}",
-        add_claim.result
+        neg_claim.result
     );
     serde_json::to_vec_pretty(claim_map).expect("the derived claim map serializes");
 
@@ -996,6 +992,28 @@ fn tc_004_command_level_refusals_are_typed() {
     let refusal = build_registry(&[manifest("kani", 1, &["not-a-kind"])])
         .expect_err("an unknown kind refuses the registration");
     assert_eq!(refusal.code(), "invalid_capability/unknown-kind");
+}
+
+/// FR-001-AC-5 (TC-008): the driver compiles with an empty
+/// `DependencyInput` (ADR-015 D-1), so a unit whose `import` names a
+/// library nothing supplies refuses at the intake stage, with
+/// `missing_import`/`missing-selection` -- `CompileRefusal::code()`'s
+/// `code/cause` rendering, not just the bare code.
+#[test]
+fn tc_008_a_missing_import_refuses_at_compile_intake() {
+    let registry = build_registry(&[]).expect("an empty registry builds");
+    let packages = BTreeMap::new();
+    let broken = CompileInput {
+        bytes: IMPORT_UNIT.as_bytes(),
+        ..input(&packages)
+    };
+
+    let refusal = drive(&QslCg, broken, &registry, &[], GenerationInput::default())
+        .expect_err("nothing supplies test/library");
+
+    assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Intake));
+    assert_eq!(refusal.code(), "missing_import/missing-selection");
+    assert_eq!(refusal.kind(), OutcomeKind::Refused);
 }
 
 /// `refusal`'s `DriverRefusal::Registration` vector, projected to

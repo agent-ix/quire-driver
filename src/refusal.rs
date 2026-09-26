@@ -146,7 +146,7 @@ impl DriverRefusal {
                 || "invalid_capability".to_owned(),
                 |refusal| refusal.catalog_code().to_string(),
             ),
-            Self::Compile(refusal) => refusal.code().as_str().to_owned(),
+            Self::Compile(refusal) => compile_code(refusal),
             Self::UnknownBackend { .. } => "invalid_capability/unknown-backend".to_owned(),
             Self::Envelope(EnvelopeRefusal::InvalidCapability { cause, .. }) => {
                 format!("invalid_capability/{cause}")
@@ -169,9 +169,9 @@ impl DriverRefusal {
             Self::Envelope(_) => DriverStage::Negotiation,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
             Self::HandoffLimit(_)
-            | Self::Fault(
-                DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. },
-            ) => DriverStage::Handoff,
+            | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
+                DriverStage::Handoff
+            }
             Self::UnknownNode { .. } | Self::Generation(_) => DriverStage::Generation,
             Self::Fault(
                 DriverFault::SettlementCount { .. }
@@ -238,6 +238,32 @@ fn oracle_code(error: &OracleGenerationError) -> Code {
         OracleGenerationError::ClaimMapSerialization
         | OracleGenerationError::LocationMapSerialization
         | OracleGenerationError::UnknownRuntimeVariant { .. } => Code::RuntimeInvariant,
+    }
+}
+
+/// `CompileRefusal`'s own `code()` is the bare catalog `Code`; its doc
+/// promises `code/cause` (e.g. `missing_import/missing-selection`) wherever
+/// the refusing stage names one. `code()` carries no cause on its own, so
+/// this renders `code/cause` when [`compile_cause`] finds one, or the bare
+/// code otherwise.
+fn compile_code(refusal: &CompileRefusal) -> String {
+    let code = refusal.code().as_str();
+    match compile_cause(refusal) {
+        Some(cause) => format!("{code}/{cause}"),
+        None => code.to_owned(),
+    }
+}
+
+/// The catalog cause an ADR-015 D-1 import or dependency-input refusal
+/// names, where one is available: an S4 `import` refusal (e.g.
+/// `missing-selection`) or a `DependencyInput` refusal, unwrapped through a
+/// `Dependency` wrapper to the library refusal it carries.
+fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
+    match refusal {
+        CompileRefusal::Import { refusal, .. } => refusal.cause(),
+        CompileRefusal::DependencyInput(refusal) => refusal.cause(),
+        CompileRefusal::Dependency { refusal, .. } => compile_cause(refusal),
+        _ => None,
     }
 }
 
