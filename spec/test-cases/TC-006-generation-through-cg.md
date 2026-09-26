@@ -13,7 +13,7 @@ relationships:
 Verify the E5 hand-off and step 7 against the real QSL, IR and CG
 functions. Kani is not run; generation only produces its output.
 
-Scope: FR-001-AC-6, FR-001-AC-7.
+Scope: FR-001-AC-6, FR-001-AC-7, FR-001-AC-8.
 
 ## Test Procedure
 
@@ -49,7 +49,8 @@ Tests: `tests/drive.rs`,
   IR-297. A unit with two bounded parameters still settles `Unsupported`
   (oracle refusal `AmbiguousBound`; IR-298, IR-299), a known limit this test
   case does not exercise. The generation output's `claim_map` is `Some` and
-  holds the `+` node's derived claim.
+  holds the `+` node's claim as `Generated`; the whole claim map
+  serializes.
 - Step 4 routes indexes 0 and 2, generates once over two items, and the
   output's request indexes are `[0, 2]`.
 - Step 5: E5 admits both packages at their emitted `package_id`. A float
@@ -58,6 +59,8 @@ Tests: `tests/drive.rs`,
 - Step 6: both items route and generate; nothing is rejected. The `=`
   item's record is `Unsupported` with reason `no_derivable_claim` naming
   the node and CG's `OperationNotDerivable` refusal, and carries no
-  harness. The `+` item's record and harness equal what they are without
-  the `=` item: the underivable item does not affect its sibling. The
-  derived claim map holds both nodes.
+  harness. The `+` item's record and harness equal those of a run driven
+  with only the `+` item: the underivable item does not affect its
+  sibling. The derived claim map holds both nodes: the `=` node's claim is
+  `Refused` with an `Underived` operation provenance (nobody declared it),
+  the `+` node's is `Generated`, and the whole map serializes.

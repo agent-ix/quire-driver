@@ -18,16 +18,17 @@ lives downstream of both. Nothing depends on it.
 5. The `route` routing step over the items settled `supported` only.
 6. CG `generate_routed` over the routed items, each with its request index,
    its admitted `CheckedNodeId`, its routed backend and its kind, and the
-   caller's `GenerationInput` (for Kani: claim map, subject path, unwind,
-   attestation; pins are `KaniToolPins::pinned()`).
+   caller's `GenerationInput` (for Kani: subject path, unwind, attestation;
+   pins are `KaniToolPins::pinned()`). CG derives each routed item's Kani
+   claim from the node's own operation and bound (IR-294); the derived
+   claim map is returned in `generation.claim_map`, `Some` whenever a Kani
+   group ran.
 
 The registry is a value built with `build_registry` from provider manifests
 and passed in as an argument.
 
 ## Not wired yet
 
-- **Claim map.** The caller supplies the Kani claim map; IR-294 has CG
-  derive it.
 - **Requirement records.** `qsl-package` does not expose a `CheckedPackage`'s
   per-item requirement records, so the caller passes the requested items.
 

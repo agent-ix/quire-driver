@@ -331,7 +331,9 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 
 #[cfg(test)]
 mod tests {
-    use quire_contract_codegen::{KaniObligationError, RoutedGenerationError};
+    use quire_contract_codegen::{
+        KaniObligationError, OracleGenerationError, RoutedGenerationError,
+    };
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
@@ -369,6 +371,25 @@ mod tests {
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.code(), "runtime_invariant");
         assert_eq!(fault.stage(), DriverStage::Generation);
+
+        // IR-294: a whole-generation FR-014 oracle failure the driver never
+        // produces is still an internal fault, not a refusal: an unknown
+        // Contract Runtime variant and a claim-map serialization failure.
+        let fault = DriverRefusal::Generation(RoutedGenerationError::Oracle(
+            OracleGenerationError::UnknownRuntimeVariant {
+                enum_name: "IntegerDomain",
+            },
+        ));
+        assert_eq!(fault.kind(), OutcomeKind::Fault);
+        assert_eq!(fault.code(), "runtime_invariant");
+        assert_eq!(fault.stage(), DriverStage::Generation);
+
+        let fault = DriverRefusal::Generation(RoutedGenerationError::Oracle(
+            OracleGenerationError::ClaimMapSerialization,
+        ));
+        assert_eq!(fault.kind(), OutcomeKind::Fault);
+        assert_eq!(fault.code(), "runtime_invariant");
+        assert_eq!(fault.stage(), DriverStage::Generation);
     }
 
     /// FR-001-AC-5 (TC-004): E5's reader limit and CG's Kani item ceiling
@@ -387,6 +408,15 @@ mod tests {
 
         let limit = DriverRefusal::Generation(RoutedGenerationError::Kani(
             KaniObligationError::TooManyItems { count: 9 },
+        ));
+        assert_eq!(limit.kind(), OutcomeKind::Limit);
+        assert_eq!(limit.code(), "resource_exhausted");
+        assert_eq!(limit.stage(), DriverStage::Generation);
+
+        // IR-294: an oversized generated oracle source is a limit, the same
+        // as the Kani item ceiling.
+        let limit = DriverRefusal::Generation(RoutedGenerationError::Oracle(
+            OracleGenerationError::SourceTooLarge { bytes: 1 },
         ));
         assert_eq!(limit.kind(), OutcomeKind::Limit);
         assert_eq!(limit.code(), "resource_exhausted");
