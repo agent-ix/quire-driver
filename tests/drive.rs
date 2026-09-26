@@ -90,17 +90,31 @@ const TWO_PARAM_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 
 /// A unit with an integer `+` whose one operand's domain (`x: Int[0, 9]`)
 /// puts every exact result (`[100, 109]`) outside the declared result bound
-/// (`Int[0, 10]`): CG's own synthetic fixtures settle this shape
-/// `Unsupported`/`ResultBoundUnreachable` (`quire-contract-codegen`'s
-/// `tc_033_qsl_shaped_literal_and_consumer_refusals_have_no_harness`), but
-/// QSL's own checker proves the same disjoint-interval fact first and
-/// refuses to emit the package at all (`Unproved(Range { .. })`, at the
-/// check stage): see
-/// `tc_006_x_plus_100_result_bound_is_unreachable_before_cg_ever_sees_it`.
+/// (`Int[0, 10]`), with no conditional to hide it behind: QSL's own checker
+/// proves the identical disjoint-interval fact and refuses to emit the
+/// package at all (`Unproved(Range { .. })`, at the check stage), before CG
+/// is ever called. This is one shape, not every shape: `DEAD_BRANCH_UNIT`
+/// below reaches CG's own `Unsupported`/`ResultBoundUnreachable` for the
+/// identical reachable range, because QSL does not discharge that
+/// coercion at all inside a branch it proves dead.
 const OVERFLOW_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
     function unreachable_result using v(x: Int[0, 9]): Int[0, 10] pure { x + 100 }\n";
+
+/// A unit whose `+` (`x + 100`) is the same shape `OVERFLOW_UNIT` declares,
+/// but reached only through an `if` branch QSL's checker proves dead
+/// (`x > 20` never holds over `x: Int[0, 9]`): QSL's `Facts::walk` never
+/// discharges a coercion inside a branch it proves unreachable, so the
+/// package still emits. CG ignores path conditions (`reachable_results`
+/// ranges every operand over its full declared domain, live branch or
+/// dead), so routing this `+` to Kani settles the same
+/// `Unsupported`/`ResultBoundUnreachable` `OVERFLOW_UNIT`'s direct case
+/// never reaches CG to report.
+const DEAD_BRANCH_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
+    profile v = \"quire.value.complete/v1\" version \"1\" digest \
+    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
+    function unreachable_branch using v(x: Int[0, 9]): Int[0, 10] pure { if x > 20 then x + 100 else 0 }\n";
 
 /// A unit that `import`s a library the driver's `DependencyInput::default()`
 /// (ADR-015 D-1) supplies nothing for: S4 source resolution refuses it at
@@ -280,6 +294,13 @@ fn negate_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
 fn overflow_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
     CompileInput {
         bytes: OVERFLOW_UNIT.as_bytes(),
+        ..input(packages)
+    }
+}
+
+fn dead_branch_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+    CompileInput {
+        bytes: DEAD_BRANCH_UNIT.as_bytes(),
         ..input(packages)
     }
 }
@@ -725,6 +746,7 @@ fn tc_006_x_plus_1_settles_supported() {
         .as_ref()
         .expect("a supported item carries its harness");
     assert_eq!(harness.identity.node_id, add);
+    assert_eq!(harness.identity.operation_identity, "quire.op.integer.add");
     // `x` ranges its own `[0, 9]` domain; the literal `1` is held at exactly
     // its own value, not ranged over `1`'s plain scalar type.
     let bounds: Vec<(i64, i64)> = harness
@@ -734,6 +756,16 @@ fn tc_006_x_plus_1_settles_supported() {
         .map(|argument| (argument.minimum, argument.maximum))
         .collect();
     assert_eq!(bounds, [(0, 9), (1, 1)]);
+    // The declared result bound, `Int[0, 10]`: not in `ScalarObligationIdentity`
+    // itself, only rendered into the harness source's non-vacuity assertion.
+    assert!(
+        harness
+            .rust
+            .contents
+            .contains("rt::Integer::from(0_i64), rt::Integer::from(10_i64)"),
+        "{}",
+        harness.rust.contents
+    );
 }
 
 /// FR-001-AC-6 (TC-006), IR-302: `TWO_PARAM_UNIT`'s `+` (`x + y`) settles
@@ -769,6 +801,7 @@ fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
         .as_ref()
         .expect("a supported item carries its harness");
     assert_eq!(harness.identity.node_id, add);
+    assert_eq!(harness.identity.operation_identity, "quire.op.integer.add");
     let bounds: Vec<(i64, i64)> = harness
         .identity
         .arguments
@@ -776,26 +809,30 @@ fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
         .map(|argument| (argument.minimum, argument.maximum))
         .collect();
     assert_eq!(bounds, [(0, 9), (10, 20)]);
+    // The narrowing conversion's own result bound, `Int[10, 29]`: not in
+    // `ScalarObligationIdentity` itself, only rendered into the harness
+    // source's non-vacuity assertion.
+    assert!(
+        harness
+            .rust
+            .contents
+            .contains("rt::Integer::from(10_i64), rt::Integer::from(29_i64)"),
+        "{}",
+        harness.rust.contents
+    );
 }
 
-/// FR-001-AC-6 (TC-006), IR-302: CG's own typed refusal for this exact
-/// shape (`OVERFLOW_UNIT`'s `+`, `x + 100` into `Int[0, 10]`) is
-/// `Unsupported`/`ResultBoundUnreachable`, with `operation_identity`
-/// `quire.op.integer.add`, `lower` 0, `upper` 10, `reachable_lower` "100"
-/// and `reachable_upper` "109" -- confirmed against CG's own
-/// `quire-contract-codegen` fixture test
-/// `tc_033_qsl_shaped_literal_and_consumer_refusals_have_no_harness`, which
-/// builds this shape by hand rather than compiling it. Real QSL never
-/// emits it: QSL's own checker proves the identical disjoint-interval fact
-/// (the same exact-integer-arithmetic reachability question CG's harness
-/// generator asks) and refuses to compile the unit at all, at the check
-/// stage, before CG is ever called. `ResultBoundUnreachable` is unreached
-/// dead code from this driver's own perspective -- every call it makes
-/// goes to genuinely QSL-compiled units, and QSL's own proof and CG's own
-/// reachability computation ask the same question over the same integers,
-/// so whatever would trip CG's check has already tripped QSL's.
+/// FR-001-AC-6 (TC-006): `OVERFLOW_UNIT`'s `+` (`x + 100` directly in the
+/// return context of `Int[0, 10]`) never reaches CG at all: QSL's own
+/// checker proves the identical disjoint-interval fact CG's
+/// `ResultBoundUnreachable` names (the same exact-integer-arithmetic
+/// reachability question over `[100, 109]` against `[0, 10]`) and refuses
+/// to compile the unit, at the check stage. This is one shape, not a
+/// general proof that CG's refusal is unreachable -- see
+/// `tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable`
+/// for a QSL-compiled unit that does reach it.
 #[test]
-fn tc_006_x_plus_100_result_bound_is_unreachable_before_cg_ever_sees_it() {
+fn tc_006_x_plus_100_in_the_return_context_is_refused_at_check() {
     let registry = build_registry(&[]).expect("an empty registry builds");
     let packages = BTreeMap::new();
 
@@ -811,6 +848,79 @@ fn tc_006_x_plus_100_result_bound_is_unreachable_before_cg_ever_sees_it() {
     assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Check));
     assert_eq!(refusal.code(), "undefined_expression/unproved-range");
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
+}
+
+/// FR-001-AC-6 (TC-006), IR-302: `DEAD_BRANCH_UNIT` compiles -- QSL's
+/// `Facts::walk` proves `x > 20` is never true over `x: Int[0, 9]` and
+/// never discharges the dead branch's coercion, so the checked package
+/// still emits. The driver's generation output for its `+` equals a direct
+/// `generate_routed` call over the same routed item (the same pass-through
+/// invariant every other `tc_006_x_plus_*` test asserts), which is
+/// `Unsupported`/`ResultBoundUnreachable`: CG ignores the `if x > 20`
+/// guard and ranges `x` over its full declared `[0, 9]` domain, so every
+/// exact result still lies in `[100, 109]`, disjoint from the declared
+/// `[0, 10]`. No harness is carried.
+#[test]
+fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
+    let checked = drive(
+        &QslCg,
+        dead_branch_input(&BTreeMap::new()),
+        &build_registry(&[]).expect("an empty registry builds"),
+        &[],
+        GenerationInput::default(),
+    )
+    .expect("QSL does not discharge a dead branch's coercion, so this compiles")
+    .checked;
+    let (add, add_wire) = expression_by_identity(&checked, "quire.op.integer.add");
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+
+    let driven = drive(
+        &QslCg,
+        dead_branch_input(&packages),
+        &registry,
+        &[item_at(add_wire, Capability::ValueValidity, None)],
+        kani_input(),
+    )
+    .expect("the run completes");
+
+    let backend = kani_candidate(&driven);
+    let pins = KaniToolPins::pinned();
+    let expected = generate_routed(
+        &checked,
+        &[RoutedGenerationItem {
+            request_index: 0,
+            node_id: add.clone(),
+            backend,
+            kind: BackendKind::Kani,
+        }],
+        &GenerationContexts {
+            kani: Some(KaniGenerationContext {
+                subject_path: "crate::subject",
+                pins: &pins,
+                unwind: 1,
+                attestation: attestation(),
+            }),
+        },
+    )
+    .expect("CG generates for the routed item");
+    assert_eq!(driven.generation, expected);
+
+    let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
+    assert!(harness.is_none(), "{:?}", harness);
+    assert_eq!(
+        record.disposition,
+        ObligationDisposition::Unsupported {
+            reason: UnsupportedObligation::ResultBoundUnreachable {
+                operation_identity: "quire.op.integer.add".to_owned(),
+                lower: 0,
+                upper: 10,
+                reachable_lower: "100".to_owned(),
+                reachable_upper: "109".to_owned(),
+            }
+        }
+    );
 }
 
 /// FR-001-AC-6 (TC-006): the generation output is keyed by the driver's

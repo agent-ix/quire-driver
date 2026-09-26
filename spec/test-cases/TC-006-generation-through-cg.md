@@ -40,6 +40,8 @@ Scope: FR-001-AC-6, FR-001-AC-7, FR-001-AC-8.
    pure { x + y }`, routing the `+` node to `kani`.
 9. Drive `function unreachable_result using v(x: Int[0, 9]): Int[0, 10]
    pure { x + 100 }`, with no items.
+10. Drive `function unreachable_branch using v(x: Int[0, 9]): Int[0, 10]
+    pure { if x > 20 then x + 100 else 0 }`, routing its `+` node to `kani`.
 
 Tests: `tests/drive.rs`,
 `tc_001_tc_003_tc_006_steps_run_in_order_through_generation`,
@@ -49,8 +51,9 @@ Tests: `tests/drive.rs`,
 `tc_006_x_plus_1_generation_passes_through_unchanged`,
 `tc_006_x_plus_y_generation_passes_through_unchanged`,
 `tc_006_x_plus_1_settles_supported`,
-`tc_006_x_plus_y_settles_supported_with_independent_argument_bounds` and
-`tc_006_x_plus_100_result_bound_is_unreachable_before_cg_ever_sees_it`.
+`tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`,
+`tc_006_x_plus_100_in_the_return_context_is_refused_at_check` and
+`tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable`.
 
 ## Expected Results
 
@@ -94,7 +97,16 @@ Tests: `tests/drive.rs`,
   CG's own `ResultBoundUnreachable` refusal names the identical
   disjoint-interval fact (confirmed against CG's own fixture test,
   `quire-contract-codegen`'s
-  `tc_033_qsl_shaped_literal_and_consumer_refusals_have_no_harness`), but
-  is unreached from any unit this driver's own tests compile: QSL's proof
-  and CG's reachability computation ask the same question over the same
-  integers, so whatever would trip CG's check has already tripped QSL's.
+  `tc_033_qsl_shaped_literal_and_consumer_refusals_have_no_harness`). This
+  is one shape, not a general guarantee that the refusal is unreachable:
+  step 10 reaches it.
+- Step 10's unit compiles: QSL's `Facts::walk` proves `x > 20` is never
+  true over `x: Int[0, 9]` and never discharges the dead branch's
+  coercion, so the checked package still emits. The driver's output for
+  the routed `+` equals a direct `generate_routed` call over the same
+  routed item (the same pass-through invariant every other
+  `tc_006_x_plus_*` test asserts), which is
+  `Unsupported`/`ResultBoundUnreachable` (`quire.op.integer.add`, `[0,
+  10]` against reachable `[100, 109]`), with no harness: CG ignores the
+  dead `if x > 20` guard and ranges `x` over its full declared `[0, 9]`
+  domain regardless.

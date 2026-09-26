@@ -24,11 +24,18 @@ lives downstream of both. Nothing depends on it.
    a unary operation over a bounded parameter, and a binary operation with
    a bounded operand beside a literal or beside another independently
    bounded operand (QSL's own narrowing `conversion` shape), all settle
-   `Supported`. A plain-`Integer` parameter beside a bounded operand still
-   settles `RequiresBound`, and a node with more than one narrowing caller
-   still settles `Unsupported`/`AmbiguousBound`, until IR-304. The derived
-   claim map is returned in `generation.claim_map`, `Some` whenever a Kani
-   group ran. CG also returns the FR-014 oracle crate it generated in
+   `Supported`. Real limits remain: an operand that is neither bounded nor
+   a literal (a plain-`Integer` parameter, a nested subexpression, or a
+   negative literal, which QSL emits as a negate node) still settles
+   `RequiresBound`; a node narrowed to more than one distinct bound, or
+   consumed by both a narrowing conversion and any other node, still
+   settles `Unsupported`/`AmbiguousBound` (several narrowing conversions to
+   the *same* bound dedupe and settle `Supported`), until IR-304; and path
+   conditions are ignored until IR-304 -- CG ranges every operand over its
+   full declared domain regardless of the `if` guard that reaches it, live
+   or proved dead. The derived claim map is returned in
+   `generation.claim_map`, `Some` whenever a Kani group ran. CG also
+   returns the FR-014 oracle crate it generated in
    `generation.oracle_artifacts` (IR-300), which the driver does not yet
    write out (Kani execution is blocked on IR-301).
 

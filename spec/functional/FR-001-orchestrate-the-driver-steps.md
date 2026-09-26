@@ -176,27 +176,46 @@ QSL-emitted package:
 - A literal that pushes every exact result outside the declared bound
   settles `Unsupported`/`ResultBoundUnreachable`, naming the reachable and
   declared ranges: no harness is rendered, since no argument assignment
-  gives a result a harness could assume. QSL's own checker proves the
-  identical disjoint-interval fact over the same integers first, though,
-  and refuses to compile the unit at all (`Unproved`/`unproved-range`, at
-  the check stage) -- so this shape is unreached from any unit this
-  driver's own tests compile (`tests/drive.rs`,
-  `tc_006_x_plus_100_result_bound_is_unreachable_before_cg_ever_sees_it`).
+  gives a result a harness could assume. Directly in the return context
+  (e.g. `x + 100` into `Int[0, 10]` over `x: Int[0, 9]`), QSL's own checker
+  proves the identical disjoint-interval fact first and refuses to compile
+  the unit at all (`Unproved`/`unproved-range`, at the check stage), so CG
+  is never called for that shape. That is one shape, not a general
+  guarantee: CG's own reachability computation ignores path conditions
+  (below), so the identical refusal is reached whenever the same
+  arithmetic sits behind a branch QSL's checker proves dead -- `if x > 20
+  then x + 100 else 0` compiles, because QSL never discharges a coercion
+  inside a branch it proves unreachable, and the `+` still settles
+  `Unsupported`/`ResultBoundUnreachable` when routed.
 
-Two limits remain, both refusals rather than internal faults:
+Real limits remain, all refusals rather than internal faults:
 
-- A plain-`Integer` parameter beside a bounded operand, or one under a
-  narrowing conversion (not a literal), still settles `RequiresBound`,
-  naming its own type.
+- **Path conditions are ignored, until IR-304.** CG's reachability
+  computation ranges every operand over its full declared domain,
+  regardless of the `if` guard that reaches it: a dead branch's arithmetic
+  is checked as if it always ran (above), and a live branch fares no
+  better -- `if x > 5 then x + 100 else 0` into `Int[0, 200]` settles
+  `Supported`, but ranges `x` over its full `[0, 9]` domain rather than the
+  guard's own `[6, 9]` (harness args `[(0, 9), (100, 100)]`, not `x`
+  narrowed by the guard).
+- **`RequiresBound` is not confined to a plain-`Integer` parameter.** Any
+  operand that is neither bounded nor a literal reaches it, including a
+  nested subexpression and a negative literal (QSL emits `-1` as a negate
+  node, not an inline literal): the outer `+` of `(x + 1) + 1` over
+  `Int[0, 9]` into `Int[0, 20]`; both the `*` and the negate of `x * -1`
+  over `Int[1, 9]` into `Int[-9, -1]`; and the negate of `-(x + 1)`.
 - A node narrowed by more than one distinct bound, or consumed by both a
   narrowing conversion and any other node, settles `Unsupported`
-  (`AmbiguousBound`), until IR-304.
+  (`AmbiguousBound`), until IR-304. Several narrowing conversions to the
+  *same* bound dedupe and settle `Supported`; only distinct bounds are
+  ambiguous.
 
 `tests/drive.rs` covers these shapes:
 `tc_001_tc_003_tc_006_steps_run_in_order_through_generation` (the unary
 case), `tc_006_x_plus_1_settles_supported`,
-`tc_006_x_plus_y_settles_supported_with_independent_argument_bounds` and
-`tc_006_x_plus_100_result_bound_is_unreachable_before_cg_ever_sees_it`,
+`tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`,
+`tc_006_x_plus_100_in_the_return_context_is_refused_at_check` and
+`tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable`,
 alongside the unconditional pass-through checks
 (`tc_006_x_plus_1_generation_passes_through_unchanged`,
 `tc_006_x_plus_y_generation_passes_through_unchanged`). The driver passes
