@@ -72,15 +72,21 @@ four TCs are stale.
 
 ## Dispositions
 
-Re-checked at debdda46387c04a4d7a8ef6aca80abdec0d7d000 (fix round, one commit
-on top of 5e8003c).
+Re-checked by the reviewer at fc265183ce5962a5697a2a5364f127a190cf1cda
+(fix commit debdda4). The coder's Dispositions section in the committed
+copy of this file was written by the coder. It is superseded by this
+section.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | debdda4. TC-001, TC-003, TC-006 and TC-007 are rewritten for routing from `requirements()`: TC-001 step 2 and TC-003 steps 1-5 name the real units and record counts each test actually drives; TC-006's steps and Tests list name every current test function (including the two SR-013 FND-001/FND-004 fallout tests were not needed here, but the new `tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_index` and `tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported` are listed in TC-003/TC-004); TC-006 step 10 now covers the guard `>` item; TC-007 step 2's `UnknownNode` case is replaced with a pointer to TC-004's fault-mapping test. |
-| FND-002 | fixed | debdda4. FR-001:82-91, AC-6 and the command-level-refusal bullet now state the unknown-node case as an internal fault (`DriverFault::UnknownNode`, `runtime_invariant`), reachable only through an E4/E5 inconsistency; TC-007 points at its own unit test in `src/refusal.rs` instead of a caller-input case. |
-| FND-003 | fixed | debdda4. AC-3 "only supported" and AC-6 "ascending" now have `tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_index` (a genuine mixed/gapped settlement set, built through the `Recorder::negotiate` seam since real input cannot construct one) and restored positional asserts in the underivable-sibling test. AC-8's sibling differential is restored in that same test via a direct `generate_routed` call over the `-` item alone, compared by full equality. |
-| FND-004 | fixed | debdda4. `tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported` drives `named = Some("kani")` where `kani` is registered but advertises a different kind, and asserts `dispositions[0]["cause"]["backend"] == "kani"` -- this is the `envelope()` half of `named`'s two uses (CG's own `negotiate_item` reads `Cause::UnsupportedRequestedCapability.backend` verbatim from `item.named_backend`), which the existing unregistered-backend test does not exercise (its `UnknownBackend` cause comes from the `Candidates::UnknownBackend` variant, not from `named_backend`). The `items_from_requirements` half stays covered by the existing unregistered test (dropping `named` there would flip that test's disposition from `invalid-request` to `supported`). The two halves could not be combined into one drive of a single test: CG's `BackendKind::ALL` names exactly one kind at this pin, so the registry can never hold a second backend for `named` to narrow away from without MD-2 refusing the run first -- documented as a limitation in the new test's own doc comment rather than left implicit. |
-| FND-005 | fixed | debdda4. The no-scalar test's doc comment now opens `FR-001-AC-3 and FR-001-AC-6 (TC-003)`, and TC-003 step 5 / its Tests list name it. |
+| FND-001 | fixed debdda4 | TC-001, TC-003, TC-004, TC-006 and TC-007 now describe routing from `requirements()`. They name only test functions that exist; every name was checked against tests/drive.rs and src/refusal.rs. TC-003 steps 1-5 map one-to-one to tests, and TC-006 step 10 covers the guard `>` item. |
+| FND-002 | fixed debdda4 | FR-001's Behavior, AC-6 and the fault bullet, TC-004 step 5 and TC-007 now state the unknown-node case as an internal fault. `src/refusal.rs` covers the mapping. |
+| FND-003 | fixed (partly) debdda4 | AC-3 "only supported" is backed by the mixed test, and mutant MA is caught. AC-8's sibling differential is restored, by full equality with a direct `generate_routed` call. AC-6 "ascending" is backed by positional asserts in the EQ test. AC-6's "each with ... its admitted `CheckedNodeId`" has no oracle when positions and request indexes diverge: mutant MB survives. See SR-013 FND-006. |
+| FND-004 | fixed (partly), rest open as FND-006 | The envelope use of `named` is now backed by `tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported`, and mutant M2 is caught. The coder's deviation is accepted on its premise and rejected on its conclusion. The premise holds: CG edade59 `BackendKind::ALL = [Self::Kani]`. The claim that the unregistered test covers the `items_from_requirements` use is false: mutant M1 survives. A `Recorder` envelope capture does detect it. See FND-006 below and SR-013 FND-007. |
+| FND-005 | fixed debdda4 | The no-scalar test is tagged `FR-001-AC-3 and FR-001-AC-6 (TC-003)` and is listed as TC-003 step 5. |
 
-Disposition-pass gate at debdda4: `/tmp/claude-1000/-home-peter-dev/09ab4eba-c376-42ef-aaec-be2e14ce86e4/scratchpad/qsl-1-routes-ci-r1.log`, first line `debdda46387c04a4d7a8ef6aca80abdec0d7d000`, last line `exit=0`. `tests/drive.rs` shows 19 passed (was 17). No new findings.
+### New findings (disposition pass)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | The `items_from_requirements` use of `named` (the candidate-set narrowing) has no test. Mutant M1 (`None` in place of `named`) leaves all 19 drive tests green, because CG re-derives the same `unknown-backend` cause from the envelope's `named_backend`. Failure scenario: the driver sends CG a candidate set that ignores the named backend, and nothing notices until CG gains a second backend kind. Fix: capture the envelope in `Recorder::negotiate` and assert `items[0].candidates == Candidates::UnknownBackend("missing")` for `named = Some("missing")`. Also correct the test doc comment's false claim (SR-013 FND-007). | src/drive.rs:129; tests/drive.rs:705-735 |

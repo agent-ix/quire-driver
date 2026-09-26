@@ -116,15 +116,35 @@ repo idioms are in `CLAUDE.md`, `clippy.toml` and the `[lints]` table
 
 ## Dispositions
 
-Re-checked at debdda46387c04a4d7a8ef6aca80abdec0d7d000 (fix round, one commit
-on top of 5e8003c).
+Re-checked by the reviewer at fc265183ce5962a5697a2a5364f127a190cf1cda
+(fix commit debdda4, then the SR-artifacts commit fc26518). The coder's
+Dispositions section in the committed copy of this file was written by
+the coder, not the reviewer. It is superseded by this section.
 
 | FND | Outcome | sha/reason |
 | --- | --- | --- |
-| FND-001 | fixed | debdda4. `Recorder::negotiate` now rewrites the real CG negotiation answer for `EQ_UNIT`, forcing item 0 (the `=`) `unsupported`, in the new `tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_index`. It asserts `routed`/generated indexes `[1]`, `Route { supported: 1, dispositions: 1 }` and `Generate { items: 1 }`, and its own doc explains the positional check: the routed and generated item sits at list position 0 but carries request index 1. I re-ran this with `route_supported` changed to key by loop position instead of `settlement.request_index` (a local, uncommitted edit, reverted after) and confirmed the test goes red on that regression alone. The underivable-sibling test also restores positional (`items[0]`/`items[1]`) asserts, covering AC-6's ascending-order clause with two genuinely `supported`, routed items. |
-| FND-002 | fixed | debdda4. `DriverRefusal::UnknownNode` moved to `DriverFault::UnknownNode` (stage Generation, code `runtime_invariant`, kind Fault), covered by a new case in `src/refusal.rs`'s `tc_004_a_fault_is_an_internal_fault_with_runtime_invariant`. FR-001:82-91 and AC-6 now describe it as an internal fault reachable only through an E4/E5 inconsistency; TC-007 states the same and points at the `refusal.rs` test rather than a caller-input case. |
-| FND-003 | fixed | debdda4. The underivable-sibling test now calls `generate_routed` directly over the `-` item alone (`request_index: 1`, the same node/backend/kind) and asserts the whole routed item (`RoutedItem`, disposition and harness together) equals the combined run's `-` item, not just a few destructured fields. |
-| FND-004 | fixed | debdda4. The dead-branch test asserts the guard `>` item's full disposition: `Unsupported { OperationNotRendered { operation_identity: "quire.op.integer.gt", derived_domains: [IntegerRange { bound: <x's own [0,9] node>, lower: "0", upper: "9" }] } }`, with `harness.is_none()`. The bound node is resolved structurally (a new `integer_range_bound` helper matching the node's own `min`/`max` literals), not hard-coded. I independently re-measured this against a fresh single-declaration `x > 20` unit (no dead branch, no `+`) via a temporary probe test (not committed): it settles the identical disposition, confirming CG's own rule (`OperationNotRendered`: IR-confirmed operation, no Kani renderer for any family but `IntegerArithmetic`) rather than an artifact of the dead-branch shape. |
-| FND-005 | fixed | debdda4. `expression`/`expression_by_identity` now return `CheckedNodeId` alone; every call site (9) dropped its unused `_*_wire` binding, and the `WireNodeId` import is gone. `INT_UNIT`'s doc now says the narrowing `conversion` is excluded from `is_scalar_application` by name and is not itself a requirement record. |
+| FND-001 | fixed (partly), rest open as FND-006 | debdda4 fixes the route half. The new `tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_index` (tests/drive.rs:1204) forces item 0 `unsupported` through the new `Recorder::unsupported_at` seam. It asserts routed `[1]`, generated `[1]`, `Route { supported: 1, dispositions: 1 }` and `Generate { items: 1 }`. The EQ test's positional asserts are restored. Reviewer mutant MA (`indexes.push(indexes.len())` in `route_supported`) turns that test red, as the coder reported. Reviewer mutant MB (`generate` resolves the node with `items.get(position)`) survives all 19 tests. See FND-006. |
+| FND-002 | fixed debdda4 | `DriverRefusal::UnknownNode` is now `DriverFault::UnknownNode`: stage Generation, `runtime_invariant`, kind Fault (src/refusal.rs, src/drive.rs:192-197). The guard is kept, the mapping has a case in `tc_004_a_fault_is_an_internal_fault_with_runtime_invariant`, and FR-001's Behavior, AC-6, TC-004 step 5 and TC-007 now describe it as an internal fault. |
+| FND-003 | fixed debdda4 | The EQ test calls `generate_routed` directly over the `-` item alone (request index 1) and asserts `*neg_item == alone.items[0]`. That is full equality of the routed item: request index, disposition and harness. |
+| FND-004 | fixed debdda4 | The guard `>` item is asserted by full equality: `Unsupported { OperationNotRendered { "quire.op.integer.gt", [IntegerRange { x's [0,9] bound node, "0", "9" }] } }` with `harness.is_none()`. The bound node is resolved by the new `integer_range_bound` helper, not hard-coded. This matches the reviewer's own 5e8003c measurement. |
+| FND-005 | fixed debdda4 | The helpers return `CheckedNodeId` only, the `WireNodeId` import is gone from tests/drive.rs, and the `INT_UNIT` doc is corrected. |
 
-Disposition-pass gate at debdda4: `/tmp/claude-1000/-home-peter-dev/09ab4eba-c376-42ef-aaec-be2e14ce86e4/scratchpad/qsl-1-routes-ci-r1.log`, first line `debdda46387c04a4d7a8ef6aca80abdec0d7d000`, last line `exit=0`. `tests/drive.rs` shows 19 passed (was 17), `src/refusal.rs` shows 2 passed (was 2, one case added inside the existing test), 0 ignored throughout. No new findings.
+### New findings (disposition pass)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | medium | The generation half of FND-001 is still untested. Mutant MB changes `generate` to resolve each routed item's node by its position in `routed` (`items.get(position)`) instead of by `request_index`. All 19 drive tests pass under it. In the mixed test, the lone routed item at request index 1 then generates over `items[0]`, the `=` node, while still carrying request index 1. The test asserts only the generated index list `[1]`, never which node was generated. Failure scenario: generation silently produces the wrong node's record and harness under the right request index, and the ticket's done-when ("same routed items") is no longer guarded. Fix: in `tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_index`, assert that the generated item's record is `Supported` and that its `harness.identity.node_id` is the `-` node, or compare it with a direct `generate_routed` over the `-` item alone, as the EQ test now does. | src/drive.rs:186-191; tests/drive.rs:1204-1256 |
+| FND-007 | low | The doc comment of `tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported` states something false. It says the `items_from_requirements` use of `named` "is covered by that same unregistered-backend test instead (dropping `named` there would settle `supported` instead of `invalid-request`)". Mutant M1 passes `None` to `items_from_requirements`, and all 19 tests stay green. The reason: CG edade59's `negotiate_item` calls `unroutable_named_backend(item.named_backend)` right after the candidate match (capability.rs:556-560). With the envelope still carrying `named_backend: "missing"`, that call settles the same `invalid-request`/`unknown-backend { backend: "missing" }` from the other half. The deviation's premise is true: `BackendKind::ALL` is `[Self::Kani]` (capability.rs:455), and any other registered id refuses under MD-2 before negotiation. So no end-to-end disposition can tell the two uses apart. The conclusion that no test can detect the drop is false, though. The `Recorder` seam sees the envelope. Record `envelope.items[i].candidates` in `Recorder::negotiate`, drive `named = Some("missing")`, and assert `Candidates::UnknownBackend("missing")`. Under M1 it is `Candidates::Set([kani])`. Low severity: at this CG pin the drop changes only the FR-331 wire field, not any settlement. | tests/drive.rs:705-735; src/drive.rs:129 |
+
+Disposition-pass gate: `make ci` at fc26518, log
+`/tmp/claude-1000/-home-peter-dev/09ab4eba-c376-42ef-aaec-be2e14ce86e4/scratchpad/rv-drv8/make-ci-r1.log`.
+The first line is `fc265183ce5962a5697a2a5364f127a190cf1cda`, and the last
+line is `exit=0`. Tests: 2 unit, 1 dependency-edges and 19 in
+`tests/drive.rs`, all passing with 0 ignored. Mutants were run with
+`scratchpad/rv-drv8/mutants.sh`, and the source was restored after each
+one:
+- MA: red, caught by the mixed test.
+- MB: survives.
+- M1: survives.
+- M2 (`named_backend: None` in `envelope`): red, caught by the
+  registered-named test.
