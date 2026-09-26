@@ -38,6 +38,8 @@ Scope: FR-001-AC-6, FR-001-AC-7, FR-001-AC-8.
 7. Drive the `+` node of step 4's unit alone, routed to `kani`.
 8. Drive `function add using v(x: Int[0, 9], y: Int[10, 20]): Int[10, 29]
    pure { x + y }`, routing the `+` node to `kani`.
+9. Drive `function unreachable_result using v(x: Int[0, 9]): Int[0, 10]
+   pure { x + 100 }`, with no items.
 
 Tests: `tests/drive.rs`,
 `tc_001_tc_003_tc_006_steps_run_in_order_through_generation`,
@@ -46,9 +48,9 @@ Tests: `tests/drive.rs`,
 `tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected`,
 `tc_006_x_plus_1_generation_passes_through_unchanged`,
 `tc_006_x_plus_y_generation_passes_through_unchanged`,
-`tc_006_x_plus_1_settles_supported` (ignored, IR-302) and
-`tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`
-(ignored, IR-302).
+`tc_006_x_plus_1_settles_supported`,
+`tc_006_x_plus_y_settles_supported_with_independent_argument_bounds` and
+`tc_006_x_plus_100_result_bound_is_unreachable_before_cg_ever_sees_it`.
 
 ## Expected Results
 
@@ -75,18 +77,24 @@ Tests: `tests/drive.rs`,
   sibling. The derived claim map holds both nodes: the `=` node's claim is
   `Refused` with an `Underived` operation provenance (nobody declared it),
   the `-` node's is `Generated`, and the whole map serializes.
-- Steps 7 and 8's intended outcome, once IR-302 is fixed, is `Supported`:
-  step 7's `+` item ranges its one argument over `x`'s own `[0, 9]` domain
-  (the literal `1` needs no bound of its own); step 8's `+` item ranges its
-  two arguments over `x`'s `[0, 9]` and `y`'s `[10, 20]` domains
-  independently. Today, through real QSL output, CG's IR-298 rule settles
-  step 7 `RequiresBound` (naming the literal's own unbounded type: QSL
-  represents every literal as a reference to its own plain-typed value
-  node, never inline) and step 8 `Unsupported` (`AmbiguousBound`: `x` and
-  `y` each own a bound and nothing else is reachable from the `+` node
-  itself, so removing both leaves none) -- this is CG's own regression,
-  tracked as IR-302, not the driver's expected behavior. The driver's own
-  tests assert the pass-through invariant unconditionally (the driver's
-  output equals a direct `generate_routed` call, whatever CG settles) and
-  keep the intended-`Supported` assertions `#[ignore]`d until IR-302
-  lands.
+- Step 7's `+` item settles `Supported`, ranging its one argument over
+  `x`'s own `[0, 9]` domain: the literal `1` is a reference to its own
+  plain-typed `value` node, which IR-302 reads as a literal operand (its
+  body decides it, not its type), owning no bound and constrained to
+  exactly its own value.
+- Step 8's `+` item settles `Supported`, ranging its two arguments over
+  `x`'s `[0, 9]` and `y`'s `[10, 20]` domains independently: the `+`
+  node's own type is the plain scalar type, and only the declared
+  context's narrowing `conversion` consumes it, so IR-302 reads the
+  conversion's own `[10, 29]` bound as the `+` node's result bound.
+- Step 9's unit does not compile: QSL's own checker proves `x + 100`'s
+  every exact result (`[100, 109]`) is disjoint from the declared `[0,
+  10]` result bound and refuses at the check stage
+  (`undefined_expression`/`unproved-range`), before CG is ever called.
+  CG's own `ResultBoundUnreachable` refusal names the identical
+  disjoint-interval fact (confirmed against CG's own fixture test,
+  `quire-contract-codegen`'s
+  `tc_033_qsl_shaped_literal_and_consumer_refusals_have_no_harness`), but
+  is unreached from any unit this driver's own tests compile: QSL's proof
+  and CG's reachability computation ask the same question over the same
+  integers, so whatever would trip CG's check has already tripped QSL's.

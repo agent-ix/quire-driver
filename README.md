@@ -20,11 +20,17 @@ lives downstream of both. Nothing depends on it.
    its admitted `CheckedNodeId`, its routed backend and its kind, and the
    caller's `GenerationInput` (for Kani: subject path, unwind, attestation;
    pins are `KaniToolPins::pinned()`). CG derives each routed item's Kani
-   claim from the node's own operation and bound (IR-294, IR-298); the
-   derived claim map is returned in `generation.claim_map`, `Some`
-   whenever a Kani group ran. CG also returns the FR-014 oracle crate it
-   generated in `generation.oracle_artifacts` (IR-300), which the driver
-   does not yet write out (Kani execution is blocked on IR-301).
+   claim from the node's own operation and bound (IR-294, IR-298, IR-302):
+   a unary operation over a bounded parameter, and a binary operation with
+   a bounded operand beside a literal or beside another independently
+   bounded operand (QSL's own narrowing `conversion` shape), all settle
+   `Supported`. A plain-`Integer` parameter beside a bounded operand still
+   settles `RequiresBound`, and a node with more than one narrowing caller
+   still settles `Unsupported`/`AmbiguousBound`, until IR-304. The derived
+   claim map is returned in `generation.claim_map`, `Some` whenever a Kani
+   group ran. CG also returns the FR-014 oracle crate it generated in
+   `generation.oracle_artifacts` (IR-300), which the driver does not yet
+   write out (Kani execution is blocked on IR-301).
 
 The registry is a value built with `build_registry` from provider manifests
 and passed in as an argument. The diagnostics catalog reference E5's

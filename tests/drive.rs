@@ -37,12 +37,11 @@ const UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// A unit with an integer `+` (a `binary` expression) under a range
 /// `conversion` expression: two nodes a Kani item can name. The `+`'s own
 /// operands are `x` (owns its `[0, 9]` bound) and the literal `1`, which
-/// QSL represents as a reference to a plain-typed literal value node with
-/// no bound of its own: since `x` owns a bound and `1`'s reference does
-/// not, CG's IR-298 rule settles this `+` `RequiresBound`, not `Supported`
-/// -- CG's current regression, tracked as IR-302, not the intended outcome
-/// (`NEGATE_UNIT` below is the one-owned-bound case that already settles
-/// `Supported`).
+/// QSL represents as a reference to its own plain-typed `value` node: CG's
+/// IR-302 reads that reference as a literal operand (its body decides it,
+/// not its type), owning no bound and constrained to exactly its own
+/// value, so this `+` settles `Supported` (`NEGATE_UNIT` below is the
+/// one-owned-bound unary case, also `Supported`).
 const INT_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
@@ -68,20 +67,13 @@ const EQ_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// ranging that one argument over `z`'s own domain.
 ///
 /// A genuine two-operand case with each argument independently bounded
-/// (e.g. `x + y` over `Int[0, 9]` and `Int[10, 20]`) does not settle
-/// `Supported` through real QSL output today: QSL always wraps arithmetic
-/// in a separate narrowing `conversion` node when the declared context is
-/// bounded, and that conversion's own bound is not reachable from the
-/// arithmetic node itself (IR's `bounds` closure is forward-only, from the
-/// node's own body reference targets). So a `+` over two independently
-/// bounded operands has exactly the two operands' own bounds reachable and
-/// nothing else; IR-298 requires exactly one bound that is nobody's own to
-/// resolve the result role, and removing both operands' own bounds here
-/// leaves zero, which is `AmbiguousBound`, not `Supported` (IR-302; see
-/// `tc_006_x_plus_y_generation_passes_through_unchanged` for how CG and QSL
-/// actually behave today, and
-/// `tc_006_x_plus_y_settles_supported_with_independent_argument_bounds` for
-/// the intended outcome).
+/// (e.g. `x + y` over `Int[0, 9]` and `Int[10, 20]`) also settles
+/// `Supported`: QSL always wraps arithmetic in a separate narrowing
+/// `conversion` node when the declared context is bounded, so the `+`
+/// node's own type is the plain scalar type, and only that conversion
+/// consumes it. IR-302 reads the result bound of a scalar-typed node
+/// consumed only by narrowing conversions as the one bound they narrow it
+/// to (see `tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`).
 const NEGATE_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
@@ -89,11 +81,26 @@ const NEGATE_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 
 /// A unit with an integer `+` over two parameters, each owning its own
 /// bound (`x: Int[0, 9]`, `y: Int[10, 20]`): see `NEGATE_UNIT`'s doc for why
-/// this settles `AmbiguousBound`, not `Supported`.
+/// this settles `Supported`, ranging each argument over its own operand's
+/// domain.
 const TWO_PARAM_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
     function add using v(x: Int[0, 9], y: Int[10, 20]): Int[10, 29] pure { x + y }\n";
+
+/// A unit with an integer `+` whose one operand's domain (`x: Int[0, 9]`)
+/// puts every exact result (`[100, 109]`) outside the declared result bound
+/// (`Int[0, 10]`): CG's own synthetic fixtures settle this shape
+/// `Unsupported`/`ResultBoundUnreachable` (`quire-contract-codegen`'s
+/// `tc_033_qsl_shaped_literal_and_consumer_refusals_have_no_harness`), but
+/// QSL's own checker proves the same disjoint-interval fact first and
+/// refuses to emit the package at all (`Unproved(Range { .. })`, at the
+/// check stage): see
+/// `tc_006_x_plus_100_result_bound_is_unreachable_before_cg_ever_sees_it`.
+const OVERFLOW_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
+    profile v = \"quire.value.complete/v1\" version \"1\" digest \
+    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
+    function unreachable_result using v(x: Int[0, 9]): Int[0, 10] pure { x + 100 }\n";
 
 /// A unit that `import`s a library the driver's `DependencyInput::default()`
 /// (ADR-015 D-1) supplies nothing for: S4 source resolution refuses it at
@@ -266,6 +273,13 @@ fn two_param_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
 fn negate_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
     CompileInput {
         bytes: NEGATE_UNIT.as_bytes(),
+        ..input(packages)
+    }
+}
+
+fn overflow_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+    CompileInput {
+        bytes: OVERFLOW_UNIT.as_bytes(),
         ..input(packages)
     }
 }
@@ -531,12 +545,8 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
     // argument over `z`'s own domain (`scalar_result_bound`'s
     // single-candidate arm resolves it directly; no own-bound filtering
     // runs at all). `INT_UNIT`'s `x + 1` and `TWO_PARAM_UNIT`'s `x + y` are
-    // the two-operand cases CG's IR-298 currently settles `RequiresBound`
-    // and `AmbiguousBound` on, not `Supported` -- a regression tracked as
-    // IR-302, not the intended rule (see
-    // `tc_006_x_plus_1_settles_supported` and
-    // `tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`,
-    // both `#[ignore]`d until it lands).
+    // the two-operand cases IR-302 fixes (see `tc_006_x_plus_1_settles_supported`
+    // and `tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`).
     let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
     assert!(
         matches!(record.disposition, ObligationDisposition::Supported { .. }),
@@ -682,15 +692,13 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
     assert_eq!(driven.generation, expected);
 }
 
-/// FR-001-AC-6 (TC-006), IR-302: the intended outcome for `INT_UNIT`'s `+`
-/// (`x + 1`) is `Supported`, with `x`'s own `[0, 9]` domain covering both
-/// arguments (CG's own tc_033 shape). CG's IR-298 currently settles this
-/// `RequiresBound` instead, naming the literal `1`'s own unbounded type:
-/// QSL represents every literal as a reference to its own plain-typed
-/// value node, never inline, so this trips CG's "plain reference beside an
-/// owned bound" rule. Tracked as IR-302.
+/// FR-001-AC-6 (TC-006), IR-302: `INT_UNIT`'s `+` (`x + 1`) settles
+/// `Supported`. CG's IR-302 reads a `reference` to a `value` node whose
+/// body is a literal as a literal operand (QSL's own shape for `1`), not a
+/// plain-typed unbounded reference: the literal owns no bound and is
+/// constrained to its own value, so only `x`'s own `[0, 9]` domain ranges
+/// the first argument.
 #[test]
-#[ignore = "IR-302: IR-298 two-operand shapes on QSL output"]
 fn tc_006_x_plus_1_settles_supported() {
     let checked = int_package().checked;
     let (add, add_wire) = expression(&checked, "binary");
@@ -717,25 +725,24 @@ fn tc_006_x_plus_1_settles_supported() {
         .as_ref()
         .expect("a supported item carries its harness");
     assert_eq!(harness.identity.node_id, add);
+    // `x` ranges its own `[0, 9]` domain; the literal `1` is held at exactly
+    // its own value, not ranged over `1`'s plain scalar type.
     let bounds: Vec<(i64, i64)> = harness
         .identity
         .arguments
         .iter()
         .map(|argument| (argument.minimum, argument.maximum))
         .collect();
-    assert_eq!(bounds, [(0, 9), (0, 9)]);
+    assert_eq!(bounds, [(0, 9), (1, 1)]);
 }
 
-/// FR-001-AC-6 (TC-006), IR-302: the intended outcome for `TWO_PARAM_UNIT`'s
-/// `+` (`x + y`) is `Supported`, ranging each argument over its own
-/// operand's domain: `x`'s `[0, 9]`, then `y`'s `[10, 20]`. CG's IR-298
-/// currently settles this `AmbiguousBound` instead: `x` and `y` each own a
-/// bound and nothing else is reachable from the `+` node itself (the
-/// return type's narrowing `conversion` is unreachable from its own
-/// operand), so removing both operands' own bounds from the candidates
-/// leaves none. Tracked as IR-302.
+/// FR-001-AC-6 (TC-006), IR-302: `TWO_PARAM_UNIT`'s `+` (`x + y`) settles
+/// `Supported`, ranging each argument over its own operand's domain: `x`'s
+/// `[0, 9]`, then `y`'s `[10, 20]`. The `+` node's own type is the plain
+/// scalar type; only a narrowing `conversion` consumes it, so CG reads the
+/// conversion's own `[10, 29]` bound as the `+` node's result bound
+/// (IR-302), rather than treating it as unreachable.
 #[test]
-#[ignore = "IR-302: IR-298 two-operand shapes on QSL output"]
 fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
     let checked = two_param_package().checked;
     let (add, add_wire) = expression(&checked, "binary");
@@ -769,6 +776,41 @@ fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
         .map(|argument| (argument.minimum, argument.maximum))
         .collect();
     assert_eq!(bounds, [(0, 9), (10, 20)]);
+}
+
+/// FR-001-AC-6 (TC-006), IR-302: CG's own typed refusal for this exact
+/// shape (`OVERFLOW_UNIT`'s `+`, `x + 100` into `Int[0, 10]`) is
+/// `Unsupported`/`ResultBoundUnreachable`, with `operation_identity`
+/// `quire.op.integer.add`, `lower` 0, `upper` 10, `reachable_lower` "100"
+/// and `reachable_upper` "109" -- confirmed against CG's own
+/// `quire-contract-codegen` fixture test
+/// `tc_033_qsl_shaped_literal_and_consumer_refusals_have_no_harness`, which
+/// builds this shape by hand rather than compiling it. Real QSL never
+/// emits it: QSL's own checker proves the identical disjoint-interval fact
+/// (the same exact-integer-arithmetic reachability question CG's harness
+/// generator asks) and refuses to compile the unit at all, at the check
+/// stage, before CG is ever called. `ResultBoundUnreachable` is unreached
+/// dead code from this driver's own perspective -- every call it makes
+/// goes to genuinely QSL-compiled units, and QSL's own proof and CG's own
+/// reachability computation ask the same question over the same integers,
+/// so whatever would trip CG's check has already tripped QSL's.
+#[test]
+fn tc_006_x_plus_100_result_bound_is_unreachable_before_cg_ever_sees_it() {
+    let registry = build_registry(&[]).expect("an empty registry builds");
+    let packages = BTreeMap::new();
+
+    let refusal = drive(
+        &QslCg,
+        overflow_input(&packages),
+        &registry,
+        &[],
+        GenerationInput::default(),
+    )
+    .expect_err("QSL's own checker refuses a result bound its own arithmetic disproves");
+
+    assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Check));
+    assert_eq!(refusal.code(), "undefined_expression/unproved-range");
+    assert_eq!(refusal.kind(), OutcomeKind::Refused);
 }
 
 /// FR-001-AC-6 (TC-006): the generation output is keyed by the driver's

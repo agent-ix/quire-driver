@@ -127,7 +127,7 @@ the admitted package only at the `package_id` E4 emitted.
   step, routing step); `qsl_package::diagnostics_catalog()` (QSL-260, #453).
 - CG `negotiate_backend_provider` and `BackendKind::from_identity`
   (agent-ix/quire-contract-codegen#86); CG `generate_routed` (CG FR-022,
-  IR-293, IR-294, IR-298, IR-300).
+  IR-293, IR-294, IR-298, IR-300, IR-302).
 - IR `quire-contract-model`: `read_checked_package`, `CheckedPackageV2`,
   `CheckedNodeId`.
 
@@ -152,48 +152,55 @@ the derived claim map) and to parse `cargo metadata`'s JSON
 (`tests/dependency_edges.rs`).
 
 CG's Kani arm derives each routed node's operand and result bound roles
-from what the node itself names (IR-298): an operand's bound is the
-`bounded_domain` typing it, and the result bound is the domain typing the
-node's result, or the one reachable bound that is nobody's operand. On a
+from what the node itself names (IR-298, IR-302): an operand's bound is
+the `bounded_domain` typing it; a `reference` operand whose target is a
+`value` node with a literal body is a literal operand instead, owning no
+bound of its own (constrained to exactly its own value); and the result
+bound is the domain typing the node's result, the one `bounded_domain` a
+narrowing `conversion` alone narrows the node to (QSL's own shape for an
+expression in a bounded context: the node's own type is the plain scalar
+type, and the declared bound types a separate `conversion` node that
+consumes it), or the one reachable bound that is nobody's operand. On a
 QSL-emitted package:
 
 - A unary operation over one bounded parameter (e.g. `-z` over `z: Int[0,
-  9]`) settles `Supported`, ranging its one argument over `z`'s own domain:
-  `scalar_result_bound`'s single-candidate arm resolves the result role
-  directly, so no own-bound filtering runs at all.
-- A binary operation with one bounded operand and one that is not (e.g.
-  `x + 1` over `x: Int[0, 9]`) settles `RequiresBound`, naming the
-  unbounded operand's own type: QSL represents every literal as a
-  reference to its own plain-typed value node, never as an inline literal
-  term, so this is CG's "a reference operand typed by a plain scalar type
-  beside one that owns a bound" rule, not the exempted inline-literal case.
-- A binary operation with two independently bounded operands (e.g. `x + y`
-  over `x: Int[0, 9]`, `y: Int[10, 20]`) settles `Unsupported`
-  (`AmbiguousBound`), not `Supported`, through real QSL output today: QSL
-  always wraps arithmetic in a separate narrowing `conversion` node when
-  the declared context is bounded, and that conversion's own bound is not
-  reachable from the arithmetic node itself (IR's `bounds` closure is
-  forward-only, from the node's own body reference targets). So the node's
-  only reachable candidates are its two operands' own bounds; removing
-  both as "someone's own" leaves none, which CG reports as ambiguous
-  rather than resolved. IR-298's own two-bounded-parameter case (its title)
-  needs the arithmetic node's own result type to be directly the target
-  bounded domain, unwrapped -- a shape CG's own synthetic test corpus
-  builds directly but real QSL compilation does not appear to produce for
-  a bounded-context arithmetic expression.
+  9]`) settles `Supported`, ranging its one argument over `z`'s own domain.
+- A binary operation with one bounded operand and one literal (e.g.
+  `x + 1` over `x: Int[0, 9]`) settles `Supported`: the literal is
+  constrained to exactly its own value, and `x`'s own domain ranges the
+  other argument.
+- A binary operation with two independently bounded operands, narrowed by
+  a `conversion` to the declared result bound (e.g. `x + y` over
+  `x: Int[0, 9]`, `y: Int[10, 20]`, narrowed to `Int[10, 29]`) settles
+  `Supported`, ranging each argument over its own operand's domain.
+- A literal that pushes every exact result outside the declared bound
+  settles `Unsupported`/`ResultBoundUnreachable`, naming the reachable and
+  declared ranges: no harness is rendered, since no argument assignment
+  gives a result a harness could assume. QSL's own checker proves the
+  identical disjoint-interval fact over the same integers first, though,
+  and refuses to compile the unit at all (`Unproved`/`unproved-range`, at
+  the check stage) -- so this shape is unreached from any unit this
+  driver's own tests compile (`tests/drive.rs`,
+  `tc_006_x_plus_100_result_bound_is_unreachable_before_cg_ever_sees_it`).
 
-The `x + 1` and `x + y` shapes above are CG's current, regressed behavior,
-not the intended one -- tracked as IR-302. `tests/drive.rs` asserts the
-pass-through invariant unconditionally for both
+Two limits remain, both refusals rather than internal faults:
+
+- A plain-`Integer` parameter beside a bounded operand, or one under a
+  narrowing conversion (not a literal), still settles `RequiresBound`,
+  naming its own type.
+- A node narrowed by more than one distinct bound, or consumed by both a
+  narrowing conversion and any other node, settles `Unsupported`
+  (`AmbiguousBound`), until IR-304.
+
+`tests/drive.rs` covers these shapes:
+`tc_001_tc_003_tc_006_steps_run_in_order_through_generation` (the unary
+case), `tc_006_x_plus_1_settles_supported`,
+`tc_006_x_plus_y_settles_supported_with_independent_argument_bounds` and
+`tc_006_x_plus_100_result_bound_is_unreachable_before_cg_ever_sees_it`,
+alongside the unconditional pass-through checks
 (`tc_006_x_plus_1_generation_passes_through_unchanged`,
-`tc_006_x_plus_y_generation_passes_through_unchanged`), alongside
-`tc_001_tc_003_tc_006_steps_run_in_order_through_generation`'s own
-unary-operand pass-through check, and keeps the intended-outcome tests
-`#[ignore]`d until IR-302 lands
-(`tc_006_x_plus_1_settles_supported`,
-`tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`). The
-driver passes CG's output through unchanged in every case, regardless of
-which of CG's shapes it settles.
+`tc_006_x_plus_y_generation_passes_through_unchanged`). The driver passes
+CG's output through unchanged in every case.
 
 CG at IR-300 (#180) also returns `RoutedGeneration::oracle_artifacts`, the
 FR-014 crate the Kani arm generated (`Cargo.toml`, `src/lib.rs` and
