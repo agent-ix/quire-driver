@@ -19,7 +19,7 @@ use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{BackendId, Candidate, ManifestDigest, RegistrationCause};
 use qsl_semantics::check::CheckingLimits;
 use quire_contract_codegen::{
-    generate_routed, AttestationContext, BackendKind, BackendProviderEnvelope, Cause,
+    generate_routed, AttestationContext, BackendKind, BackendProviderEnvelope, Candidates, Cause,
     ClaimDerivationRefusal, ClaimDisposition, DerivedDomain, Disposition, EnvelopeRefusal,
     GenerationContexts, ItemSettlement, KaniGenerationContext, KaniToolPins, KindOutput,
     ObligationDisposition, OperationProvenance, RoutedGeneration, RoutedGenerationError,
@@ -174,11 +174,27 @@ struct Recorder {
     /// and an `Int` parameter with no declared range does not parse -- so
     /// this is the seam a test uses to build one (SR-013 FND-001).
     unsupported_at: Option<usize>,
+    /// The envelope `negotiate` was last called with, captured so a test can
+    /// read `named`'s effect on each item's own `candidates` -- the
+    /// `items_from_requirements` half of `named` -- independently of
+    /// whatever CG's negotiation settles from `named_backend` (the
+    /// `envelope` half). Every real settlement re-derives an unregistered
+    /// named backend's cause from `named_backend` alone
+    /// (`unroutable_named_backend`), so a settlement-only test cannot tell
+    /// the two uses of `named` apart (SR-013 FND-007, SR-014 FND-006).
+    envelope: RefCell<Option<BackendProviderEnvelope>>,
 }
 
 impl Recorder {
     fn calls(&self) -> Vec<Call> {
         self.calls.borrow().clone()
+    }
+
+    fn envelope(&self) -> BackendProviderEnvelope {
+        self.envelope
+            .borrow()
+            .clone()
+            .expect("negotiate was called")
     }
 }
 
@@ -222,6 +238,7 @@ impl Upstream for Recorder {
         self.calls.borrow_mut().push(Call::Negotiate {
             items: envelope.items.len(),
         });
+        *self.envelope.borrow_mut() = Some(envelope.clone());
         let mut settlements = QslCg.negotiate(envelope)?;
         if let Some(index) = self.unsupported_at {
             if let Some(settlement) = settlements.get_mut(index) {
@@ -667,6 +684,23 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
 /// backend, for every item -- `qsl_route::Registry::candidates` returns
 /// `CandidateOutcome::UnknownBackend` regardless of capability kind. Nothing
 /// settled this way is routed or generated.
+///
+/// `named` reaches CG two ways from `drive` (SR-013 FND-007, SR-014
+/// FND-006): threaded into `items_from_requirements`, it is what
+/// `Registry::candidates` narrows this item's own candidate set against,
+/// which becomes the wire item's `candidates`; threaded into `envelope`
+/// separately, it is `named_backend` on that same wire item. A settlement
+/// alone cannot tell the two apart here: CG's `negotiate_item` calls
+/// `unroutable_named_backend(item.named_backend)` and settles
+/// `invalid-request`/`unknown-backend { backend: "missing" }` straight from
+/// `named_backend`, before it ever looks at `candidates`
+/// (`unroutable_named_backend`, capability.rs). So this also captures the
+/// envelope `negotiate` was called with, through the `Recorder` seam, and
+/// asserts the item's own `candidates` directly: `Candidates::UnknownBackend
+/// ("missing")`, which only `items_from_requirements` threading `named`
+/// through `Registry::candidates` can produce (dropping `named` there
+/// leaves `kani` as the sole advertiser of `value-validity`, giving
+/// `Candidates::Set([kani])` instead, with the settlement unchanged).
 #[test]
 fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
@@ -693,6 +727,13 @@ fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
     assert_eq!(dispositions[0]["disposition"], "invalid-request");
     assert_eq!(dispositions[0]["cause"]["cause"], "unknown-backend");
     assert_eq!(dispositions[0]["cause"]["backend"], "missing");
+
+    let envelope = recorder.envelope();
+    assert_eq!(envelope.items.len(), 1);
+    assert_eq!(
+        envelope.items[0].candidates,
+        Candidates::UnknownBackend("missing".to_owned())
+    );
 
     assert!(driven.routed.is_empty());
     assert_eq!(driven.generation, RoutedGeneration::default());
@@ -723,14 +764,20 @@ fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
 /// does not cover, since that test's `UnknownBackend` cause comes from the
 /// `candidates` variant itself, not from `named_backend`.
 ///
-/// `items_from_requirements`'s own use of `named` is covered by that same
-/// unregistered-backend test instead (dropping `named` there would settle
-/// `supported` instead of `invalid-request`, since `kani` alone advertises
-/// `value-validity` once `named` no longer excludes it). A single test
-/// cannot exercise both drops at once here: CG's `BackendKind::ALL` names
-/// exactly one kind (`Kani`) at this pin, so the registry can never hold a
-/// second backend for `named` to narrow *away from* without MD-2 refusing
-/// the run first (`tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order`).
+/// `items_from_requirements`'s own use of `named` (the candidate-set
+/// narrowing) is *not* proven by that same unregistered-backend test's
+/// settlement: CG's `negotiate_item` calls `unroutable_named_backend
+/// (item.named_backend)` and settles `invalid-request`/`unknown-backend`
+/// straight from `named_backend`, before it consults `candidates` at all,
+/// so the settlement alone cannot distinguish `candidates ==
+/// UnknownBackend("missing")` from `candidates == Set([kani])` (SR-013
+/// FND-007). That test instead asserts the item's own `candidates`
+/// directly, captured from the envelope through the `Recorder` seam. A
+/// single test still cannot exercise dropping `named` from both call sites
+/// at once *through a settlement*: CG's `BackendKind::ALL` names exactly
+/// one kind (`Kani`) at this pin, so the registry can never hold a second
+/// backend for `named` to narrow *away from* without MD-2 refusing the run
+/// first (`tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order`).
 #[test]
 fn tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported() {
     let registry = build_registry(&[manifest("kani", 7, &["operation-contract"])])
@@ -1239,6 +1286,38 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
         .map(|item| item.request_index)
         .collect();
     assert_eq!(generated_indexes, [1]);
+
+    // SR-013 FND-006: the generated item's *node* is checked too, not only
+    // its request index. `generate` resolves each routed item's node by
+    // looking it up with `items.get(request_index)`; if it instead used the
+    // routed item's position in `routed` (`items.get(position)`), position 0
+    // would resolve to `items[0]`, the `=` node -- the item negotiation just
+    // rewrote to `unsupported` -- while still reporting request index 1.
+    // Comparing the whole generation output against a direct `generate_routed`
+    // call naming the `-` node at request index 1 catches that: it would
+    // disagree with whatever CG derives for the `=` node instead.
+    let neg = expression_by_identity(&driven.checked, "quire.op.integer.negate");
+    let backend = kani_candidate(&driven);
+    let pins = KaniToolPins::pinned();
+    let expected = generate_routed(
+        &driven.checked,
+        &[RoutedGenerationItem {
+            request_index: 1,
+            node_id: neg,
+            backend,
+            kind: BackendKind::Kani,
+        }],
+        &GenerationContexts {
+            kani: Some(KaniGenerationContext {
+                subject_path: "crate::subject",
+                pins: &pins,
+                unwind: 1,
+                attestation: attestation(),
+            }),
+        },
+    )
+    .expect("CG generates for the `-` item alone");
+    assert_eq!(driven.generation, expected);
 
     assert_eq!(
         recorder.calls(),
