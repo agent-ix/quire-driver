@@ -13,8 +13,13 @@ use qsl_replay::spine::{compile, CompileRefusal, Compiled, SpineLimits};
 use qsl_route::routing::{route, Disposition};
 use qsl_route::{BackendId, Candidate};
 use quire_contract_codegen::{
-    negotiate_backend_provider, BackendKind, BackendProviderEnvelope, EnvelopeRefusal,
-    ItemSettlement,
+    generate_routed, negotiate_backend_provider, BackendKind, BackendProviderEnvelope,
+    EnvelopeRefusal, GenerationContexts, ItemSettlement, RoutedGeneration, RoutedGenerationError,
+    RoutedGenerationItem,
+};
+use quire_contract_model::{
+    read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    CheckedPackageReadLimits, CheckedPackageV2,
 };
 
 /// The QSL and CG calls [`crate::drive`] makes.
@@ -29,6 +34,15 @@ pub trait Upstream {
         limits: SpineLimits,
     ) -> Result<Compiled, Box<CompileRefusal>>;
 
+    /// E5: IR's checked-package reader,
+    /// `quire_contract_model::read_checked_package`.
+    fn read_package(
+        &self,
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        evidence: &CheckedPackageEvidence,
+    ) -> CheckedPackageDispatchResult;
+
     /// CG's one total conversion from a backend identity to its closed
     /// backend kind: `BackendKind::from_identity`.
     fn backend_kind(&self, id: &BackendId) -> Option<BackendKind>;
@@ -41,6 +55,15 @@ pub trait Upstream {
 
     /// The routing step: `qsl_route::routing::route`.
     fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>>;
+
+    /// CG generation over the routed items:
+    /// `quire_contract_codegen::generate_routed`.
+    fn generate(
+        &self,
+        package: &CheckedPackageV2,
+        routed: &[RoutedGenerationItem],
+        contexts: &GenerationContexts<'_>,
+    ) -> Result<RoutedGeneration, RoutedGenerationError>;
 }
 
 /// The production [`Upstream`]: the real QSL and CG functions.
@@ -59,6 +82,15 @@ impl Upstream for QslCg {
         compile(source, path, bytes, packages, limits)
     }
 
+    fn read_package(
+        &self,
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        evidence: &CheckedPackageEvidence,
+    ) -> CheckedPackageDispatchResult {
+        read_checked_package(bytes, limits, evidence)
+    }
+
     fn backend_kind(&self, id: &BackendId) -> Option<BackendKind> {
         BackendKind::from_identity(id.as_str())
     }
@@ -72,5 +104,14 @@ impl Upstream for QslCg {
 
     fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>> {
         route(dispositions)
+    }
+
+    fn generate(
+        &self,
+        package: &CheckedPackageV2,
+        routed: &[RoutedGenerationItem],
+        contexts: &GenerationContexts<'_>,
+    ) -> Result<RoutedGeneration, RoutedGenerationError> {
+        generate_routed(package, routed, contexts)
     }
 }

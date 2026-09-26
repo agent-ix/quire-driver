@@ -12,8 +12,13 @@ use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{BackendId, Candidate, CandidateOutcome, ManifestDigest, Mode, Registry};
 use qsl_semantics::family::Requirements;
 use quire_contract_codegen as cg;
-use quire_contract_codegen::{BackendKind, ItemSettlement};
+use quire_contract_codegen::{
+    AttestationContext, BackendKind, ClaimMap, ExactScalarClaim, ItemSettlement, KaniToolPins,
+    RoutedGeneration,
+};
+use quire_contract_model::{CheckedNodeId, CheckedPackageV2};
 
+use crate::handoff::handoff;
 use crate::{DriverFault, DriverRefusal, Upstream};
 
 /// The unit to compile, and the inputs spine `compile` takes with it.
@@ -65,6 +70,30 @@ impl Routed {
     }
 }
 
+/// Step 7's inputs: one optional context per CG backend kind. A routed
+/// item whose kind has no context refuses the run
+/// ([`DriverRefusal::Generation`]).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GenerationInput<'a> {
+    /// The Kani context.
+    pub kani: Option<KaniInput<'a>>,
+}
+
+/// The Kani generation context, less the tool pins, which are always
+/// `KaniToolPins::pinned()`. Fields have CG FR-015's meanings.
+#[derive(Clone, Copy, Debug)]
+pub struct KaniInput<'a> {
+    /// The FR-014 claim map, generated from the same checked package. The
+    /// caller supplies it until CG derives it (IR-294).
+    pub claim_map: &'a ClaimMap<ExactScalarClaim>,
+    /// Rust path of the customer subject.
+    pub subject_path: &'a str,
+    /// Loop unwind bound.
+    pub unwind: u32,
+    /// Binding for the generation identity.
+    pub attestation: AttestationContext<'a>,
+}
+
 /// A completed run.
 #[derive(Debug)]
 pub struct Driven {
@@ -72,33 +101,43 @@ pub struct Driven {
     pub package: CheckedPackage,
     /// The E4 wire output: v2 bytes and `package_id`.
     pub emitted: EmittedPackage,
+    /// E5: the emitted bytes as IR's reader admitted them, at the emitted
+    /// `package_id`.
+    pub checked: CheckedPackageV2,
     /// CG's settlement of every requested item, in request order.
     pub settlements: Vec<ItemSettlement>,
     /// Every item settled `supported`, with its routed backend, in request
     /// order.
     pub routed: Vec<Routed>,
+    /// CG's generation output for the routed items, in ascending request
+    /// index. Empty when nothing was routed.
+    pub generation: RoutedGeneration,
 }
 
 /// Run one request through the driver's steps (see the crate docs).
 ///
 /// `registry` is the value [`crate::build_registry`] built; `items` are the
-/// items to negotiate, in request order.
+/// items to negotiate, in request order; `generation` holds the context of
+/// each CG backend kind an item may be routed to.
 pub fn drive(
     upstream: &impl Upstream,
     input: CompileInput<'_>,
     registry: &Registry,
     items: &[RequestedItem],
+    generation: GenerationInput<'_>,
 ) -> Result<Driven, DriverRefusal> {
     // Steps 1 and 2: S1 to S4, then the E4 emitter.
     let compiled = upstream
         .compile(
-            input.source,
+            input.source.clone(),
             input.path,
             input.bytes,
             input.packages,
             input.limits,
         )
         .map_err(DriverRefusal::Compile)?;
+    // E5: IR admits the emitted bytes at the emitted `package_id`.
+    let checked = handoff(upstream, &input, &compiled.emitted)?;
 
     // T-13 order: the `route` candidate step, then every registered
     // BackendId through CG's one conversion, then E7.
@@ -122,12 +161,71 @@ pub fn drive(
     // The routing step: the `supported` items, and only those.
     let routed = route_supported(upstream, &settlements, &candidate_sets, &kinds)?;
 
+    // Step 7: CG generation for the routed items.
+    let generation = generate(upstream, &checked, items, &routed, generation)?;
+
     Ok(Driven {
         package: compiled.package,
         emitted: compiled.emitted,
+        checked,
         settlements,
         routed,
+        generation,
     })
+}
+
+/// CG generation over `routed`. Each item's node is resolved by lookup in
+/// the admitted package, never converted from its wire spelling. Nothing
+/// routed means no call.
+fn generate(
+    upstream: &impl Upstream,
+    checked: &CheckedPackageV2,
+    items: &[RequestedItem],
+    routed: &[Routed],
+    generation: GenerationInput<'_>,
+) -> Result<RoutedGeneration, DriverRefusal> {
+    if routed.is_empty() {
+        return Ok(RoutedGeneration::default());
+    }
+    let nodes: BTreeMap<&str, &CheckedNodeId> = checked
+        .graph()
+        .nodes
+        .iter()
+        .map(|node| (node.node_id.digest.as_ref(), &node.node_id))
+        .collect();
+    let mut generation_items = Vec::with_capacity(routed.len());
+    for item in routed {
+        let request_index = item.request_index;
+        let node = items
+            .get(request_index)
+            .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?
+            .node;
+        let node_id = nodes
+            .get(node.to_string().as_str())
+            .ok_or(DriverRefusal::UnknownNode {
+                request_index,
+                node,
+            })?;
+        generation_items.push(cg::RoutedGenerationItem {
+            request_index,
+            node_id: (*node_id).clone(),
+            backend: cg_candidate(&item.candidate),
+            kind: item.kind,
+        });
+    }
+    let pins = KaniToolPins::pinned();
+    let contexts = cg::GenerationContexts {
+        kani: generation.kani.map(|kani| cg::KaniGenerationContext {
+            claim_map: kani.claim_map,
+            subject_path: kani.subject_path,
+            pins: &pins,
+            unwind: kani.unwind,
+            attestation: kani.attestation,
+        }),
+    };
+    upstream
+        .generate(checked, &generation_items, &contexts)
+        .map_err(DriverRefusal::Generation)
 }
 
 /// MD-2: convert every registered `BackendId` to its CG kind, or refuse

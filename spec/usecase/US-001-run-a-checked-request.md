@@ -18,7 +18,7 @@ typed reason why none can.
 
 ## Context
 
-QSL compiles and routes; CG negotiates (and will generate). Neither may call the
+QSL compiles and routes; CG negotiates and generates. Neither may call the
 other in that direction, so the driver calls both (QSL ADR-011 §6.1 driver
 row, T-13).
 
@@ -29,7 +29,8 @@ row, T-13).
 A unit compiles, Kani is registered for `value-validity`, and three items
 are requested: one `value-validity` item, one `operation-contract` item
 and one naming an unregistered backend. The first is routed to `kani`, the
-second settles `unsupported` and the third `invalid-request`.
+second settles `unsupported` and the third `invalid-request`. CG generates
+the Kani output for the first item only, keyed by its request index.
 
 ### US-001-EX-2
 

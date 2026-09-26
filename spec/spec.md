@@ -21,6 +21,10 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/TC-005
     type: contains
+  - target: ix://agent-ix/quire-driver/TC-006
+    type: contains
+  - target: ix://agent-ix/quire-driver/TC-007
+    type: contains
 ---
 # Master Requirements Specification
 
@@ -36,8 +40,8 @@ driver row) and ADR-012 §7. It is the one crate that calls both QSL and CG
 
 It compiles a unit through QSL, converts every registered backend to its CG
 kind, has CG negotiate every requested item, routes the supported items
-through QSL `route`. Handing the routed items to CG generation is not wired
-yet; see FR-001 Status. It sits downstream of QSL and CG, and nothing in its
+through QSL `route`, hands the emitted package to IR's reader (E5) and has CG
+generate for each routed item. It sits downstream of QSL and CG, and nothing in its
 lock depends on it.
 
 ## 3. System Overview
@@ -55,12 +59,14 @@ on it.
 | ID | Title |
 |---|---|
 | US-001 | Run one checked request from source to routed backends |
-| FR-001 | Orchestrate compile, backend conversion, negotiation and routing |
+| FR-001 | Orchestrate compile, backend conversion, negotiation, routing and generation |
 | TC-001 | The steps run in ADR-011 T-13 order |
 | TC-002 | An unknown `BackendId` refuses the run before negotiation |
 | TC-003 | `route` runs after negotiation, for `supported` items only |
 | TC-004 | Command-level refusals are typed |
 | TC-005 | The dependency edges match ADR-011 §6.1 and §7.1 |
+| TC-006 | E5 admits the emitted package and CG generates for the routed items |
+| TC-007 | Generation refusals are typed |
 
 ## References
 

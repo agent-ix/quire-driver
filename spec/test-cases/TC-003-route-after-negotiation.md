@@ -22,7 +22,7 @@ Scope: FR-001-AC-3.
 2. Drive one `operation-contract` item alone.
 
 Tests: `tests/drive.rs`,
-`tc_001_tc_003_steps_run_in_order_and_route_only_supported_items` and
+`tc_001_tc_003_tc_006_steps_run_in_order_through_generation` and
 `tc_003_no_supported_item_means_no_route_call`.
 
 ## Expected Results
