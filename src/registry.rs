@@ -47,8 +47,8 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<Registry, Driver
         );
         match admitted {
             Ok(descriptor) => {
-                if let Err(refusal) = registry.register(descriptor) {
-                    refusals.push(refusal);
+                if let Err(conflicts) = registry.register(descriptor) {
+                    refusals.extend(conflicts);
                 }
             }
             Err(refusal) => refusals.push(refusal),

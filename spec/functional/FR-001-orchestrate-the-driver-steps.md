@@ -102,7 +102,7 @@ the admitted package only at the `package_id` E4 emitted.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-001-AC-1 | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model`, `serde_json` and `thiserror`, the driver's `quire-contract-model` is the one CG's IR crate depends on, nothing in its lock depends on it, CG's one QSL edge is `qsl-replay`, and the driver's QSL crates and CG's `qsl-replay` share one QSL revision. Other copies of `quire-contract-model` and of QSL layer crates, reached only through CG's IR edge or QSL's own edges, are informational and not gated. | Test (TC-005) |
+| FR-001-AC-1 | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model`, `serde_json` and `thiserror`, the driver's `quire-contract-model` is the one CG's IR crate depends on, nothing in its lock depends on it, CG's one QSL edge is `qsl-replay`, and the driver's own QSL pin resolves the same `quire-contract-model` package id as the driver's own direct pin. Other copies of `quire-contract-model` and of QSL layer crates, reached only through CG's own (not yet caught up) `qsl-replay` edge or through IR's own root-crate edge, are informational and not gated. | Test (TC-005) |
 | FR-001-AC-2 | A run whose registry holds a `BackendId` with no CG kind refuses before any negotiation, with `invalid_capability`/`unknown-backend` and the unconverted ids in bytewise order. | Test (TC-002) |
 | FR-001-AC-3 | `route` is called only after negotiation, and only for `supported` items. | Test (TC-003) |
 | FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the E5 read, the candidate step, conversion, negotiation, routing, generation. | Test (TC-001) |
@@ -115,10 +115,10 @@ the admitted package only at the `package_id` E4 emitted.
 
 - QSL ADR-011 §2.1, §6.1 driver row, §7.1 and T-13; ADR-012 §7.1 and §7.2.
 - QSL `qsl-replay` (`spine::compile`) and `qsl-route` (registry, candidate
-  step, routing step).
+  step, routing step); `qsl_package::diagnostics_catalog()` (QSL-260, #453).
 - CG `negotiate_backend_provider` and `BackendKind::from_identity`
   (agent-ix/quire-contract-codegen#86); CG `generate_routed` (CG FR-022,
-  IR-293, IR-294).
+  IR-293, IR-294, IR-298, IR-300).
 - IR `quire-contract-model`: `read_checked_package`, `CheckedPackageV2`,
   `CheckedNodeId`.
 
@@ -133,26 +133,64 @@ CG's derived claim map in its output.
 E5's evidence is the unit's bytes, the caller's domain package documents,
 QSL's pinned `DefinitionLock` digests and its root feature, and the
 diagnostics catalog reference. The `DefinitionLock` digests are QSL's own
-informational constants, never checked against the definition bytes. QSL
-pins the diagnostics catalog reference inside its emitter and exports no
-accessor (QSL-260), so the driver reads it back from the emitted wire, and
-IR's `/diagnostics/catalog` staleness check is vacuous until QSL exports
-it. The read-back and the normal `serde_json` dependency go then.
+informational constants, never checked against the definition bytes. The
+diagnostics catalog reference is `qsl_package::diagnostics_catalog()`
+(QSL-260 closed by #453): the same reference QSL's own emitter pins at
+`/diagnostics/catalog`, read from QSL's own API rather than parsed back out
+of the emitted bytes. `serde_json` stays a normal dependency (ADR-011
+§6.1's driver row); this crate's own tests use it to assert wire shapes
+(settlement dispositions, the derived claim map).
 
-On a QSL-emitted package, CG's Kani arm settles the `+` of
-`x + 1` (`x: Int[0, 9]`) `Supported` with a scalar harness: QSL-261 is
-resolved by IR-296 and IR-297. IR-296 makes `require_bounds` stop treating a
-type reached only as a literal's `type` annotation as the closure's bound --
-here, the unbounded type of the literal `1` -- so it no longer masks `x`'s
-own `[0, 9]` bound, which was always reachable. IR-297 makes CG's
-`exact_scalar` follow `bounded_domain` to its base and read bounds written
-as bindings. So the tests' generation output is a record with a harness,
-and TC-006 asserts exactly that. The driver passes CG's output through
-unchanged.
+CG's Kani arm derives each routed node's operand and result bound roles
+from what the node itself names (IR-298): an operand's bound is the
+`bounded_domain` typing it, and the result bound is the domain typing the
+node's result, or the one reachable bound that is nobody's operand. On a
+QSL-emitted package:
 
-A unit with two bounded parameters still settles `Unsupported` (oracle
-refusal `AmbiguousBound`; IR-298, IR-299), a known limit this crate's tests
-do not exercise.
+- A unary operation over one bounded parameter (e.g. `-z` over `z: Int[0,
+  9]`) settles `Supported`, ranging its one argument over `z`'s own domain:
+  `scalar_result_bound`'s single-candidate arm resolves the result role
+  directly, so no own-bound filtering runs at all.
+- A binary operation with one bounded operand and one that is not (e.g.
+  `x + 1` over `x: Int[0, 9]`) settles `RequiresBound`, naming the
+  unbounded operand's own type: QSL represents every literal as a
+  reference to its own plain-typed value node, never as an inline literal
+  term, so this is CG's "a reference operand typed by a plain scalar type
+  beside one that owns a bound" rule, not the exempted inline-literal case.
+- A binary operation with two independently bounded operands (e.g. `x + y`
+  over `x: Int[0, 9]`, `y: Int[10, 20]`) settles `Unsupported`
+  (`AmbiguousBound`), not `Supported`, through real QSL output today: QSL
+  always wraps arithmetic in a separate narrowing `conversion` node when
+  the declared context is bounded, and that conversion's own bound is not
+  reachable from the arithmetic node itself (IR's `bounds` closure is
+  forward-only, from the node's own body reference targets). So the node's
+  only reachable candidates are its two operands' own bounds; removing
+  both as "someone's own" leaves none, which CG reports as ambiguous
+  rather than resolved. IR-298's own two-bounded-parameter case (its title)
+  needs the arithmetic node's own result type to be directly the target
+  bounded domain, unwrapped -- a shape CG's own synthetic test corpus
+  builds directly but real QSL compilation does not appear to produce for
+  a bounded-context arithmetic expression.
 
-`qsl-package` does not yet expose the per-item requirement records of a
-`CheckedPackage`, so the caller supplies the requested items (QSL-258).
+`tests/drive.rs` covers all three shapes
+(`tc_001_tc_003_tc_006_steps_run_in_order_through_generation`,
+`tc_006_a_literal_beside_an_owned_bound_requires_bound`,
+`tc_006_two_independently_bounded_operands_is_ambiguous_not_supported`).
+The driver passes CG's output through unchanged in every case.
+
+CG at IR-300 (#180) also returns `RoutedGeneration::oracle_artifacts`, the
+FR-014 crate the Kani arm generated (`Cargo.toml`, `src/lib.rs` and
+`claim-map.json`). The driver does not yet write these out: Kani execution
+is blocked on IR-301. `Driven::generation` still carries them unchanged for
+a future caller.
+
+`qsl_package::CheckedPackage::graph().requirements()` (#454, QSL-258) is
+not yet consumed here. Two things stand in the way of routing an item from
+it alone: `ValueFunctionFamily`, the only family QSL ships today, requests
+no FR-057 capability kind for a function declaration (FR-062-AC-4), so the
+map is empty for every unit this crate's tests compile; and even populated,
+it is keyed by checked *declaration* occurrence, not by the arbitrary body
+node (an expression like `+` or `=`) a Kani item names here. So the caller
+still supplies the requested items (`RequestedItem`), each with the node it
+names directly; this goes when a family requests capability kinds over the
+nodes a Kani item can actually name (QSL-42, QSL-43 and beyond).

@@ -33,8 +33,14 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
 - One package is named `quire-driver`, and no edge in the lock reaches a
   package of that name: nothing in this lock depends on the driver.
 - CG's one normal or build edge into QSL is `qsl-replay`.
-- The driver's five QSL crates and CG's `qsl-replay` share one source
-  revision, and the driver's `quire-contract-model` is the package id CG's
-  IR edge depends on. Other copies of `quire-contract-model` and of QSL
-  layer crates, reached only through CG's IR edge or through QSL's own
-  edges, are informational (Cargo.toml's revision note) and not gated here.
+- The driver's own QSL pin's `qsl-package` resolves the same
+  `quire-contract-model` package id as the driver's own direct pin (by
+  identity, not just by revision string): QSL-255b PR 2 removed the
+  divergent copy QSL's layer crates used to bring. The driver's
+  `quire-contract-model` is also the package id CG's IR edge depends on.
+  Two more copies remain, both outside this crate's own pins: CG's own
+  `qsl-replay` pin has not caught up to the driver's QSL revision, so it
+  still resolves an older `qsl-package` and, through it, an older
+  `quire-contract-model`; and `quire-contract-ir` (CG's IR edge) depends on
+  the QSL root crate at a revision of its own, which pins a third copy.
+  Both are informational (Cargo.toml's revision note) and not gated here.

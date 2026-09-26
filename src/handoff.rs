@@ -3,8 +3,8 @@
 //! admitted only at the `package_id` E4 emitted them under.
 
 use quire_contract_model::{
-    CheckedArtifactLocator, CheckedArtifactRef, CheckedPackageDispatchResult,
-    CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2,
+    CheckedArtifactLocator, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    CheckedPackageReadLimits, CheckedPackageV2,
 };
 
 use qsl_foundation::digest::DigestDomain;
@@ -21,7 +21,7 @@ pub(crate) fn handoff(
     input: &CompileInput<'_>,
     emitted: &EmittedPackage,
 ) -> Result<CheckedPackageV2, DriverRefusal> {
-    let evidence = evidence(input, emitted.bytes())?;
+    let evidence = evidence(input)?;
     let package = match upstream.read_package(
         emitted.bytes(),
         CheckedPackageReadLimits::bounded(),
@@ -53,15 +53,12 @@ pub(crate) fn handoff(
 ///   its root feature. Those digests are QSL's own informational constants,
 ///   never checked against the definition bytes, so they attest nothing
 ///   beyond QSL's catalog;
-/// - the diagnostics catalog reference, read from the emitted wire. QSL
-///   pins that reference inside its emitter and exports no accessor for it
-///   (QSL-260), so IR's `/diagnostics/catalog` staleness check is vacuous:
-///   the entry cannot be stale against itself. The read-back, and the normal
-///   `serde_json` dependency, go when QSL exports the accessor.
-fn evidence(
-    input: &CompileInput<'_>,
-    emitted: &[u8],
-) -> Result<CheckedPackageEvidence, DriverRefusal> {
+/// - the diagnostics catalog reference, `qsl_package::diagnostics_catalog()`
+///   (QSL-260, #453): the same reference QSL's own emitter pins at
+///   `/diagnostics/catalog`, so IR's `/diagnostics/catalog` staleness check
+///   is vacuous (the entry cannot be stale against itself), but it is read
+///   from QSL's own API rather than parsed back out of the emitted bytes.
+fn evidence(input: &CompileInput<'_>) -> Result<CheckedPackageEvidence, DriverRefusal> {
     let mut evidence = CheckedPackageEvidence::new();
     evidence.insert_artifact_bytes(
         CheckedArtifactLocator {
@@ -92,8 +89,7 @@ fn evidence(
     if let Some(root) = lock.entry(CatalogRole::Root) {
         evidence.support_feature(root.identity);
     }
-    let catalog = diagnostics_catalog(emitted)
-        .ok_or(DriverRefusal::Fault(DriverFault::DiagnosticsCatalog))?;
+    let catalog = qsl_package::diagnostics_catalog();
     evidence.insert_artifact_digest(
         CheckedArtifactLocator {
             authority: catalog.authority,
@@ -105,13 +101,4 @@ fn evidence(
         catalog.digest,
     );
     Ok(evidence)
-}
-
-/// The emitted wire's `/diagnostics/catalog`, typed as IR's artifact
-/// reference. Informational until QSL exports the reference (QSL-260);
-/// then this function and the normal `serde_json` dependency are removed.
-fn diagnostics_catalog(emitted: &[u8]) -> Option<CheckedArtifactRef> {
-    let mut wire: serde_json::Value = serde_json::from_slice(emitted).ok()?;
-    let catalog = wire.pointer_mut("/diagnostics/catalog")?.take();
-    serde_json::from_value(catalog).ok()
 }

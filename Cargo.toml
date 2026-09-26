@@ -19,44 +19,47 @@ path = "src/lib.rs"
 # (`qsl-replay`) is a normal edge and Cargo refuses a package cycle.
 #
 # Revisions (informational, not a gate): the QSL layer crates are pinned at
-# daa0178 (unchanged; QSL-255b PR 2 moves this next), and CG at 142f966 on
-# agent-ix/quire-contract-codegen main (#178, IR-294: `generate_routed` derives
-# each routed item's Kani claim from the node's operation and bound, so the
-# driver no longer builds or supplies a claim map). That CG revision still
-# pins `quire-contract-ir` at 48ab5dc (IR-296), unchanged from before. The driver's direct
-# `quire-contract-model` is set to the same 48ab5dc, so it is the same
-# package as CG's IR dependency: `tests/dependency_edges.rs` checks this by
-# identity, not just by revision string.
-# QSL's layer crates still bring a second `quire-contract-model` copy
-# (b52c263) transitively via `qsl-replay`, at the QSL revision above. A third
-# copy (7b1ec7a) arrives because `quire-contract-ir` at 48ab5dc itself depends
-# on the QSL root crate `quire-spec-language` at 9395be4 -- already QSL's own
-# main; it is the driver's own QSL pin (daa0178) above that has not caught up
-# -- which pins its own `quire-contract-model`. All three are informational,
-# not a gate: no IR type crosses between the driver's model copy and either
-# of the others at compile time (they are different Rust types even with the
-# same name), so this either compiles or it doesn't. QSL-255b PR 2 (QSL's own
-# `quire-contract-model` pin moving to 48ab5dc) removes only the b52c263
-# copy; the 7b1ec7a copy stays until IR's root crate drops its QSL edge
+# a553b7c1 on agent-ix/quire-spec-language main (#452-#455: QSL's own
+# `quire-contract-model` pin moves to 48ab5dc, plus the diagnostics-catalog
+# accessor and the per-item requirements accessor), and CG at a59eee0 on
+# agent-ix/quire-contract-codegen main (#180, IR-300, which includes #179's
+# IR-298: two bounded parameters each generate their own harness, and adds
+# `RoutedGeneration::oracle_artifacts`, the FR-014 crate the Kani arm
+# generated; the driver does not yet write it -- Kani execution is blocked
+# on IR-301). That CG revision still pins `quire-contract-ir` at 48ab5dc,
+# unchanged from #178. The driver's direct `quire-contract-model` stays at
+# the same 48ab5dc, so it is the same package as both CG's IR dependency and
+# QSL's own (via `qsl-package`, reached through `qsl-replay`):
+# `tests/dependency_edges.rs` checks this by identity, not just by revision
+# string. QSL-255b PR 2 (this bump) removes the second
+# `quire-contract-model` copy (b52c263) that QSL's layer crates used to
+# bring transitively.
+#
+# One copy remains beyond the shared 48ab5dc: `quire-contract-ir` at 48ab5dc
+# itself depends on the QSL root crate `quire-spec-language` at 9395be4 (IR's
+# own edge, not this crate's QSL pin), which pins its own `quire-contract-model`
+# at 7b1ec7a. That copy is informational, not a gate: no IR type crosses
+# between it and the shared 48ab5dc copy at compile time (they are different
+# Rust types even with the same name), so this either compiles or it doesn't.
+# It stays until IR's root crate drops its QSL edge
 # (agent-ix/quire-contract-ir#141).
 #
-# E4 (emit) and E5 (`src/handoff.rs`, read) run under different model
-# revisions until QSL and the driver converge on one: E4 is written by QSL
-# daa0178 under model b52c263, E5 reads it under the driver's own model
-# 48ab5dc, which adds new refusals (IR-287, IR-289, IR-24, `RevisionMismatch`)
-# beyond what daa0178's writer emits. So a `HandoffRefused` in this window can
-# be that version skew, not necessarily a QSL bug.
+# E4 (emit, via QSL's own `qsl-package`) and E5 (`src/handoff.rs`, read, via
+# this crate's own `quire-contract-model` pin) now run under the same model
+# revision (48ab5dc), so the version skew the previous revision comment
+# described (E4 under b52c263, E5 under 48ab5dc) is resolved.
 [dependencies]
-qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
-qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
-qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
-qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
-qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
-quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "142f9661e78d4e6d8571b499901e4179cc1b32f9" }
+qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", rev = "a553b7c1b89f953cd4a5350f51cdef37487da808" }
+qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", rev = "a553b7c1b89f953cd4a5350f51cdef37487da808" }
+qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", rev = "a553b7c1b89f953cd4a5350f51cdef37487da808" }
+qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", rev = "a553b7c1b89f953cd4a5350f51cdef37487da808" }
+qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", rev = "a553b7c1b89f953cd4a5350f51cdef37487da808" }
+quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "a59eee0c7856c2df4b9bd9345348b51a455f0a36" }
 quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", rev = "48ab5dc29213c3975a5fe8f04ecbb3d1c2b345bb" }
-# E5: the diagnostics catalog reference is read back from the emitted wire,
-# because QSL exports no accessor for it (QSL-260). This dependency goes when
-# it does (FR-001 Status).
+# ADR-011 §6.1 driver row. `serde_json` is no longer needed to read the
+# diagnostics catalog back off the emitted wire (QSL-260 is closed by #453;
+# see src/handoff.rs), but this crate's own tests still use it to assert
+# wire shapes (settlement dispositions, the derived claim map).
 serde_json = "=1.0.151"
 thiserror = "=2.0.20"
 

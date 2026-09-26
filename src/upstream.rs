@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use qsl_foundation::SourceIdentity;
-use qsl_replay::spine::{compile, CompileRefusal, Compiled, SpineLimits};
+use qsl_replay::spine::{compile, CompileRefusal, Compiled, DependencyInput, SpineLimits};
 use qsl_route::routing::{route, Disposition};
 use qsl_route::{BackendId, Candidate};
 use quire_contract_codegen::{
@@ -24,7 +24,9 @@ use quire_contract_model::{
 
 /// The QSL and CG calls [`crate::drive`] makes.
 pub trait Upstream {
-    /// S1 to S4 and the E4 emitter: `qsl_replay::spine::compile`.
+    /// S1 to S4 and the E4 emitter: `qsl_replay::spine::compile`. The
+    /// driver supplies no libraries (ADR-015 D-1): it does not yet support
+    /// compiling a unit's `import`s against caller-supplied library source.
     fn compile(
         &self,
         source: SourceIdentity,
@@ -79,7 +81,14 @@ impl Upstream for QslCg {
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
     ) -> Result<Compiled, Box<CompileRefusal>> {
-        compile(source, path, bytes, packages, limits)
+        compile(
+            source,
+            path,
+            bytes,
+            packages,
+            &DependencyInput::default(),
+            limits,
+        )
     }
 
     fn read_package(
