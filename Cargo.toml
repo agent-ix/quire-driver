@@ -37,7 +37,9 @@ qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", rev = "da
 qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "65fe6867532c3f8c9080fe48a84430b7b1c076f3" }
 quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", rev = "b52c26380cb312e6005474d70ba2b88a37246ffe" }
-# E5: the diagnostics catalog reference is read from the emitted wire (FR-001 Status).
+# E5: the diagnostics catalog reference is read back from the emitted wire,
+# because QSL exports no accessor for it (QSL-260). This dependency goes when
+# it does (FR-001 Status).
 serde_json = "=1.0.151"
 thiserror = "=2.0.20"
 

@@ -50,10 +50,14 @@ pub(crate) fn handoff(
 /// - the unit's own bytes, under its source identity (IR digests them);
 /// - each FR-056 domain package document the caller supplied;
 /// - the definition digests of QSL's pinned `DefinitionLock` catalog, and
-///   its root feature;
+///   its root feature. Those digests are QSL's own informational constants,
+///   never checked against the definition bytes, so they attest nothing
+///   beyond QSL's catalog;
 /// - the diagnostics catalog reference, read from the emitted wire. QSL
-///   pins that reference inside its emitter and exports no accessor for it,
-///   so this entry is informational: it cannot be stale against itself.
+///   pins that reference inside its emitter and exports no accessor for it
+///   (QSL-260), so IR's `/diagnostics/catalog` staleness check is vacuous:
+///   the entry cannot be stale against itself. The read-back, and the normal
+///   `serde_json` dependency, go when QSL exports the accessor.
 fn evidence(
     input: &CompileInput<'_>,
     emitted: &[u8],
@@ -104,7 +108,8 @@ fn evidence(
 }
 
 /// The emitted wire's `/diagnostics/catalog`, typed as IR's artifact
-/// reference.
+/// reference. Informational until QSL exports the reference (QSL-260);
+/// then this function and the normal `serde_json` dependency are removed.
 fn diagnostics_catalog(emitted: &[u8]) -> Option<CheckedArtifactRef> {
     let mut wire: serde_json::Value = serde_json::from_slice(emitted).ok()?;
     let catalog = wire.pointer_mut("/diagnostics/catalog")?.take();

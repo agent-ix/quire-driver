@@ -99,7 +99,7 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the E5 read, the candidate step, conversion, negotiation, routing, generation. | Test (TC-001) |
 | FR-001-AC-5 | Each command-level refusal carries its step, catalog code and outcome kind. | Test (TC-004, TC-007) |
 | FR-001-AC-6 | CG generation is called once, after routing, over the routed items only, each with its request index, its admitted `CheckedNodeId`, its routed backend and its kind; its output is keyed by request index, ascending; a missing kind context or an unknown node refuses the run. | Test (TC-006, TC-007) |
-| FR-001-AC-7 | The E5 read admits the emitted v2 bytes at the emitted `package_id`. | Test (TC-006) |
+| FR-001-AC-7 | The E5 read admits the emitted v2 bytes at the emitted `package_id`; an admitted package at another `package_id`, or an IR refusal, is an internal fault at the hand-off before any backend conversion. | Test (TC-004, TC-006) |
 
 ## Dependencies
 
@@ -120,14 +120,20 @@ The Kani claim map is supplied by the caller; IR-294 has CG derive it.
 
 E5's evidence is the unit's bytes, the caller's domain package documents,
 QSL's pinned `DefinitionLock` digests and its root feature, and the
-diagnostics catalog reference. QSL pins that reference inside its emitter
-and exports no accessor, so the driver reads it from the emitted wire; that
-entry is informational.
+diagnostics catalog reference. The `DefinitionLock` digests are QSL's own
+informational constants, never checked against the definition bytes. QSL
+pins the diagnostics catalog reference inside its emitter and exports no
+accessor (QSL-260), so the driver reads it back from the emitted wire, and
+IR's `/diagnostics/catalog` staleness check is vacuous until QSL exports
+it. The read-back and the normal `serde_json` dependency go then.
 
 On a QSL-emitted package, CG's Kani arm settles the `+` of
 `x + 1` (`x: Int[0, 9]`) `RequiresBound` today: IR's scalar lowering reaches
-an unbounded type in the node's closure. So the tests' generation output is
-a record with no harness. The driver passes CG's output through unchanged.
+an unbounded type in the node's closure (QSL-261; the missing harness
+traces to IR-296 and IR-297). So the tests' generation output is a record
+with no harness, and TC-006 asserts exactly that, so it fails once IR-296
+lands. The driver passes CG's output through
+unchanged.
 
 `qsl-package` does not yet expose the per-item requirement records of a
 `CheckedPackage`, so the caller supplies the requested items (QSL-258).

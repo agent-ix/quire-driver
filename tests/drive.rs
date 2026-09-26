@@ -17,17 +17,17 @@ use quire_contract_codegen::{
     generate_exact_scalar_oracles, generate_routed, AttestationContext, BackendKind,
     BackendProviderEnvelope, ClaimMap, EnvelopeRefusal, ExactScalarClaim, ExactScalarItem,
     ExactScalarOperation, GenerationContexts, IntegerOperator, ItemSettlement,
-    KaniGenerationContext, KaniToolPins, RoutedGeneration, RoutedGenerationError,
-    RoutedGenerationItem, IR_CANDIDATE_REVISION,
+    KaniGenerationContext, KaniToolPins, KindOutput, ObligationDisposition, RoutedGeneration,
+    RoutedGenerationError, RoutedGenerationItem, IR_CANDIDATE_REVISION,
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageV2,
+    CheckedPackageRefusal, CheckedPackageRefusalCode, CheckedPackageV2,
 };
 use quire_contract_runtime::exact::{Integer, IntegerDomain, IntegerInterval};
 use quire_driver::{
-    build_registry, drive, CompileInput, Driven, DriverRefusal, DriverStage, GenerationInput,
-    KaniInput, OutcomeKind, ProviderManifest, QslCg, RequestedItem, Upstream,
+    build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
+    GenerationInput, KaniInput, OutcomeKind, ProviderManifest, QslCg, RequestedItem, Upstream,
 };
 
 const UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
@@ -67,6 +67,8 @@ enum Call {
 #[derive(Default)]
 struct Recorder {
     calls: RefCell<Vec<Call>>,
+    /// When set, the IR read answers this instead of reading.
+    read_answer: Option<CheckedPackageDispatchResult>,
 }
 
 impl Recorder {
@@ -95,7 +97,10 @@ impl Upstream for Recorder {
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageDispatchResult {
         self.calls.borrow_mut().push(Call::ReadPackage);
-        QslCg.read_package(bytes, limits, evidence)
+        match &self.read_answer {
+            Some(answer) => answer.clone(),
+            None => QslCg.read_package(bytes, limits, evidence),
+        }
     }
 
     fn backend_kind(&self, id: &BackendId) -> Option<BackendKind> {
@@ -211,8 +216,7 @@ fn expression(package: &CheckedPackageV2, form: &str) -> (CheckedNodeId, WireNod
 /// The FR-014 claim map of the `+` node, as the caller supplies it.
 fn claim_map(package: &CheckedPackageV2, add: &CheckedNodeId) -> ClaimMap<ExactScalarClaim> {
     let domain = IntegerDomain::Bounded(
-        IntegerInterval::new(Integer::from(-1000_i64), Integer::from(1000_i64))
-            .expect("a valid interval"),
+        IntegerInterval::new(Integer::from(0_i64), Integer::from(9_i64)).expect("a valid interval"),
     );
     let items = [ExactScalarItem {
         node_id: add.clone(),
@@ -390,6 +394,19 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
     assert_eq!(driven.generation.items.len(), 1);
     assert_eq!(driven.generation.items[0].request_index, 0);
     assert_eq!(driven.generation.items[0].backend, backend);
+    // QSL-261, IR-296, IR-297: IR's scalar lowering reaches an unbounded
+    // type in `x + 1`'s closure, so CG settles it `RequiresBound` with no
+    // harness. This fails once IR-296 lands; update it to the harness then.
+    let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
+    assert!(
+        matches!(
+            record.disposition,
+            ObligationDisposition::RequiresBound { .. }
+        ),
+        "{:?}",
+        record.disposition
+    );
+    assert!(harness.is_none());
 
     assert_eq!(
         recorder.calls(),
@@ -606,4 +623,103 @@ fn tc_004_command_level_refusals_are_typed() {
     let refusal = build_registry(&[manifest("kani", 1, &["not-a-kind"])])
         .expect_err("an unknown kind refuses the registration");
     assert_eq!(refusal.code(), "invalid_capability/unknown-kind");
+}
+
+/// FR-001-AC-5 and FR-001-AC-7 (TC-004): E5 accepts only the package it
+/// emitted. An IR answer admitting another package, or refusing the bytes,
+/// is an internal fault at the hand-off, and nothing after the IR read runs.
+#[test]
+fn tc_004_e5_identity_and_refusal_are_faults() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let other = drive(
+        &QslCg,
+        input(&packages),
+        &build_registry(&[]).expect("an empty registry builds"),
+        &[],
+        GenerationInput::default(),
+    )
+    .expect("UNIT drives")
+    .checked;
+    let refusal = CheckedPackageRefusal {
+        code: CheckedPackageRefusalCode::MalformedWire,
+        path: None,
+        cause: None,
+        locus: None,
+        contract_version: None,
+    };
+
+    for answer in [
+        CheckedPackageDispatchResult::AdmittedV2(Box::new(other.clone())),
+        CheckedPackageDispatchResult::Refused(refusal.clone()),
+    ] {
+        let recorder = Recorder {
+            read_answer: Some(answer.clone()),
+            ..Recorder::default()
+        };
+        let driven = drive(
+            &recorder,
+            int_input(&packages),
+            &registry,
+            &[item(1, Capability::ValueValidity, None)],
+            GenerationInput::default(),
+        )
+        .expect_err("E5 refuses a package it did not emit");
+        match (&answer, &driven) {
+            (
+                CheckedPackageDispatchResult::AdmittedV2(_),
+                DriverRefusal::Fault(DriverFault::PackageIdMismatch { emitted, admitted }),
+            ) => {
+                assert_eq!(admitted, other.package_id().digest.as_ref());
+                assert_ne!(emitted, admitted);
+            }
+            (
+                CheckedPackageDispatchResult::Refused(_),
+                DriverRefusal::Fault(DriverFault::HandoffRefused(refused)),
+            ) => assert_eq!(refused, &refusal),
+            _ => panic!("unexpected refusal {driven:?} for {answer:?}"),
+        }
+        assert_eq!(driven.stage(), DriverStage::Handoff);
+        assert_eq!(driven.kind(), OutcomeKind::Fault);
+        assert_eq!(driven.code(), "runtime_invariant");
+        assert_eq!(recorder.calls(), [Call::Compile, Call::ReadPackage]);
+    }
+}
+
+/// FR-001-AC-7 (TC-006): E5 admits units with text and rational parameter
+/// types at their emitted `package_id`.
+#[test]
+fn tc_006_e5_admits_text_and_rational_units() {
+    let registry = build_registry(&[]).expect("an empty registry builds");
+    let packages = BTreeMap::new();
+    for declaration in [
+        "function h using v(x: Text[1, 5; nfc]): Boolean pure { true }",
+        "function g using v(x: Rational[0, 9; 1, 9]): Boolean pure { true }",
+    ] {
+        let unit = format!(
+            "language \"ix:native\" edition \"1-draft\";\n\
+            profile v = \"quire.value.complete/v1\" version \"1\" digest \
+            \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
+            {declaration}\n"
+        );
+        let recorder = Recorder::default();
+        let driven = drive(
+            &recorder,
+            CompileInput {
+                bytes: unit.as_bytes(),
+                ..input(&packages)
+            },
+            &registry,
+            &[],
+            GenerationInput::default(),
+        )
+        .unwrap_or_else(|refusal| panic!("{declaration}: {refusal:?}"));
+        assert_eq!(
+            driven.checked.package_id().digest.as_ref(),
+            driven.emitted.package_id().hex(),
+            "{declaration}"
+        );
+        assert_eq!(recorder.calls()[..2], [Call::Compile, Call::ReadPackage]);
+    }
 }

@@ -44,7 +44,7 @@ pub enum DriverRefusal {
         node: WireNodeId,
     },
     /// CG generation refused the routed items as a whole.
-    #[error("CG generation refused the routed items: {0:?}")]
+    #[error("CG generation refused the routed items: {}", generation_message(.0))]
     Generation(RoutedGenerationError),
     /// An upstream answer broke an invariant the driver relies on. Not a
     /// refusal of the input.
@@ -84,7 +84,9 @@ pub enum DriverFault {
     },
     /// Routing returned a different number of targets than it was given
     /// dispositions, or no target for a `supported` item.
-    #[error("routing returned no target for a supported item")]
+    #[error(
+        "routing returned no usable target for a supported item, or routed an item outside the request"
+    )]
     RoutingTarget,
     /// IR's reader refused the bytes QSL's E4 emitter just wrote.
     #[error("IR refused the emitted checked package: {:?}", .0.code)]
@@ -233,6 +235,48 @@ fn join(backends: &[BackendId]) -> String {
         .map(BackendId::as_str)
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn generation_message(error: &RoutedGenerationError) -> String {
+    match error {
+        RoutedGenerationError::BackendKindDisagrees {
+            request_index,
+            backend,
+            routed,
+            converted,
+        } => format!(
+            "request item {request_index} was routed to `{}` as {}, which converts to {}",
+            backend.identity,
+            routed.identity(),
+            converted.map_or("no kind", |kind| kind.identity())
+        ),
+        RoutedGenerationError::DuplicateRequestIndex { request_index } => {
+            format!("request index {request_index} is routed twice")
+        }
+        RoutedGenerationError::MissingKindContext { kind } => {
+            format!("no generation context for backend kind {}", kind.identity())
+        }
+        RoutedGenerationError::Kani(error) => {
+            format!("the Kani arm refused: {}", kani_message(error))
+        }
+    }
+}
+
+fn kani_message(error: &KaniObligationError) -> String {
+    match error {
+        KaniObligationError::EmptyRequest => "the request names no items".to_owned(),
+        KaniObligationError::TooManyItems { count } => format!("{count} items exceed the ceiling"),
+        KaniObligationError::InvalidSubjectPath => "the subject path is not a Rust path".to_owned(),
+        KaniObligationError::InvalidUnwind { unwind } => {
+            format!("unwind bound {unwind} is out of range")
+        }
+        KaniObligationError::UnpinnedBackend {
+            expected, supplied, ..
+        } => format!("backend `{supplied}` is not the pinned `{expected}`"),
+        KaniObligationError::InvalidAttestationContext => {
+            "the attestation binding is malformed".to_owned()
+        }
+    }
 }
 
 fn envelope_message(refusal: &EnvelopeRefusal) -> String {

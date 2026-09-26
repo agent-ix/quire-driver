@@ -26,8 +26,11 @@ Scope: FR-001-AC-5.
    candidates, one for a vocabulary mismatch, one for an E5 `package_id`
    mismatch, and a generation refusal for a duplicate request index.
 6. Take an E5 reader limit and CG's Kani item ceiling.
+7. Drive the TC-006 integer unit through an upstream whose IR read answers
+   with another unit's admitted package, then with a refusal.
 
-Tests: `tests/drive.rs`, `tc_004_command_level_refusals_are_typed`;
+Tests: `tests/drive.rs`, `tc_004_command_level_refusals_are_typed` and
+`tc_004_e5_identity_and_refusal_are_faults`;
 `src/refusal.rs`, `tc_004_a_fault_is_an_internal_fault_with_runtime_invariant`
 and `tc_004_handoff_and_generation_limits_are_limits`.
 
@@ -41,5 +44,8 @@ and `tc_004_handoff_and_generation_limits_are_limits`.
 - Step 4 refuses with `invalid_capability`/`unknown-kind`.
 - Step 5's faults have outcome kind fault and code `runtime_invariant`, at
   the negotiation, conversion, hand-off and generation steps.
+- Step 7 faults with `PackageIdMismatch`, then `HandoffRefused`, both at
+  the hand-off step with `runtime_invariant`; the call log ends at the IR
+  read, with no backend conversion and no negotiation.
 - Step 6's are limit refusals: `stage_limit_exceeded` at the hand-off and
   `resource_exhausted` at generation.
