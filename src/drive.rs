@@ -3,14 +3,12 @@
 
 use std::collections::BTreeMap;
 
-use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::SourceIdentity;
 use qsl_package::{CheckedPackage, EmittedPackage};
 use qsl_replay::spine::SpineLimits;
-use qsl_route::request::{ExtentClassification, RequestWriter};
+use qsl_route::request::{items_from_requirements, ExtentClassification, RequirementItem};
 use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{BackendId, Candidate, CandidateOutcome, ManifestDigest, Mode, Registry};
-use qsl_semantics::family::Requirements;
 use quire_contract_codegen as cg;
 use quire_contract_codegen::{
     AttestationContext, BackendKind, ItemSettlement, KaniToolPins, RoutedGeneration,
@@ -34,21 +32,6 @@ pub struct CompileInput<'a> {
     pub packages: &'a BTreeMap<[u8; 32], Vec<u8>>,
     /// The S1 to S3 stage limits.
     pub limits: SpineLimits,
-}
-
-/// One item to negotiate: a checked item's requirement record (ADR-011
-/// §2.1 E7, ADR-012 §13.5) and the backend the request names, if any.
-///
-/// `qsl-package` does not yet expose the per-item requirement records of a
-/// `CheckedPackage`, so the caller supplies them.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RequestedItem {
-    /// The checked node the item requests a claim over.
-    pub node: WireNodeId,
-    /// The item's capability kind and extent.
-    pub requirements: Requirements,
-    /// The backend the request names, if any.
-    pub backend: Option<BackendId>,
 }
 
 /// One item settled `supported` and routed: the input CG generation takes.
@@ -114,14 +97,19 @@ pub struct Driven {
 
 /// Run one request through the driver's steps (see the crate docs).
 ///
-/// `registry` is the value [`crate::build_registry`] built; `items` are the
-/// items to negotiate, in request order; `generation` holds the context of
-/// each CG backend kind an item may be routed to.
+/// `registry` is the value [`crate::build_registry`] built. The items to
+/// negotiate are not supplied by the caller: they are written from the
+/// compiled unit's own checked requirement records
+/// (`CheckedPackage::graph().requirements()`, FR-062, FR-075), one item per
+/// record in occurrence-key order (`items_from_requirements`). `named` is
+/// the backend every item's candidate set is built against, when the
+/// request names one; `generation` holds the context of each CG backend
+/// kind an item may be routed to.
 pub fn drive(
     upstream: &impl Upstream,
     input: CompileInput<'_>,
     registry: &Registry,
-    items: &[RequestedItem],
+    named: Option<&BackendId>,
     generation: GenerationInput<'_>,
 ) -> Result<Driven, DriverRefusal> {
     // Steps 1 and 2: S1 to S4, then the E4 emitter.
@@ -137,9 +125,12 @@ pub fn drive(
     // E5: IR admits the emitted bytes at the emitted `package_id`.
     let checked = handoff(upstream, &input, &compiled.emitted)?;
 
+    // FR-075: one item per requirement record, in occurrence-key order.
+    let items = items_from_requirements(compiled.package.graph().requirements(), registry, named);
+
     // T-13 order: the `route` candidate step, then every registered
     // BackendId through CG's one conversion, then E7.
-    let (envelope, candidate_sets) = envelope(registry, items)?;
+    let (envelope, candidate_sets) = envelope(registry, &items, named)?;
     let kinds = convert_backends(upstream, registry)?;
     let settlements = upstream
         .negotiate(&envelope)
@@ -160,7 +151,7 @@ pub fn drive(
     let routed = route_supported(upstream, &settlements, &candidate_sets, &kinds)?;
 
     // Step 7: CG generation for the routed items.
-    let generation = generate(upstream, &checked, items, &routed, generation)?;
+    let generation = generate(upstream, &checked, &items, &routed, generation)?;
 
     Ok(Driven {
         package: compiled.package,
@@ -178,7 +169,7 @@ pub fn drive(
 fn generate(
     upstream: &impl Upstream,
     checked: &CheckedPackageV2,
-    items: &[RequestedItem],
+    items: &[RequirementItem],
     routed: &[Routed],
     generation: GenerationInput<'_>,
 ) -> Result<RoutedGeneration, DriverRefusal> {
@@ -197,7 +188,7 @@ fn generate(
         let node = items
             .get(request_index)
             .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?
-            .node;
+            .node();
         let node_id = nodes
             .get(node.to_string().as_str())
             .ok_or(DriverRefusal::UnknownNode {
@@ -252,10 +243,12 @@ fn convert_backends(
 }
 
 /// The FR-331 envelope CG negotiates over, and each item's candidates as
-/// `route` computed them. Types cross as their wire spellings (ADR-013 T-7).
+/// `items_from_requirements` computed them against the registry for `named`.
+/// Types cross as their wire spellings (ADR-013 T-7).
 fn envelope(
     registry: &Registry,
-    items: &[RequestedItem],
+    items: &[RequirementItem],
+    named: Option<&BackendId>,
 ) -> Result<(cg::BackendProviderEnvelope, Vec<Vec<Candidate>>), DriverRefusal> {
     let mut manifest = Vec::new();
     for descriptor in registry.descriptors() {
@@ -278,36 +271,30 @@ fn envelope(
         });
     }
 
-    let mut writer = RequestWriter::new();
     let mut request_items = Vec::with_capacity(items.len());
     let mut candidate_sets = Vec::with_capacity(items.len());
     for item in items {
-        let index = writer.item(item.node, &item.requirements);
-        let extent = writer
-            .items()
-            .get(index.get())
-            .map(|written| cg_extent(written.extent()));
-        let label = item.requirements.kind().to_wire();
+        let extent = Some(cg_extent(item.extent()));
+        let label = item.kind().to_wire();
         let kind = cg::CapabilityKind::from_label(label).map_or_else(
             || cg::RequestedKind::Unknown(label.to_owned()),
             cg::RequestedKind::Known,
         );
-        let (candidates, set) =
-            match registry.candidates(item.requirements.kind(), item.backend.as_ref()) {
-                CandidateOutcome::Candidates(set) => (
-                    cg::Candidates::Set(set.candidates().iter().map(cg_candidate).collect()),
-                    set.candidates().to_vec(),
-                ),
-                CandidateOutcome::UnknownBackend(id) => (
-                    cg::Candidates::UnknownBackend(id.as_str().to_owned()),
-                    Vec::new(),
-                ),
-            };
+        let (candidates, set) = match item.candidates() {
+            CandidateOutcome::Candidates(set) => (
+                cg::Candidates::Set(set.candidates().iter().map(cg_candidate).collect()),
+                set.candidates().to_vec(),
+            ),
+            CandidateOutcome::UnknownBackend(id) => (
+                cg::Candidates::UnknownBackend(id.as_str().to_owned()),
+                Vec::new(),
+            ),
+        };
         candidate_sets.push(set);
         request_items.push(cg::RequestItem {
             kind,
             extent,
-            named_backend: item.backend.as_ref().map(|id| id.as_str().to_owned()),
+            named_backend: named.map(|id| id.as_str().to_owned()),
             candidates,
         });
     }

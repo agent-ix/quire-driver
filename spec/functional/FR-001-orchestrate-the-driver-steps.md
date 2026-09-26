@@ -45,8 +45,14 @@ the admitted package only at the `package_id` E4 emitted.
   domain package input and the spine stage limits.
 - The registry value, built by the driver from provider manifests
   (`build_registry`) and passed as an argument.
-- The requested items: each checked item's requirement record (node,
-  capability kind, extent) and the backend the request names, if any.
+- The backend the request names, if any (`named`). The requested items
+  themselves are not a caller input: they are written from the compiled
+  unit's own checked requirement records
+  (`qsl_package::CheckedPackage::graph().requirements()`, keyed one per
+  scalar operation application -- QSL-266), one item per record in
+  occurrence-key order (`qsl_route::request::items_from_requirements`,
+  FR-075). A unit with no scalar operation application writes no requirement
+  record, so the driver routes nothing for it.
 - The generation input: one optional context per CG backend kind. The Kani
   context is the subject path, the unwind bound and the attestation
   binding. The tool pins are always `KaniToolPins::pinned()`. The caller
@@ -227,13 +233,14 @@ FR-014 crate the Kani arm generated (`Cargo.toml`, `src/lib.rs` and
 is blocked on IR-301. `Driven::generation` still carries them unchanged for
 a future caller.
 
-`qsl_package::CheckedPackage::graph().requirements()` (#454, QSL-258) is
-not yet consumed here. Two things stand in the way of routing an item from
-it alone: `ValueFunctionFamily`, the only family QSL ships today, requests
-no FR-057 capability kind for a function declaration (FR-062-AC-4), so the
-map is empty for every unit this crate's tests compile; and even populated,
-it is keyed by checked *declaration* occurrence, not by the arbitrary body
-node (an expression like `+` or `=`) a Kani item names here. So the caller
-still supplies the requested items (`RequestedItem`), each with the node it
-names directly; this goes when a family requests capability kinds over the
-nodes a Kani item can actually name (QSL-42, QSL-43 and beyond).
+`qsl_package::CheckedPackage::graph().requirements()` (#454, QSL-258; keyed
+per scalar operation application by QSL-266, #459) is now the sole source
+of the driver's requested items: `qsl_route::request::items_from_requirements`
+writes one item per record, in occurrence-key order, each already carrying
+the node it names, its capability kind, its extent and its candidate outcome
+against the registry for the backend the request names (if any). The driver
+no longer accepts a caller-supplied item list (`RequestedItem` is removed);
+the only caller inputs left to name a request are the registry and the
+named backend. A unit with no scalar operation application (FR-062, ADR-012
+§2 "Operation application claims") writes no requirement record, so the
+driver calls neither `route` nor CG generation for it.

@@ -10,13 +10,21 @@ lives downstream of both. Nothing depends on it.
 1. S1 to S4 and the E4 v2 emit, through `qsl_replay::spine::compile`.
 2. E5: IR's `read_checked_package` reads the emitted bytes; the admitted
    package must carry the emitted `package_id`.
-3. The pre-negotiation conversion: every registered `BackendId` through CG's
+3. The `route` candidate step, for each item to negotiate. The items are not
+   supplied by the caller: they are written from the compiled unit's own
+   checked requirement records
+   (`qsl_package::CheckedPackage::graph().requirements()`, QSL-266), one item
+   per record in occurrence-key order
+   (`qsl_route::request::items_from_requirements`). A unit with no scalar
+   operation application writes no requirement record, so the driver routes
+   nothing for it and calls neither `route` nor `generate`.
+4. The pre-negotiation conversion: every registered `BackendId` through CG's
    `BackendKind::from_identity`. Any id with no CG kind refuses the run with
    `invalid_capability`/`unknown-backend`, naming every unconverted id in
    bytewise order, before any negotiation.
-4. The `route` candidate step, then E7: CG `negotiate_backend_provider`.
-5. The `route` routing step over the items settled `supported` only.
-6. CG `generate_routed` over the routed items, each with its request index,
+5. E7: CG `negotiate_backend_provider`.
+6. The `route` routing step over the items settled `supported` only.
+7. CG `generate_routed` over the routed items, each with its request index,
    its admitted `CheckedNodeId`, its routed backend and its kind, and the
    caller's `GenerationInput` (for Kani: subject path, unwind, attestation;
    pins are `KaniToolPins::pinned()`). CG derives each routed item's Kani
@@ -42,15 +50,6 @@ lives downstream of both. Nothing depends on it.
 The registry is a value built with `build_registry` from provider manifests
 and passed in as an argument. The diagnostics catalog reference E5's
 evidence needs comes from `qsl_package::diagnostics_catalog()` (QSL-260).
-
-## Not wired yet
-
-- **Requirement records.** `qsl_package::CheckedPackage::graph().requirements()`
-  exists (QSL-258), but it is empty for every unit this crate compiles today
-  (the only shipped family requests no capability kind for a function
-  declaration) and, even populated, is keyed by checked declaration, not by
-  the arbitrary body node a Kani item names. So the caller still passes the
-  requested items directly.
 
 ## Commands
 

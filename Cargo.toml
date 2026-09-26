@@ -19,9 +19,13 @@ path = "src/lib.rs"
 # (`qsl-replay`) is a normal edge and Cargo refuses a package cycle.
 #
 # Revisions (informational, not a gate): the QSL layer crates are pinned at
-# a553b7c1 on agent-ix/quire-spec-language main (#452-#455: QSL's own
-# `quire-contract-model` pin moves to 48ab5dc, plus the diagnostics-catalog
-# accessor and the per-item requirements accessor), and CG at edade59 on
+# 267be557 on agent-ix/quire-spec-language main (#452-#459: QSL's own
+# `quire-contract-model` pin moves to 48ab5dc, the diagnostics-catalog
+# accessor, the per-item requirements accessor, and #459/QSL-266, which keys
+# `CheckedGraph::requirements()` by one record per scalar operation
+# application -- requirements, result bound and path condition -- and adds
+# `qsl_route::request::items_from_requirements`, the route request builder
+# this crate now drives from), and CG at edade59 on
 # agent-ix/quire-contract-codegen main (#182, IR-302: reads QSL's own literal
 # references and narrowing-conversion result bounds, fixing the `x + 1` and
 # `x + y` regression #179's IR-298 introduced -- see FR-001's Behavior and
@@ -55,11 +59,11 @@ path = "src/lib.rs"
 # revision (48ab5dc), so the version skew the previous revision comment
 # described (E4 under b52c263, E5 under 48ab5dc) is resolved.
 [dependencies]
-qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", rev = "a553b7c1b89f953cd4a5350f51cdef37487da808" }
-qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", rev = "a553b7c1b89f953cd4a5350f51cdef37487da808" }
-qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", rev = "a553b7c1b89f953cd4a5350f51cdef37487da808" }
-qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", rev = "a553b7c1b89f953cd4a5350f51cdef37487da808" }
-qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", rev = "a553b7c1b89f953cd4a5350f51cdef37487da808" }
+qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", rev = "267be55766209a8b1bd0a265caf28c84365e5dce" }
+qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", rev = "267be55766209a8b1bd0a265caf28c84365e5dce" }
+qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", rev = "267be55766209a8b1bd0a265caf28c84365e5dce" }
+qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", rev = "267be55766209a8b1bd0a265caf28c84365e5dce" }
+qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", rev = "267be55766209a8b1bd0a265caf28c84365e5dce" }
 quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "edade5935d96d5fd616a7a4d9f47a2dc15be03f3" }
 quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", rev = "48ab5dc29213c3975a5fe8f04ecbb3d1c2b345bb" }
 thiserror = "=2.0.20"

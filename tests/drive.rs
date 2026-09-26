@@ -2,6 +2,13 @@
 //! FR-001 acceptance tests: the driver's step order, the MD-2 refusal,
 //! routing after negotiation, the E5 hand-off and CG generation. Every call goes to the real QSL and CG
 //! functions; `Recorder` only logs the order in which the driver makes them.
+//!
+//! QSL-266 (#459) keys `CheckedGraph::requirements()` by one record per
+//! scalar operation application. The driver writes its request items from
+//! those records (`items_from_requirements`, FR-075), not from a
+//! caller-supplied list, so every test here drives a real unit and reads
+//! its items back off the package the unit compiles to, rather than
+//! constructing a `RequestedItem` naming an arbitrary node.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -11,8 +18,7 @@ use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{CompileRefusal, Compiled, SpineLimits, SpineStage};
 use qsl_route::routing::Disposition;
 use qsl_route::{BackendId, Candidate, ManifestDigest, RegistrationCause};
-use qsl_semantics::check::{Capability, CheckingLimits};
-use qsl_semantics::family::{ClaimExtent, Requirements};
+use qsl_semantics::check::CheckingLimits;
 use quire_contract_codegen::{
     generate_routed, AttestationContext, BackendKind, BackendProviderEnvelope,
     ClaimDerivationRefusal, ClaimDisposition, EnvelopeRefusal, GenerationContexts, ItemSettlement,
@@ -26,7 +32,7 @@ use quire_contract_model::{
 };
 use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
-    GenerationInput, KaniInput, OutcomeKind, ProviderManifest, QslCg, RequestedItem, Upstream,
+    GenerationInput, KaniInput, OutcomeKind, ProviderManifest, QslCg, Upstream,
 };
 
 const UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
@@ -41,7 +47,8 @@ const UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// IR-302 reads that reference as a literal operand (its body decides it,
 /// not its type), owning no bound and constrained to exactly its own
 /// value, so this `+` settles `Supported` (`NEGATE_UNIT` below is the
-/// one-owned-bound unary case, also `Supported`).
+/// one-owned-bound unary case, also `Supported`). It has one requirement
+/// record: the `+`.
 const INT_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
@@ -53,7 +60,9 @@ const INT_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// derivable claim. It also carries an integer unary `-` over its own
 /// bounded parameter (IR-298; see `NEGATE_UNIT`), a sibling CG does derive
 /// a claim for, so a routed run over both shows the unsupported item does
-/// not affect its sibling.
+/// not affect its sibling. Both `=` and `-` are scalar operation
+/// applications, so this unit has two requirement records, keyed in
+/// occurrence order: the `=` node's digest sorts first.
 const EQ_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
@@ -64,7 +73,8 @@ const EQ_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// (`z: Int[0, 9]`): its one operand owns a bound, and IR-298's own-bound
 /// filtering never runs (`scalar_result_bound`'s single-candidate arm
 /// resolves directly), so this settles `Supported` with a scalar harness
-/// ranging that one argument over `z`'s own domain.
+/// ranging that one argument over `z`'s own domain. One requirement
+/// record: the `-`.
 ///
 /// A genuine two-operand case with each argument independently bounded
 /// (e.g. `x + y` over `Int[0, 9]` and `Int[10, 20]`) also settles
@@ -82,7 +92,7 @@ const NEGATE_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// A unit with an integer `+` over two parameters, each owning its own
 /// bound (`x: Int[0, 9]`, `y: Int[10, 20]`): see `NEGATE_UNIT`'s doc for why
 /// this settles `Supported`, ranging each argument over its own operand's
-/// domain.
+/// domain. One requirement record: the `+`.
 const TWO_PARAM_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
@@ -110,7 +120,9 @@ const OVERFLOW_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// ranges every operand over its full declared domain, live branch or
 /// dead), so routing this `+` to Kani settles the same
 /// `Unsupported`/`ResultBoundUnreachable` `OVERFLOW_UNIT`'s direct case
-/// never reaches CG to report.
+/// never reaches CG to report. The `if` guard (`x > 20`) is itself a scalar
+/// comparison, so this unit has two requirement records: the guard and the
+/// `+`, keyed in occurrence order (the `+`'s node digest sorts first).
 const DEAD_BRANCH_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     profile v = \"quire.value.complete/v1\" version \"1\" digest \
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
@@ -251,18 +263,6 @@ fn input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
     }
 }
 
-fn item(node: u8, kind: Capability, backend: Option<&str>) -> RequestedItem {
-    item_at(WireNodeId::from_digest([node; 32]), kind, backend)
-}
-
-fn item_at(node: WireNodeId, kind: Capability, backend: Option<&str>) -> RequestedItem {
-    RequestedItem {
-        node,
-        requirements: Requirements::new(kind, ClaimExtent::Bounded),
-        backend: backend.map(BackendId::new),
-    }
-}
-
 fn int_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
     CompileInput {
         bytes: INT_UNIT.as_bytes(),
@@ -305,7 +305,7 @@ fn dead_branch_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_>
     }
 }
 
-/// `INT_UNIT` driven with no items: its E5 package.
+/// `INT_UNIT` driven with an empty registry: its E5 package.
 fn int_package() -> Driven {
     let registry = build_registry(&[]).expect("an empty registry builds");
     let packages = BTreeMap::new();
@@ -313,13 +313,13 @@ fn int_package() -> Driven {
         &QslCg,
         int_input(&packages),
         &registry,
-        &[],
+        None,
         GenerationInput::default(),
     )
     .expect("the integer unit drives")
 }
 
-/// `EQ_UNIT` driven with no items: its E5 package.
+/// `EQ_UNIT` driven with an empty registry: its E5 package.
 fn eq_package() -> Driven {
     let registry = build_registry(&[]).expect("an empty registry builds");
     let packages = BTreeMap::new();
@@ -327,13 +327,13 @@ fn eq_package() -> Driven {
         &QslCg,
         eq_input(&packages),
         &registry,
-        &[],
+        None,
         GenerationInput::default(),
     )
     .expect("the equality unit drives")
 }
 
-/// `TWO_PARAM_UNIT` driven with no items: its E5 package.
+/// `TWO_PARAM_UNIT` driven with an empty registry: its E5 package.
 fn two_param_package() -> Driven {
     let registry = build_registry(&[]).expect("an empty registry builds");
     let packages = BTreeMap::new();
@@ -341,13 +341,13 @@ fn two_param_package() -> Driven {
         &QslCg,
         two_param_input(&packages),
         &registry,
-        &[],
+        None,
         GenerationInput::default(),
     )
     .expect("the two-parameter unit drives")
 }
 
-/// `NEGATE_UNIT` driven with no items: its E5 package.
+/// `NEGATE_UNIT` driven with an empty registry: its E5 package.
 fn negate_package() -> Driven {
     let registry = build_registry(&[]).expect("an empty registry builds");
     let packages = BTreeMap::new();
@@ -355,7 +355,7 @@ fn negate_package() -> Driven {
         &QslCg,
         negate_input(&packages),
         &registry,
-        &[],
+        None,
         GenerationInput::default(),
     )
     .expect("the negation unit drives")
@@ -426,6 +426,10 @@ fn kani_candidate(driven: &Driven) -> quire_contract_codegen::Candidate {
 /// FR-001-AC-2 (TC-002): a registered `BackendId` with no CG kind refuses
 /// the run with `invalid_capability`/`unknown-backend`, naming every
 /// unconverted id in bytewise order, and nothing is negotiated or routed.
+/// This holds independently of the compiled unit's own items: `UNIT`
+/// compiles with no scalar operation applications at all, so it writes no
+/// requirement records, and the MD-2 conversion still runs over every
+/// *registered* backend.
 #[test]
 fn tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order() {
     // Bytewise order puts "Zeta" (0x5A) before "alpha" (0x61); a
@@ -443,7 +447,7 @@ fn tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order() {
         &recorder,
         input(&packages),
         &registry,
-        &[item(1, Capability::ValueValidity, None)],
+        None,
         GenerationInput::default(),
     )
     .expect_err("two registered backends have no CG kind");
@@ -476,33 +480,27 @@ fn tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order() {
     assert_eq!(converted.len(), 3, "{calls:?}");
 }
 
-/// FR-001-AC-4, FR-001-AC-3, FR-001-AC-6 and FR-001-AC-7 (TC-001, TC-003,
-/// TC-006): the driver compiles and emits, hands the bytes to IR, converts
-/// every backend, negotiates every item once, routes only the items CG
-/// settled `supported`, then generates for the routed item through CG.
+/// FR-001-AC-4, FR-001-AC-3 and FR-001-AC-6 (TC-001, TC-003, TC-006): the
+/// driver compiles and emits, hands the bytes to IR, converts every
+/// backend, negotiates the unit's one requirement record once, routes it
+/// (it settles `supported`), then generates for it through CG.
+/// `NEGATE_UNIT` writes exactly one requirement record (its `-`), routed
+/// from `CheckedGraph::requirements()` -- no item is supplied by this test.
 #[test]
-fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
+fn tc_001_tc_006_steps_run_in_order_through_generation() {
     let checked = negate_package().checked;
-    let (neg, neg_wire) = expression_by_identity(&checked, "quire.op.integer.negate");
+    let (neg, _neg_wire) = expression_by_identity(&checked, "quire.op.integer.negate");
 
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
-    let items = [
-        // Supported: kani advertises value-validity, bounded extent.
-        item_at(neg_wire, Capability::ValueValidity, None),
-        // Unsupported: no registered backend advertises operation-contract.
-        item(2, Capability::OperationContract, None),
-        // Invalid request: the request names an unregistered backend.
-        item(3, Capability::ValueValidity, Some("missing")),
-    ];
 
     let driven = drive(
         &recorder,
         negate_input(&packages),
         &registry,
-        &items,
+        None,
         kani_input(),
     )
     .expect("the run completes");
@@ -520,11 +518,8 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
         .iter()
         .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
         .collect();
+    assert_eq!(dispositions.len(), 1, "one requirement record: the `-`");
     assert_eq!(dispositions[0]["disposition"], "supported");
-    assert_eq!(dispositions[1]["disposition"], "unsupported");
-    assert_eq!(dispositions[2]["disposition"], "invalid-request");
-    assert_eq!(dispositions[2]["cause"]["cause"], "unknown-backend");
-    assert_eq!(dispositions[2]["cause"]["backend"], "missing");
 
     assert_eq!(driven.routed.len(), 1);
     assert_eq!(driven.routed[0].request_index, 0);
@@ -588,8 +583,7 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
     assert_eq!(bounds, [(0, 9)]);
 
     // FR-001-AC-8 (IR-294): the Kani group derived a claim map, which holds
-    // the routed node with a generated claim (CG did derive `+`'s operator
-    // family).
+    // the routed node with a generated claim.
     let claim_map = driven
         .generation
         .claim_map
@@ -613,7 +607,7 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
             Call::Compile,
             Call::ReadPackage,
             Call::BackendKind("kani".to_owned()),
-            Call::Negotiate { items: 3 },
+            Call::Negotiate { items: 1 },
             Call::Route {
                 supported: 1,
                 dispositions: 1,
@@ -623,28 +617,65 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
     );
 }
 
+/// FR-001-AC-5 (TC-004, request `named_backend`): a request that names a
+/// backend the registry does not hold settles `invalid-request`, naming the
+/// backend, for every item -- `qsl_route::Registry::candidates` returns
+/// `CandidateOutcome::UnknownBackend` regardless of capability kind. Nothing
+/// settled this way is routed or generated.
+#[test]
+fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let recorder = Recorder::default();
+    let missing = BackendId::new("missing");
+
+    let driven = drive(
+        &recorder,
+        negate_input(&packages),
+        &registry,
+        Some(&missing),
+        GenerationInput::default(),
+    )
+    .expect("the run completes");
+
+    let dispositions: Vec<serde_json::Value> = driven
+        .settlements
+        .iter()
+        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .collect();
+    assert_eq!(dispositions.len(), 1);
+    assert_eq!(dispositions[0]["disposition"], "invalid-request");
+    assert_eq!(dispositions[0]["cause"]["cause"], "unknown-backend");
+    assert_eq!(dispositions[0]["cause"]["backend"], "missing");
+
+    assert!(driven.routed.is_empty());
+    assert_eq!(driven.generation, RoutedGeneration::default());
+    let calls = recorder.calls();
+    assert!(
+        !calls
+            .iter()
+            .any(|c| matches!(c, Call::Route { .. } | Call::Generate { .. })),
+        "{calls:?}"
+    );
+}
+
 /// FR-001-AC-6 (TC-006): the driver's generation output for `INT_UNIT`'s
 /// `+` (`x + 1`) equals a direct `generate_routed` call over the same
 /// routed item, whatever CG settles it -- the same pass-through check
-/// `tc_001_tc_003_tc_006_steps_run_in_order_through_generation` makes for
-/// its own fixture. This holds regardless of IR-302 below: the driver
-/// passes CG's answer through unchanged either way.
+/// `tc_001_tc_006_steps_run_in_order_through_generation` makes for its own
+/// fixture. This holds regardless of IR-302 below: the driver passes CG's
+/// answer through unchanged either way.
 #[test]
 fn tc_006_x_plus_1_generation_passes_through_unchanged() {
     let checked = int_package().checked;
-    let (add, add_wire) = expression(&checked, "binary");
+    let (add, _add_wire) = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
-    let driven = drive(
-        &QslCg,
-        int_input(&packages),
-        &registry,
-        &[item_at(add_wire, Capability::ValueValidity, None)],
-        kani_input(),
-    )
-    .expect("the run completes");
+    let driven = drive(&QslCg, int_input(&packages), &registry, None, kani_input())
+        .expect("the run completes");
 
     let backend = kani_candidate(&driven);
     let pins = KaniToolPins::pinned();
@@ -676,7 +707,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
 #[test]
 fn tc_006_x_plus_y_generation_passes_through_unchanged() {
     let checked = two_param_package().checked;
-    let (add, add_wire) = expression(&checked, "binary");
+    let (add, _add_wire) = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
@@ -685,7 +716,7 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
         &QslCg,
         two_param_input(&packages),
         &registry,
-        &[item_at(add_wire, Capability::ValueValidity, None)],
+        None,
         kani_input(),
     )
     .expect("the run completes");
@@ -722,19 +753,13 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
 #[test]
 fn tc_006_x_plus_1_settles_supported() {
     let checked = int_package().checked;
-    let (add, add_wire) = expression(&checked, "binary");
+    let (add, _add_wire) = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
-    let driven = drive(
-        &QslCg,
-        int_input(&packages),
-        &registry,
-        &[item_at(add_wire, Capability::ValueValidity, None)],
-        kani_input(),
-    )
-    .expect("the run completes");
+    let driven = drive(&QslCg, int_input(&packages), &registry, None, kani_input())
+        .expect("the run completes");
 
     let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
     assert!(
@@ -777,7 +802,7 @@ fn tc_006_x_plus_1_settles_supported() {
 #[test]
 fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
     let checked = two_param_package().checked;
-    let (add, add_wire) = expression(&checked, "binary");
+    let (add, _add_wire) = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
@@ -786,7 +811,7 @@ fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
         &QslCg,
         two_param_input(&packages),
         &registry,
-        &[item_at(add_wire, Capability::ValueValidity, None)],
+        None,
         kani_input(),
     )
     .expect("the run completes");
@@ -840,7 +865,7 @@ fn tc_006_x_plus_100_in_the_return_context_is_refused_at_check() {
         &QslCg,
         overflow_input(&packages),
         &registry,
-        &[],
+        None,
         GenerationInput::default(),
     )
     .expect_err("QSL's own checker refuses a result bound its own arithmetic disproves");
@@ -853,25 +878,29 @@ fn tc_006_x_plus_100_in_the_return_context_is_refused_at_check() {
 /// FR-001-AC-6 (TC-006), IR-302: `DEAD_BRANCH_UNIT` compiles -- QSL's
 /// `Facts::walk` proves `x > 20` is never true over `x: Int[0, 9]` and
 /// never discharges the dead branch's coercion, so the checked package
-/// still emits. The driver's generation output for its `+` equals a direct
-/// `generate_routed` call over the same routed item (the same pass-through
-/// invariant every other `tc_006_x_plus_*` test asserts), which is
-/// `Unsupported`/`ResultBoundUnreachable`: CG ignores the `if x > 20`
-/// guard and ranges `x` over its full declared `[0, 9]` domain, so every
-/// exact result still lies in `[100, 109]`, disjoint from the declared
-/// `[0, 10]`. No harness is carried.
+/// still emits. The unit carries two scalar operation applications --
+/// the guard `x > 20` and the dead branch's `x + 100` -- so two
+/// requirement records, both bounded (`x`'s own `[0, 9]` domain), both
+/// routed to kani. The driver's generation output for both equals a direct
+/// `generate_routed` call over the same two routed items (the same
+/// pass-through invariant every other `tc_006_x_plus_*` test asserts). The
+/// `+` item is `Unsupported`/`ResultBoundUnreachable`: CG ignores the
+/// `if x > 20` guard and ranges `x` over its full declared `[0, 9]` domain,
+/// so every exact result still lies in `[100, 109]`, disjoint from the
+/// declared `[0, 10]`. No harness is carried for it.
 #[test]
 fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
     let checked = drive(
         &QslCg,
         dead_branch_input(&BTreeMap::new()),
         &build_registry(&[]).expect("an empty registry builds"),
-        &[],
+        None,
         GenerationInput::default(),
     )
     .expect("QSL does not discharge a dead branch's coercion, so this compiles")
     .checked;
-    let (add, add_wire) = expression_by_identity(&checked, "quire.op.integer.add");
+    let (add, _add_wire) = expression_by_identity(&checked, "quire.op.integer.add");
+    let (gt, _gt_wire) = expression_by_identity(&checked, "quire.op.integer.gt");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
@@ -880,21 +909,32 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
         &QslCg,
         dead_branch_input(&packages),
         &registry,
-        &[item_at(add_wire, Capability::ValueValidity, None)],
+        None,
         kani_input(),
     )
     .expect("the run completes");
 
+    assert_eq!(driven.routed.len(), 2);
     let backend = kani_candidate(&driven);
     let pins = KaniToolPins::pinned();
+    // Occurrence order (`+`'s node digest sorts before `>`'s): the `+` is
+    // request index 0, the guard `>` is request index 1.
     let expected = generate_routed(
         &checked,
-        &[RoutedGenerationItem {
-            request_index: 0,
-            node_id: add.clone(),
-            backend,
-            kind: BackendKind::Kani,
-        }],
+        &[
+            RoutedGenerationItem {
+                request_index: 0,
+                node_id: add.clone(),
+                backend: backend.clone(),
+                kind: BackendKind::Kani,
+            },
+            RoutedGenerationItem {
+                request_index: 1,
+                node_id: gt,
+                backend,
+                kind: BackendKind::Kani,
+            },
+        ],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
                 subject_path: "crate::subject",
@@ -904,10 +944,16 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
             }),
         },
     )
-    .expect("CG generates for the routed item");
+    .expect("CG generates for both routed items");
     assert_eq!(driven.generation, expected);
 
-    let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
+    let add_item = driven
+        .generation
+        .items
+        .iter()
+        .find(|item| item.request_index == 0)
+        .expect("the `+` is routed at index 0");
+    let KindOutput::Kani { record, harness } = &add_item.output;
     assert!(harness.is_none(), "{:?}", harness);
     assert_eq!(
         record.disposition,
@@ -923,52 +969,10 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
     );
 }
 
-/// FR-001-AC-6 (TC-006): the generation output is keyed by the driver's
-/// request index, ascending, with the unrouted item absent.
-#[test]
-fn tc_006_generation_output_ascends_by_request_index() {
-    let checked = int_package().checked;
-    let (_add, add_wire) = expression(&checked, "binary");
-    let (_, conversion_wire) = expression(&checked, "conversion");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
-        .expect("the kani manifest registers");
-    let packages = BTreeMap::new();
-    let recorder = Recorder::default();
-    let items = [
-        item_at(conversion_wire, Capability::ValueValidity, None),
-        item(2, Capability::OperationContract, None),
-        item_at(add_wire, Capability::ValueValidity, None),
-    ];
-
-    let driven = drive(
-        &recorder,
-        int_input(&packages),
-        &registry,
-        &items,
-        kani_input(),
-    )
-    .expect("the run completes");
-
-    let routed: Vec<usize> = driven.routed.iter().map(|r| r.request_index).collect();
-    assert_eq!(routed, [0, 2]);
-    let generated: Vec<usize> = driven
-        .generation
-        .items
-        .iter()
-        .map(|item| item.request_index)
-        .collect();
-    assert_eq!(generated, [0, 2]);
-    assert!(recorder.calls().contains(&Call::Generate { items: 2 }));
-}
-
 /// FR-001-AC-5 and FR-001-AC-6 (TC-007): a routed Kani item with no Kani
-/// context refuses the run with CG's `MissingKindContext`, and a routed
-/// item naming a node the package does not hold refuses before CG is
-/// called.
+/// context refuses the run with CG's `MissingKindContext`.
 #[test]
 fn tc_007_generation_refusals_are_typed() {
-    let checked = int_package().checked;
-    let (_, add_wire) = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
@@ -978,7 +982,7 @@ fn tc_007_generation_refusals_are_typed() {
         &recorder,
         int_input(&packages),
         &registry,
-        &[item_at(add_wire, Capability::ValueValidity, None)],
+        None,
         GenerationInput::default(),
     )
     .expect_err("no Kani context is supplied");
@@ -995,45 +999,51 @@ fn tc_007_generation_refusals_are_typed() {
     assert_eq!(refusal.code(), "invalid-request");
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
     assert_eq!(recorder.calls().last(), Some(&Call::Generate { items: 1 }));
+}
 
+/// FR-001-AC-3 (TC-003): when no item settles `supported`, `route` is not
+/// called at all. `NEGATE_UNIT`'s one item is `value-validity`; a registry
+/// that advertises only `operation-contract` has no candidate for it, so it
+/// settles `unsupported`.
+#[test]
+fn tc_003_no_supported_item_means_no_route_call() {
+    let registry = build_registry(&[manifest("kani", 7, &["operation-contract"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
     let recorder = Recorder::default();
-    let dangling = WireNodeId::from_digest([1; 32]);
-    let refusal = drive(
+
+    let driven = drive(
         &recorder,
-        int_input(&packages),
+        negate_input(&packages),
         &registry,
-        &[
-            item(2, Capability::OperationContract, None),
-            item_at(dangling, Capability::ValueValidity, None),
-        ],
+        None,
         GenerationInput::default(),
     )
-    .expect_err("the routed node is not in the package");
-    let DriverRefusal::UnknownNode {
-        request_index,
-        node,
-    } = &refusal
-    else {
-        panic!("expected the unknown-node refusal, got {refusal:?}");
-    };
-    assert_eq!((*request_index, *node), (1, dangling));
-    assert_eq!(refusal.stage(), DriverStage::Generation);
-    assert_eq!(refusal.code(), "dangling_reference");
-    assert_eq!(refusal.kind(), OutcomeKind::Refused);
+    .expect("the run completes");
+
+    let dispositions: Vec<serde_json::Value> = driven
+        .settlements
+        .iter()
+        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .collect();
+    assert_eq!(dispositions[0]["disposition"], "unsupported");
+    assert!(driven.routed.is_empty());
     assert!(
         !recorder
             .calls()
             .iter()
-            .any(|c| matches!(c, Call::Generate { .. })),
+            .any(|c| matches!(c, Call::Route { .. })),
         "{:?}",
         recorder.calls()
     );
 }
 
-/// FR-001-AC-3 (TC-003): when no item settles `supported`, `route` is not
-/// called at all.
+/// FR-075: a unit with no scalar operation application writes no
+/// requirement record, so the driver routes nothing and calls neither
+/// `route` nor `generate` -- with no caller input naming an item, `UNIT`
+/// (`function f(): Boolean pure { true }`) still drives to completion.
 #[test]
-fn tc_003_no_supported_item_means_no_route_call() {
+fn tc_003_a_unit_with_no_scalar_applications_routes_nothing() {
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
@@ -1043,19 +1053,21 @@ fn tc_003_no_supported_item_means_no_route_call() {
         &recorder,
         input(&packages),
         &registry,
-        &[item(1, Capability::OperationContract, None)],
+        None,
         GenerationInput::default(),
     )
     .expect("the run completes");
 
+    assert!(driven.settlements.is_empty());
     assert!(driven.routed.is_empty());
+    assert_eq!(driven.generation, RoutedGeneration::default());
+    let calls = recorder.calls();
+    assert!(calls.contains(&Call::Negotiate { items: 0 }));
     assert!(
-        !recorder
-            .calls()
+        !calls
             .iter()
-            .any(|c| matches!(c, Call::Route { .. })),
-        "{:?}",
-        recorder.calls()
+            .any(|c| matches!(c, Call::Route { .. } | Call::Generate { .. })),
+        "{calls:?}"
     );
 }
 
@@ -1076,7 +1088,7 @@ fn tc_004_command_level_refusals_are_typed() {
         &recorder,
         broken,
         &registry,
-        &[],
+        None,
         GenerationInput::default(),
     )
     .expect_err("the unit does not parse");
@@ -1102,7 +1114,7 @@ fn tc_004_command_level_refusals_are_typed() {
         &Recorder::default(),
         deep,
         &registry,
-        &[],
+        None,
         GenerationInput::default(),
     )
     .expect_err("depth 3 stops a body four deep");
@@ -1155,7 +1167,7 @@ fn tc_004_command_level_refusals_are_typed() {
 /// `DependencyInput` (ADR-015 D-1), so a unit whose `import` names a
 /// library nothing supplies refuses at the intake stage, with
 /// `missing_import`/`missing-selection` -- `CompileRefusal::code()`'s
-/// `code/cause` rendering, not just the bare code.
+/// own rendering, not just the bare code.
 #[test]
 fn tc_008_a_missing_import_refuses_at_compile_intake() {
     let registry = build_registry(&[]).expect("an empty registry builds");
@@ -1165,7 +1177,7 @@ fn tc_008_a_missing_import_refuses_at_compile_intake() {
         ..input(&packages)
     };
 
-    let refusal = drive(&QslCg, broken, &registry, &[], GenerationInput::default())
+    let refusal = drive(&QslCg, broken, &registry, None, GenerationInput::default())
         .expect_err("nothing supplies test/library");
 
     assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Intake));
@@ -1198,7 +1210,7 @@ fn tc_004_e5_identity_and_refusal_are_faults() {
         &QslCg,
         input(&packages),
         &build_registry(&[]).expect("an empty registry builds"),
-        &[],
+        None,
         GenerationInput::default(),
     )
     .expect("UNIT drives")
@@ -1223,7 +1235,7 @@ fn tc_004_e5_identity_and_refusal_are_faults() {
             &recorder,
             int_input(&packages),
             &registry,
-            &[item(1, Capability::ValueValidity, None)],
+            None,
             GenerationInput::default(),
         )
         .expect_err("E5 refuses a package it did not emit");
@@ -1272,7 +1284,7 @@ fn tc_006_e5_admits_text_and_rational_units() {
                 ..input(&packages)
             },
             &registry,
-            &[],
+            None,
             GenerationInput::default(),
         )
         .unwrap_or_else(|refusal| panic!("{declaration}: {refusal:?}"));
@@ -1288,30 +1300,27 @@ fn tc_006_e5_admits_text_and_rational_units() {
 /// FR-001-AC-8 (TC-006): a routed node whose operation has no derivable
 /// claim (`quire.op.integer.eq`; CG's derivation names no operator family
 /// for it) settles `Unsupported` with `no_derivable_claim`, and its routed
-/// sibling (`quire.op.integer.add`, which CG does derive a claim for) is
+/// sibling (`quire.op.integer.negate`, which CG does derive a claim for) is
 /// unaffected: the same disposition and harness as a run with only the
-/// sibling. The derived claim map holds both nodes, each with its own
-/// disposition, and serializes.
+/// sibling. `EQ_UNIT` writes two requirement records -- the `=` and the
+/// `-` -- both routed with no caller input; the derived claim map holds
+/// both nodes, each with its own disposition, and serializes.
 #[test]
 fn tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected() {
     let checked = eq_package().checked;
-    let (eq, eq_wire) = expression_by_identity(&checked, "quire.op.integer.eq");
-    let (neg, neg_wire) = expression_by_identity(&checked, "quire.op.integer.negate");
+    let (eq, _eq_wire) = expression_by_identity(&checked, "quire.op.integer.eq");
+    let (neg, _neg_wire) = expression_by_identity(&checked, "quire.op.integer.negate");
 
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
-    let items = [
-        item_at(eq_wire, Capability::ValueValidity, None),
-        item_at(neg_wire, Capability::ValueValidity, None),
-    ];
 
     let driven = drive(
         &recorder,
         eq_input(&packages),
         &registry,
-        &items,
+        None,
         kani_input(),
     )
     .expect("the run completes");
@@ -1320,8 +1329,22 @@ fn tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected(
     assert_eq!(driven.generation.items.len(), 2);
     assert!(driven.generation.rejected.is_empty());
 
-    let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
-    assert_eq!(driven.generation.items[0].request_index, 0);
+    // Occurrence order (the `=` node's digest sorts first): request index
+    // 0 is the `=`, index 1 is the `-`.
+    let eq_item = driven
+        .generation
+        .items
+        .iter()
+        .find(|item| item.request_index == 0)
+        .expect("the eq item is routed at index 0");
+    let neg_item = driven
+        .generation
+        .items
+        .iter()
+        .find(|item| item.request_index == 1)
+        .expect("the negate item is routed at index 1");
+
+    let KindOutput::Kani { record, harness } = &eq_item.output;
     assert!(harness.is_none(), "an underivable item carries no harness");
     assert_eq!(
         record.disposition,
@@ -1337,8 +1360,7 @@ fn tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected(
 
     // The sibling settles Supported with its own harness, unaffected by the
     // eq item's refusal.
-    let KindOutput::Kani { record, harness } = &driven.generation.items[1].output;
-    assert_eq!(driven.generation.items[1].request_index, 1);
+    let KindOutput::Kani { record, harness } = &neg_item.output;
     assert!(
         matches!(record.disposition, ObligationDisposition::Supported { .. }),
         "{:?}",
@@ -1348,28 +1370,15 @@ fn tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected(
         .as_ref()
         .expect("the derivable sibling carries its harness");
     assert_eq!(harness.identity.node_id, neg);
-
-    // The negation item's disposition and harness equal what a run with
-    // only the negation item produces: the underivable eq item did not
-    // affect it.
-    let alone_registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
-        .expect("the kani manifest registers");
-    let alone_packages = BTreeMap::new();
-    let alone = drive(
-        &QslCg,
-        eq_input(&alone_packages),
-        &alone_registry,
-        &[item_at(neg_wire, Capability::ValueValidity, None)],
-        kani_input(),
-    )
-    .expect("the neg-only run completes");
-    assert_eq!(alone.generation.items.len(), 1);
-    let KindOutput::Kani {
-        record: alone_record,
-        harness: alone_harness,
-    } = &alone.generation.items[0].output;
-    assert_eq!(record.disposition, alone_record.disposition);
-    assert_eq!(harness, alone_harness.as_ref().expect("a harness"));
+    // The negation's one operand, ranged over `z`'s own `[0, 9]` domain --
+    // unaffected by its underivable `=` sibling.
+    let bounds: Vec<(i64, i64)> = harness
+        .identity
+        .arguments
+        .iter()
+        .map(|argument| (argument.minimum, argument.maximum))
+        .collect();
+    assert_eq!(bounds, [(0, 9)]);
 
     // The derived claim map holds both nodes: the eq node's own
     // `NoDerivableClaim`-underlying refusal (its operation is `Underived`,
