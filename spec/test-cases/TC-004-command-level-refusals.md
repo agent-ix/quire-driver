@@ -23,10 +23,13 @@ Scope: FR-001-AC-5.
 3. Build a registry from two manifests of `kani` with different digests.
 4. Build a registry from a manifest advertising `not-a-kind`.
 5. Take a `DriverRefusal::Fault` for a `supported` settlement outside its
-   candidates, and one for a vocabulary mismatch.
+   candidates, one for a vocabulary mismatch, one for an E5 `package_id`
+   mismatch, and a generation refusal for a duplicate request index.
+6. Take an E5 reader limit and CG's Kani item ceiling.
 
 Tests: `tests/drive.rs`, `tc_004_command_level_refusals_are_typed`;
-`src/refusal.rs`, `tc_004_a_fault_is_an_internal_fault_with_runtime_invariant`.
+`src/refusal.rs`, `tc_004_a_fault_is_an_internal_fault_with_runtime_invariant`
+and `tc_004_handoff_and_generation_limits_are_limits`.
 
 ## Expected Results
 
@@ -37,4 +40,6 @@ Tests: `tests/drive.rs`, `tc_004_command_level_refusals_are_typed`;
 - Step 3 refuses at the registry with `invalid_capability`/`duplicate-backend`.
 - Step 4 refuses with `invalid_capability`/`unknown-kind`.
 - Step 5's faults have outcome kind fault and code `runtime_invariant`, at
-  the negotiation and conversion steps.
+  the negotiation, conversion, hand-off and generation steps.
+- Step 6's are limit refusals: `stage_limit_exceeded` at the hand-off and
+  `resource_exhausted` at generation.

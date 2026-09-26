@@ -1,6 +1,6 @@
 ---
 id: FR-001
-title: "Orchestrate compile, backend conversion, negotiation and routing"
+title: "Orchestrate compile, backend conversion, negotiation, routing and generation"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-driver/US-001
@@ -10,7 +10,7 @@ relationships:
   - target: ix://agent-ix/quire-spec-language/ADR-012
     type: depends_on
 ---
-# FR-001: Orchestrate compile, backend conversion, negotiation and routing
+# FR-001: Orchestrate compile, backend conversion, negotiation, routing and generation
 
 ## Description
 
@@ -27,7 +27,13 @@ ADR-011 T-13, ADR-012 §7.2):
    the registry and the candidate sets.
 6. The `route` routing step, after negotiation, over the items CG settled
    `supported`.
-7. CG generation for each routed item, with its `BackendId`.
+7. CG generation: one `generate_routed` call over the routed items, each
+   with its request index, its checked node, its routed backend and its CG
+   kind.
+
+Between steps 2 and 3, the E5 hand-off: IR's checked-package reader
+(`read_checked_package`) reads the emitted v2 bytes, and the driver accepts
+the admitted package only at the `package_id` E4 emitted.
 
 ## Inputs
 
@@ -37,12 +43,16 @@ ADR-011 T-13, ADR-012 §7.2):
   (`build_registry`) and passed as an argument.
 - The requested items: each checked item's requirement record (node,
   capability kind, extent) and the backend the request names, if any.
+- The generation input: one optional context per CG backend kind. The Kani
+  context is the FR-014 claim map, the subject path, the unwind bound and
+  the attestation binding. The tool pins are always `KaniToolPins::pinned()`.
 
 ## Outputs
 
-- The in-process checked package, the emitted v2 package, CG's settlement
-  of every item in request order, and each routed item with its
-  `BackendId` and CG backend kind.
+- The in-process checked package, the emitted v2 package, IR's admitted
+  `CheckedPackageV2`, CG's settlement of every item in request order, each
+  routed item with its `BackendId` and CG backend kind, and CG's generation
+  output in ascending request index.
 - Or one command-level refusal.
 
 ## Behavior
@@ -54,25 +64,42 @@ ADR-011 T-13, ADR-012 §7.2):
   items settled `supported`. When no item settles `supported`, it SHALL
   not call `route`.
 - Types cross between QSL and CG as their wire spellings (QSL ADR-013 T-7).
+- Each routed item's node is the admitted package's `CheckedNodeId` whose
+  digest spells the item's `WireNodeId`, found by lookup. A routed item
+  whose node the package does not hold refuses the run with
+  `dangling_reference` before CG is called.
+- The driver SHALL call CG generation only after routing, only for routed
+  items, and not at all when nothing is routed.
+- A routed item whose kind has no context refuses the run with
+  `invalid-request`. CG's other generation refusals map to `invalid-request`
+  (a malformed Kani context), a limit refusal (`resource_exhausted`, the
+  Kani item ceiling) or an internal fault (a kind disagreement, a duplicate
+  request index, an empty or unpinned Kani request, none of which the
+  driver produces).
 - Each command-level refusal SHALL carry its step, its catalog code and an
   outcome kind: refusal, limit refusal or internal fault. A provider
   manifest that does not register, a spine refusal, the unknown-backend
   refusal and an envelope refusal are refusals. A spine
-  `stage_limit_exceeded` is a limit refusal. An upstream answer that breaks
-  the driver's invariants is an internal fault.
-- The driver's normal and build dependencies SHALL be the QSL layer crates
-  and CG (QSL ADR-011 §6.1 driver row), and nothing in its lock SHALL
-  depend on it.
+  `stage_limit_exceeded` and an IR reader limit are limit refusals. An
+  upstream answer that breaks the driver's invariants is an internal fault;
+  that includes IR refusing, or admitting at another `package_id`, the bytes
+  QSL just emitted.
+- The driver's normal and build dependencies SHALL be the QSL layer crates,
+  CG, IR's model crate `quire-contract-model` (at the revision CG's IR crate
+  uses), `serde_json` and `thiserror` (QSL ADR-011 §6.1 driver row), and
+  nothing in its lock SHALL depend on it.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-001-AC-1 | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates and CG, nothing in its lock depends on it, CG's one QSL edge is `qsl-replay`, the driver's QSL crates and CG's `qsl-replay` share one QSL revision, and each QSL package other than the root crate resolves to one revision. | Test (TC-005) |
+| FR-001-AC-1 | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model`, `serde_json` and `thiserror`, the driver's `quire-contract-model` is the one CG's IR crate depends on, nothing in its lock depends on it, CG's one QSL edge is `qsl-replay`, the driver's QSL crates and CG's `qsl-replay` share one QSL revision, and each QSL package other than the root crate resolves to one revision. | Test (TC-005) |
 | FR-001-AC-2 | A run whose registry holds a `BackendId` with no CG kind refuses before any negotiation, with `invalid_capability`/`unknown-backend` and the unconverted ids in bytewise order. | Test (TC-002) |
 | FR-001-AC-3 | `route` is called only after negotiation, and only for `supported` items. | Test (TC-003) |
-| FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the candidate step, conversion, negotiation, routing. | Test (TC-001) |
-| FR-001-AC-5 | Each command-level refusal carries its step, catalog code and outcome kind. | Test (TC-004) |
+| FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the E5 read, the candidate step, conversion, negotiation, routing, generation. | Test (TC-001) |
+| FR-001-AC-5 | Each command-level refusal carries its step, catalog code and outcome kind. | Test (TC-004, TC-007) |
+| FR-001-AC-6 | CG generation is called once, after routing, over the routed items only, each with its request index, its admitted `CheckedNodeId`, its routed backend and its kind; its output is keyed by request index, ascending; a missing kind context or an unknown node refuses the run. | Test (TC-006, TC-007) |
+| FR-001-AC-7 | The E5 read admits the emitted v2 bytes at the emitted `package_id`. | Test (TC-006) |
 
 ## Dependencies
 
@@ -80,19 +107,27 @@ ADR-011 T-13, ADR-012 §7.2):
 - QSL `qsl-replay` (`spine::compile`) and `qsl-route` (registry, candidate
   step, routing step).
 - CG `negotiate_backend_provider` and `BackendKind::from_identity`
-  (agent-ix/quire-contract-codegen#86).
+  (agent-ix/quire-contract-codegen#86); CG `generate_routed` (CG FR-022,
+  IR-293).
+- IR `quire-contract-model`: `read_checked_package`, `CheckedPackageV2`,
+  `CheckedNodeId`.
 
 ## Status
 
-Steps 1 to 6 are implemented. Step 7 is not wired: CG has no generation
-entry point that takes a routed `BackendId` or `BackendKind`. The Kani
-generator, `negotiate_kani_obligations`, is Kani-only and negotiates its
-own items again. `Driven::routed` is the input step 7 takes.
+Steps 1 to 7 and the E5 hand-off are implemented.
 
-The E5 hand-off (the v2 bytes and the expected `package_id` to IR's reader)
-and the IR form and bounds of each item (`RequestWriter::bounded_item`) are
-not wired, because CG's `negotiate_backend_provider` takes no IR. IR-293
-tracks this.
+The Kani claim map is supplied by the caller; IR-294 has CG derive it.
+
+E5's evidence is the unit's bytes, the caller's domain package documents,
+QSL's pinned `DefinitionLock` digests and its root feature, and the
+diagnostics catalog reference. QSL pins that reference inside its emitter
+and exports no accessor, so the driver reads it from the emitted wire; that
+entry is informational.
+
+On a QSL-emitted package, CG's Kani arm settles the `+` of
+`x + 1` (`x: Int[0, 9]`) `RequiresBound` today: IR's scalar lowering reaches
+an unbounded type in the node's closure. So the tests' generation output is
+a record with no harness. The driver passes CG's output through unchanged.
 
 `qsl-package` does not yet expose the per-item requirement records of a
-`CheckedPackage`, so the caller supplies the requested items.
+`CheckedPackage`, so the caller supplies the requested items (QSL-258).

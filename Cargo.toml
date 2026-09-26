@@ -13,14 +13,17 @@ publish = false
 name = "quire_driver"
 path = "src/lib.rs"
 
-# ADR-011 §6.1 driver row: the driver depends on the QSL layer crates and on
-# CG, and nothing depends on it. It is downstream of CG because CG -> QSL
+# ADR-011 §6.1 driver row: the driver depends on the QSL layer crates, on CG
+# and on IR's model crate (the E5 v2 reader and `CheckedNodeId`), and nothing
+# depends on it. It is downstream of CG because CG -> QSL
 # (`qsl-replay`) is a normal edge and Cargo refuses a package cycle.
 #
 # Revisions (informational, not a gate): the QSL layer crates are pinned at
 # the revision CG's `qsl-replay` dependency names (daa0178), and CG at
-# f27e98c on agent-ix/quire-contract-codegen main (the squash-merge of #174),
-# so the QSL layer crates, `quire-contract-ir` and CG each resolve to one revision.
+# 65fe686 on agent-ix/quire-contract-codegen main (the squash-merge of #175),
+# and `quire-contract-model` at b52c263, the revision CG and the QSL layer
+# crates name, so the QSL layer crates, `quire-contract-ir`, the model crate
+# and CG each resolve to one revision.
 # Two things do not: IR's root crate still depends on the QSL root crate
 # `quire-spec-language` at f1700a9 (reached through `quire-contract-ir` and
 # `quire-protocol`), and that brings a second `quire-contract-model` (53cc03c
@@ -32,11 +35,15 @@ qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", rev = "
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
 qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", rev = "daa0178b0ab82b6e1dc4a7868044d2596ec51374" }
-quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "f27e98ccef5933f59f4f4a47ef57681e727b6764" }
+quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "65fe6867532c3f8c9080fe48a84430b7b1c076f3" }
+quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", rev = "b52c26380cb312e6005474d70ba2b88a37246ffe" }
+# E5: the diagnostics catalog reference is read from the emitted wire (FR-001 Status).
+serde_json = "=1.0.151"
 thiserror = "=2.0.20"
 
 [dev-dependencies]
-serde_json = "=1.0.151"
+# The Kani claim map a test hands the driver names an RT integer domain.
+quire-contract-runtime = { git = "https://github.com/agent-ix/quire-contract-runtime", rev = "c52442a56a879cb5ce02a63bcbe430b85bf74a6d", features = ["exact"] }
 
 [profile.release]
 lto = "thin"

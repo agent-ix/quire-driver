@@ -1,6 +1,6 @@
 # quire-driver
 
-Orchestrating driver: calls QSL (compile, emit, route) and CG (negotiate) across repositories (ADR-011 T-13).
+Orchestrating driver: calls QSL (compile, emit, route), IR (E5 read) and CG (negotiate, generate) across repositories (ADR-011 T-13).
 
 ## Commands
 
@@ -34,7 +34,7 @@ src/lib.rs             # crate root
 tests/drive.rs         # FR-001 acceptance tests (real QSL and CG calls)
 tests/dependency_edges.rs # FR-001-AC-1: cargo metadata edge check
 benches/               # criterion benchmarks (opt-in; add criterion to dev-deps)
-spec/                  # requirements artifacts (FR-001, TC-001..TC-005)
+spec/                  # requirements artifacts (FR-001, TC-001..TC-007)
 scripts/               # local tooling
 ```
 

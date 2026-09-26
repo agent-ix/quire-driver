@@ -117,7 +117,8 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     assert_eq!(graph.package(&graph.root).name, "quire-driver");
 
     // §6.1 driver row: the driver's normal and build edges are QSL layer
-    // crates, CG and one error-derive crate. Never the QSL root crate.
+    // crates, CG, IR's model crate (E5's reader and `CheckedNodeId`), one
+    // JSON crate and one error-derive crate. Never the QSL root crate.
     let direct: BTreeSet<&str> = graph
         .deps_of(&graph.root)
         .map(|p| p.name.as_str())
@@ -129,6 +130,8 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         "qsl-route",
         "qsl-semantics",
         "quire-contract-codegen",
+        "quire-contract-model",
+        "serde_json",
         "thiserror",
     ]
     .into_iter()
@@ -154,6 +157,24 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let cg_qsl: Vec<&Package> = graph.deps_of(cg[0]).filter(|p| p.is_qsl()).collect();
     let cg_qsl_names: Vec<&str> = cg_qsl.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(cg_qsl_names, ["qsl-replay"]);
+
+    // The driver's model crate is the one CG's IR crate re-exports, so a
+    // `CheckedPackageV2` the driver reads is the type CG generates from.
+    let driver_model: Vec<&String> = graph.deps[&graph.root]
+        .iter()
+        .filter(|id| graph.package(id).name == "quire-contract-model")
+        .collect();
+    assert_eq!(driver_model.len(), 1);
+    let cg_ir: Vec<&String> = graph.deps[cg[0]]
+        .iter()
+        .filter(|id| graph.package(id).name == "quire-contract-ir")
+        .collect();
+    assert_eq!(cg_ir.len(), 1, "CG has one IR edge");
+    assert!(
+        graph.deps[cg_ir[0]].contains(driver_model[0]),
+        "the driver's `quire-contract-model` ({}) is not CG's IR's",
+        driver_model[0]
+    );
 
     // The driver's QSL crates and CG's `qsl-replay` come from one QSL
     // revision, and each QSL package other than the root resolves once. The

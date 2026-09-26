@@ -26,7 +26,10 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
 
 - The driver's normal and build dependencies are exactly `qsl-foundation`,
   `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`,
-  `quire-contract-codegen` and `thiserror`. The QSL root crate is not one.
+  `quire-contract-codegen`, `quire-contract-model`, `serde_json` and
+  `thiserror`. The QSL root crate is not one.
+- The driver's `quire-contract-model` is the package CG's
+  `quire-contract-ir` depends on.
 - One package is named `quire-driver`, and no edge in the lock reaches a
   package of that name: nothing in this lock depends on the driver.
 - CG's one normal or build edge into QSL is `qsl-replay`.

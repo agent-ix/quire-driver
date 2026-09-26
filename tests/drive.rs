@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! FR-001 acceptance tests: the driver's step order, the MD-2 refusal and
-//! routing after negotiation. Every call goes to the real QSL and CG
+//! FR-001 acceptance tests: the driver's step order, the MD-2 refusal,
+//! routing after negotiation, the E5 hand-off and CG generation. Every call goes to the real QSL and CG
 //! functions; `Recorder` only logs the order in which the driver makes them.
 
 use std::cell::RefCell;
@@ -14,11 +14,20 @@ use qsl_route::{BackendId, Candidate, ManifestDigest};
 use qsl_semantics::check::{Capability, CheckingLimits};
 use qsl_semantics::family::{ClaimExtent, Requirements};
 use quire_contract_codegen::{
-    BackendKind, BackendProviderEnvelope, EnvelopeRefusal, ItemSettlement,
+    generate_exact_scalar_oracles, generate_routed, AttestationContext, BackendKind,
+    BackendProviderEnvelope, ClaimMap, EnvelopeRefusal, ExactScalarClaim, ExactScalarItem,
+    ExactScalarOperation, GenerationContexts, IntegerOperator, ItemSettlement,
+    KaniGenerationContext, KaniToolPins, RoutedGeneration, RoutedGenerationError,
+    RoutedGenerationItem, IR_CANDIDATE_REVISION,
 };
+use quire_contract_model::{
+    CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
+    CheckedPackageV2,
+};
+use quire_contract_runtime::exact::{Integer, IntegerDomain, IntegerInterval};
 use quire_driver::{
-    build_registry, drive, CompileInput, DriverRefusal, DriverStage, OutcomeKind, ProviderManifest,
-    QslCg, RequestedItem, Upstream,
+    build_registry, drive, CompileInput, Driven, DriverRefusal, DriverStage, GenerationInput,
+    KaniInput, OutcomeKind, ProviderManifest, QslCg, RequestedItem, Upstream,
 };
 
 const UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
@@ -26,10 +35,21 @@ const UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
     \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
     function f using v(): Boolean pure { true }\n";
 
+/// A unit with an integer `+` (a `binary` expression) under a range
+/// `conversion` expression: two nodes a Kani item can name.
+const INT_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
+    profile v = \"quire.value.complete/v1\" version \"1\" digest \
+    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
+    function inc using v(x: Int[0, 9]): Int[0, 10] pure { x + 1 }\n";
+
+/// A fixed attestation binding (a test value, never a sealed record).
+const RECORD_DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
 /// One upstream call, as the driver made it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Call {
     Compile,
+    ReadPackage,
     BackendKind(String),
     Negotiate {
         items: usize,
@@ -37,6 +57,9 @@ enum Call {
     Route {
         supported: usize,
         dispositions: usize,
+    },
+    Generate {
+        items: usize,
     },
 }
 
@@ -63,6 +86,16 @@ impl Upstream for Recorder {
     ) -> Result<Compiled, Box<CompileRefusal>> {
         self.calls.borrow_mut().push(Call::Compile);
         QslCg.compile(source, path, bytes, packages, limits)
+    }
+
+    fn read_package(
+        &self,
+        bytes: &[u8],
+        limits: CheckedPackageReadLimits,
+        evidence: &CheckedPackageEvidence,
+    ) -> CheckedPackageDispatchResult {
+        self.calls.borrow_mut().push(Call::ReadPackage);
+        QslCg.read_package(bytes, limits, evidence)
     }
 
     fn backend_kind(&self, id: &BackendId) -> Option<BackendKind> {
@@ -93,6 +126,18 @@ impl Upstream for Recorder {
         });
         QslCg.route(dispositions)
     }
+
+    fn generate(
+        &self,
+        package: &CheckedPackageV2,
+        routed: &[RoutedGenerationItem],
+        contexts: &GenerationContexts<'_>,
+    ) -> Result<RoutedGeneration, RoutedGenerationError> {
+        self.calls.borrow_mut().push(Call::Generate {
+            items: routed.len(),
+        });
+        QslCg.generate(package, routed, contexts)
+    }
 }
 
 fn manifest(identity: &str, digest: u8, kinds: &[&str]) -> ProviderManifest {
@@ -118,10 +163,94 @@ fn input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
 }
 
 fn item(node: u8, kind: Capability, backend: Option<&str>) -> RequestedItem {
+    item_at(WireNodeId::from_digest([node; 32]), kind, backend)
+}
+
+fn item_at(node: WireNodeId, kind: Capability, backend: Option<&str>) -> RequestedItem {
     RequestedItem {
-        node: WireNodeId::from_digest([node; 32]),
+        node,
         requirements: Requirements::new(kind, ClaimExtent::Bounded),
         backend: backend.map(BackendId::new),
+    }
+}
+
+fn int_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+    CompileInput {
+        bytes: INT_UNIT.as_bytes(),
+        ..input(packages)
+    }
+}
+
+/// `INT_UNIT` driven with no items: its E5 package.
+fn int_package() -> Driven {
+    let registry = build_registry(&[]).expect("an empty registry builds");
+    let packages = BTreeMap::new();
+    drive(
+        &QslCg,
+        int_input(&packages),
+        &registry,
+        &[],
+        GenerationInput::default(),
+    )
+    .expect("the integer unit drives")
+}
+
+/// The one expression node of `form` in `package`: IR's id and its wire
+/// spelling.
+fn expression(package: &CheckedPackageV2, form: &str) -> (CheckedNodeId, WireNodeId) {
+    let node = package
+        .graph()
+        .nodes
+        .iter()
+        .find(|node| node.node_tag.as_ref() == "expression" && node.semantic_form.as_ref() == form)
+        .unwrap_or_else(|| panic!("the unit has a {form} expression"));
+    let wire = WireNodeId::from_hex(&node.node_id.digest).expect("a wire node id");
+    (node.node_id.clone(), wire)
+}
+
+/// The FR-014 claim map of the `+` node, as the caller supplies it.
+fn claim_map(package: &CheckedPackageV2, add: &CheckedNodeId) -> ClaimMap<ExactScalarClaim> {
+    let domain = IntegerDomain::Bounded(
+        IntegerInterval::new(Integer::from(-1000_i64), Integer::from(1000_i64))
+            .expect("a valid interval"),
+    );
+    let items = [ExactScalarItem {
+        node_id: add.clone(),
+        operation: ExactScalarOperation::IntegerArithmetic {
+            operator: IntegerOperator::Add,
+            domain,
+        },
+    }];
+    generate_exact_scalar_oracles(package, &items)
+        .expect("CG generates the claim map")
+        .claim_map
+}
+
+fn attestation() -> AttestationContext<'static> {
+    AttestationContext {
+        record_digest: RECORD_DIGEST,
+        candidate_revision: IR_CANDIDATE_REVISION,
+    }
+}
+
+fn kani_input(claim_map: &ClaimMap<ExactScalarClaim>) -> GenerationInput<'_> {
+    GenerationInput {
+        kani: Some(KaniInput {
+            claim_map,
+            subject_path: "crate::subject",
+            unwind: 1,
+            attestation: attestation(),
+        }),
+    }
+}
+
+/// The kani backend as `route` returned it, in CG's wire spelling.
+fn kani_candidate(driven: &Driven) -> quire_contract_codegen::Candidate {
+    let candidate = &driven.routed[0].candidate;
+    let digest = candidate.manifest_digest();
+    quire_contract_codegen::Candidate {
+        identity: candidate.id().as_str().to_owned(),
+        manifest_digest: format!("{}:{}", digest.domain().as_str(), digest.hex()),
     }
 }
 
@@ -146,6 +275,7 @@ fn tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order() {
         input(&packages),
         &registry,
         &[item(1, Capability::ValueValidity, None)],
+        GenerationInput::default(),
     )
     .expect_err("two registered backends have no CG kind");
 
@@ -177,28 +307,45 @@ fn tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order() {
     assert_eq!(converted.len(), 3, "{calls:?}");
 }
 
-/// FR-001-AC-4 and FR-001-AC-3 (TC-001, TC-003): the driver compiles and
-/// emits, converts every backend, negotiates every item once, then routes
-/// only the items CG settled `supported`, each to its `BackendId`.
+/// FR-001-AC-4, FR-001-AC-3, FR-001-AC-6 and FR-001-AC-7 (TC-001, TC-003,
+/// TC-006): the driver compiles and emits, hands the bytes to IR, converts
+/// every backend, negotiates every item once, routes only the items CG
+/// settled `supported`, then generates for the routed item through CG.
 #[test]
-fn tc_001_tc_003_steps_run_in_order_and_route_only_supported_items() {
+fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
+    let checked = int_package().checked;
+    let (add, add_wire) = expression(&checked, "binary");
+    let claims = claim_map(&checked, &add);
+
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
     let items = [
         // Supported: kani advertises value-validity, bounded extent.
-        item(1, Capability::ValueValidity, None),
+        item_at(add_wire, Capability::ValueValidity, None),
         // Unsupported: no registered backend advertises operation-contract.
         item(2, Capability::OperationContract, None),
         // Invalid request: the request names an unregistered backend.
         item(3, Capability::ValueValidity, Some("missing")),
     ];
 
-    let driven = drive(&recorder, input(&packages), &registry, &items).expect("the run completes");
+    let driven = drive(
+        &recorder,
+        int_input(&packages),
+        &registry,
+        &items,
+        kani_input(&claims),
+    )
+    .expect("the run completes");
 
-    // E4 emitted v2 bytes with the package identity.
+    // E4 emitted v2 bytes; E5 admitted them at the emitted `package_id`.
     assert!(!driven.emitted.bytes().is_empty());
+    assert_eq!(
+        driven.checked.package_id().digest.as_ref(),
+        driven.emitted.package_id().hex()
+    );
+    assert_eq!(driven.checked, checked, "the same unit, the same package");
 
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
@@ -216,17 +363,155 @@ fn tc_001_tc_003_steps_run_in_order_and_route_only_supported_items() {
     assert_eq!(driven.routed[0].backend().as_str(), "kani");
     assert_eq!(driven.routed[0].kind, BackendKind::Kani);
 
+    // Step 7 is CG's own `generate_routed` over the routed item, with its
+    // request index, IR node, wire backend and kind, and the pinned tools.
+    let backend = kani_candidate(&driven);
+    let pins = KaniToolPins::pinned();
+    let expected = generate_routed(
+        &checked,
+        &[RoutedGenerationItem {
+            request_index: 0,
+            node_id: add,
+            backend: backend.clone(),
+            kind: BackendKind::Kani,
+        }],
+        &GenerationContexts {
+            kani: Some(KaniGenerationContext {
+                claim_map: &claims,
+                subject_path: "crate::subject",
+                pins: &pins,
+                unwind: 1,
+                attestation: attestation(),
+            }),
+        },
+    )
+    .expect("CG generates for the routed item");
+    assert_eq!(driven.generation, expected);
+    assert_eq!(driven.generation.items.len(), 1);
+    assert_eq!(driven.generation.items[0].request_index, 0);
+    assert_eq!(driven.generation.items[0].backend, backend);
+
     assert_eq!(
         recorder.calls(),
         [
             Call::Compile,
+            Call::ReadPackage,
             Call::BackendKind("kani".to_owned()),
             Call::Negotiate { items: 3 },
             Call::Route {
                 supported: 1,
                 dispositions: 1,
             },
+            Call::Generate { items: 1 },
         ]
+    );
+}
+
+/// FR-001-AC-6 (TC-006): the generation output is keyed by the driver's
+/// request index, ascending, with the unrouted item absent.
+#[test]
+fn tc_006_generation_output_ascends_by_request_index() {
+    let checked = int_package().checked;
+    let (add, add_wire) = expression(&checked, "binary");
+    let (_, conversion_wire) = expression(&checked, "conversion");
+    let claims = claim_map(&checked, &add);
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let recorder = Recorder::default();
+    let items = [
+        item_at(conversion_wire, Capability::ValueValidity, None),
+        item(2, Capability::OperationContract, None),
+        item_at(add_wire, Capability::ValueValidity, None),
+    ];
+
+    let driven = drive(
+        &recorder,
+        int_input(&packages),
+        &registry,
+        &items,
+        kani_input(&claims),
+    )
+    .expect("the run completes");
+
+    let routed: Vec<usize> = driven.routed.iter().map(|r| r.request_index).collect();
+    assert_eq!(routed, [0, 2]);
+    let generated: Vec<usize> = driven
+        .generation
+        .items
+        .iter()
+        .map(|item| item.request_index)
+        .collect();
+    assert_eq!(generated, [0, 2]);
+    assert!(recorder.calls().contains(&Call::Generate { items: 2 }));
+}
+
+/// FR-001-AC-5 and FR-001-AC-6 (TC-007): a routed Kani item with no Kani
+/// context refuses the run with CG's `MissingKindContext`, and a routed
+/// item naming a node the package does not hold refuses before CG is
+/// called.
+#[test]
+fn tc_007_generation_refusals_are_typed() {
+    let checked = int_package().checked;
+    let (_, add_wire) = expression(&checked, "binary");
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+
+    let recorder = Recorder::default();
+    let refusal = drive(
+        &recorder,
+        int_input(&packages),
+        &registry,
+        &[item_at(add_wire, Capability::ValueValidity, None)],
+        GenerationInput::default(),
+    )
+    .expect_err("no Kani context is supplied");
+    assert!(
+        matches!(
+            refusal,
+            DriverRefusal::Generation(RoutedGenerationError::MissingKindContext {
+                kind: BackendKind::Kani
+            })
+        ),
+        "{refusal:?}"
+    );
+    assert_eq!(refusal.stage(), DriverStage::Generation);
+    assert_eq!(refusal.code(), "invalid-request");
+    assert_eq!(refusal.kind(), OutcomeKind::Refused);
+    assert_eq!(recorder.calls().last(), Some(&Call::Generate { items: 1 }));
+
+    let recorder = Recorder::default();
+    let dangling = WireNodeId::from_digest([1; 32]);
+    let refusal = drive(
+        &recorder,
+        int_input(&packages),
+        &registry,
+        &[
+            item(2, Capability::OperationContract, None),
+            item_at(dangling, Capability::ValueValidity, None),
+        ],
+        GenerationInput::default(),
+    )
+    .expect_err("the routed node is not in the package");
+    let DriverRefusal::UnknownNode {
+        request_index,
+        node,
+    } = &refusal
+    else {
+        panic!("expected the unknown-node refusal, got {refusal:?}");
+    };
+    assert_eq!((*request_index, *node), (1, dangling));
+    assert_eq!(refusal.stage(), DriverStage::Generation);
+    assert_eq!(refusal.code(), "dangling_reference");
+    assert_eq!(refusal.kind(), OutcomeKind::Refused);
+    assert!(
+        !recorder
+            .calls()
+            .iter()
+            .any(|c| matches!(c, Call::Generate { .. })),
+        "{:?}",
+        recorder.calls()
     );
 }
 
@@ -244,6 +529,7 @@ fn tc_003_no_supported_item_means_no_route_call() {
         input(&packages),
         &registry,
         &[item(1, Capability::OperationContract, None)],
+        GenerationInput::default(),
     )
     .expect("the run completes");
 
@@ -271,7 +557,14 @@ fn tc_004_command_level_refusals_are_typed() {
         ..input(&packages)
     };
 
-    let refusal = drive(&recorder, broken, &registry, &[]).expect_err("the unit does not parse");
+    let refusal = drive(
+        &recorder,
+        broken,
+        &registry,
+        &[],
+        GenerationInput::default(),
+    )
+    .expect_err("the unit does not parse");
     assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Source));
     assert_eq!(refusal.code(), "invalid_syntax");
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
@@ -290,8 +583,14 @@ fn tc_004_command_level_refusals_are_typed() {
         },
         ..input(&packages)
     };
-    let refusal = drive(&Recorder::default(), deep, &registry, &[])
-        .expect_err("depth 3 stops a body four deep");
+    let refusal = drive(
+        &Recorder::default(),
+        deep,
+        &registry,
+        &[],
+        GenerationInput::default(),
+    )
+    .expect_err("depth 3 stops a body four deep");
     assert_eq!(refusal.kind(), OutcomeKind::Limit);
     assert_eq!(refusal.code(), "stage_limit_exceeded");
     assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Check));

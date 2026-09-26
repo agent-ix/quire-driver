@@ -22,10 +22,14 @@
 //! 6. The `route` routing step, after negotiation, over the items settled
 //!    `supported` only. Each routed item carries its `BackendId` and its CG
 //!    backend kind ([`Routed`]).
-//! 7. CG generation with those `BackendId`s. **Not wired.** CG has no
-//!    generation entry point keyed by a routed backend; [`Driven::routed`]
-//!    is the input it would take. See FR-001 Status. The E5 hand-off to IR
-//!    is not wired either.
+//! 7. CG generation: `generate_routed` over the routed items, each with its
+//!    request index, its node, its routed backend and its CG kind, and the
+//!    caller's [`GenerationInput`]. The node is the E5 package's
+//!    `CheckedNodeId` the item's `WireNodeId` names.
+//!
+//! E5 runs after step 2: IR's checked-package reader admits the emitted v2
+//! bytes, and the admitted `package_id` must be the emitted one
+//! ([`Driven::checked`]).
 //!
 //! Command-level refusals are [`DriverRefusal`]. AGE-394 (the lifecycle and CLI
 //! design) renders them.
@@ -37,11 +41,12 @@
 #![forbid(unsafe_code)]
 
 mod drive;
+mod handoff;
 mod refusal;
 mod registry;
 mod upstream;
 
-pub use drive::{drive, CompileInput, Driven, RequestedItem, Routed};
+pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, RequestedItem, Routed};
 pub use refusal::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
 pub use registry::{build_registry, ProviderManifest};
 pub use upstream::{QslCg, Upstream};

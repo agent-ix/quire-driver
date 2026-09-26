@@ -3,10 +3,12 @@
 //! AGE-394 (the lifecycle and CLI design) renders them; this module only types
 //! them.
 
+use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::Code;
 use qsl_replay::spine::{CompileRefusal, SpineStage};
 use qsl_route::{BackendId, RegistrationRefusal};
-use quire_contract_codegen::EnvelopeRefusal;
+use quire_contract_codegen::{EnvelopeRefusal, KaniObligationError, RoutedGenerationError};
+use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageRefusal};
 
 /// Why [`crate::drive`] or [`crate::build_registry`] produced no result.
 #[derive(Debug, thiserror::Error)]
@@ -28,6 +30,22 @@ pub enum DriverRefusal {
     /// CG refused the whole FR-331 envelope before settling any item.
     #[error("CG refused the negotiation envelope: {}", envelope_message(.0))]
     Envelope(EnvelopeRefusal),
+    /// E5: IR's reader stopped at one of its limits.
+    #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
+    HandoffLimit(CheckedPackageIncomplete),
+    /// A routed item names a node the checked package does not hold.
+    #[error(
+        "request item {request_index} names node {node}, which the checked package does not hold"
+    )]
+    UnknownNode {
+        /// The item's request index.
+        request_index: usize,
+        /// The node the item names.
+        node: WireNodeId,
+    },
+    /// CG generation refused the routed items as a whole.
+    #[error("CG generation refused the routed items: {0:?}")]
+    Generation(RoutedGenerationError),
     /// An upstream answer broke an invariant the driver relies on. Not a
     /// refusal of the input.
     #[error("internal fault: {0}")]
@@ -68,6 +86,20 @@ pub enum DriverFault {
     /// dispositions, or no target for a `supported` item.
     #[error("routing returned no target for a supported item")]
     RoutingTarget,
+    /// IR's reader refused the bytes QSL's E4 emitter just wrote.
+    #[error("IR refused the emitted checked package: {:?}", .0.code)]
+    HandoffRefused(CheckedPackageRefusal),
+    /// IR admitted the bytes at a `package_id` other than the emitted one.
+    #[error("IR admitted package {admitted}, not the emitted {emitted}")]
+    PackageIdMismatch {
+        /// The emitted `package_id` digest.
+        emitted: String,
+        /// The admitted `package_id` digest.
+        admitted: String,
+    },
+    /// The emitted bytes carry no readable diagnostics catalog reference.
+    #[error("the emitted checked package has no readable diagnostics catalog")]
+    DiagnosticsCatalog,
 }
 
 /// The step a [`DriverRefusal`] comes from.
@@ -83,6 +115,10 @@ pub enum DriverStage {
     Negotiation,
     /// The routing step after negotiation.
     Routing,
+    /// E5: IR's read of the emitted package.
+    Handoff,
+    /// CG generation for the routed items.
+    Generation,
 }
 
 /// The terminal outcome kind a refusal maps to (ADR-011 §2.3, §5): a
@@ -114,6 +150,9 @@ impl DriverRefusal {
             Self::Envelope(EnvelopeRefusal::InvalidCapability { cause, .. }) => {
                 format!("invalid_capability/{cause}")
             }
+            Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
+            Self::UnknownNode { .. } => Code::DanglingReference.as_str().to_owned(),
+            Self::Generation(error) => generation_code(error).as_str().to_owned(),
             Self::Fault(_) => Code::RuntimeInvariant.as_str().to_owned(),
         }
     }
@@ -128,6 +167,13 @@ impl DriverRefusal {
             }
             Self::Envelope(_) => DriverStage::Negotiation,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
+            Self::HandoffLimit(_)
+            | Self::Fault(
+                DriverFault::HandoffRefused(_)
+                | DriverFault::PackageIdMismatch { .. }
+                | DriverFault::DiagnosticsCatalog,
+            ) => DriverStage::Handoff,
+            Self::UnknownNode { .. } | Self::Generation(_) => DriverStage::Generation,
             Self::Fault(
                 DriverFault::SettlementCount { .. }
                 | DriverFault::SupportedOutsideCandidates { .. },
@@ -141,12 +187,43 @@ impl DriverRefusal {
             Self::Compile(refusal) if refusal.code() == Code::StageLimitExceeded => {
                 OutcomeKind::Limit
             }
+            Self::HandoffLimit(_) => OutcomeKind::Limit,
+            Self::Generation(error) => match generation_code(error) {
+                Code::RuntimeInvariant => OutcomeKind::Fault,
+                Code::ResourceExhausted => OutcomeKind::Limit,
+                _ => OutcomeKind::Refused,
+            },
             Self::Registration(_)
             | Self::Compile(_)
             | Self::UnknownBackend { .. }
-            | Self::Envelope(_) => OutcomeKind::Refused,
+            | Self::Envelope(_)
+            | Self::UnknownNode { .. } => OutcomeKind::Refused,
             Self::Fault(_) => OutcomeKind::Fault,
         }
+    }
+}
+
+/// The catalog code of a generation refusal. The driver routes each item
+/// with the kind CG's own conversion gave it, once per request index, and
+/// always passes the pinned Kani tools, so those refusals are internal
+/// faults. A missing kind context or a malformed Kani context is the
+/// caller's request; the Kani item ceiling is a limit.
+fn generation_code(error: &RoutedGenerationError) -> Code {
+    match error {
+        RoutedGenerationError::BackendKindDisagrees { .. }
+        | RoutedGenerationError::DuplicateRequestIndex { .. }
+        | RoutedGenerationError::Kani(
+            KaniObligationError::EmptyRequest | KaniObligationError::UnpinnedBackend { .. },
+        ) => Code::RuntimeInvariant,
+        RoutedGenerationError::Kani(KaniObligationError::TooManyItems { .. }) => {
+            Code::ResourceExhausted
+        }
+        RoutedGenerationError::MissingKindContext { .. }
+        | RoutedGenerationError::Kani(
+            KaniObligationError::InvalidSubjectPath
+            | KaniObligationError::InvalidUnwind { .. }
+            | KaniObligationError::InvalidAttestationContext,
+        ) => Code::InvalidRequest,
     }
 }
 
@@ -170,6 +247,9 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 
 #[cfg(test)]
 mod tests {
+    use quire_contract_codegen::{KaniObligationError, RoutedGenerationError};
+    use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
+
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
 
     /// FR-001-AC-5 (TC-004): an internal fault is its own outcome kind, with
@@ -190,5 +270,42 @@ mod tests {
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.code(), "runtime_invariant");
         assert_eq!(fault.stage(), DriverStage::Conversion);
+
+        let fault = DriverRefusal::Fault(DriverFault::PackageIdMismatch {
+            emitted: "a".to_owned(),
+            admitted: "b".to_owned(),
+        });
+        assert_eq!(fault.kind(), OutcomeKind::Fault);
+        assert_eq!(fault.code(), "runtime_invariant");
+        assert_eq!(fault.stage(), DriverStage::Handoff);
+
+        let fault = DriverRefusal::Generation(RoutedGenerationError::DuplicateRequestIndex {
+            request_index: 0,
+        });
+        assert_eq!(fault.kind(), OutcomeKind::Fault);
+        assert_eq!(fault.code(), "runtime_invariant");
+        assert_eq!(fault.stage(), DriverStage::Generation);
+    }
+
+    /// FR-001-AC-5 (TC-004): E5's reader limit and CG's Kani item ceiling
+    /// are limit refusals.
+    #[test]
+    fn tc_004_handoff_and_generation_limits_are_limits() {
+        let limit = DriverRefusal::HandoffLimit(CheckedPackageIncomplete {
+            limit_kind: CheckedPackageLimit::Bytes,
+            limit: 1,
+            consumed: 2,
+            path: None,
+        });
+        assert_eq!(limit.kind(), OutcomeKind::Limit);
+        assert_eq!(limit.code(), "stage_limit_exceeded");
+        assert_eq!(limit.stage(), DriverStage::Handoff);
+
+        let limit = DriverRefusal::Generation(RoutedGenerationError::Kani(
+            KaniObligationError::TooManyItems { count: 9 },
+        ));
+        assert_eq!(limit.kind(), OutcomeKind::Limit);
+        assert_eq!(limit.code(), "resource_exhausted");
+        assert_eq!(limit.stage(), DriverStage::Generation);
     }
 }
