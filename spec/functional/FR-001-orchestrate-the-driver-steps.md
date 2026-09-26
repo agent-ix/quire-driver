@@ -95,14 +95,14 @@ the admitted package only at the `package_id` E4 emitted.
   QSL just emitted.
 - The driver's normal and build dependencies SHALL be the QSL layer crates,
   CG, IR's model crate `quire-contract-model` (at the revision CG's IR crate
-  uses), `serde_json` and `thiserror` (QSL ADR-011 §6.1 driver row), and
-  nothing in its lock SHALL depend on it.
+  uses) and `thiserror` (QSL ADR-011 §6.1 driver row), and nothing in its
+  lock SHALL depend on it.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-001-AC-1 | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model`, `serde_json` and `thiserror`, the driver's `quire-contract-model` is the one CG's IR crate depends on, nothing in its lock depends on it, CG's one QSL edge is `qsl-replay`, and the driver's own QSL pin resolves the same `quire-contract-model` package id as the driver's own direct pin. Other copies of `quire-contract-model` and of QSL layer crates, reached only through CG's own (not yet caught up) `qsl-replay` edge or through IR's own root-crate edge, are informational and not gated. | Test (TC-005) |
+| FR-001-AC-1 | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model` and `thiserror` (`serde_json` is a dev-dependency, not a normal one), the driver's `quire-contract-model` is the one CG's IR crate depends on, nothing in its lock depends on it, CG's one QSL edge is `qsl-replay`, and the driver's own QSL pin resolves the same `quire-contract-model` package id as the driver's own direct pin. Other copies of `quire-contract-model` and of QSL layer crates, reached only through CG's own (not yet caught up) `qsl-replay` edge or through IR's own root-crate edge, are informational and not gated. | Test (TC-005) |
 | FR-001-AC-2 | A run whose registry holds a `BackendId` with no CG kind refuses before any negotiation, with `invalid_capability`/`unknown-backend` and the unconverted ids in bytewise order. | Test (TC-002) |
 | FR-001-AC-3 | `route` is called only after negotiation, and only for `supported` items. | Test (TC-003) |
 | FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the E5 read, the candidate step, conversion, negotiation, routing, generation. | Test (TC-001) |
@@ -137,9 +137,10 @@ informational constants, never checked against the definition bytes. The
 diagnostics catalog reference is `qsl_package::diagnostics_catalog()`
 (QSL-260 closed by #453): the same reference QSL's own emitter pins at
 `/diagnostics/catalog`, read from QSL's own API rather than parsed back out
-of the emitted bytes. `serde_json` stays a normal dependency (ADR-011
-§6.1's driver row); this crate's own tests use it to assert wire shapes
-(settlement dispositions, the derived claim map).
+of the emitted bytes. `serde_json` is now only a dev-dependency: this
+crate's own tests use it to assert wire shapes (settlement dispositions,
+the derived claim map) and to parse `cargo metadata`'s JSON
+(`tests/dependency_edges.rs`).
 
 CG's Kani arm derives each routed node's operand and result bound roles
 from what the node itself names (IR-298): an operand's bound is the

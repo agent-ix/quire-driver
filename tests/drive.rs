@@ -10,7 +10,7 @@ use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{CompileRefusal, Compiled, SpineLimits, SpineStage};
 use qsl_route::routing::Disposition;
-use qsl_route::{BackendId, Candidate, ManifestDigest};
+use qsl_route::{BackendId, Candidate, ManifestDigest, RegistrationCause};
 use qsl_semantics::check::{Capability, CheckingLimits};
 use qsl_semantics::family::{ClaimExtent, Requirements};
 use quire_contract_codegen::{
@@ -594,16 +594,16 @@ fn tc_001_tc_003_tc_006_steps_run_in_order_through_generation() {
     );
 }
 
-/// FR-001-AC-6 (TC-006), IR-298: `INT_UNIT`'s `+` (`x + 1`) has one operand
-/// that owns a bound (`x`) and one that does not (the literal `1`, a
-/// reference to a plain-typed literal value node): CG settles this
-/// `RequiresBound`, naming the literal's own unbounded type, not
-/// `Supported`. No harness is carried, and the run itself still completes
-/// (this is a per-item disposition, not a whole-generation refusal).
+/// FR-001-AC-6 (TC-006): the driver's generation output for `INT_UNIT`'s
+/// `+` (`x + 1`) equals a direct `generate_routed` call over the same
+/// routed item, whatever CG settles it -- the same pass-through check
+/// `tc_001_tc_003_tc_006_steps_run_in_order_through_generation` makes for
+/// its own fixture. This holds regardless of IR-302 below: the driver
+/// passes CG's answer through unchanged either way.
 #[test]
-fn tc_006_a_literal_beside_an_owned_bound_requires_bound() {
+fn tc_006_x_plus_1_generation_passes_through_unchanged() {
     let checked = int_package().checked;
-    let (_, add_wire) = expression(&checked, "binary");
+    let (add, add_wire) = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
@@ -617,32 +617,37 @@ fn tc_006_a_literal_beside_an_owned_bound_requires_bound() {
     )
     .expect("the run completes");
 
-    assert_eq!(driven.generation.items.len(), 1);
-    let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
-    assert!(harness.is_none(), "{:?}", harness);
-    assert!(
-        matches!(
-            record.disposition,
-            ObligationDisposition::RequiresBound { .. }
-        ),
-        "{:?}",
-        record.disposition
-    );
+    let backend = kani_candidate(&driven);
+    let pins = KaniToolPins::pinned();
+    let expected = generate_routed(
+        &checked,
+        &[RoutedGenerationItem {
+            request_index: 0,
+            node_id: add,
+            backend,
+            kind: BackendKind::Kani,
+        }],
+        &GenerationContexts {
+            kani: Some(KaniGenerationContext {
+                subject_path: "crate::subject",
+                pins: &pins,
+                unwind: 1,
+                attestation: attestation(),
+            }),
+        },
+    )
+    .expect("CG generates for the routed item");
+    assert_eq!(driven.generation, expected);
 }
 
-/// FR-001-AC-6 (TC-006), IR-298: `TWO_PARAM_UNIT`'s `+` (`x + y`) has two
-/// operands that each own a bound (`x`, `y`), and nothing else reachable
-/// from the `+` node itself (the declared return type's narrowing
-/// `conversion` is not reachable from its own operand): removing both
-/// operands' own bounds from the reachable candidates leaves none, which
-/// CG reports as `AmbiguousBound`, not `Supported`. A genuine QSL-compiled
-/// two-operand arithmetic expression does not settle `Supported` under
-/// IR-298 today; see `NEGATE_UNIT`'s doc for the one-operand case that
-/// does.
+/// FR-001-AC-6 (TC-006): the driver's generation output for
+/// `TWO_PARAM_UNIT`'s `+` (`x + y`) equals a direct `generate_routed` call
+/// over the same routed item, whatever CG settles it. See
+/// `tc_006_x_plus_1_generation_passes_through_unchanged`.
 #[test]
-fn tc_006_two_independently_bounded_operands_is_ambiguous_not_supported() {
+fn tc_006_x_plus_y_generation_passes_through_unchanged() {
     let checked = two_param_package().checked;
-    let (_, add_wire) = expression(&checked, "binary");
+    let (add, add_wire) = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
@@ -656,20 +661,116 @@ fn tc_006_two_independently_bounded_operands_is_ambiguous_not_supported() {
     )
     .expect("the run completes");
 
-    assert_eq!(driven.generation.items.len(), 1);
+    let backend = kani_candidate(&driven);
+    let pins = KaniToolPins::pinned();
+    let expected = generate_routed(
+        &checked,
+        &[RoutedGenerationItem {
+            request_index: 0,
+            node_id: add,
+            backend,
+            kind: BackendKind::Kani,
+        }],
+        &GenerationContexts {
+            kani: Some(KaniGenerationContext {
+                subject_path: "crate::subject",
+                pins: &pins,
+                unwind: 1,
+                attestation: attestation(),
+            }),
+        },
+    )
+    .expect("CG generates for the routed item");
+    assert_eq!(driven.generation, expected);
+}
+
+/// FR-001-AC-6 (TC-006), IR-302: the intended outcome for `INT_UNIT`'s `+`
+/// (`x + 1`) is `Supported`, with `x`'s own `[0, 9]` domain covering both
+/// arguments (CG's own tc_033 shape). CG's IR-298 currently settles this
+/// `RequiresBound` instead, naming the literal `1`'s own unbounded type:
+/// QSL represents every literal as a reference to its own plain-typed
+/// value node, never inline, so this trips CG's "plain reference beside an
+/// owned bound" rule. Tracked as IR-302.
+#[test]
+#[ignore = "IR-302: IR-298 two-operand shapes on QSL output"]
+fn tc_006_x_plus_1_settles_supported() {
+    let checked = int_package().checked;
+    let (add, add_wire) = expression(&checked, "binary");
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+
+    let driven = drive(
+        &QslCg,
+        int_input(&packages),
+        &registry,
+        &[item_at(add_wire, Capability::ValueValidity, None)],
+        kani_input(),
+    )
+    .expect("the run completes");
+
     let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
-    assert!(harness.is_none(), "{:?}", harness);
-    assert_eq!(
-        record.disposition,
-        ObligationDisposition::Unsupported {
-            reason: UnsupportedObligation::OracleRefused {
-                refusal: ExactScalarRefusal::AmbiguousBound {
-                    bounded_type: base_integer_type(&checked),
-                    expected_form: BoundForm::IntegerRange,
-                }
-            }
-        }
+    assert!(
+        matches!(record.disposition, ObligationDisposition::Supported { .. }),
+        "{:?}",
+        record.disposition
     );
+    let harness = harness
+        .as_ref()
+        .expect("a supported item carries its harness");
+    assert_eq!(harness.identity.node_id, add);
+    let bounds: Vec<(i64, i64)> = harness
+        .identity
+        .arguments
+        .iter()
+        .map(|argument| (argument.minimum, argument.maximum))
+        .collect();
+    assert_eq!(bounds, [(0, 9), (0, 9)]);
+}
+
+/// FR-001-AC-6 (TC-006), IR-302: the intended outcome for `TWO_PARAM_UNIT`'s
+/// `+` (`x + y`) is `Supported`, ranging each argument over its own
+/// operand's domain: `x`'s `[0, 9]`, then `y`'s `[10, 20]`. CG's IR-298
+/// currently settles this `AmbiguousBound` instead: `x` and `y` each own a
+/// bound and nothing else is reachable from the `+` node itself (the
+/// return type's narrowing `conversion` is unreachable from its own
+/// operand), so removing both operands' own bounds from the candidates
+/// leaves none. Tracked as IR-302.
+#[test]
+#[ignore = "IR-302: IR-298 two-operand shapes on QSL output"]
+fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
+    let checked = two_param_package().checked;
+    let (add, add_wire) = expression(&checked, "binary");
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+
+    let driven = drive(
+        &QslCg,
+        two_param_input(&packages),
+        &registry,
+        &[item_at(add_wire, Capability::ValueValidity, None)],
+        kani_input(),
+    )
+    .expect("the run completes");
+
+    let KindOutput::Kani { record, harness } = &driven.generation.items[0].output;
+    assert!(
+        matches!(record.disposition, ObligationDisposition::Supported { .. }),
+        "{:?}",
+        record.disposition
+    );
+    let harness = harness
+        .as_ref()
+        .expect("a supported item carries its harness");
+    assert_eq!(harness.identity.node_id, add);
+    let bounds: Vec<(i64, i64)> = harness
+        .identity
+        .arguments
+        .iter()
+        .map(|argument| (argument.minimum, argument.maximum))
+        .collect();
+    assert_eq!(bounds, [(0, 9), (10, 20)]);
 }
 
 /// FR-001-AC-6 (TC-006): the generation output is keyed by the driver's
@@ -859,6 +960,18 @@ fn tc_004_command_level_refusals_are_typed() {
     assert_eq!(refusal.code(), "stage_limit_exceeded");
     assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Check));
 
+    // Two manifests, one identity, two distinct digests: both conflict,
+    // and `refusals()` reports one entry per distinct digest, ascending.
+    let expected_conflicts = [
+        (
+            Candidate::new(BackendId::new("kani"), ManifestDigest::from_digest([1; 32])),
+            RegistrationCause::DuplicateBackend,
+        ),
+        (
+            Candidate::new(BackendId::new("kani"), ManifestDigest::from_digest([2; 32])),
+            RegistrationCause::DuplicateBackend,
+        ),
+    ];
     let refusal = build_registry(&[
         manifest("kani", 1, &["value-validity"]),
         manifest("kani", 2, &["value-validity"]),
@@ -866,10 +979,36 @@ fn tc_004_command_level_refusals_are_typed() {
     .expect_err("one identity with two manifests conflicts");
     assert_eq!(refusal.stage(), DriverStage::Registry);
     assert_eq!(refusal.code(), "invalid_capability/duplicate-backend");
+    assert_eq!(registration_refusals(&refusal), expected_conflicts);
+
+    // A, B, then A again (same digest as the first): the repeat does not
+    // add a third, duplicate refusal for digest 1 -- `refusals()` is the
+    // registry's own deduped account, not an accumulation of what each
+    // `register` call individually returned.
+    let refusal = build_registry(&[
+        manifest("kani", 1, &["value-validity"]),
+        manifest("kani", 2, &["value-validity"]),
+        manifest("kani", 1, &["value-validity"]),
+    ])
+    .expect_err("A, B, A still conflicts, without a duplicated refusal");
+    assert_eq!(registration_refusals(&refusal), expected_conflicts);
 
     let refusal = build_registry(&[manifest("kani", 1, &["not-a-kind"])])
         .expect_err("an unknown kind refuses the registration");
     assert_eq!(refusal.code(), "invalid_capability/unknown-kind");
+}
+
+/// `refusal`'s `DriverRefusal::Registration` vector, projected to
+/// `(backend, cause)` pairs: `RegistrationRefusal`'s own fields are
+/// private, so its accessors stand in for a struct literal.
+fn registration_refusals(refusal: &DriverRefusal) -> Vec<(Candidate, RegistrationCause)> {
+    let DriverRefusal::Registration(refusals) = refusal else {
+        panic!("expected a registration refusal, got {refusal:?}");
+    };
+    refusals
+        .iter()
+        .map(|r| (r.backend().clone(), r.cause().clone()))
+        .collect()
 }
 
 /// FR-001-AC-5 and FR-001-AC-7 (TC-004): E5 accepts only the package it

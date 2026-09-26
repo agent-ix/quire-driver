@@ -101,9 +101,6 @@ pub enum DriverFault {
         /// The admitted `package_id` digest.
         admitted: String,
     },
-    /// The emitted bytes carry no readable diagnostics catalog reference.
-    #[error("the emitted checked package has no readable diagnostics catalog")]
-    DiagnosticsCatalog,
 }
 
 /// The step a [`DriverRefusal`] comes from.
@@ -173,9 +170,7 @@ impl DriverRefusal {
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
             Self::HandoffLimit(_)
             | Self::Fault(
-                DriverFault::HandoffRefused(_)
-                | DriverFault::PackageIdMismatch { .. }
-                | DriverFault::DiagnosticsCatalog,
+                DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. },
             ) => DriverStage::Handoff,
             Self::UnknownNode { .. } | Self::Generation(_) => DriverStage::Generation,
             Self::Fault(
