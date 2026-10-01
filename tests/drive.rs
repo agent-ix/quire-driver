@@ -585,7 +585,7 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     assert_eq!(driven.routed[0].kind, BackendKind::Kani);
 
     // Step 7 is CG's own `generate_routed` over the routed item, with its
-    // request index, IR node, wire backend and kind, and the pinned tools.
+    // request index, IR node, wire backend and kind.
     let backend = kani_candidate(&driven);
     let expected = generate_routed(
         &checked,

@@ -94,8 +94,8 @@ the admitted package only at the `package_id` E4 emitted.
   `invalid-request`. CG's other generation refusals map to `invalid-request`
   (a malformed Kani context), a limit refusal (`resource_exhausted`, the
   Kani item ceiling or an oversized generated source) or an internal fault
-  (a kind disagreement, a duplicate request index, an empty or unpinned
-  Kani request, a claim-map or location-map serialization failure, or an
+  (a kind disagreement, a duplicate request index, an empty Kani
+  request, a claim-map or location-map serialization failure, or an
   unknown Contract Runtime variant -- none of which the driver produces).
 - A node whose operation has no derivable claim (CG's `NoDerivableClaim`)
   settles `Unsupported` with `no_derivable_claim`, naming the node and CG's
@@ -124,7 +124,7 @@ the admitted package only at the `package_id` E4 emitted.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-001-AC-1 | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model` and `thiserror` (`serde_json` is a dev-dependency, not a normal one), the driver's `quire-contract-model` is the one CG's IR crate depends on, nothing in its lock depends on it, CG's one QSL edge is `qsl-replay`, and the driver's own QSL pin resolves the same `quire-contract-model` package id as the driver's own direct pin. Other copies of `quire-contract-model` and of QSL layer crates, reached only through CG's own (not yet caught up) `qsl-replay` edge or through IR's own root-crate edge, are informational and not gated. | Test (TC-005) |
+| FR-001-AC-1 | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model` and `thiserror` (`serde_json` is a dev-dependency, not a normal one), the driver's `quire-contract-model` is the one CG's IR crate depends on, nothing in its lock depends on it, CG's one QSL edge is `qsl-replay`, and the lock holds exactly one `quire-contract-model` package, so the driver's direct edge, CG's IR crate and QSL's `qsl-package` all resolve the same package id. | Test (TC-005) |
 | FR-001-AC-2 | A run whose registry holds a `BackendId` with no CG kind refuses before any negotiation, with `invalid_capability`/`unknown-backend` and the unconverted ids in bytewise order. | Test (TC-002) |
 | FR-001-AC-3 | `route` is called only after negotiation, and only for `supported` items. | Test (TC-003) |
 | FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the E5 read, the candidate step, conversion, negotiation, routing, generation. | Test (TC-001) |

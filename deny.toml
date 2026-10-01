@@ -9,9 +9,9 @@ allow = [
     "ISC",
     "Unicode-3.0",
     "Zlib",
-    # `borrow-or-share`, reached through the QSL and IR pins.
+    # `borrow-or-share`, reached through the QSL and IR dependencies.
     "MIT-0",
-    # `ar_archive_writer`, a build dependency of `stacker` (QSL and IR pins).
+    # `ar_archive_writer`, a build dependency of `stacker` (QSL and IR dependencies).
     "Apache-2.0 WITH LLVM-exception",
     # The agent-ix crates this driver depends on (QSL, CG, IR, RT and their
     # first-party closure). This crate is AGPL-3.0-or-later too.

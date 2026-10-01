@@ -178,34 +178,9 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         driver_model[0]
     );
 
-    // The driver's own QSL layer crates (its direct edges, at the revision
-    // Cargo.toml's revision note names) now resolve the same
-    // `quire-contract-model` package id as the driver's own direct pin:
-    // `qsl-package`'s one model edge is identical to `driver_model[0]`, not
-    // just same-revision. QSL-255b PR 2 (this bump) is what removes the
-    // second, divergent copy QSL's layer crates used to bring.
-    let driver_qsl_package: Vec<&String> = graph.deps[&graph.root]
-        .iter()
-        .filter(|id| graph.package(id).name == "qsl-package")
-        .collect();
-    assert_eq!(
-        driver_qsl_package.len(),
-        1,
-        "one qsl-package edge from the driver's own QSL pin"
-    );
-    let qsl_model: Vec<&String> = graph.deps[driver_qsl_package[0]]
-        .iter()
-        .filter(|id| graph.package(id).name == "quire-contract-model")
-        .collect();
-    assert_eq!(qsl_model.len(), 1, "qsl-package has one model edge");
-    assert_eq!(
-        qsl_model[0], driver_model[0],
-        "the driver's own QSL pin and its `quire-contract-model` pin diverge: {} vs {}",
-        qsl_model[0], driver_model[0]
-    );
-
-    // One copy of `quire-contract-model` across the whole graph, so no IR type
-    // crosses between copies.
+    // One copy of `quire-contract-model` across the whole graph, so the
+    // driver's direct edge, CG's IR crate and QSL's `qsl-package` all resolve
+    // the same package id and no IR type crosses between copies.
     assert_eq!(
         graph.ids_named("quire-contract-model").len(),
         1,

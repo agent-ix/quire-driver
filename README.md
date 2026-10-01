@@ -27,7 +27,8 @@ lives downstream of both. Nothing depends on it.
 7. CG `generate_routed` over the routed items, each with its request index,
    its admitted `CheckedNodeId`, its routed backend and its kind, and the
    caller's `GenerationInput` (for Kani: subject path and unwind). CG
-   derives each routed item's Kani claim from the node's own operation and bound (IR-294, IR-298, IR-302):
+   derives each routed item's Kani claim from the node's own operation and
+   bound (IR-294, IR-298, IR-302):
    a unary operation over a bounded parameter, and a binary operation with
    a bounded operand beside a literal or beside another independently
    bounded operand (QSL's own narrowing `conversion` shape), all settle
