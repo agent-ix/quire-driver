@@ -138,7 +138,7 @@ the admitted package only at the `package_id` E4 emitted.
 
 - QSL ADR-011 §2.1, §6.1 driver row, §7.1 and T-13; ADR-012 §7.1 and §7.2.
 - QSL `qsl-replay` (`spine::compile`) and `qsl-route` (registry, candidate
-  step, routing step); `qsl_package::diagnostics_catalog()` (QSL-260, #453).
+  step, routing step).
 - CG `negotiate_backend_provider` and `BackendKind::from_identity`
   (agent-ix/quire-contract-codegen#86); CG `generate_routed` (CG FR-022,
   IR-293, IR-294, IR-298, IR-300, IR-302).
@@ -153,14 +153,10 @@ The Kani claim map is derived by CG from the package and the routed node
 alone (IR-294); the caller supplies no claim map, and the driver surfaces
 CG's derived claim map in its output.
 
-E5's evidence is the unit's bytes, the caller's domain package documents,
-QSL's pinned `DefinitionLock` digests and its root feature, and the
-diagnostics catalog reference. The `DefinitionLock` digests are QSL's own
-informational constants, never checked against the definition bytes. The
-diagnostics catalog reference is `qsl_package::diagnostics_catalog()`
-(QSL-260 closed by #453): the same reference QSL's own emitter pins at
-`/diagnostics/catalog`, read from QSL's own API rather than parsed back out
-of the emitted bytes. `serde_json` is now only a dev-dependency: this
+E5's evidence is the caller's domain package documents and the root feature
+of QSL's pinned `DefinitionLock`. The driver supplies no artifact-byte or
+artifact-digest evidence: IR no longer checks staleness against artifact
+digests. `serde_json` is only a dev-dependency: this
 crate's own tests use it to assert wire shapes (settlement dispositions,
 the derived claim map) and to parse `cargo metadata`'s JSON
 (`tests/dependency_edges.rs`).

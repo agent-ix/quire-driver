@@ -48,8 +48,8 @@ lives downstream of both. Nothing depends on it.
    write out (Kani execution is blocked on IR-301).
 
 The registry is a value built with `build_registry` from provider manifests
-and passed in as an argument. The diagnostics catalog reference E5's
-evidence needs comes from `qsl_package::diagnostics_catalog()` (QSL-260).
+and passed in as an argument. E5's evidence is the caller's domain package
+documents and QSL's root feature; no artifact digest evidence is supplied.
 
 ## Commands
 
