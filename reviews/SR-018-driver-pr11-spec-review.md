@@ -72,3 +72,4 @@ low.
 | FND-003 | fixed | bb4bf6e |
 | FND-004 | fixed | bb4bf6e |
 | FND-005 | fixed | bb4bf6e |
+| FND-006 | fixed | 8e4932f |
