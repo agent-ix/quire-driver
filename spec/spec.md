@@ -69,7 +69,7 @@ on it.
 | TC-005 | The dependency edges match ADR-011 §6.1 and §7.1 |
 | TC-006 | E5 admits the emitted package and CG generates for the routed items |
 | TC-007 | Generation refusals are typed |
-| TC-008 | A missing import, or an unknown header profile, refuses at compile |
+| TC-008 | A missing import or an unknown header profile refuses at compile |
 
 ## References
 

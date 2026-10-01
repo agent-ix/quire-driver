@@ -46,3 +46,19 @@ cites; two low pre-existing gaps noted.
 - AC-2: TC-002. AC-3: TC-003. AC-4: TC-001. Unchanged.
 - AC-5: TC-004, TC-007, TC-008; new Profile test killed the `compile_cause` Profile-arm mutant.
 - AC-6, AC-7, AC-8: TC-006, TC-007; harness assertions changed spelling only.
+
+## New findings (disposition pass 1)
+
+Reviewed at 2043c9f325e517d8bcfe7c5dc99918a65f9aa48a.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | TC-008's title is still "A missing import refuses at compile intake" (frontmatter and H1), while its body and the new spec/spec.md table row now also cover the unknown header profile refusing at assembly. | spec/test-cases/TC-008-missing-import-refusal.md:3,9 |
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 2043c9f |
+| FND-002 | deferred | pre-existing, not introduced by this PR; needs a ticket for a domain-package evidence test |
+| FND-003 | fixed | 2043c9f |

@@ -32,3 +32,10 @@ PR did not edit are now false.
 | --- | --- | --- | --- | --- |
 | FND-001 | medium | FR-001-AC-1 still says "the driver's own QSL pin resolves the same `quire-contract-model` package id as the driver's own direct pin. Other copies ... reached only through CG's own (not yet caught up) `qsl-replay` edge or through IR's own root-crate edge, are informational and not gated." TC-005 (edited by this PR) and the test now gate exactly one copy, the deps are `branch = "main"`, and IR has no root-crate QSL edge. The AC contradicts its own TC and test. | spec/functional/FR-001-orchestrate-the-driver-steps.md:127 | wrong-requirement |
 | FND-002 | medium | FR-001 Behavior still lists "an empty or unpinned Kani request" as an internal fault; CG removed `UnpinnedBackend` and the driver's mapping no longer has it. A pin remnant the owner ruling and CLAUDE.md say to remove. | spec/functional/FR-001-orchestrate-the-driver-steps.md:97 | wrong-requirement |
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 2043c9f |
+| FND-002 | fixed | 2043c9f |

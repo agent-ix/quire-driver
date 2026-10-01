@@ -1,12 +1,12 @@
 ---
 id: TC-008
-title: "A missing import refuses at compile intake"
+title: "A missing import or an unknown header profile refuses at compile"
 type: TC
 relationships:
   - target: ix://agent-ix/quire-driver/FR-001
     type: verifies
 ---
-# TC-008: A missing import refuses at compile intake
+# TC-008: A missing import or an unknown header profile refuses at compile
 
 ## Description
 

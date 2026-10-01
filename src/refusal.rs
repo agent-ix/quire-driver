@@ -258,8 +258,8 @@ fn compile_code(refusal: &CompileRefusal) -> String {
 
 /// The catalog cause a `CompileRefusal` names, where its refusing stage
 /// records one: `Check`'s first refusal, `Profile`'s first refusal (FR-110),
-/// `Link`, an ADR-015 D-1 `Import` or `DependencyInput` refusal, or (through a `Dependency` wrapper) the
-/// library refusal it carries. Exhaustive, not a catch-all: `Source`,
+/// `Link`, an ADR-015 D-1 `Import` or `DependencyInput` refusal, or (through
+/// a `Dependency` wrapper) the library refusal it carries. Exhaustive, not a catch-all: `Source`,
 /// `Forms`, `Intake` (a `model` declaration's own domain-package intake,
 /// not an ADR-015 D-1 import), `Assembly`, `Emit` and `Omitted` name no
 /// cause in QSL's own catalog today.

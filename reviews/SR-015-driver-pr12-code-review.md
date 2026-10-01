@@ -67,3 +67,21 @@ the repo's own CLAUDE.md says to remove when touched.
 | FND-003 | low | The new whole-graph one-copy assertion subsumes the older qsl-package model-identity check above it; the earlier block is now redundant. | tests/dependency_edges.rs:186-213 |
 | FND-004 | low | Style: doc line exceeds the repo's 100-char width (rustfmt does not wrap comments); README reflow left a long line. | src/refusal.rs:260; README.md:30 |
 | FND-005 | low | The new one-copy assertion contradicts draft PR #11's AD-001 decision row (line 164), which decides the dependency-edge test should not assert model-copy equality. Whichever merges second must reconcile; owner decision. | tests/dependency_edges.rs:207-213 |
+
+## New findings (disposition pass 1)
+
+Reviewed at 2043c9f325e517d8bcfe7c5dc99918a65f9aa48a.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | One pin remnant left in a touched test file: the doc of `tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported` says CG's `BackendKind::ALL` names one kind "at this pin"; CG is now tracked on `branch = "main"`. | tests/drive.rs:771 |
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 2043c9f |
+| FND-002 | fixed | 2043c9f |
+| FND-003 | fixed | 2043c9f |
+| FND-004 | still-open | README.md:30 rewrapped, but src/refusal.rs:261 is still 105 chars (rewrap moved the overflow to the next line) |
+| FND-005 | rejected | PR #11 (head 85ecacb) was realigned to #12 by its own author; the conflict is resolved on #11's side, not a defect in #12 |

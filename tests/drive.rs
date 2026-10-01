@@ -768,7 +768,7 @@ fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
 /// directly, captured from the envelope through the `Recorder` seam. A
 /// single test still cannot exercise dropping `named` from both call sites
 /// at once *through a settlement*: CG's `BackendKind::ALL` names exactly
-/// one kind (`Kani`) at this pin, so the registry can never hold a second
+/// one kind (`Kani`) today, so the registry can never hold a second
 /// backend for `named` to narrow *away from* without MD-2 refusing the run
 /// first (`tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order`).
 #[test]
