@@ -39,10 +39,10 @@ repository.
 The driver runs one request through the pipeline: compile, emit, hand the package to IR's
 reader, write candidates, convert backends, negotiate, route, generate. This AD states what the
 driver takes from each owner, what it does itself, and what it refuses. It states the driver's
-own seam only. The driver also owns the chain after generation: run what was generated,
-replay a counterexample through the `qsl-replay` facade, and settle the terminal record. QSL's
-ADR-011 T-13 amendment (QSL-354, pending) records that ownership on QSL's side. The chain is not
-implemented yet (see Risks).
+own seam only. The driver also owns the chain after generation: run what was generated (the S6b
+Kani run), replay a counterexample through the `qsl-replay` facade (`qsl_replay::replay`), and
+write the FR-331 terminal record. QSL ADR-011 T-13 and ADR-013 C-09 record that ownership (QSL-354,
+merged). The chain is not implemented yet (see Risks).
 
 ## Views
 
@@ -163,16 +163,18 @@ What is measured today, what is open and with whom, and what is routed.
   feature) and `ManifestDigest` and `ToolIdentity` (`src/registry.rs`), which QSL's registry API
   requires of a provider manifest. The driver passes them through and checks none.
   (`missing_import/missing-selection`, FR-001 step 1). Known and stated, not a gap to fix here.
-- The driver owns the execute, replay and terminal-record chain: run what CG generated, replay a
-  counterexample through the `qsl-replay` facade, and settle the terminal record. Today it stops
-  after generation: it does not run a harness, read a Kani outcome, call `replay`, map to a
-  terminal value or write a terminal record, so the chain is unimplemented. QSL's ADR-011 T-13
-  amendment (QSL-354, pending) records the ownership on QSL's side; ADR-011 as it stands still
-  ends the driver at generation. The driver calls CG's terminal-value map and the `qsl-replay`
-  facade and adds no map or view of its own. Today CG's FR-029 and FR-030 map a Kani outcome
-  alone to a terminal value. The terminal step taking the Kani outcome together with the replay
-  settlement is defined by CG's evidence-chain AD (AD-003, quire-contract-codegen PR #214), which
-  is pending and unmerged; this AD follows it once it lands.
+- The driver owns the execute, replay and terminal-record chain, as QSL ADR-011 T-13 and ADR-013
+  C-09 now state (QSL-354, merged): it runs each generated harness's S6b Kani obligation, calls
+  `qsl_replay::replay` for a counterexample, and writes the FR-331 terminal record. Today it
+  stops after generation: it does not run a harness, read a Kani outcome, call `replay` or write
+  a terminal record, so the chain is unimplemented. CG owns the C-09 map and settles the
+  dispositions; the map takes the Kani outcome and, for a counterexample, the replay result. The
+  driver passes both, writes the results and adds no map or view of its own. Parity is settled
+  inside `replay`, and a replay refusal or fault is classified by C-09 (`replay_refused`
+  carries only QSL replay-refusal codes; a replay fault settles `Failed`). Today CG's FR-029 and
+  FR-030 map a Kani outcome alone to a terminal value; the two-input terminal step is defined by
+  CG's evidence-chain AD (AD-003, quire-contract-codegen PR #214), which is pending and unmerged,
+  and this AD follows it once it lands.
 - The chain creates no cycle. The driver stays downstream of QSL and CG (ADR-011 FB-11) and
   nothing depends on it.
 
@@ -180,7 +182,6 @@ What is measured today, what is open and with whom, and what is routed.
 
 | Question | Owner | Recommendation | Cost of the alternative |
 | --- | --- | --- | --- |
-| Record the driver's ownership of execute, replay and the terminal record in QSL's ADR-011 T-13 | QSL (QSL-354) | amend T-13 | QSL and this AD disagree on the driver's role |
 | The dependency-edge test's model-copy assertion | IR-479 (PR #12, merged) | the test gates exactly one copy of `quire-contract-model`; the revision policy stays IR-351's and IR-479's | not decided here |
 | Layout, requirements per stage, matrix and revision policy | IR-351 | not decided here | duplicate descriptions |
 
