@@ -32,8 +32,9 @@ them and does not decide the layout; the existing `spec/` tree is untouched.
 
 The driver is the one crate that depends on both QSL and CG, and nothing depends on it
 (`src/lib.rs` crate doc). CG cannot describe the order of the steps because CG cannot depend on
-the driver. QSL ADR-011 T-13 states only the QSL half. A description that names both sides and
-the order between them can only live here.
+the driver. QSL ADR-011 T-13 lists the steps but is QSL's document; a description that names
+both sides, the order between them and the refusals the driver types can only live in this
+repository.
 
 The driver runs one request through the pipeline: compile, emit, hand the package to IR's
 reader, write candidates, convert backends, negotiate, route, generate. This AD states what the
@@ -69,14 +70,17 @@ admitted package by `WireNodeId`, and the typed command-level refusal. It owns n
 QSL, CG or IR and re-derives none.
 
 The E5 step checks one content identity: the admitted package's `package_id` must equal the
-`package_id` E4 emitted. That is the single canonical content-identity digest on this seam, and
-it binds the admitted package to the bytes that were emitted.
+`package_id` E4 emitted. That is the one content-identity digest the driver itself checks, and
+it binds the admitted package to the bytes that were emitted. Other digests cross the seam
+unchecked by the driver: the domain-package `sha256-jcs` keys it passes to IR's reader (which
+recomputes them) and the manifest digests QSL's registry API requires.
 
 ### Dependency direction
 
 - Normal and build dependencies: QSL layer crates, CG, IR's model crate `quire-contract-model`
-  and `thiserror` (QSL ADR-011 section 6.1 driver row; asserted by `tests/dependency_edges.rs`,
-  TC-005). Nothing depends on the driver.
+  and `thiserror` (asserted by `tests/dependency_edges.rs`, TC-005; QSL ADR-011 section 6.1's
+  driver row names only the QSL layer crates and CG, so the model crate and `thiserror` are this
+  repository's additions to that row). Nothing depends on the driver.
 - The driver may depend on QSL layer crates directly. The rule "CG reaches QSL only through
   `qsl-replay`" binds CG, not the driver. QSL depends on no CG crate (ADR-011 FB-11 forbids an
   edge that closes a cycle between QSL and CG); the driver sits downstream of both, so its edges
@@ -100,6 +104,10 @@ it binds the admitted package to the bytes that were emitted.
 | Envelope refusal at negotiation | CG (`EnvelopeRefusal`) | refusal |
 | IR refuses the bytes QSL just emitted, or admits them at another `package_id` | driver | internal fault: an upstream broke its contract |
 | IR's reader stops at a limit | driver (`HandoffLimit`) | limit refusal |
+| Negotiation returns a different number of settlements than requested, or out of request order | driver (`SettlementCount`) | internal fault |
+| An item settles `supported` by a backend outside its candidates | driver (`SupportedOutsideCandidates`) | internal fault |
+| A QSL capability label has no CG capability | driver (`VocabularyMismatch`) | internal fault |
+| Routing returns no usable target for a `supported` item, or routes an item outside the request | driver (`RoutingTarget`) | internal fault |
 | A routed item names a node the admitted package does not hold | driver | internal fault (`runtime_invariant`) |
 | CG generation refusal | CG (`RoutedGenerationError`), classified by the driver | invalid-request, limit, or internal fault |
 | A node with no derivable claim | CG | the item settles `Unsupported` with `no_derivable_claim`; siblings unaffected; the run is not refused |
@@ -122,13 +130,18 @@ Candidate statements (local labels; the repo assigns requirement ids when one is
   when none is (existing: TC-003).
 - D-3. An unknown backend id refuses before any negotiation call (existing: TC-002).
 - D-4. The E5 read admits the emitted bytes at the emitted `package_id`; any other result is an
-  internal fault before conversion.
-- D-5. Generation is called once, only for routed items, and not at all when nothing is routed.
-- D-6. A routed item whose node is missing is an internal fault and CG is not called.
+  internal fault before conversion (existing: TC-004).
+- D-5. Generation is called once, only for routed items, and not at all when nothing is routed
+  (existing: TC-003, step 5).
+- D-6. A routed item whose node is missing is an internal fault and CG is not called (existing:
+  TC-007).
 - D-7. The driver's normal dependencies are exactly the allow-list above, and the graph holds
   one copy of `quire-contract-model` (existing: TC-005; the one-copy assertion is added by
   IR-479, PR #12).
-- D-8. The driver uses no pin, attestation or digest-evidence API (blocked on IR-479).
+- D-8. The driver reintroduces no CG pin or attestation API and supplies no artifact-digest
+  evidence to IR's reader. QSL's own APIs that carry digests the driver does not check
+  (`DefinitionLock::pinned()` for the root feature, and `ManifestDigest` and `ToolIdentity` in
+  the registry API) are existing and listed under Current state. Blocked on IR-479.
 
 ## Risks
 
@@ -145,11 +158,16 @@ What is measured today, what is open and with whom, and what is routed.
   digests are not checked against any evidence (`evidence.rs` doc in IR). The driver's evidence
   code uses the removed API. Its own doc says the digests it supplies are "QSL's own
   informational constants, never checked", and that `/diagnostics/catalog` staleness is vacuous:
-  a check that cannot fail. After the catch-up the evidence is the unit's domain packages,
-  supported features and any dependency packages.
+  a check that cannot fail. After the catch-up the evidence is the unit's domain package
+  documents plus the root feature of QSL's `DefinitionLock`; the driver compiles with an empty
+  `DependencyInput`, so it supplies no dependency packages.
 - Before IR-479, the driver imports `KaniToolPins` and `AttestationContext` (`src/drive.rs`; `pinned()` is
-  called at line 205), which CG no longer has on `main`. This AD does not describe them as
-  design.
+  called at line 205), which CG no longer has on `main`, and its negotiation envelope carries
+  `manifest_digest` and `pinned_tool` through `digest_wire` (`src/drive.rs`). IR-479 deletes
+  these. This AD does not describe them as design.
+- Existing and not removed by IR-479: `DefinitionLock::pinned()` (`src/handoff.rs`, read for the
+  root feature) and `ManifestDigest` and `ToolIdentity` (`src/registry.rs`), which QSL's registry
+  API requires of a provider manifest. The driver passes them through and checks none.
 - The driver compiles with an empty `DependencyInput` and refuses any `import`
   (`missing_import/missing-selection`, FR-001 step 1). Known and stated, not a gap to fix here.
 - The driver owns the execute, replay and terminal-record chain: run what CG generated, replay a
@@ -157,9 +175,11 @@ What is measured today, what is open and with whom, and what is routed.
   after generation: it does not run a harness, read a Kani outcome, call `replay`, map to a
   terminal value or write a terminal record, so the chain is unimplemented. QSL's ADR-011 T-13
   amendment (QSL-354, pending) records the ownership on QSL's side; ADR-011 as it stands still
-  ends the driver at generation. The driver calls CG's terminal-value map, whose terminal step
-  takes the Kani outcome and the replay settlement, and the `qsl-replay` facade, as the
-  evidence-chain seam AD defines them. It adds no map or view of its own.
+  ends the driver at generation. The driver calls CG's terminal-value map and the `qsl-replay`
+  facade and adds no map or view of its own. Today CG's FR-029 and FR-030 map a Kani outcome
+  alone to a terminal value. The terminal step taking the Kani outcome together with the replay
+  settlement is defined by CG's evidence-chain AD (AD-003, quire-contract-codegen PR #214), which
+  is pending and unmerged; this AD follows it once it lands.
 - The chain creates no cycle. The driver stays downstream of QSL and CG (ADR-011 FB-11) and
   nothing depends on it.
 
@@ -183,5 +203,5 @@ To QSL (QSL reviews these rows):
 | Id | Stated need |
 | --- | --- |
 | R-Q1 | A `TerminalValue` for a non-vacuous inconclusive run; matters to the driver once it owns the execute step. |
-| R-Q4 | A writer for the FR-331 `results` from a `TerminalRecord`; matters to the driver once it owns the terminal-record step. |
-| R-Q6 | An emission-to-admission test in QSL over every node family and form QSL can emit; the driver's E5 step repeats that check at run time for one unit. |
+| R-Q4 | A writer for the FR-331 `results` from a `TerminalRecord`; matters to the driver once it owns the terminal-record step. As relayed (untrusted), QSL rejected this need and the cross-repo test lives in quire-integration (QSL-342); QSL-351 is cited as the related QSL ticket. |
+| R-Q6 | An emission-to-admission test in QSL over every node family and form QSL can emit; the driver's E5 step repeats that check at run time for one unit. As relayed (untrusted), tracked as QSL-353. |
