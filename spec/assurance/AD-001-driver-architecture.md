@@ -162,6 +162,7 @@ What is measured today, what is open and with whom, and what is routed.
 - Still present, as D-8 states: `DefinitionLock::pinned()` (`src/handoff.rs`, read for the root
   feature) and `ManifestDigest` and `ToolIdentity` (`src/registry.rs`), which QSL's registry API
   requires of a provider manifest. The driver passes them through and checks none.
+- The driver compiles with an empty `DependencyInput` and refuses any `import`
   (`missing_import/missing-selection`, FR-001 step 1). Known and stated, not a gap to fix here.
 - The driver owns the execute, replay and terminal-record chain, as QSL ADR-011 T-13 and ADR-013
   C-09 now state (QSL-354, merged): it runs each generated harness's S6b Kani obligation, calls
@@ -170,7 +171,9 @@ What is measured today, what is open and with whom, and what is routed.
   a terminal record, so the chain is unimplemented. CG owns the C-09 map and settles the
   dispositions; the map takes the Kani outcome and, for a counterexample, the replay result. The
   driver passes both, writes the results and adds no map or view of its own. Parity is settled
-  inside `replay`, and a replay refusal or fault is classified by C-09 (`replay_refused`
+  inside `replay`: only a reproduced counterexample settles `refuted`, and a replay that
+  disagrees or completes no value settles `inconclusive` with cause `replay_parity`. A replay
+  refusal or fault is classified by C-09 (`replay_refused`
   carries only QSL replay-refusal codes; a replay fault settles `Failed`). Today CG's FR-029 and
   FR-030 map a Kani outcome alone to a terminal value; the two-input terminal step is defined by
   CG's evidence-chain AD (AD-003, quire-contract-codegen PR #214), which is pending and unmerged,
@@ -196,6 +199,6 @@ To QSL (QSL reviews these rows):
 
 | Id | Stated need |
 | --- | --- |
-| R-Q1 | A `TerminalValue` for a non-vacuous inconclusive run; matters to the driver once it owns the execute step. As relayed (untrusted), tracked as QSL-351. |
-| R-Q4 | A writer for the FR-331 `results` from a `TerminalRecord`; matters to the driver once it owns the terminal-record step. As relayed (untrusted), QSL rejected this need. |
+| R-Q1 | A `TerminalValue` for a non-vacuous inconclusive run. ADR-013 C-09 now specifies `TerminalValue::Inconclusive`, which QSL-351 implements (as relayed, untrusted); the driver consumes it when it writes the terminal record. |
+| R-Q4 | A writer for the FR-331 `results` from a `TerminalRecord`. ADR-013 makes the driver the one writer of `results`, so this is now the driver's own work and not a need on QSL; as relayed (untrusted), QSL rejected it as a QSL need. |
 | R-Q6 | An emission-to-admission test in QSL over every node family and form QSL can emit; the driver's E5 step repeats that check at run time for one unit. As relayed (untrusted), tracked as QSL-353; the cross-repo test in quire-integration (QSL-342) that the relayed review text mentions concerns the replay seam, not this one. |
