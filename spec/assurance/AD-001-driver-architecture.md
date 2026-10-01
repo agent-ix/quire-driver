@@ -38,8 +38,10 @@ the order between them can only live here.
 The driver runs one request through the pipeline: compile, emit, hand the package to IR's
 reader, write candidates, convert backends, negotiate, route, generate. This AD states what the
 driver takes from each owner, what it does itself, and what it refuses. It states the driver's
-own seam only. The execution, replay and terminal-record half of the pipeline is not
-implemented here and its owner is routed to QSL-354 (see Risks).
+own seam only. The driver also owns the chain after generation: run what was generated,
+replay a counterexample through the `qsl-replay` facade, and settle the terminal record. QSL's
+ADR-011 T-13 amendment (QSL-354, pending) records that ownership on QSL's side. The chain is not
+implemented yet (see Risks).
 
 ## Views
 
@@ -147,20 +149,22 @@ What is measured today, what is open and with whom, and what is routed.
   design.
 - The driver compiles with an empty `DependencyInput` and refuses any `import`
   (`missing_import/missing-selection`, FR-001 step 1). Known and stated, not a gap to fix here.
-- The driver's role, as QSL ADR-011 T-13 and section 6.1 state it today, is orchestration across
-  QSL and CG; the driver stops after generation. It does not run a harness, read a Kani outcome,
-  call `replay`, map to a terminal value or write a terminal record, and this AD does not claim
-  that it owns those steps. Who owns the execute, replay and terminal-record chain is QSL's
-  decision, routed as the ADR-011 T-13 amendment in QSL-354; this AD takes no position and will
-  follow the amended text. Whichever crate owns it calls CG's terminal-value map and the
-  `qsl-replay` facade as the evidence-chain seam AD defines them, and adds no map or view of its
-  own.
+- The driver owns the execute, replay and terminal-record chain: run what CG generated, replay a
+  counterexample through the `qsl-replay` facade, and settle the terminal record. Today it stops
+  after generation: it does not run a harness, read a Kani outcome, call `replay`, map to a
+  terminal value or write a terminal record, so the chain is unimplemented. QSL's ADR-011 T-13
+  amendment (QSL-354, pending) records the ownership on QSL's side; ADR-011 as it stands still
+  ends the driver at generation. The driver calls CG's terminal-value map, whose terminal step
+  takes the Kani outcome and the replay settlement, and the `qsl-replay` facade, as the
+  evidence-chain seam AD defines them. It adds no map or view of its own.
+- The chain creates no cycle. The driver stays downstream of QSL and CG (ADR-011 FB-11) and
+  nothing depends on it.
 
 ### Open questions
 
 | Question | Owner | Recommendation | Cost of the alternative |
 | --- | --- | --- | --- |
-| Which crate owns execute, replay and the terminal record? | QSL (ADR-011 T-13 amendment, QSL-354) | none from this AD | none from this AD |
+| Record the driver's ownership of execute, replay and the terminal record in QSL's ADR-011 T-13 | QSL (QSL-354) | amend T-13 | QSL and this AD disagree on the driver's role |
 | Should the dependency-edge test assert that the driver's model copy equals CG's? | driver | no: ask what else would pass the assertion; two copies already fail the build when a `CheckedNodeId` crosses, so it guards what the compiler already guards. Keep the allow-list assertion, which states a real architecture rule | a gate that guards nothing |
 | Layout, requirements per stage, matrix and revision policy | IR-351 | not decided here | duplicate descriptions |
 
@@ -175,6 +179,6 @@ To QSL (QSL reviews these rows):
 
 | Id | Stated need |
 | --- | --- |
-| R-Q1 | A `TerminalValue` for a non-vacuous inconclusive run; matters to whichever crate owns the execute step (QSL-354). |
-| R-Q4 | A writer for the FR-331 `results` from a `TerminalRecord`; matters to whichever crate owns the terminal-record step (QSL-354). |
+| R-Q1 | A `TerminalValue` for a non-vacuous inconclusive run; matters to the driver once it owns the execute step. |
+| R-Q4 | A writer for the FR-331 `results` from a `TerminalRecord`; matters to the driver once it owns the terminal-record step. |
 | R-Q6 | An emission-to-admission test in QSL over every node family and form QSL can emit; the driver's E5 step repeats that check at run time for one unit. |
