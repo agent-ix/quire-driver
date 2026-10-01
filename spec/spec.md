@@ -75,3 +75,4 @@ on it.
 
 - QSL ADR-011, ADR-012 and ADR-013 (agent-ix/quire-spec-language).
 - QSL-1 (Linear), the ticket that owns this crate.
+- [Driver architecture](assurance/AD-001-driver-architecture.md).
