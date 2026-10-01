@@ -209,10 +209,10 @@ impl DriverRefusal {
 }
 
 /// The catalog code of a generation refusal. The driver routes each item
-/// with the kind CG's own conversion gave it, once per request index, and
-/// always passes the pinned Kani tools, so those refusals are internal
-/// faults. A missing kind context or a malformed Kani context is the
-/// caller's request; the Kani item ceiling and an oversized oracle source
+/// with the kind CG's own conversion gave it, once per request index, so a
+/// kind disagreement, a duplicate index and an empty Kani request are
+/// internal faults. A missing kind context or a malformed Kani context is
+/// the caller's request; the Kani item ceiling and an oversized oracle source
 /// are limits; a claim-map or location-map serialization failure and an
 /// unknown Contract Runtime variant are internal faults (IR-294's Kani arm
 /// derives the claim map itself; nothing the driver supplies can cause
@@ -221,17 +221,13 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
     match error {
         RoutedGenerationError::BackendKindDisagrees { .. }
         | RoutedGenerationError::DuplicateRequestIndex { .. }
-        | RoutedGenerationError::Kani(
-            KaniObligationError::EmptyRequest | KaniObligationError::UnpinnedBackend { .. },
-        ) => Code::RuntimeInvariant,
+        | RoutedGenerationError::Kani(KaniObligationError::EmptyRequest) => Code::RuntimeInvariant,
         RoutedGenerationError::Kani(KaniObligationError::TooManyItems { .. }) => {
             Code::ResourceExhausted
         }
         RoutedGenerationError::MissingKindContext { .. }
         | RoutedGenerationError::Kani(
-            KaniObligationError::InvalidSubjectPath
-            | KaniObligationError::InvalidUnwind { .. }
-            | KaniObligationError::InvalidAttestationContext,
+            KaniObligationError::InvalidSubjectPath | KaniObligationError::InvalidUnwind { .. },
         ) => Code::InvalidRequest,
         RoutedGenerationError::Oracle(oracle) => oracle_code(oracle),
     }
@@ -261,9 +257,9 @@ fn compile_code(refusal: &CompileRefusal) -> String {
 }
 
 /// The catalog cause a `CompileRefusal` names, where its refusing stage
-/// records one: `Check`'s first refusal, `Link`, an ADR-015 D-1 `Import` or
-/// `DependencyInput` refusal, or (through a `Dependency` wrapper) the
-/// library refusal it carries. Exhaustive, not a catch-all: `Source`,
+/// records one: `Check`'s first refusal, `Profile`'s first refusal (FR-110),
+/// `Link`, an ADR-015 D-1 `Import` or `DependencyInput` refusal, or (through
+/// a `Dependency` wrapper) the library refusal it carries. Exhaustive, not a catch-all: `Source`,
 /// `Forms`, `Intake` (a `model` declaration's own domain-package intake,
 /// not an ADR-015 D-1 import), `Assembly`, `Emit` and `Omitted` name no
 /// cause in QSL's own catalog today.
@@ -275,6 +271,7 @@ fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
         | CompileRefusal::Assembly { .. }
         | CompileRefusal::Emit(_)
         | CompileRefusal::Omitted(_) => None,
+        CompileRefusal::Profile { refusals, .. } => refusals.first().map(|refusal| refusal.cause()),
         CompileRefusal::Check { refusals, .. } => {
             refusals.first().and_then(|refusal| refusal.cause.cause())
         }
@@ -348,12 +345,6 @@ fn kani_message(error: &KaniObligationError) -> String {
         KaniObligationError::InvalidSubjectPath => "the subject path is not a Rust path".to_owned(),
         KaniObligationError::InvalidUnwind { unwind } => {
             format!("unwind bound {unwind} is out of range")
-        }
-        KaniObligationError::UnpinnedBackend {
-            expected, supplied, ..
-        } => format!("backend `{supplied}` is not the pinned `{expected}`"),
-        KaniObligationError::InvalidAttestationContext => {
-            "the attestation binding is malformed".to_owned()
         }
     }
 }

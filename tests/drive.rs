@@ -12,18 +12,20 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{CompileRefusal, Compiled, SpineLimits, SpineStage};
 use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{BackendId, Candidate, ManifestDigest, RegistrationCause};
 use qsl_semantics::check::CheckingLimits;
+use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_contract_codegen::{
-    generate_routed, AttestationContext, BackendKind, BackendProviderEnvelope, Candidates, Cause,
+    generate_routed, BackendKind, BackendProviderEnvelope, Candidates, Cause,
     ClaimDerivationRefusal, ClaimDisposition, DerivedDomain, Disposition, EnvelopeRefusal,
-    GenerationContexts, ItemSettlement, KaniGenerationContext, KaniToolPins, KindOutput,
-    ObligationDisposition, OperationProvenance, RoutedGeneration, RoutedGenerationError,
-    RoutedGenerationItem, UnsupportedObligation, IR_CANDIDATE_REVISION,
+    GenerationContexts, ItemSettlement, KaniGenerationContext, KindOutput, ObligationDisposition,
+    OperationProvenance, RoutedGeneration, RoutedGenerationError, RoutedGenerationItem,
+    UnsupportedObligation,
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
@@ -34,10 +36,22 @@ use quire_driver::{
     GenerationInput, KaniInput, OutcomeKind, ProviderManifest, QslCg, Upstream,
 };
 
-const UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
-    profile v = \"quire.value.complete/v1\" version \"1\" digest \
-    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
-    function f using v(): Boolean pure { true }\n";
+/// A unit: the `ix:native` header, the `v` profile selecting QSL's own
+/// `DefinitionLock` root row (read from QSL, never copied here), then `body`.
+fn unit(body: &str) -> String {
+    let lock = DefinitionLock::pinned();
+    let root = lock
+        .entry(CatalogRole::Root)
+        .expect("the lock has a root row");
+    format!(
+        "language \"ix:native\" edition \"1-draft\";\n\
+         profile v = \"{}\" version \"{}\" digest \"sha256:{}\";\n{body}",
+        root.identity, root.revision_value, root.digest
+    )
+}
+
+static UNIT: LazyLock<String> =
+    LazyLock::new(|| unit("function f using v(): Boolean pure { true }\n"));
 
 /// A unit with an integer `+` (a `binary` expression) under a range
 /// `conversion` expression. The narrowing `conversion` is not a scalar
@@ -51,10 +65,8 @@ const UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// value, so this `+` settles `Supported` (`NEGATE_UNIT` below is the
 /// one-owned-bound unary case, also `Supported`). It has one requirement
 /// record: the `+`.
-const INT_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
-    profile v = \"quire.value.complete/v1\" version \"1\" digest \
-    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
-    function inc using v(x: Int[0, 9]): Int[0, 10] pure { x + 1 }\n";
+static INT_UNIT: LazyLock<String> =
+    LazyLock::new(|| unit("function inc using v(x: Int[0, 9]): Int[0, 10] pure { x + 1 }\n"));
 
 /// A unit with an integer `=` (`quire.op.integer.eq`, also a `binary`
 /// expression): CG's derivation names no operator family for it
@@ -65,11 +77,12 @@ const INT_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// not affect its sibling. Both `=` and `-` are scalar operation
 /// applications, so this unit has two requirement records, keyed in
 /// occurrence order: the `=` node's digest sorts first.
-const EQ_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
-    profile v = \"quire.value.complete/v1\" version \"1\" digest \
-    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
-    function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure { x = y }\n\
-    function negate using v(z: Int[0, 9]): Int[-9, 0] pure { -z }\n";
+static EQ_UNIT: LazyLock<String> = LazyLock::new(|| {
+    unit(
+        "function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure { x = y }\n\
+    function negate using v(z: Int[0, 9]): Int[-9, 0] pure { -z }\n",
+    )
+});
 
 /// A unit with a unary integer `-` over one bounded parameter
 /// (`z: Int[0, 9]`): its one operand owns a bound, and IR-298's own-bound
@@ -86,19 +99,16 @@ const EQ_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// consumes it. IR-302 reads the result bound of a scalar-typed node
 /// consumed only by narrowing conversions as the one bound they narrow it
 /// to (see `tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`).
-const NEGATE_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
-    profile v = \"quire.value.complete/v1\" version \"1\" digest \
-    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
-    function negate using v(z: Int[0, 9]): Int[-9, 0] pure { -z }\n";
+static NEGATE_UNIT: LazyLock<String> =
+    LazyLock::new(|| unit("function negate using v(z: Int[0, 9]): Int[-9, 0] pure { -z }\n"));
 
 /// A unit with an integer `+` over two parameters, each owning its own
 /// bound (`x: Int[0, 9]`, `y: Int[10, 20]`): see `NEGATE_UNIT`'s doc for why
 /// this settles `Supported`, ranging each argument over its own operand's
 /// domain. One requirement record: the `+`.
-const TWO_PARAM_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
-    profile v = \"quire.value.complete/v1\" version \"1\" digest \
-    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
-    function add using v(x: Int[0, 9], y: Int[10, 20]): Int[10, 29] pure { x + y }\n";
+static TWO_PARAM_UNIT: LazyLock<String> = LazyLock::new(|| {
+    unit("function add using v(x: Int[0, 9], y: Int[10, 20]): Int[10, 29] pure { x + y }\n")
+});
 
 /// A unit with an integer `+` whose one operand's domain (`x: Int[0, 9]`)
 /// puts every exact result (`[100, 109]`) outside the declared result bound
@@ -109,10 +119,9 @@ const TWO_PARAM_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// below reaches CG's own `Unsupported`/`ResultBoundUnreachable` for the
 /// identical reachable range, because QSL does not discharge that
 /// coercion at all inside a branch it proves dead.
-const OVERFLOW_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
-    profile v = \"quire.value.complete/v1\" version \"1\" digest \
-    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
-    function unreachable_result using v(x: Int[0, 9]): Int[0, 10] pure { x + 100 }\n";
+static OVERFLOW_UNIT: LazyLock<String> = LazyLock::new(|| {
+    unit("function unreachable_result using v(x: Int[0, 9]): Int[0, 10] pure { x + 100 }\n")
+});
 
 /// A unit whose `+` (`x + 100`) is the same shape `OVERFLOW_UNIT` declares,
 /// but reached only through an `if` branch QSL's checker proves dead
@@ -125,23 +134,20 @@ const OVERFLOW_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
 /// never reaches CG to report. The `if` guard (`x > 20`) is itself a scalar
 /// comparison, so this unit has two requirement records: the guard and the
 /// `+`, keyed in occurrence order (the `+`'s node digest sorts first).
-const DEAD_BRANCH_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
-    profile v = \"quire.value.complete/v1\" version \"1\" digest \
-    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
-    function unreachable_branch using v(x: Int[0, 9]): Int[0, 10] pure { if x > 20 then x + 100 else 0 }\n";
+static DEAD_BRANCH_UNIT: LazyLock<String> = LazyLock::new(|| {
+    unit("function unreachable_branch using v(x: Int[0, 9]): Int[0, 10] pure { if x > 20 then x + 100 else 0 }\n")
+});
 
 /// A unit that `import`s a library the driver's `DependencyInput::default()`
 /// (ADR-015 D-1) supplies nothing for: S4 source resolution refuses it at
 /// I1, `missing_import`/`missing-selection`.
-const IMPORT_UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
-    profile v = \"quire.value.complete/v1\" version \"1\" digest \
-    \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
-    import \"test/library\" version \"1\" digest \
+static IMPORT_UNIT: LazyLock<String> = LazyLock::new(|| {
+    unit(
+        "import \"test/library\" version \"1\" digest \
     \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\" as lib;\n\
-    function f using v(): Boolean pure { true }\n";
-
-/// A fixed attestation binding (a test value, never a sealed record).
-const RECORD_DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+    function f using v(): Boolean pure { true }\n",
+    )
+});
 
 /// One upstream call, as the driver made it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -455,13 +461,6 @@ fn member_literal<'a>(body: &'a serde_json::Value, name: &str) -> Option<&'a str
         .as_str()
 }
 
-fn attestation() -> AttestationContext<'static> {
-    AttestationContext {
-        record_digest: RECORD_DIGEST,
-        candidate_revision: IR_CANDIDATE_REVISION,
-    }
-}
-
 /// The Kani generation input. IR-294 has CG derive each routed item's claim
 /// from the node's own operation and bound, so the caller supplies no claim
 /// map any more.
@@ -470,7 +469,6 @@ fn kani_input() -> GenerationInput<'static> {
         kani: Some(KaniInput {
             subject_path: "crate::subject",
             unwind: 1,
-            attestation: attestation(),
         }),
     }
 }
@@ -478,10 +476,8 @@ fn kani_input() -> GenerationInput<'static> {
 /// The kani backend as `route` returned it, in CG's wire spelling.
 fn kani_candidate(driven: &Driven) -> quire_contract_codegen::Candidate {
     let candidate = &driven.routed[0].candidate;
-    let digest = candidate.manifest_digest();
     quire_contract_codegen::Candidate {
         identity: candidate.id().as_str().to_owned(),
-        manifest_digest: format!("{}:{}", digest.domain().as_str(), digest.hex()),
     }
 }
 
@@ -589,9 +585,8 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     assert_eq!(driven.routed[0].kind, BackendKind::Kani);
 
     // Step 7 is CG's own `generate_routed` over the routed item, with its
-    // request index, IR node, wire backend and kind, and the pinned tools.
+    // request index, IR node, wire backend and kind.
     let backend = kani_candidate(&driven);
-    let pins = KaniToolPins::pinned();
     let expected = generate_routed(
         &checked,
         &[RoutedGenerationItem {
@@ -603,9 +598,7 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
                 subject_path: "crate::subject",
-                pins: &pins,
                 unwind: 1,
-                attestation: attestation(),
             }),
         },
     )
@@ -775,7 +768,7 @@ fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
 /// directly, captured from the envelope through the `Recorder` seam. A
 /// single test still cannot exercise dropping `named` from both call sites
 /// at once *through a settlement*: CG's `BackendKind::ALL` names exactly
-/// one kind (`Kani`) at this pin, so the registry can never hold a second
+/// one kind (`Kani`) today, so the registry can never hold a second
 /// backend for `named` to narrow *away from* without MD-2 refusing the run
 /// first (`tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order`).
 #[test]
@@ -836,7 +829,6 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
         .expect("the run completes");
 
     let backend = kani_candidate(&driven);
-    let pins = KaniToolPins::pinned();
     let expected = generate_routed(
         &checked,
         &[RoutedGenerationItem {
@@ -848,9 +840,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
                 subject_path: "crate::subject",
-                pins: &pins,
                 unwind: 1,
-                attestation: attestation(),
             }),
         },
     )
@@ -880,7 +870,6 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
     .expect("the run completes");
 
     let backend = kani_candidate(&driven);
-    let pins = KaniToolPins::pinned();
     let expected = generate_routed(
         &checked,
         &[RoutedGenerationItem {
@@ -892,9 +881,7 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
                 subject_path: "crate::subject",
-                pins: &pins,
                 unwind: 1,
-                attestation: attestation(),
             }),
         },
     )
@@ -945,7 +932,7 @@ fn tc_006_x_plus_1_settles_supported() {
         harness
             .rust
             .contents
-            .contains("rt::Integer::from(0_i64), rt::Integer::from(10_i64)"),
+            .contains("integer(\"0\")?, integer(\"10\")?"),
         "{}",
         harness.rust.contents
     );
@@ -999,7 +986,7 @@ fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
         harness
             .rust
             .contents
-            .contains("rt::Integer::from(10_i64), rt::Integer::from(29_i64)"),
+            .contains("integer(\"10\")?, integer(\"29\")?"),
         "{}",
         harness.rust.contents
     );
@@ -1087,7 +1074,6 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
 
     assert_eq!(driven.routed.len(), 2);
     let backend = kani_candidate(&driven);
-    let pins = KaniToolPins::pinned();
     // Occurrence order (`+`'s node digest sorts before `>`'s): the `+` is
     // request index 0, the guard `>` is request index 1.
     let expected = generate_routed(
@@ -1109,9 +1095,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
                 subject_path: "crate::subject",
-                pins: &pins,
                 unwind: 1,
-                attestation: attestation(),
             }),
         },
     )
@@ -1298,7 +1282,6 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
     // disagree with whatever CG derives for the `=` node instead.
     let neg = expression_by_identity(&driven.checked, "quire.op.integer.negate");
     let backend = kani_candidate(&driven);
-    let pins = KaniToolPins::pinned();
     let expected = generate_routed(
         &driven.checked,
         &[RoutedGenerationItem {
@@ -1310,9 +1293,7 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
                 subject_path: "crate::subject",
-                pins: &pins,
                 unwind: 1,
-                attestation: attestation(),
             }),
         },
     )
@@ -1397,11 +1378,9 @@ fn tc_004_command_level_refusals_are_typed() {
 
     // A stage limit is its own outcome kind: `not not not true` is four
     // deep, over a checking depth of 3.
+    let deep_unit = unit("function f using v(): Boolean pure { not not not true }\n");
     let deep = CompileInput {
-        bytes: b"language \"ix:native\" edition \"1-draft\";\n\
-            profile v = \"quire.value.complete/v1\" version \"1\" digest \
-            \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
-            function f using v(): Boolean pure { not not not true }\n",
+        bytes: deep_unit.as_bytes(),
         limits: SpineLimits {
             checking: CheckingLimits::new(u64::MAX, 3).expect("valid limits"),
             ..SpineLimits::default()
@@ -1480,6 +1459,38 @@ fn tc_008_a_missing_import_refuses_at_compile_intake() {
 
     assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Intake));
     assert_eq!(refusal.code(), "missing_import/missing-selection");
+    assert_eq!(refusal.kind(), OutcomeKind::Refused);
+}
+
+/// FR-001-AC-5 (TC-008): a header `profile` whose identity is in no catalog
+/// refuses at the assembly stage as `CompileRefusal::Profile` (QSL FR-110),
+/// rendered `unknown_profile/unsupported-selection`: the code and the first
+/// refusal's cause.
+#[test]
+fn tc_008_an_unknown_header_profile_refuses_with_its_cause() {
+    let registry = build_registry(&[]).expect("an empty registry builds");
+    let packages = BTreeMap::new();
+    let source = "language \"ix:native\" edition \"1-draft\";\n\
+        profile v = \"test:unknown-profile\" version \"1\" digest \
+        \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
+        function f using v(): Boolean pure { true }\n";
+    let broken = CompileInput {
+        bytes: source.as_bytes(),
+        ..input(&packages)
+    };
+
+    let refusal = drive(&QslCg, broken, &registry, None, GenerationInput::default())
+        .expect_err("no catalog holds test:unknown-profile");
+
+    assert!(
+        matches!(
+            &refusal,
+            DriverRefusal::Compile(compile) if matches!(**compile, CompileRefusal::Profile { .. })
+        ),
+        "{refusal:?}"
+    );
+    assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Assembly));
+    assert_eq!(refusal.code(), "unknown_profile/unsupported-selection");
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
 }
 
@@ -1568,12 +1579,7 @@ fn tc_006_e5_admits_text_and_rational_units() {
         "function h using v(x: Text[1, 5; nfc]): Boolean pure { true }",
         "function g using v(x: Rational[0, 9; 1, 9]): Boolean pure { true }",
     ] {
-        let unit = format!(
-            "language \"ix:native\" edition \"1-draft\";\n\
-            profile v = \"quire.value.complete/v1\" version \"1\" digest \
-            \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
-            {declaration}\n"
-        );
+        let unit = unit(&format!("{declaration}\n"));
         let recorder = Recorder::default();
         let driven = drive(
             &recorder,
@@ -1680,7 +1686,6 @@ fn tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected(
     // item alone, over the same package -- the underivable `=` sibling
     // leaks into neither.
     let backend = kani_candidate(&driven);
-    let pins = KaniToolPins::pinned();
     let alone = generate_routed(
         &checked,
         &[RoutedGenerationItem {
@@ -1692,9 +1697,7 @@ fn tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected(
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
                 subject_path: "crate::subject",
-                pins: &pins,
                 unwind: 1,
-                attestation: attestation(),
             }),
         },
     )

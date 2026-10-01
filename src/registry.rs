@@ -17,7 +17,7 @@ pub struct ProviderManifest {
     pub identity: String,
     /// The digest of this manifest (`backend.manifest_digest`).
     pub manifest_digest: ManifestDigest,
-    /// The pinned tool identity.
+    /// The tool identity.
     pub tool: String,
     /// Each advertised `(kind, mode)` label pair; `None` is an absent label.
     pub advertises: Vec<(Option<String>, Option<String>)>,

@@ -26,9 +26,9 @@ lives downstream of both. Nothing depends on it.
 6. The `route` routing step over the items settled `supported` only.
 7. CG `generate_routed` over the routed items, each with its request index,
    its admitted `CheckedNodeId`, its routed backend and its kind, and the
-   caller's `GenerationInput` (for Kani: subject path, unwind, attestation;
-   pins are `KaniToolPins::pinned()`). CG derives each routed item's Kani
-   claim from the node's own operation and bound (IR-294, IR-298, IR-302):
+   caller's `GenerationInput` (for Kani: subject path and unwind). CG
+   derives each routed item's Kani claim from the node's own operation and
+   bound (IR-294, IR-298, IR-302):
    a unary operation over a bounded parameter, and a binary operation with
    a bounded operand beside a literal or beside another independently
    bounded operand (QSL's own narrowing `conversion` shape), all settle
@@ -48,8 +48,8 @@ lives downstream of both. Nothing depends on it.
    write out (Kani execution is blocked on IR-301).
 
 The registry is a value built with `build_registry` from provider manifests
-and passed in as an argument. The diagnostics catalog reference E5's
-evidence needs comes from `qsl_package::diagnostics_catalog()` (QSL-260).
+and passed in as an argument. E5's evidence is the caller's domain package
+documents and QSL's root feature; no artifact digest evidence is supplied.
 
 ## Commands
 

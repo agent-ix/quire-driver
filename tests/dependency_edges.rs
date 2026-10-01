@@ -178,48 +178,12 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         driver_model[0]
     );
 
-    // The driver's own QSL layer crates (its direct edges, at the revision
-    // Cargo.toml's revision note names) now resolve the same
-    // `quire-contract-model` package id as the driver's own direct pin:
-    // `qsl-package`'s one model edge is identical to `driver_model[0]`, not
-    // just same-revision. QSL-255b PR 2 (this bump) is what removes the
-    // second, divergent copy QSL's layer crates used to bring.
-    let driver_qsl_package: Vec<&String> = graph.deps[&graph.root]
-        .iter()
-        .filter(|id| graph.package(id).name == "qsl-package")
-        .collect();
+    // One copy of `quire-contract-model` across the whole graph, so the
+    // driver's direct edge, CG's IR crate and QSL's `qsl-package` all resolve
+    // the same package id and no IR type crosses between copies.
     assert_eq!(
-        driver_qsl_package.len(),
+        graph.ids_named("quire-contract-model").len(),
         1,
-        "one qsl-package edge from the driver's own QSL pin"
+        "one quire-contract-model copy"
     );
-    let qsl_model: Vec<&String> = graph.deps[driver_qsl_package[0]]
-        .iter()
-        .filter(|id| graph.package(id).name == "quire-contract-model")
-        .collect();
-    assert_eq!(qsl_model.len(), 1, "qsl-package has one model edge");
-    assert_eq!(
-        qsl_model[0], driver_model[0],
-        "the driver's own QSL pin and its `quire-contract-model` pin diverge: {} vs {}",
-        qsl_model[0], driver_model[0]
-    );
-
-    // Two more copies remain, both outside this bump's control:
-    //
-    // - CG's own `qsl-replay` pin (Cargo.toml's revision note) has not
-    //   caught up to the driver's QSL revision, so CG's `qsl-replay` still
-    //   resolves its own, older `qsl-package`, which still brings a
-    //   `quire-contract-model` copy at the older revision that older
-    //   `qsl-package` pinned. That is CG's own pin to move, not this
-    //   crate's; it is informational, not gated here, the same way the
-    //   revision string a QSL crate resolves to has never been gated
-    //   independent of the package-id identity checks above.
-    // - `quire-contract-ir` (CG's IR edge) depends on the QSL root crate
-    //   `quire-spec-language` at a revision of its own, which pins its own
-    //   `quire-contract-model` copy. That copy stays until IR's root crate
-    //   drops its QSL edge (agent-ix/quire-contract-ir#141).
-    //
-    // Whether an IR type crosses between any of these copies is a
-    // compile-time question this crate's own build already answers, not one
-    // `cargo metadata` can.
 }

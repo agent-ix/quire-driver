@@ -3,11 +3,10 @@
 //! admitted only at the `package_id` E4 emitted them under.
 
 use quire_contract_model::{
-    CheckedArtifactLocator, CheckedPackageDispatchResult, CheckedPackageEvidence,
-    CheckedPackageReadLimits, CheckedPackageV2,
+    CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
+    CheckedPackageV2,
 };
 
-use qsl_foundation::digest::DigestDomain;
 use qsl_package::EmittedPackage;
 use qsl_semantics::model::key::hex;
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
@@ -21,7 +20,7 @@ pub(crate) fn handoff(
     input: &CompileInput<'_>,
     emitted: &EmittedPackage,
 ) -> Result<CheckedPackageV2, DriverRefusal> {
-    let evidence = evidence(input)?;
+    let evidence = evidence(input);
     let package = match upstream.read_package(
         emitted.bytes(),
         CheckedPackageReadLimits::bounded(),
@@ -45,60 +44,21 @@ pub(crate) fn handoff(
     Ok(package)
 }
 
-/// The evidence the lock is checked against:
+/// The evidence IR's reader needs to admit the package:
 ///
-/// - the unit's own bytes, under its source identity (IR digests them);
 /// - each FR-056 domain package document the caller supplied;
-/// - the definition digests of QSL's pinned `DefinitionLock` catalog, and
-///   its root feature. Those digests are QSL's own informational constants,
-///   never checked against the definition bytes, so they attest nothing
-///   beyond QSL's catalog;
-/// - the diagnostics catalog reference, `qsl_package::diagnostics_catalog()`
-///   (QSL-260, #453): the same reference QSL's own emitter pins at
-///   `/diagnostics/catalog`, so IR's `/diagnostics/catalog` staleness check
-///   is vacuous (the entry cannot be stale against itself), but it is read
-///   from QSL's own API rather than parsed back out of the emitted bytes.
-fn evidence(input: &CompileInput<'_>) -> Result<CheckedPackageEvidence, DriverRefusal> {
+/// - the root feature of QSL's pinned `DefinitionLock` catalog, as a
+///   supported feature.
+///
+/// No artifact-byte or artifact-digest evidence is supplied; IR no longer
+/// checks the package for staleness against artifact digests.
+fn evidence(input: &CompileInput<'_>) -> CheckedPackageEvidence {
     let mut evidence = CheckedPackageEvidence::new();
-    evidence.insert_artifact_bytes(
-        CheckedArtifactLocator {
-            authority: input.source.authority.as_str().into(),
-            identity: input.source.identity.as_str().into(),
-            revision_namespace: input.source.revision_namespace.as_str().into(),
-            revision_value: input.source.revision.as_str().into(),
-            domain: DigestDomain::SourceBytesV1.as_str().into(),
-        },
-        input.bytes,
-    );
     for (digest, document) in input.packages {
         evidence.insert_domain_package_document(hex(digest), document.as_slice());
     }
-    let lock = DefinitionLock::pinned();
-    for entry in lock.catalog() {
-        evidence.insert_artifact_digest(
-            CheckedArtifactLocator {
-                authority: entry.authority.into(),
-                identity: entry.identity.into(),
-                revision_namespace: entry.revision_namespace.into(),
-                revision_value: entry.revision_value.into(),
-                domain: DigestDomain::DefinitionBytesV1.as_str().into(),
-            },
-            entry.digest,
-        );
-    }
-    if let Some(root) = lock.entry(CatalogRole::Root) {
+    if let Some(root) = DefinitionLock::pinned().entry(CatalogRole::Root) {
         evidence.support_feature(root.identity);
     }
-    let catalog = qsl_package::diagnostics_catalog();
-    evidence.insert_artifact_digest(
-        CheckedArtifactLocator {
-            authority: catalog.authority,
-            identity: catalog.identity,
-            revision_namespace: catalog.revision.namespace,
-            revision_value: catalog.revision.value,
-            domain: catalog.digest_domain,
-        },
-        catalog.digest,
-    );
-    Ok(evidence)
+    evidence
 }
