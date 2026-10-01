@@ -85,8 +85,10 @@ it binds the admitted package to the bytes that were emitted.
   the checked-package types. IR's root crate re-exports the model today; its removal is in
   IR-347's scope.
 - A type that crosses CG's API (`CheckedNodeId`, `CheckedPackageV2`) must be the one type, so
-  the driver and CG must build against one copy of `quire-contract-model`. The compiler already
-  enforces this the moment a value crosses (see Open questions).
+  the driver and CG must build against one copy of `quire-contract-model`. The compiler enforces
+  this the moment a value crosses, and the dependency-edge test gates it as one copy
+  (IR-479, PR #12; see Open questions). How the first-party dependencies are spelled is the
+  revision policy of IR-351 and IR-479, not decided here.
 
 ### Failure outcomes and who reports them
 
@@ -123,8 +125,9 @@ Candidate statements (local labels; the repo assigns requirement ids when one is
   internal fault before conversion.
 - D-5. Generation is called once, only for routed items, and not at all when nothing is routed.
 - D-6. A routed item whose node is missing is an internal fault and CG is not called.
-- D-7. The driver's normal dependencies are exactly the allow-list above (existing: TC-005; see
-  Open questions on what it should and should not assert).
+- D-7. The driver's normal dependencies are exactly the allow-list above, and the graph holds
+  one copy of `quire-contract-model` (existing: TC-005; the one-copy assertion is added by
+  IR-479, PR #12).
 - D-8. The driver uses no pin, attestation or digest-evidence API (blocked on IR-479).
 
 ## Risks
@@ -133,10 +136,10 @@ What is measured today, what is open and with whom, and what is routed.
 
 ### Current state and gaps (measured at the commit this AD was written against)
 
-- The driver is red against its own dependency revisions: `Cargo.toml` names the QSL layer
-  crates, CG and IR's model crate by `rev`, at old commits. The catch-up is IR-479; the revision
-  policy is IR-351's. Neither is repeated here.
-- E5 evidence in `src/handoff.rs` calls `insert_artifact_bytes` and `insert_artifact_digest`.
+- The next two bullets describe the driver before IR-479 (PR #12, the catch-up to current QSL,
+  CG and IR). Once it merges they no longer hold. The catch-up and the revision policy belong
+  to IR-479 and IR-351 and are not repeated here.
+- Before IR-479, E5 evidence in `src/handoff.rs` calls `insert_artifact_bytes` and `insert_artifact_digest`.
   At current IR `main`, `CheckedPackageEvidence` holds only domain package documents,
   dependency packages and supported features and has no such methods; the lock's raw-artifact
   digests are not checked against any evidence (`evidence.rs` doc in IR). The driver's evidence
@@ -144,7 +147,7 @@ What is measured today, what is open and with whom, and what is routed.
   informational constants, never checked", and that `/diagnostics/catalog` staleness is vacuous:
   a check that cannot fail. After the catch-up the evidence is the unit's domain packages,
   supported features and any dependency packages.
-- The driver imports `KaniToolPins` and `AttestationContext` (`src/drive.rs`; `pinned()` is
+- Before IR-479, the driver imports `KaniToolPins` and `AttestationContext` (`src/drive.rs`; `pinned()` is
   called at line 205), which CG no longer has on `main`. This AD does not describe them as
   design.
 - The driver compiles with an empty `DependencyInput` and refuses any `import`
@@ -165,7 +168,7 @@ What is measured today, what is open and with whom, and what is routed.
 | Question | Owner | Recommendation | Cost of the alternative |
 | --- | --- | --- | --- |
 | Record the driver's ownership of execute, replay and the terminal record in QSL's ADR-011 T-13 | QSL (QSL-354) | amend T-13 | QSL and this AD disagree on the driver's role |
-| Should the dependency-edge test assert that the driver's model copy equals CG's? | driver | no: ask what else would pass the assertion; two copies already fail the build when a `CheckedNodeId` crosses, so it guards what the compiler already guards. Keep the allow-list assertion, which states a real architecture rule | a gate that guards nothing |
+| The dependency-edge test's model-copy assertion | IR-479 (PR #12) | the test gates exactly one copy of `quire-contract-model`, as the catch-up lands it; the revision policy stays IR-351's and IR-479's | not decided here |
 | Layout, requirements per stage, matrix and revision policy | IR-351 | not decided here | duplicate descriptions |
 
 No compatibility layer is proposed. The driver changes its calls when an owner changes its API.
