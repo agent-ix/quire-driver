@@ -91,7 +91,7 @@ recomputes them) and the manifest digests QSL's registry API requires.
 - A type that crosses CG's API (`CheckedNodeId`, `CheckedPackageV2`) must be the one type, so
   the driver and CG must build against one copy of `quire-contract-model`. The compiler enforces
   this the moment a value crosses, and the dependency-edge test gates it as one copy
-  (IR-479, PR #12; see Open questions). How the first-party dependencies are spelled is the
+  (IR-479, PR #12, merged; see Open questions). How the first-party dependencies are spelled is the
   revision policy of IR-351 and IR-479, not decided here.
 
 ### Failure outcomes and who reports them
@@ -136,12 +136,12 @@ Candidate statements (local labels; the repo assigns requirement ids when one is
 - D-6. A routed item whose node is missing is an internal fault and CG is not called (existing:
   TC-007).
 - D-7. The driver's normal dependencies are exactly the allow-list above, and the graph holds
-  one copy of `quire-contract-model` (existing: TC-005; the one-copy assertion is added by
-  IR-479, PR #12).
+  one copy of `quire-contract-model` (existing: TC-005; the one-copy assertion was added by
+  IR-479, PR #12, merged).
 - D-8. The driver reintroduces no CG pin or attestation API and supplies no artifact-digest
   evidence to IR's reader. QSL's own APIs that carry digests the driver does not check
   (`DefinitionLock::pinned()` for the root feature, and `ManifestDigest` and `ToolIdentity` in
-  the registry API) are existing and listed under Current state. Blocked on IR-479.
+  the registry API) are existing and listed under Current state.
 
 ## Risks
 
@@ -149,26 +149,19 @@ What is measured today, what is open and with whom, and what is routed.
 
 ### Current state and gaps (measured at the commit this AD was written against)
 
-- The next two bullets describe the driver before IR-479 (PR #12, the catch-up to current QSL,
-  CG and IR). Once it merges they no longer hold. The catch-up and the revision policy belong
-  to IR-479 and IR-351 and are not repeated here.
-- Before IR-479, E5 evidence in `src/handoff.rs` calls `insert_artifact_bytes` and `insert_artifact_digest`.
-  At current IR `main`, `CheckedPackageEvidence` holds only domain package documents,
-  dependency packages and supported features and has no such methods; the lock's raw-artifact
-  digests are not checked against any evidence (`evidence.rs` doc in IR). The driver's evidence
-  code uses the removed API. Its own doc says the digests it supplies are "QSL's own
-  informational constants, never checked", and that `/diagnostics/catalog` staleness is vacuous:
-  a check that cannot fail. After the catch-up the evidence is the unit's domain package
-  documents plus the root feature of QSL's `DefinitionLock`; the driver compiles with an empty
-  `DependencyInput`, so it supplies no dependency packages.
-- Before IR-479, the driver imports `KaniToolPins` and `AttestationContext` (`src/drive.rs`; `pinned()` is
-  called at line 205), which CG no longer has on `main`, and its negotiation envelope carries
-  `manifest_digest` and `pinned_tool` through `digest_wire` (`src/drive.rs`). IR-479 deletes
-  these. This AD does not describe them as design.
-- Existing and not removed by IR-479: `DefinitionLock::pinned()` (`src/handoff.rs`, read for the
-  root feature) and `ManifestDigest` and `ToolIdentity` (`src/registry.rs`), which QSL's registry
-  API requires of a provider manifest. The driver passes them through and checks none.
-- The driver compiles with an empty `DependencyInput` and refuses any `import`
+- The catch-up to current QSL, CG and IR landed with IR-479 (PR #12, merged). The driver is no
+  longer red against its dependencies. The revision policy belongs to IR-351 and is not repeated
+  here.
+- E5 evidence in `src/handoff.rs` is now the unit's domain package documents plus the root
+  feature of QSL's `DefinitionLock`. The driver compiles with an empty `DependencyInput`, so it
+  supplies no dependency packages, and it supplies no artifact-byte or artifact-digest evidence:
+  IR's reader no longer checks the lock's raw-artifact digests against evidence (`evidence.rs`
+  doc in IR). Before IR-479 the driver called the removed `insert_artifact_bytes` and
+  `insert_artifact_digest`, imported CG's removed `KaniToolPins` and `AttestationContext`, and
+  carried `manifest_digest` and `pinned_tool` in its negotiation envelope; IR-479 deleted these.
+- Still present, as D-8 states: `DefinitionLock::pinned()` (`src/handoff.rs`, read for the root
+  feature) and `ManifestDigest` and `ToolIdentity` (`src/registry.rs`), which QSL's registry API
+  requires of a provider manifest. The driver passes them through and checks none.
   (`missing_import/missing-selection`, FR-001 step 1). Known and stated, not a gap to fix here.
 - The driver owns the execute, replay and terminal-record chain: run what CG generated, replay a
   counterexample through the `qsl-replay` facade, and settle the terminal record. Today it stops
@@ -188,7 +181,7 @@ What is measured today, what is open and with whom, and what is routed.
 | Question | Owner | Recommendation | Cost of the alternative |
 | --- | --- | --- | --- |
 | Record the driver's ownership of execute, replay and the terminal record in QSL's ADR-011 T-13 | QSL (QSL-354) | amend T-13 | QSL and this AD disagree on the driver's role |
-| The dependency-edge test's model-copy assertion | IR-479 (PR #12) | the test gates exactly one copy of `quire-contract-model`, as the catch-up lands it; the revision policy stays IR-351's and IR-479's | not decided here |
+| The dependency-edge test's model-copy assertion | IR-479 (PR #12, merged) | the test gates exactly one copy of `quire-contract-model`; the revision policy stays IR-351's and IR-479's | not decided here |
 | Layout, requirements per stage, matrix and revision policy | IR-351 | not decided here | duplicate descriptions |
 
 No compatibility layer is proposed. The driver changes its calls when an owner changes its API.
@@ -202,6 +195,6 @@ To QSL (QSL reviews these rows):
 
 | Id | Stated need |
 | --- | --- |
-| R-Q1 | A `TerminalValue` for a non-vacuous inconclusive run; matters to the driver once it owns the execute step. |
-| R-Q4 | A writer for the FR-331 `results` from a `TerminalRecord`; matters to the driver once it owns the terminal-record step. As relayed (untrusted), QSL rejected this need and the cross-repo test lives in quire-integration (QSL-342); QSL-351 is cited as the related QSL ticket. |
-| R-Q6 | An emission-to-admission test in QSL over every node family and form QSL can emit; the driver's E5 step repeats that check at run time for one unit. As relayed (untrusted), tracked as QSL-353. |
+| R-Q1 | A `TerminalValue` for a non-vacuous inconclusive run; matters to the driver once it owns the execute step. As relayed (untrusted), tracked as QSL-351. |
+| R-Q4 | A writer for the FR-331 `results` from a `TerminalRecord`; matters to the driver once it owns the terminal-record step. As relayed (untrusted), QSL rejected this need. |
+| R-Q6 | An emission-to-admission test in QSL over every node family and form QSL can emit; the driver's E5 step repeats that check at run time for one unit. As relayed (untrusted), tracked as QSL-353; the cross-repo test in quire-integration (QSL-342) that the relayed review text mentions concerns the replay seam, not this one. |

@@ -53,3 +53,12 @@ after-catch-up evidence sentence are incomplete or off.
 | FND-002 | medium | "That is the single canonical content-identity digest on this seam" overclaims. The FR-056 domain package documents cross E5 keyed by a `sha256-jcs` digest that IR recomputes (src/handoff.rs:72-74; IR evidence.rs doc), and the registry carries a `ManifestDigest` per provider manifest (src/registry.rs:47). Both survive #12. True statement: `package_id` is the one digest the driver itself checks. | spec/assurance/AD-001-driver-architecture.md:71-73 | wrong-requirement |
 | FND-003 | low | The failure view says it states "who reports each failure", but it omits four driver faults: `SettlementCount`, `SupportedOutsideCandidates`, `RoutingTarget` and `VocabularyMismatch` (src/refusal.rs:52-81). `VocabularyMismatch` is named in prose at AD:64 but has no row. | spec/assurance/AD-001-driver-architecture.md:95-105 | missing-requirement |
 | FND-004 | low | "After the catch-up the evidence is the unit's domain packages, supported features and any dependency packages." In #12 the evidence is the caller's domain package documents and QSL's root feature only. The driver supplies no dependency packages, because it compiles with an empty `DependencyInput` (AD:153). | spec/assurance/AD-001-driver-architecture.md:148-149 | wrong-requirement |
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | bb4bf6e |
+| FND-002 | fixed | bb4bf6e |
+| FND-003 | fixed | bb4bf6e |
+| FND-004 | fixed | bb4bf6e |

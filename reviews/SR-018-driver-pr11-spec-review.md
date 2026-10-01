@@ -56,3 +56,19 @@ low.
 | FND-003 | low | D-4, D-5 and D-6 carry no "existing:" marker, although TC-004 (PackageIdMismatch, HandoffRefused, UnknownNode), TC-003 step 5 (generation never called when nothing is routed) and TC-007 (UnknownNode) already cover them. | spec/assurance/AD-001-driver-architecture.md:124-127 | wrong-requirement |
 | FND-004 | low | "QSL ADR-011 T-13 states only the QSL half" is inaccurate. T-13 (ADR-011:1402) also lists the CG steps: E7 CG `negotiate_*` and CG generation. What T-13 lacks is the chain after generation, not the CG side. | spec/assurance/AD-001-driver-architecture.md:35 | wrong-requirement |
 | FND-005 | low | Cites "QSL ADR-011 section 6.1 driver row" for an allow-list that includes `quire-contract-model` and `thiserror`. The §6.1 driver row (ADR-011:719) names only "the QSL layer crates and CG". The model crate and thiserror come from FR-001-AC-1 and TC-005. The citation is inherited from FR-001:121. | spec/assurance/AD-001-driver-architecture.md:77-78 | wrong-requirement |
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-006 | low | The fix for FND-002 put the relayed notes on the wrong rows. QSL-351 is R-Q1's ticket: its description labels `TerminalValue::Inconclusive(cause)` "(R-Q1)". But it is cited on the R-Q4 row, and the R-Q1 row cites no ticket. The relayed "cross-repo test lives in quire-integration (QSL-342)" (untrusted F5) is also attached to R-Q4, the FR-331 `results` writer. That note concerns the cross-repo test, not the writer. Move QSL-351 to R-Q1, and put the F5 note on R-Q6 or drop it. | spec/assurance/AD-001-driver-architecture.md:205-206 | wrong-requirement |
+
+## Dispositions
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | bb4bf6e |
+| FND-002 | fixed | bb4bf6e (R-Q4's relayed rejection recorded, R-Q6 cites QSL-353, both labelled untrusted; misplaced citations are FND-006) |
+| FND-003 | fixed | bb4bf6e |
+| FND-004 | fixed | bb4bf6e |
+| FND-005 | fixed | bb4bf6e |
