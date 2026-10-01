@@ -18,54 +18,17 @@ path = "src/lib.rs"
 # depends on it. It is downstream of CG because CG -> QSL
 # (`qsl-replay`) is a normal edge and Cargo refuses a package cycle.
 #
-# Revisions (informational, not a gate): the QSL layer crates are pinned at
-# 267be557 on agent-ix/quire-spec-language main (#452-#459: QSL's own
-# `quire-contract-model` pin moves to 48ab5dc, the diagnostics-catalog
-# accessor, the per-item requirements accessor, and #459/QSL-266, which keys
-# `CheckedGraph::requirements()` by one record per scalar operation
-# application -- requirements, result bound and path condition -- and adds
-# `qsl_route::request::items_from_requirements`, the route request builder
-# this crate now drives from), and CG at edade59 on
-# agent-ix/quire-contract-codegen main (#182, IR-302: reads QSL's own literal
-# references and narrowing-conversion result bounds, fixing the `x + 1` and
-# `x + y` regression #179's IR-298 introduced -- see FR-001's Behavior and
-# TC-006 for the shapes CG now supports and its two remaining limits). CG's
-# #182 still pins `quire-contract-ir` at 48ab5dc and `qsl-replay` at
-# `daa0178`, unchanged from #178 and #180. The driver's direct
-# `quire-contract-model` stays at the same 48ab5dc, and QSL's own pin
-# (reached through this crate's QSL layer-crate pins, via `qsl-package`) now
-# shares it too: `tests/dependency_edges.rs` checks this by identity, not
-# just by revision string.
-#
-# Two more copies remain, both outside this crate's own pins:
-#
-# - `b52c263` stays, reached through CG's own `qsl-replay` pin, which is
-#   still `daa0178` (CG has not bumped it to match this crate's QSL
-#   revision). No code in CG's own `src/` calls that dependency yet (CG's
-#   own Cargo.toml says so); it exists only for CG's own build-order
-#   reasons (IR-254). Moving it is CG's own pin to move, not this crate's.
-# - `7b1ec7a` stays because `quire-contract-ir` at 48ab5dc itself depends
-#   on the QSL root crate `quire-spec-language` at 9395be4 (IR's own edge,
-#   not this crate's QSL pin), which pins its own `quire-contract-model`.
-#   It stays until IR's root crate drops its QSL edge
-#   (agent-ix/quire-contract-ir#141).
-#
-# Both are informational, not a gate: no IR type crosses between either of
-# them and the shared 48ab5dc copy at compile time (they are different Rust
-# types even with the same name), so this either compiles or it doesn't.
-#
-# E4 (emit, via QSL's own `qsl-package`) and E5 (`src/handoff.rs`, read, via
-# this crate's own `quire-contract-model` pin) now run under the same model
-# revision (48ab5dc), so the version skew the previous revision comment
-# described (E4 under b52c263, E5 under 48ab5dc) is resolved.
+# The QSL layer crates and CG are tracked on `main` of their repositories, the
+# same spelling CG and QSL use for their own `quire-contract-model` edge, so
+# the graph resolves one copy of it. The exact commits are in Cargo.lock.
 [dependencies]
-qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", rev = "267be55766209a8b1bd0a265caf28c84365e5dce" }
-qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", rev = "267be55766209a8b1bd0a265caf28c84365e5dce" }
-qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", rev = "267be55766209a8b1bd0a265caf28c84365e5dce" }
-qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", rev = "267be55766209a8b1bd0a265caf28c84365e5dce" }
-qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", rev = "267be55766209a8b1bd0a265caf28c84365e5dce" }
-quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", rev = "edade5935d96d5fd616a7a4d9f47a2dc15be03f3" }
-quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", rev = "48ab5dc29213c3975a5fe8f04ecbb3d1c2b345bb" }
+qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", branch = "main" }
+quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", branch = "main" }
 thiserror = "=2.0.20"
 
 [dev-dependencies]

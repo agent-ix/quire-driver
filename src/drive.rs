@@ -8,11 +8,9 @@ use qsl_package::{CheckedPackage, EmittedPackage};
 use qsl_replay::spine::SpineLimits;
 use qsl_route::request::{items_from_requirements, ExtentClassification, RequirementItem};
 use qsl_route::routing::Disposition as RouteDisposition;
-use qsl_route::{BackendId, Candidate, CandidateOutcome, ManifestDigest, Mode, Registry};
+use qsl_route::{BackendId, Candidate, CandidateOutcome, Mode, Registry};
 use quire_contract_codegen as cg;
-use quire_contract_codegen::{
-    AttestationContext, BackendKind, ItemSettlement, KaniToolPins, RoutedGeneration,
-};
+use quire_contract_codegen::{BackendKind, ItemSettlement, RoutedGeneration};
 use quire_contract_model::{CheckedNodeId, CheckedPackageV2};
 
 use crate::handoff::handoff;
@@ -61,16 +59,13 @@ pub struct GenerationInput<'a> {
     pub kani: Option<KaniInput<'a>>,
 }
 
-/// The Kani generation context, less the tool pins, which are always
-/// `KaniToolPins::pinned()`. Fields have CG FR-015's meanings.
+/// The Kani generation context. Fields have CG FR-015's meanings.
 #[derive(Clone, Copy, Debug)]
 pub struct KaniInput<'a> {
     /// Rust path of the customer subject.
     pub subject_path: &'a str,
     /// Loop unwind bound.
     pub unwind: u32,
-    /// Binding for the generation identity.
-    pub attestation: AttestationContext<'a>,
 }
 
 /// A completed run.
@@ -202,13 +197,10 @@ fn generate(
             kind: item.kind,
         });
     }
-    let pins = KaniToolPins::pinned();
     let contexts = cg::GenerationContexts {
         kani: generation.kani.map(|kani| cg::KaniGenerationContext {
             subject_path: kani.subject_path,
-            pins: &pins,
             unwind: kani.unwind,
-            attestation: kani.attestation,
         }),
     };
     upstream
@@ -265,9 +257,7 @@ fn envelope(
         advertised.sort();
         manifest.push(cg::BackendDescriptor {
             identity: descriptor.id().as_str().to_owned(),
-            manifest_digest: digest_wire(descriptor.candidate().manifest_digest()),
             advertised,
-            pinned_tool: descriptor.tool().as_str().to_owned(),
         });
     }
 
@@ -360,15 +350,9 @@ fn route_supported(
         .collect()
 }
 
-/// A manifest digest's wire spelling: `<domain>:<hex>`.
-fn digest_wire(digest: ManifestDigest) -> String {
-    format!("{}:{}", digest.domain().as_str(), digest.hex())
-}
-
 fn cg_candidate(candidate: &Candidate) -> cg::Candidate {
     cg::Candidate {
         identity: candidate.id().as_str().to_owned(),
-        manifest_digest: digest_wire(candidate.manifest_digest()),
     }
 }
 

@@ -31,7 +31,7 @@ application, in occurrence-key order.
    request index 0.
 3. Call CG `generate_routed` directly over the same package with the
    routed item (index 0, the `-` node, the `kani` wire pair, kind Kani) and
-   the same context with `KaniToolPins::pinned()`.
+   the same context.
 4. Drive `function inc using v(x: Int[0, 9]): Int[0, 10] pure { x + 1 }`,
    which writes one requirement record, the `+`, routed to `kani`, and
    compare the driver's generation output with a direct `generate_routed`
