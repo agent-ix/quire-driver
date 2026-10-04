@@ -28,8 +28,8 @@ Test location: planned driver CLI integration tests.
 ## Expected Results
 
 - The omitted option selects the interpreter.
-- An unknown name is refused before any stage with exit 20.
+- An unknown name is refused before any stage with QSL's refusal category.
 - A recognized but unavailable engine is refused before any stage with exit
-  21 and category unsupported.
+  status selected by QSL's category exit function and category unsupported.
 - A selected engine's unsupported or preparation result is returned without
   invoking another engine.

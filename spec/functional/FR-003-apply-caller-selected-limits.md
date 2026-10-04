@@ -13,6 +13,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-300
     type: depends_on
+  - target: ix://agent-ix/quire-driver/FR-002
+    type: depends_on
 ---
 # FR-003: Apply caller-selected lifecycle limits
 
@@ -38,25 +40,27 @@ return QSL's typed limit outcome and report no success.
 ## Behavior
 
 - If a caller supplies an unknown limit field, malformed value or duplicate,
-  then the CLI SHALL reject it before the operation begins with exit status
-  20.
+  then the CLI SHALL reject it before the operation begins with QSL's refusal
+  category.
 - The driver SHALL pass the computed limits values to the selected operation.
 - The driver SHALL preserve each explicit caller value when building the
   computed limits values.
 - A reached limit SHALL retain QSL's typed cause, limit kind, configured
   value and field identity in the machine outcome.
-- A limit outcome SHALL map to category incomplete and exit status 22 through
-  QSL's category exit function.
+- A limit outcome SHALL retain QSL's incomplete category and use QSL's
+  category exit function.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-003-AC-1 | Setting one valid `--limit` overrides only its named field; every omitted field retains its published default, and the effective limits passed to the operation equal those values. | Test (TC-010) |
-| FR-003-AC-2 | An unknown field, malformed value or invalid duplicate `--limit` is refused before any stage with exit 20 and names the option value. | Test (TC-010) |
-| FR-003-AC-3 | An input that reaches a caller-lowered bound returns typed `LimitExceeded` with the configured value and field name, category incomplete and exit 22; it does not return success. Raising the same bound to fit the input allows the operation to complete. | Test (TC-010) |
+| FR-003-AC-2 | An unknown field, malformed value or invalid duplicate `--limit` is refused before any stage with QSL's refusal category and names the option value. | Test (TC-010) |
+| FR-003-AC-3 | An input that reaches a caller-lowered bound returns typed `LimitExceeded` with the configured value and field name and QSL's incomplete category; the process status equals QSL's category exit function. Raising the same bound to fit the input allows the operation to complete. | Test (TC-010) |
 
 ## Dependencies
 
 - QSL ADR-029 LC-4 and FR-277; QSpec FR-300's caller-supplied limits.
+- [FR-002](FR-002-expose-driver-cli-and-outcome-contract.md) defines the
+  command entry point and exit function.
 - [TC-010](../test-cases/TC-010-caller-selected-limits.md).

@@ -13,6 +13,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-306
     type: depends_on
+  - target: ix://agent-ix/quire-driver/FR-002
+    type: depends_on
 ---
 # FR-004: Select the execution engine without substitution
 
@@ -36,10 +38,9 @@ binary, and SHALL NOT substitute another engine.
 ## Behavior
 
 - If a caller supplies a value outside `interpreter`, `aot` and `jit`, then
-  the CLI SHALL reject it as an unknown argument with exit status 20.
+  the CLI SHALL reject it as an unknown argument with QSL's refusal category.
 - If a caller selects a recognized engine not linked into the binary, then
-  the CLI SHALL refuse before any stage as unsupported, naming the engine and
-  using exit status 21.
+  the CLI SHALL refuse before any stage as unsupported, naming the engine.
 - The driver SHALL invoke only the selected engine, including after a
   preparation failure or unsupported result.
 
@@ -48,11 +49,13 @@ binary, and SHALL NOT substitute another engine.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-004-AC-1 | An execution request without `--engine` runs the interpreter and returns its result. | Test (TC-011) |
-| FR-004-AC-2 | A value outside the closed engine set is refused before any stage with exit 20 and names the supplied value. | Test (TC-011) |
-| FR-004-AC-3 | A recognized engine absent from the binary is refused before any stage with category unsupported and exit 21; no other engine runs. | Test (TC-011) |
+| FR-004-AC-2 | A value outside the closed engine set is refused before any stage with QSL's refusal category and names the supplied value. | Test (TC-011) |
+| FR-004-AC-3 | A recognized engine absent from the binary is refused before any stage with category unsupported; no other engine runs, and process status equals QSL's category exit function. | Test (TC-011) |
 | FR-004-AC-4 | When the selected engine returns unsupported or a typed preparation failure, that result is returned and no other engine is invoked. | Test (TC-011) |
 
 ## Dependencies
 
 - QSL ADR-029 EB-8 and FR-296; QSpec FR-306.
+- [FR-002](FR-002-expose-driver-cli-and-outcome-contract.md) defines the
+  command entry point and exit function.
 - [TC-011](../test-cases/TC-011-execution-engine-selection.md).

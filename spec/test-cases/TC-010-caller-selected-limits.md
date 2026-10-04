@@ -29,7 +29,7 @@ Test location: planned driver CLI integration tests.
 ## Expected Results
 
 - The explicit value replaces only its field; omitted fields retain defaults.
-- Invalid options are refused before any stage with exit 20.
+- Invalid options are refused before any stage with QSL's refusal category.
 - The low limit returns `LimitExceeded` with the configured value and field,
-  category incomplete and exit 22. The raised limit allows the operation to
-  complete.
+  category incomplete and the process status selected by QSL's category exit
+  function. The raised limit allows the operation to complete.

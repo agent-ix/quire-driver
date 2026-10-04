@@ -9,6 +9,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-288
     type: depends_on
+  - target: ix://agent-ix/quire-driver/FR-002
+    type: depends_on
 ---
 # FR-005: Register first-party providers through one typed interface
 
@@ -59,3 +61,5 @@ registry to the lifecycle operation that uses it.
 - QSL ADR-029 PV-1 and PV-3; QSL FR-288 for provider-manifest registration.
 - FR-006 defines the separate out-of-process plugin host boundary.
 - [TC-012](../test-cases/TC-012-first-party-provider-interface.md).
+- [FR-002](FR-002-expose-driver-cli-and-outcome-contract.md) defines the
+  command entry point that registers and invokes providers.

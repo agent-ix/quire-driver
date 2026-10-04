@@ -13,7 +13,7 @@ relationships:
 Verify that the driver CLI exposes the specified verbs, preserves typed
 outcomes in `quire-outcome/1` documents and uses QSL's single exit function.
 
-Scope: FR-002-AC-1 through FR-002-AC-4.
+Scope: FR-002-AC-1 through FR-002-AC-5.
 
 ## Test Procedure
 
@@ -25,9 +25,14 @@ Scope: FR-002-AC-1 through FR-002-AC-4.
    `undefined`, a pending monitor clause, an inconclusive proof and a
    multi-item outcome containing multiple exit codes. Compare each process
    status to QSL's category exit function.
-4. Run one operation in JSON mode and compare the document with the typed
-   library outcome. Repeat with stdout/stderr write failure and a broken pipe.
-5. Run from a directory containing an unnamed configuration file and verify
+4. Verify shared command/output, configuration and version mechanics use
+   ix-cli-kit. Inspect the exit boundary with an outcome category that the
+   kit's typed `Outcome` cannot represent and confirm the QSL-returned code is
+   passed through unchanged.
+5. Run one operation in JSON mode and compare the serialized value with the
+   typed library outcome. Repeat with stdout/stderr write failure and a broken
+   pipe.
+6. Run from a directory containing an unnamed configuration file and verify
    that the CLI does not read it.
 
 Test location: planned driver CLI integration tests.
@@ -35,11 +40,14 @@ Test location: planned driver CLI integration tests.
 ## Expected Results
 
 - Valid verbs and format options reach their corresponding operations.
-- Invalid arguments are refused before any stage with exit 20 and name the
-  refused argument.
+- Invalid arguments are refused before any stage with QSL's refusal category
+  and name the refused argument.
 - Each category and multi-item result exits with the exact code selected by
   QSL's single exit function; no second mapping changes the result.
-- JSON mode emits exactly one `quire-outcome/1` document preserving the
-  operation's typed values. A stream write failure exits 30; a broken pipe
-  ends quietly with the outcome's code.
+- Shared CLI mechanics use ix-cli-kit without mapping QSL categories through
+  the kit's typed `Outcome` values.
+- JSON mode emits one QSL-defined `quire-outcome/1` value equal to the typed
+  library outcome. A stream write failure returns the internal-failure
+  category through QSL's exit function; a broken pipe ends quietly with the
+  outcome's code.
 - An unnamed configuration file is not read.
