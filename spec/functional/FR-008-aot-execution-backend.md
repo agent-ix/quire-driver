@@ -1,6 +1,6 @@
 ---
 id: FR-008
-title: "Execute checked entries through an AOT backend"
+title: "Invoke the selected AOT execution backend"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-driver/US-001
@@ -8,56 +8,44 @@ relationships:
   - target: ix://agent-ix/quire-spec-language/ADR-029
     type: depends_on
 ---
-# FR-008: Execute checked entries through an AOT backend
+# FR-008: Invoke the selected AOT execution backend
 
 ## Description
 
-When the caller selects the AOT execution engine, the driver SHALL prepare
-and execute only entries from the checked package produced by that request.
-For the same checked input and accounting limits, the AOT backend SHALL return
-the same evaluation outcome as QSL's interpreter.
+When an execution request selects AOT, the driver SHALL invoke QSL's AOT
+backend with only the checked package and selected entries from that request.
+The driver SHALL return the backend's typed result or failure without
+substituting another engine.
 
 ## Inputs
 
-- The checked package and selected entries from the current request.
-- Preparation and accounting limits, cancellation, and the caller-named
-  build toolchain.
+- The checked package and selected entries produced by the current request.
+- The selected AOT engine, preparation and accounting limits, cancellation
+  input and caller-named build toolchain.
 
 ## Outputs
 
-- An `Evaluation<Value>` for each selected entry with the interpreter's
-  outcome, typed cause, source location and loss records, or a typed prepare
-  failure.
+- The AOT backend's typed evaluation results or typed preparation failures.
 
 ## Behavior
 
-- AOT preparation SHALL lower the checked package, generate an AOT target and
-  build it with the toolchain named by the caller.
-- The generated executable SHALL run as a child process over the canonical
-  framed protocol defined for the execution boundary.
-- The AOT backend SHALL preserve interpreter semantics for completed,
-  undefined, refused and incomplete results, including causes, locations,
-  loss records and accounting-limit outcomes.
-- When an AOT preparation limit is reached, the driver SHALL return a typed
-  limit failure.
-- When the AOT backend cannot prepare an entry, the driver SHALL mark only
-  that entry unsupported.
-- The driver SHALL NOT silently substitute the interpreter or another engine.
-- The AOT executable SHALL perform no I/O beyond the execution protocol.
-- The AOT executable SHALL NOT use clock, random source, environment or
-  thread state to determine a semantic result.
+- QSL ADR-029 EB-1 through EB-6 and EB-8 own the execution seam, checked-only
+  admission, interpreter parity, AOT preparation and engine selection
+  semantics.
+- The driver SHALL pass the current request's checked package, selected
+  entries, limits, cancellation input and named toolchain to the AOT backend.
+- The driver SHALL propagate the backend's typed results and failures
+  unchanged without retrying another execution engine.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-008-AC-1 | AOT accepts a checked package and selected entries, lowers and generates from that package, and builds with the toolchain named by the caller. | Test |
-| FR-008-AC-2 | The generated executable exchanges canonical framed requests and results with the driver and reads no package bytes outside the current checked request. | Test |
-| FR-008-AC-3 | For each conformance input and accounting budget, AOT and the interpreter return equal completed, undefined, refused or incomplete outcomes, including typed cause, location, loss records and limit result. | Test |
-| FR-008-AC-4 | An unsupported entry remains unsupported for that entry, a preparation limit remains a typed limit, and neither condition silently falls back to another engine. | Test |
-| FR-008-AC-5 | AOT's semantic result is independent of wall clock, random source, environment and thread state, and the generated executable performs no I/O outside its protocol. | Inspection |
+| FR-008-AC-1 | When a request selects AOT, the driver calls the backend with the checked package and selected entries from that request, its limits and cancellation input, and the caller-named toolchain. | Test |
+| FR-008-AC-2 | The driver returns the backend's typed results and preparation failures unchanged and does not invoke another engine after an AOT failure. | Test |
 
 ## Dependencies
 
-- QSL ADR-029 EB-1 through EB-6 and EB-8; QSpec FR-306.
+- QSL ADR-029 EB-1 through EB-6 and EB-8 define the execution and parity
+  contract; QSpec FR-306 defines cross-backend conformance evidence.
 - [TC-015](../test-cases/TC-015-aot-matches-interpreter.md).
