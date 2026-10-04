@@ -1029,3 +1029,27 @@ scope:
 ## Analysis
 
 Base checklist: changed artifact IDs, local links, inventory, policy ownership and cross-references. One invalid external criterion reference is recorded. FR/TC wording and pre-existing verification cells remain context only.
+
+## Dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed c90131a1e04bba175d21fff127e977bb276676fb | Round 1: both AD-001 references now link to the authoritative FR-307 artifact and existing behavior clauses. |
+
+## Disposition pass 1
+
+Reviewed candidate: c90131a1e04bba175d21fff127e977bb276676fb. Fix commit: c90131a1e04bba175d21fff127e977bb276676fb. Current verdict: **PASS** for this artifact's recorded finding; no new findings. Original review verdict and finding above remain historical and unchanged.
+
+Authoritative FR-307 was retrieved again from QSL main; it declares AC-1 through AC-5 and the cited Behavior subsections. Both corrected AD-001 rows use whole-artifact links; AD-001 contains no FR-307 AC citation.
+
+Exact after_excerpt (AD-001:97):
+
+```text
+| Abstraction-relation selection | QSL AR2, [FR-307](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-307-export-the-bindings-each-item-references.md) (Behavior: Caller and position; Per-item results) | Pass only the admitted relation's bound item subset to CG; preserve QSL's typed required-binding refusal | FR-010 / TC-017 |
+```
+
+Additional exact corrected excerpt (AD-001:197):
+
+```text
+| Relation-bound CG input depends on QSL AR2 | QSL-514 / [QSL FR-307](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-307-export-the-bindings-each-item-references.md) (bound-item export and per-item refusals) | Run TC-017 in the QSL-owned `quire-integration` test once AR2 is available. |
+```
