@@ -124,3 +124,18 @@ scope:
 Method: a manual Opus spec-review of the stated range only. Steps: (1) Confirmed HEAD = 4623a6d, a clean worktree, and that `git diff --stat` for the range touches only the four expected files. (2) Read all nine canonical prior artifacts (SR-031..SR-039), including the SR-032 and SR-036 dispositions. (3) Read the merged TC-018 and TC-009, and compared their declared scope with the FR-002 AC table, the TM-001 FR and TC rows, the spec.md index and frontmatter, and AD-001. (4) Checked the PR and ticket history against `origin/main`: #15 is SP-D5..D9, #17 is SP-D1..D4, #18 (IR-607) adds only TC-018, and #14 (IR-606, "Port driver to current QSL lifecycle") updated FR-001, AD-001 and the src call sites. (5) Ran `quire validate` (quire 0.36.1, engine 0.50.1) on the four files plus TC-018. It exited 0, with only module-catalog DuplicateArchetype warnings. No source tests were run, as instructed.
 
 Confirmed correct: TC-018 is mapped to FR-002-AC-2..AC-4 in FR-002, TM-001 and AD-001. Its own Description says the same, and TM-001's TC-009 row still traces AC-1..AC-5. spec.md says TC-018 does not expand FR-002's scope. TC-018 has a spec.md `contains` edge and an index row. Its Planned status is correct, because no TC-018 or CLI binary implementation exists in src/ or tests/. The AD-001 IR-606 status is correct: "delivered by IR-606" and "merged in PR #14" match main. Dropping the `spine::compile` drift risk row is justified, because PR #14 updated FR-001. The spec.md history line correctly names PRs #15, #17 and #18. TC-018 belongs under the IR-607 CLI owner row. Out of scope: other FRs, implementation, code, tests and G5b.
+
+## Disposition round 1 (SR-045)
+
+Reviewed candidate: `56c1b1d0140d48ae053758288424353f56079074`. Current verdict:
+**PASS**. Both findings are fixed and no new findings were introduced.
+
+| FND | Outcome | Fix |
+| --- | --- | --- |
+| FND-001 | fixed | AD-001 now states that the master specification and TM-001 integrate TC-001 through TC-018. The remaining TC-017 references correctly trace FR-010. |
+| FND-002 | fixed | FR-002 Dependencies now links TC-018 as additional verification for AC-2 through AC-4. |
+
+The delta `4623a6d..56c1b1d` is one commit and changes only the two fix sites
+and this SR-044 custody artifact. The reviewer posted disposition marker
+`SR-044 round=1 disposition=SR-045` on IR-527; readback confirmed it appears
+once. Comment: `a5102bf1-c3bf-4343-b784-4a6e4194f982`.
