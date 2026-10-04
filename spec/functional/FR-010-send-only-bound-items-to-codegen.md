@@ -38,9 +38,18 @@ driver SHALL not send the package's unbound item set to CG.
 
 ## Dependencies
 
-- QSL AR2 / QSL-514 and FR-307-AC-6 define the bound-item selection and
-  typed unbound-element refusal. The implementation verification is planned
-  until QSL AR2 lands.
-- The cross-repository acceptance test is owned by QSL's
-  `quire-integration` suite.
+- [QSL FR-307](ix://agent-ix/quire-spec-language/FR-307) defines the
+  bound-item export and per-item results.
+  [QSpec FR-353-AC-3](ix://agent-ix/quire-specification/FR-353#FR-353-AC-3)
+  owns the per-item unbound refusal, naming each unbound element with its
+  owning `DomainPackageRef`;
+  [QSpec FR-331](ix://agent-ix/quire-specification/FR-331) owns the CG
+  request built from bound items.
+- [QSL ADR-017](ix://agent-ix/quire-spec-language/ADR-017) AR-4/AR-6
+  define the export, referenced elements and what CG receives;
+  [QSL ADR-011](ix://agent-ix/quire-spec-language/ADR-011) T-13 names
+  the orchestrating driver.
+- QSL-514 is planned end-to-end `quire-integration` evidence for FR-307's
+  end-to-end clause, not a requirement acceptance criterion. The
+  cross-repository acceptance test is owned by QSL's `quire-integration` suite.
 - [TC-017](../test-cases/TC-017-only-bound-items-reach-codegen.md).
