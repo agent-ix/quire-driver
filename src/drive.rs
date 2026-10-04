@@ -16,7 +16,7 @@ use quire_contract_model::{CheckedNodeId, CheckedPackageV2};
 use crate::handoff::handoff;
 use crate::{DriverFault, DriverRefusal, Upstream};
 
-/// The unit to compile, and the inputs spine `compile` takes with it.
+/// The unit to compile, and the inputs QSL's typed lifecycle takes with it.
 #[derive(Clone, Debug)]
 pub struct CompileInput<'a> {
     /// The unit's source identity.
@@ -108,20 +108,20 @@ pub fn drive(
     generation: GenerationInput<'_>,
 ) -> Result<Driven, DriverRefusal> {
     // Steps 1 and 2: S1 to S4, then the E4 emitter.
-    let compiled = upstream
-        .compile(
-            input.source.clone(),
-            input.path,
-            input.bytes,
-            input.packages,
-            input.limits,
-        )
-        .map_err(DriverRefusal::Compile)?;
+    let (checked_unit, emitted_unit) = upstream.compile(
+        input.source.clone(),
+        input.path,
+        input.bytes,
+        input.packages,
+        input.limits,
+    )?;
+    let package = checked_unit.package().clone();
+    let emitted = emitted_unit.package().clone();
     // E5: IR admits the emitted bytes at the emitted `package_id`.
-    let checked = handoff(upstream, &input, &compiled.emitted)?;
+    let checked = handoff(upstream, &input, &emitted_unit)?;
 
     // FR-075: one item per requirement record, in occurrence-key order.
-    let items = items_from_requirements(compiled.package.graph().requirements(), registry, named);
+    let items = items_from_requirements(package.graph().requirements(), registry, named);
 
     // T-13 order: the `route` candidate step, then every registered
     // BackendId through CG's one conversion, then E7.
@@ -149,8 +149,8 @@ pub fn drive(
     let generation = generate(upstream, &checked, &items, &routed, generation)?;
 
     Ok(Driven {
-        package: compiled.package,
-        emitted: compiled.emitted,
+        package,
+        emitted,
         checked,
         settlements,
         routed,

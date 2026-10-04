@@ -8,7 +8,7 @@
 //!
 //! [`drive`] runs one request through these steps, in this order:
 //!
-//! 1. S1 to S4: `qsl_replay::spine::compile`.
+//! 1. S1 to S4: QSL's typed `parse`, `select`, `check` and `package` lifecycle.
 //! 2. E4: the same call emits the `quire.checked-package/v2` bytes and their
 //!    `package_id` ([`Driven::emitted`]).
 //! 3. The `route` candidate step: each item's candidate set. The items are

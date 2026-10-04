@@ -3,6 +3,7 @@
 //! AGE-394 (the lifecycle and CLI design) renders them; this module only types
 //! them.
 
+use qsl_foundation::diagnostic::InternalFault;
 use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::Code;
 use qsl_replay::spine::{CompileRefusal, SpineStage};
@@ -47,6 +48,9 @@ pub enum DriverRefusal {
 /// A violated invariant between the driver and an upstream crate.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum DriverFault {
+    /// QSL's typed lifecycle reported a broken invariant.
+    #[error("QSL spine fault: {0:?}")]
+    Spine(InternalFault),
     /// Negotiation returned a different number of settlements, or one out
     /// of request order.
     #[error(
@@ -173,6 +177,7 @@ impl DriverRefusal {
             }
             Self::Envelope(_) => DriverStage::Negotiation,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
+            Self::Fault(DriverFault::Spine(_)) => DriverStage::Compile(SpineStage::Check),
             Self::HandoffLimit(_)
             | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
                 DriverStage::Handoff
@@ -361,6 +366,7 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 
 #[cfg(test)]
 mod tests {
+    use qsl_foundation::diagnostic::InternalFault;
     use qsl_foundation::digest::WireNodeId;
     use quire_contract_codegen::{
         KaniObligationError, OracleGenerationError, RoutedGenerationError,
@@ -368,6 +374,23 @@ mod tests {
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    /// FR-001-AC-5 (TC-004): QSL's typed spine fault retains the compile
+    /// stage, runtime-invariant code and fault outcome kind.
+    #[test]
+    fn tc_004_a_typed_spine_fault_is_a_compile_fault() {
+        let refusal = DriverRefusal::Fault(DriverFault::Spine(InternalFault::new(
+            "S3",
+            "test-invariant",
+        )));
+
+        assert_eq!(refusal.code(), "runtime_invariant");
+        assert_eq!(
+            refusal.stage(),
+            DriverStage::Compile(super::SpineStage::Check)
+        );
+        assert_eq!(refusal.kind(), OutcomeKind::Fault);
+    }
 
     /// FR-001-AC-5 (TC-004): an internal fault is its own outcome kind, with
     /// code `runtime_invariant`, never a refusal.

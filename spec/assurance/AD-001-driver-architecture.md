@@ -4,7 +4,7 @@ title: "quire-driver architecture: the one crate that calls both QSL and CG"
 type: ArchitectureDescription
 status: proposed
 owner: kreneskyp
-system: quire-driver library, its use of QSL (spine compile, route, emitted package) and CG (negotiate, generate), and IR's checked-package reader at the hand-off
+system: quire-driver library, its use of QSL (typed spine lifecycle, route, emitted package) and CG (negotiate, generate), and IR's checked-package reader at the hand-off
 relationships:
   - target: ix://agent-ix/quire-driver/FR-001
     type: references
@@ -53,7 +53,7 @@ reports each failure.
 
 | Step | Owner of the call | Crosses in | Crosses out |
 | --- | --- | --- | --- |
-| 1 to 2. S1 to S4 and the E4 emitter | QSL (`qsl_replay::spine::compile`) | unit source, domain package documents, an empty `DependencyInput`, spine stage limits | in-process checked package, `quire.checked-package/v2` bytes, `package_id` |
+| 1 to 2. S1 to S4 and the E4 emitter | QSL (`spine::parse` → `select` → `check` → `package`, sharing one `Cancel`) | unit source, domain package documents, an empty `DependencyInput`, spine stage limits | in-process checked package, `quire.checked-package/v2` bytes, `package_id` |
 | E5. Hand-off | IR (`read_checked_package`) | emitted bytes and `CheckedPackageEvidence` | admitted `CheckedPackageV2` |
 | 3. Candidate step | QSL (`qsl_route`) | items written from the compiled unit's own checked requirement records | candidate set per item |
 | 4. Backend conversion | CG (`BackendKind::from_identity`) | each registered `BackendId` | a CG kind, or a refusal naming every unconverted id |

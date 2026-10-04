@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use qsl_foundation::SourceIdentity;
-use qsl_replay::spine::{CompileRefusal, Compiled, SpineLimits, SpineStage};
+use qsl_replay::spine::{CheckedUnit, CompileRefusal, EmittedUnit, SpineLimits, SpineStage};
 use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{BackendId, Candidate, ManifestDigest, RegistrationCause};
 use qsl_semantics::check::CheckingLimits;
@@ -212,7 +212,7 @@ impl Upstream for Recorder {
         bytes: &[u8],
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
-    ) -> Result<Compiled, Box<CompileRefusal>> {
+    ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal> {
         self.calls.borrow_mut().push(Call::Compile);
         QslCg.compile(source, path, bytes, packages, limits)
     }
@@ -1530,6 +1530,7 @@ fn tc_004_e5_identity_and_refusal_are_faults() {
         cause: None,
         locus: None,
         contract_version: None,
+        document_pointer: None,
     };
 
     for answer in [

@@ -17,8 +17,9 @@ relationships:
 The driver SHALL run one request through these steps, in this order (QSL
 ADR-011 T-13, ADR-012 §7.2):
 
-1. S1 to S4 through `qsl_replay::spine::compile`, with an empty
-   `DependencyInput` (ADR-015 D-1): the driver does not yet support
+1. S1 to S4 and E4 through QSL's typed `parse`, `select`, `check` and
+   `package` operations, sharing one `Cancel` handle. `check` receives an
+   empty `DependencyInput` (ADR-015 D-1): the driver does not yet support
    compiling a unit's `import`s against caller-supplied library source, so
    any `import` refuses at the intake stage,
    `missing_import`/`missing-selection`.
@@ -136,7 +137,7 @@ the admitted package only at the `package_id` E4 emitted.
 ## Dependencies
 
 - QSL ADR-011 §2.1, §6.1 driver row, §7.1 and T-13; ADR-012 §7.1 and §7.2.
-- QSL `qsl-replay` (`spine::compile`) and `qsl-route` (registry, candidate
+- QSL `qsl-replay` (typed spine lifecycle) and `qsl-route` (registry, candidate
   step, routing step).
 - CG `negotiate_backend_provider` and `BackendKind::from_identity`
   (agent-ix/quire-contract-codegen#86); CG `generate_routed` (CG FR-022,

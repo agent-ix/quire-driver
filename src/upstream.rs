@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! The upstream calls the driver makes, as one trait.
 //!
-//! [`QslCg`] is the production implementation: each method calls the QSL or
-//! CG function named in its doc and nothing else. The trait exists so a test
-//! can wrap `QslCg`, record the order of calls and still run the real
-//! functions.
+//! [`QslCg`] is the production implementation. Its compile operation composes
+//! QSL's typed front-end lifecycle; the other methods call one QSL or CG
+//! operation each. The trait lets tests wrap `QslCg`, record driver calls and
+//! still run the real functions.
 
 use std::collections::BTreeMap;
 
 use qsl_foundation::SourceIdentity;
-use qsl_replay::spine::{compile, CompileRefusal, Compiled, DependencyInput, SpineLimits};
+use qsl_replay::spine::{
+    check, package, parse, refusal_or_fault, select, CheckedUnit, DependencyInput, EmittedUnit,
+    FrontEndFailure, LockEvidence, PackageLimits, ParseRequest, SpineLimits,
+};
 use qsl_route::routing::{route, Disposition};
 use qsl_route::{BackendId, Candidate};
 use quire_contract_codegen::{
@@ -22,11 +25,21 @@ use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageV2,
 };
 
+use crate::{DriverFault, DriverRefusal};
+
+fn driver_refusal(failure: FrontEndFailure) -> DriverRefusal {
+    match refusal_or_fault(failure) {
+        Ok(refusal) => DriverRefusal::Compile(refusal),
+        Err(fault) => DriverRefusal::Fault(DriverFault::Spine(fault)),
+    }
+}
+
 /// The QSL and CG calls [`crate::drive`] makes.
 pub trait Upstream {
-    /// S1 to S4 and the E4 emitter: `qsl_replay::spine::compile`. The
-    /// driver supplies no libraries (ADR-015 D-1): it does not yet support
-    /// compiling a unit's `import`s against caller-supplied library source.
+    /// S1 to S4 and the E4 emitter, composed from QSL's typed lifecycle
+    /// operations. The driver supplies no libraries (ADR-015 D-1): it does
+    /// not yet support compiling a unit's `import`s against caller-supplied
+    /// library source.
     fn compile(
         &self,
         source: SourceIdentity,
@@ -34,7 +47,7 @@ pub trait Upstream {
         bytes: &[u8],
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
-    ) -> Result<Compiled, Box<CompileRefusal>>;
+    ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal>;
 
     /// E5: IR's checked-package reader,
     /// `quire_contract_model::read_checked_package`.
@@ -80,15 +93,35 @@ impl Upstream for QslCg {
         bytes: &[u8],
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
-    ) -> Result<Compiled, Box<CompileRefusal>> {
-        compile(
-            source,
+    ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal> {
+        // All four typed lifecycle operations share one handle. The driver
+        // owns this handle until a caller-facing cancellation API is added.
+        let cancel = Default::default();
+        let request = ParseRequest {
+            source: &source,
             path,
             bytes,
-            packages,
+        };
+        let parsed = parse(&request, limits.source, &cancel)
+            .map_err(driver_refusal)?
+            .into_value();
+        let models = select(&parsed, packages, limits.model, &cancel)
+            .map_err(driver_refusal)?
+            .into_value();
+        let checked = check(
+            &parsed,
+            &models,
             &DependencyInput::default(),
+            &LockEvidence::default(),
             limits,
+            &cancel,
         )
+        .map_err(driver_refusal)?
+        .into_value();
+        let emitted = package(&checked, PackageLimits::default(), &cancel)
+            .map_err(driver_refusal)?
+            .into_value();
+        Ok((checked, emitted))
     }
 
     fn read_package(
