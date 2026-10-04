@@ -175,11 +175,11 @@ obligations. TC-017 is a QSL-owned cross-repository binding test in that suite
 and awaits QSL AR2 / QSL-514.
 
 This reconciliation integrates the merged SP-D1–D9 specifications from driver
-PRs #15 and #17. It does not certify the remaining planned work: IR-606 adapted
-the orchestrator to current upstream lifecycle APIs; IR-607 through IR-610
-deliver the CLI, options, providers, cache, AOT and proof execution chain. IR-351's
-shared specification work is absorbed here, with no separate dependency
-revision ledger or policy artifact.
+PRs #15 and #17. TC-018 was added in PR #18 to verify the binary boundary for
+FR-002. IR-606 adapted the orchestrator to current upstream lifecycle APIs.
+IR-607 through IR-610 deliver the remaining CLI, options, providers, cache,
+AOT and proof execution chain. IR-351's shared specification work is absorbed
+here, with no separate dependency revision ledger or policy artifact.
 
 ## References
 

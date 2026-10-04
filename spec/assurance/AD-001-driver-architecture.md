@@ -191,7 +191,7 @@ The merged FR-002..FR-010 and TC-009..TC-018 specify the planned extension.
 
 | Open work or risk | Owner | Required evidence / review point |
 |---|---|---|
-| The upstream lifecycle APIs can change across repositories | Driver maintenance | Keep the adapter aligned with the typed QSL/IR/CG APIs; the IR-606 adaptation is merged and passed macOS and Linux `make ci`. |
+| The upstream lifecycle APIs can change across repositories | Driver maintenance | Keep the adapter aligned with the typed QSL/IR/CG APIs; the IR-606 adaptation is merged in PR #14. |
 | CLI, caller limits/engine selection and provider/plugin/cache composition remain planned | IR-607, IR-608, IR-609 | Implement and run TC-009..TC-014 and TC-018 against their owning contracts. |
 | AOT and execute/replay/terminal-record chain remain planned | IR-610, with CG's terminal-map owner | Run TC-015..TC-016 with paired provider/replay inputs and complete per-item accounting. CG AD-003 is merged (CG PR #214); its merge does not establish terminal-map implementation. |
 | Relation-bound CG input depends on QSL AR2 | QSL-514 / [QSL FR-307](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-307-export-the-bindings-each-item-references.md) (bound-item export and per-item refusals) | Run TC-017 in the QSL-owned `quire-integration` test once AR2 is available. |
