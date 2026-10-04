@@ -87,3 +87,13 @@ through the existing `Self::Fault(_)` arm.
 - `quire coverage` diagnostics: one existing `tag-on-non-binding-symbol` (`FR-075` on `drive` at src/drive.rs:93, unchanged by this diff) and the module's archetype-matches-nothing notices. Both are out of scope.
 - Untraced behaviors / stubs: 0 in the diff. `DriverFault::Spine` falls under FR-001's "an upstream answer that breaks the driver's invariants is an internal fault".
 - Semantic review: ran over 1 requirement (FR-001; AC-4, AC-5, AC-7 oracles read), as the test-oracle-strength pass the brief asked for.
+
+## Dispositions
+
+Round 1, reviewed at `e48cca7f017f6a2642a26a593d4150b971024a0f` (fix commit `e48cca7` on top of `8ca0d9a`). Each outcome was checked against the code, spec and tests at that sha.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | e48cca7 (tests/drive.rs:1374-1387) |
+| FND-002 | fixed | e48cca7 (src/upstream.rs:203-209) |
+| FND-003 | fixed | e48cca7 (src/refusal.rs:416-424) |

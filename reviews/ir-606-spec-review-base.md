@@ -46,3 +46,14 @@ AD-001's table row "1 to 2" and README step 1 each match
 | FND-002 | medium | TC-004 step 2, and its expected result `stage_limit_exceeded`/`nesting-depth-exceeded`, describe a procedure that no test performs and that QSL can no longer express: nesting depth stopped being a checking limit (ADR-030 D-1) | spec/test-cases/TC-004-command-level-refusals.md:21 | wrong-requirement |
 | FND-003 | low | FR-001 Description step 2 still says E4 is what "the same call emits". After this diff, step 1 already includes E4 as the separate `package` operation | spec/functional/FR-001-orchestrate-the-driver-steps.md:26 | wrong-requirement |
 | FND-004 | low | FR-001 Behavior lists the generation internal faults but omits the three the driver now classifies: duplicate harness, Kani record-count mismatch, Kani duplicate position out of range | spec/functional/FR-001-orchestrate-the-driver-steps.md:98 | missing-requirement |
+
+## Dispositions
+
+Round 1, reviewed at `e48cca7f017f6a2642a26a593d4150b971024a0f` (fix commit `e48cca7` on top of `8ca0d9a`). Each outcome was checked against the code, spec and tests at that sha.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | e48cca7 (spec/assurance/AD-001-driver-architecture.md:102-103) |
+| FND-002 | fixed | e48cca7 (spec/test-cases/TC-004-command-level-refusals.md:21-22) |
+| FND-003 | fixed | e48cca7 (spec/functional/FR-001-orchestrate-the-driver-steps.md:26-27) |
+| FND-004 | fixed | e48cca7 (spec/functional/FR-001-orchestrate-the-driver-steps.md:98-99) |

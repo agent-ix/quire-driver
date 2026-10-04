@@ -78,3 +78,14 @@ The macOS `make ci` log for this head (`/private/tmp/IR-606-ci.log`, `head=8ca0d
 tests passed), `cargo deny check licenses sources`, `check_unsafe_comments.sh`,
 `cargo doc` with `-D warnings`, and `quire validate 'spec/**/*.md'`. Per the
 dispatching brief, neither the gates nor Linux CI were re-run.
+
+## Dispositions
+
+Round 1, reviewed at `e48cca7f017f6a2642a26a593d4150b971024a0f` (fix commit `e48cca7` on top of `8ca0d9a`). Each outcome was checked against the code, spec and tests at that sha.
+
+| FND | Outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | e48cca7 (src/refusal.rs:289) |
+| FND-002 | fixed | e48cca7 (src/registry.rs:15-21) |
+| FND-003 | fixed | e48cca7 (src/lib.rs:11-13) |
+| FND-004 | fixed | e48cca7 (src/refusal.rs:221-225) |
