@@ -1355,7 +1355,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-codegen"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#aa71a53942deb7ef6251bcbfb37bf40a2b4ccf38"
+source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#0927a7fdd3714120d3aba16c0a364ae28fd5c9a2"
 dependencies = [
  "qsl-replay",
  "quire-canonical",
