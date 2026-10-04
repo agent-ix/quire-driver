@@ -89,9 +89,9 @@ failure ownership across the driver and its upstream libraries.
 
 | Boundary | Contract owner | Driver responsibility | Verification |
 |---|---|---|---|
-| User command to typed operation | QSL ADR-029 LC-1, CB-1, CB-4, CB-5; driver frontend | Expose one `quire` command surface, dispatch to QSL or driver operations, preserve the library outcome and its category exit result | FR-002 / TC-009 |
+| User command to typed operation | QSL ADR-029 LC-1, CB-1, CB-4, CB-5; driver frontend | Expose one `quire` command surface, dispatch to QSL or driver operations, preserve the library outcome and its category exit result | FR-002 / TC-009, TC-018 |
 | Caller limits and engine choice | QSL ADR-029 LC-4, EB-8 | Pass explicit limits and cancellation to the operation; select only the requested engine, preserving typed failures | FR-003..FR-004 / TC-010..TC-011 |
-| Compile, check and E4 package emission | QSL typed lifecycle entries | Compose checking and packaging for the request; obtain the in-process checked package and emitted `quire.checked-package/v2` bytes | FR-001 / TC-001, TC-008; lifecycle API adaptation IR-606 |
+| Compile, check and E4 package emission | QSL typed lifecycle entries | Compose checking and packaging for the request; obtain the in-process checked package and emitted `quire.checked-package/v2` bytes | FR-001 / TC-001, TC-008; API adaptation delivered by IR-606 |
 | E5 package admission | IR `read_checked_package` in `quire-contract-model` | Pass emitted bytes and checked-package evidence to IR; require the admitted `package_id` to equal E4's before proceeding | FR-001 / TC-004, TC-006 |
 | Registry and candidates | QSL layer R and ADR-029 PV | Build one registry from admitted manifests and pass it as a value; derive candidate sets from checked request items | FR-001, FR-005 / TC-002, TC-012 |
 | Abstraction-relation selection | QSL AR2, [FR-307](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-307-export-the-bindings-each-item-references.md) (Behavior: Caller and position; Per-item results) | Pass only the admitted relation's bound item subset to CG; preserve QSL's typed required-binding refusal | FR-010 / TC-017 |
@@ -187,12 +187,12 @@ to own local atomic publication and generation checks.
 This is a proposed architecture and a specification integration, not a claim
 that the planned lifecycle is implemented. Existing source tests for
 TC-001..TC-008 are present; no source tests are run by this reconciliation.
-The merged FR-002..FR-010 and TC-009..TC-017 specify the planned extension.
+The merged FR-002..FR-010 and TC-009..TC-018 specify the planned extension.
 
 | Open work or risk | Owner | Required evidence / review point |
 |---|---|---|
-| Existing FR-001 text and source calls refer to the earlier `spine::compile` entry; current QSL uses typed lifecycle operations | IR-606 | Adapt call sites to current QSL/IR/CG APIs and establish the orchestration tests on the adapted implementation. No compatibility shim or implementation change is made here. |
-| CLI, caller limits/engine selection and provider/plugin/cache composition remain planned | IR-607, IR-608, IR-609 | Implement and run TC-009..TC-014 against their owning contracts. |
+| The upstream lifecycle APIs can change across repositories | Driver maintenance | Keep the adapter aligned with the typed QSL/IR/CG APIs; the IR-606 adaptation is merged and passed macOS and Linux `make ci`. |
+| CLI, caller limits/engine selection and provider/plugin/cache composition remain planned | IR-607, IR-608, IR-609 | Implement and run TC-009..TC-014 and TC-018 against their owning contracts. |
 | AOT and execute/replay/terminal-record chain remain planned | IR-610, with CG's terminal-map owner | Run TC-015..TC-016 with paired provider/replay inputs and complete per-item accounting. CG AD-003 is merged (CG PR #214); its merge does not establish terminal-map implementation. |
 | Relation-bound CG input depends on QSL AR2 | QSL-514 / [QSL FR-307](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-307-export-the-bindings-each-item-references.md) (bound-item export and per-item refusals) | Run TC-017 in the QSL-owned `quire-integration` test once AR2 is available. |
 | ix-cli-kit's typed exit model cannot carry QSL category codes | PLAT-1140; driver FR-002 | Preserve QSL's returned numeric code at the process boundary; adopt a kit pass-through only if it preserves that value. |

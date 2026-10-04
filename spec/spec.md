@@ -67,6 +67,8 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/TC-017
     type: contains
+  - target: ix://agent-ix/quire-driver/TC-018
+    type: contains
 ---
 # Master Requirements Specification
 
@@ -108,8 +110,9 @@ pass-through at the process boundary until the kit can carry QSL's codes.
   and automatic engine substitution.
 - G5b test implementation or gate evidence in this repository. IR-528 owns
   that evidence in `quire-integration`.
-- Implementation changes, dependency updates and supplementary test cases
-  outside the merged TC-001 through TC-017 inventory.
+- Implementation changes and dependency updates. TC-018 adds the binary process
+  boundary case for the merged FR-002 requirement; it does not expand that
+  requirement's scope.
 
 ## 3. System Overview
 
@@ -159,10 +162,11 @@ FR-002 through FR-010 specify SP-D1 through SP-D9 respectively.
 | [TC-015](test-cases/TC-015-aot-matches-interpreter.md) | Invoke AOT with current checked request inputs |
 | [TC-016](test-cases/TC-016-execute-replay-and-terminal-records.md) | Settle one terminal record per item after replay |
 | [TC-017](test-cases/TC-017-only-bound-items-reach-codegen.md) | Send only abstraction-relation-bound items to code generation |
+| [TC-018](test-cases/TC-018-binary-process-boundary.md) | Preserve the QSL outcome at the binary process boundary |
 
 ## 5. Verification and Delivery Boundary
 
-[TM-001](tests.md) integrates FR-001 through FR-010 and TC-001 through TC-017.
+[TM-001](tests.md) integrates FR-001 through FR-010 and TC-001 through TC-018.
 It distinguishes existing orchestration tests from planned driver tests and
 records their verification owners. Cross-backend and CLI/library conformance
 formerly described by CG FR-005 and IR-337 feed IR-528's G5b gate exclusively
@@ -171,9 +175,9 @@ obligations. TC-017 is a QSL-owned cross-repository binding test in that suite
 and awaits QSL AR2 / QSL-514.
 
 This reconciliation integrates the merged SP-D1–D9 specifications from driver
-PRs #15 and #17. It does not certify implementation: IR-606 adapts the existing
-orchestrator to current upstream lifecycle APIs; IR-607 through IR-610 deliver
-the CLI, options, providers, cache, AOT and proof execution chain. IR-351's
+PRs #15 and #17. It does not certify the remaining planned work: IR-606 adapted
+the orchestrator to current upstream lifecycle APIs; IR-607 through IR-610
+deliver the CLI, options, providers, cache, AOT and proof execution chain. IR-351's
 shared specification work is absorbed here, with no separate dependency
 revision ledger or policy artifact.
 
