@@ -66,7 +66,7 @@ total `Category::exit_code` function as the sole category-to-exit mapping.
 | FR-002-AC-1 | The driver binary exposes the command and output surface defined by QSL ADR-029 LC-1, CB-1 and CB-5, and dispatches each command to its typed operation. | Test (TC-009) |
 | FR-002-AC-2 | For each O-16 category, the process status equals the value returned by QSL's `Category::exit_code`; the CLI has no second category-to-exit mapping. | Test (TC-009) |
 | FR-002-AC-3 | In machine mode, each command writes one parseable `quire-outcome/1` value equal to the library outcome under QSL's schema; the CLI adds, removes or changes no outcome data. | Test (TC-009) |
-| FR-002-AC-4 | The CLI uses ix-cli-kit for shared command/output, configuration and version mechanics, while preserving QSL's numeric exit result without the kit's typed `Outcome` remapping; no unnamed configuration file is read. | Test (TC-009) |
+| FR-002-AC-4 | The CLI uses ix-cli-kit for shared command/output, configuration and version mechanics, while preserving QSL's numeric exit result without the kit's typed `Outcome` remapping. | Test (TC-009) |
 | FR-002-AC-5 | The CLI reads only input paths named by its arguments and reads no unnamed configuration file. | Test (TC-009) |
 
 ## Dependencies
