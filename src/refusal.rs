@@ -49,8 +49,13 @@ pub enum DriverRefusal {
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum DriverFault {
     /// QSL's typed lifecycle reported a broken invariant.
-    #[error("QSL spine fault: {0:?}")]
-    Spine(InternalFault),
+    #[error("QSL {stage:?} spine fault: {fault:?}")]
+    Spine {
+        /// The typed lifecycle operation where the failure surfaced.
+        stage: SpineStage,
+        /// QSL's stable fault details.
+        fault: InternalFault,
+    },
     /// Negotiation returned a different number of settlements, or one out
     /// of request order.
     #[error(
@@ -177,7 +182,7 @@ impl DriverRefusal {
             }
             Self::Envelope(_) => DriverStage::Negotiation,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
-            Self::Fault(DriverFault::Spine(_)) => DriverStage::Compile(SpineStage::Check),
+            Self::Fault(DriverFault::Spine { stage, .. }) => DriverStage::Compile(*stage),
             Self::HandoffLimit(_)
             | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
                 DriverStage::Handoff
@@ -379,10 +384,10 @@ mod tests {
     /// stage, runtime-invariant code and fault outcome kind.
     #[test]
     fn tc_004_a_typed_spine_fault_is_a_compile_fault() {
-        let refusal = DriverRefusal::Fault(DriverFault::Spine(InternalFault::new(
-            "S3",
-            "test-invariant",
-        )));
+        let refusal = DriverRefusal::Fault(DriverFault::Spine {
+            stage: SpineStage::Check,
+            fault: InternalFault::new("S3", "test-invariant"),
+        });
 
         assert_eq!(refusal.code(), "runtime_invariant");
         assert_eq!(

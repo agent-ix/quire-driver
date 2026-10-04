@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, package, parse, refusal_or_fault, select, CheckedUnit, DependencyInput, EmittedUnit,
-    FrontEndFailure, LockEvidence, PackageLimits, ParseRequest, SpineLimits,
+    FrontEndFailure, LockEvidence, PackageLimits, ParseRequest, SpineLimits, SpineStage,
 };
 use qsl_route::routing::{route, Disposition};
 use qsl_route::{BackendId, Candidate};
@@ -27,10 +27,10 @@ use quire_contract_model::{
 
 use crate::{DriverFault, DriverRefusal};
 
-fn driver_refusal(failure: FrontEndFailure) -> DriverRefusal {
+fn driver_refusal(failure: FrontEndFailure, stage: SpineStage) -> DriverRefusal {
     match refusal_or_fault(failure) {
         Ok(refusal) => DriverRefusal::Compile(refusal),
-        Err(fault) => DriverRefusal::Fault(DriverFault::Spine(fault)),
+        Err(fault) => DriverRefusal::Fault(DriverFault::Spine { stage, fault }),
     }
 }
 
@@ -103,10 +103,10 @@ impl Upstream for QslCg {
             bytes,
         };
         let parsed = parse(&request, limits.source, &cancel)
-            .map_err(driver_refusal)?
+            .map_err(|failure| driver_refusal(failure, SpineStage::Source))?
             .into_value();
         let models = select(&parsed, packages, limits.model, &cancel)
-            .map_err(driver_refusal)?
+            .map_err(|failure| driver_refusal(failure, SpineStage::Intake))?
             .into_value();
         let checked = check(
             &parsed,
@@ -116,10 +116,10 @@ impl Upstream for QslCg {
             limits,
             &cancel,
         )
-        .map_err(driver_refusal)?
+        .map_err(|failure| driver_refusal(failure, SpineStage::Check))?
         .into_value();
         let emitted = package(&checked, PackageLimits::default(), &cancel)
-            .map_err(driver_refusal)?
+            .map_err(|failure| driver_refusal(failure, SpineStage::Emit))?
             .into_value();
         Ok((checked, emitted))
     }
