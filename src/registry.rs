@@ -2,7 +2,7 @@
 //! The registry value (ADR-012 §7.1): built by the driver from provider
 //! manifests and passed to every consumer as an argument.
 
-use qsl_route::{BackendDescriptor, Candidate, ManifestDigest, Registry, ToolIdentity};
+use qsl_route::{BackendDescriptor, Candidate, ManifestDigest, Registry};
 
 use crate::DriverRefusal;
 
@@ -48,7 +48,6 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<Registry, Driver
         );
         let admitted = BackendDescriptor::admit(
             backend,
-            ToolIdentity::new(manifest.tool.clone()),
             manifest
                 .advertises
                 .iter()

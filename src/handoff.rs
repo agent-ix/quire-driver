@@ -58,8 +58,8 @@ fn evidence(input: &CompileInput<'_>) -> CheckedPackageEvidence {
     for (digest, document) in input.packages {
         evidence.insert_domain_package_document(hex(digest), document.as_slice());
     }
-    if let Some(root) = DefinitionLock::pinned().entry(CatalogRole::Root) {
-        evidence.support_feature(root.identity);
-    }
+    let lock = DefinitionLock::pinned();
+    let root = lock.entry(CatalogRole::Root);
+    evidence.support_feature(root.identity);
     evidence
 }

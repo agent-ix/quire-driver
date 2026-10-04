@@ -231,6 +231,9 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
     match error {
         RoutedGenerationError::BackendKindDisagrees { .. }
         | RoutedGenerationError::DuplicateRequestIndex { .. }
+        | RoutedGenerationError::DuplicateHarness { .. }
+        | RoutedGenerationError::KaniRecordCountMismatch { .. }
+        | RoutedGenerationError::KaniDuplicatePositionOutOfRange { .. }
         | RoutedGenerationError::Kani(KaniObligationError::EmptyRequest) => Code::RuntimeInvariant,
         RoutedGenerationError::Kani(KaniObligationError::TooManyItems { .. }) => {
             Code::ResourceExhausted
@@ -281,6 +284,7 @@ fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
         | CompileRefusal::Assembly { .. }
         | CompileRefusal::Emit(_)
         | CompileRefusal::Omitted(_) => None,
+        CompileRefusal::Limit(_) => None,
         CompileRefusal::Profile { refusals, .. } => refusals.first().map(|refusal| refusal.cause()),
         CompileRefusal::Check { refusals, .. } => {
             refusals.first().and_then(|refusal| refusal.cause.cause())
@@ -315,6 +319,15 @@ fn generation_message(error: &RoutedGenerationError) -> String {
         ),
         RoutedGenerationError::DuplicateRequestIndex { request_index } => {
             format!("request index {request_index} is routed twice")
+        }
+        RoutedGenerationError::DuplicateHarness { harness } => {
+            format!("Kani harness `{harness}` is emitted more than once")
+        }
+        RoutedGenerationError::KaniRecordCountMismatch { records, items } => {
+            format!("Kani returned {records} record(s) for {items} item(s)")
+        }
+        RoutedGenerationError::KaniDuplicatePositionOutOfRange { first_index, items } => {
+            format!("Kani duplicate position {first_index} is outside {items} item(s)")
         }
         RoutedGenerationError::MissingKindContext { kind } => {
             format!("no generation context for backend kind {}", kind.identity())
@@ -378,7 +391,7 @@ mod tests {
     };
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
-    use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+    use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind, SpineStage};
 
     /// FR-001-AC-5 (TC-004): QSL's typed spine fault retains the compile
     /// stage, runtime-invariant code and fault outcome kind.

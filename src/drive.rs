@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use qsl_foundation::SourceIdentity;
-use qsl_package::{CheckedPackage, EmittedPackage};
-use qsl_replay::spine::SpineLimits;
+use qsl_package::EmittedPackage;
+use qsl_replay::spine::{CheckedUnit, SpineLimits};
 use qsl_route::request::{items_from_requirements, ExtentClassification, RequirementItem};
 use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{BackendId, Candidate, CandidateOutcome, Mode, Registry};
@@ -72,7 +72,7 @@ pub struct KaniInput<'a> {
 #[derive(Debug)]
 pub struct Driven {
     /// The S4 in-process package.
-    pub package: CheckedPackage,
+    pub package: CheckedUnit,
     /// The E4 wire output: v2 bytes and `package_id`.
     pub emitted: EmittedPackage,
     /// E5: the emitted bytes as IR's reader admitted them, at the emitted
@@ -115,13 +115,16 @@ pub fn drive(
         input.packages,
         input.limits,
     )?;
-    let package = checked_unit.package().clone();
     let emitted = emitted_unit.package().clone();
     // E5: IR admits the emitted bytes at the emitted `package_id`.
     let checked = handoff(upstream, &input, &emitted_unit)?;
 
     // FR-075: one item per requirement record, in occurrence-key order.
-    let items = items_from_requirements(package.graph().requirements(), registry, named);
+    let items = items_from_requirements(
+        checked_unit.package().graph().requirements(),
+        registry,
+        named,
+    );
 
     // T-13 order: the `route` candidate step, then every registered
     // BackendId through CG's one conversion, then E7.
@@ -149,7 +152,7 @@ pub fn drive(
     let generation = generate(upstream, &checked, &items, &routed, generation)?;
 
     Ok(Driven {
-        package,
+        package: checked_unit,
         emitted,
         checked,
         settlements,
