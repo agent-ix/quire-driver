@@ -77,3 +77,4 @@ total `Category::exit_code` function as the sole category-to-exit mapping.
   values cannot represent QSL's category exit codes. The API pass-through
   question is tracked on PLAT-1140; QSL ADR-029 remains authoritative.
 - [TC-009](../test-cases/TC-009-cli-outcome-and-exit-contract.md).
+- [TC-018](../test-cases/TC-018-binary-process-boundary.md), adding verification for AC-2 through AC-4.

@@ -53,7 +53,7 @@ IR-527 reconciles this seam description with QSL ADR-029 and the merged
 SP-D1 through SP-D9 requirements. It absorbs IR-351's driver specification,
 architecture and verification-inventory work. [The master specification](../spec.md)
 and [TM-001](../tests.md) integrate FR-001 through FR-010 and TC-001 through
-TC-017. This architecture describes their composition and ownership; the
+TC-018. This architecture describes their composition and ownership; the
 discrete requirements supply the normative acceptance criteria.
 
 ## System Boundary
