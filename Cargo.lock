@@ -1210,23 +1210,24 @@ dependencies = [
 [[package]]
 name = "qsl-attrs"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#d81193f916d63c4b8937d8260f50d2e871fa4cc8"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#47dd209e79509bde5229f6e7e1c29e60d374064e"
 
 [[package]]
 name = "qsl-cst"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#d81193f916d63c4b8937d8260f50d2e871fa4cc8"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#47dd209e79509bde5229f6e7e1c29e60d374064e"
 dependencies = [
  "logos",
  "qsl-attrs",
  "qsl-foundation",
+ "quire-exact",
  "serde_json",
 ]
 
 [[package]]
 name = "qsl-eval"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#d81193f916d63c4b8937d8260f50d2e871fa4cc8"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#47dd209e79509bde5229f6e7e1c29e60d374064e"
 dependencies = [
  "qsl-attrs",
  "qsl-foundation",
@@ -1234,6 +1235,7 @@ dependencies = [
  "qsl-semantics",
  "quire-canonical",
  "quire-exact",
+ "quire-semantic-value",
  "serde",
  "thiserror",
 ]
@@ -1241,17 +1243,18 @@ dependencies = [
 [[package]]
 name = "qsl-forms"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#d81193f916d63c4b8937d8260f50d2e871fa4cc8"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#47dd209e79509bde5229f6e7e1c29e60d374064e"
 dependencies = [
  "qsl-cst",
  "qsl-foundation",
  "quire-exact",
+ "quire-walk",
 ]
 
 [[package]]
 name = "qsl-foundation"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#d81193f916d63c4b8937d8260f50d2e871fa4cc8"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#47dd209e79509bde5229f6e7e1c29e60d374064e"
 dependencies = [
  "qsl-attrs",
  "quire-exact",
@@ -1263,7 +1266,7 @@ dependencies = [
 [[package]]
 name = "qsl-package"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#d81193f916d63c4b8937d8260f50d2e871fa4cc8"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#47dd209e79509bde5229f6e7e1c29e60d374064e"
 dependencies = [
  "qsl-attrs",
  "qsl-foundation",
@@ -1271,6 +1274,7 @@ dependencies = [
  "quire-canonical",
  "quire-contract-model",
  "quire-exact",
+ "quire-semantic-value",
  "serde",
  "thiserror",
 ]
@@ -1278,7 +1282,7 @@ dependencies = [
 [[package]]
 name = "qsl-replay"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#d81193f916d63c4b8937d8260f50d2e871fa4cc8"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#47dd209e79509bde5229f6e7e1c29e60d374064e"
 dependencies = [
  "qsl-attrs",
  "qsl-cst",
@@ -1287,14 +1291,18 @@ dependencies = [
  "qsl-foundation",
  "qsl-package",
  "qsl-semantics",
+ "quire-canonical",
  "quire-exact",
+ "quire-semantic-value",
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 
 [[package]]
 name = "qsl-route"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#d81193f916d63c4b8937d8260f50d2e871fa4cc8"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#47dd209e79509bde5229f6e7e1c29e60d374064e"
 dependencies = [
  "qsl-foundation",
  "qsl-semantics",
@@ -1304,7 +1312,7 @@ dependencies = [
 [[package]]
 name = "qsl-semantics"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#d81193f916d63c4b8937d8260f50d2e871fa4cc8"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#47dd209e79509bde5229f6e7e1c29e60d374064e"
 dependencies = [
  "agent-ix-extraction-frontend",
  "agent-ix-semantic-ir",
@@ -1313,6 +1321,8 @@ dependencies = [
  "qsl-foundation",
  "quire-canonical",
  "quire-exact",
+ "quire-semantic-value",
+ "quire-walk",
  "serde",
  "serde_json",
  "tempfile",
@@ -1322,21 +1332,35 @@ dependencies = [
 [[package]]
 name = "quire-canonical"
 version = "0.3.0"
-source = "git+https://github.com/agent-ix/quire-canonical?tag=quire-canonical-v0.3.0#1d73f93f6b8139f10eb5bd5082a0b877958344fa"
+source = "git+https://github.com/agent-ix/quire-canonical?branch=main#5dc4e12db63b8fae647825b4e4b78df9b6dcadfe"
 dependencies = [
+ "quire-canonical-derive",
  "ryu-js",
  "serde",
+ "serde_json",
  "sha2",
  "thiserror",
 ]
 
 [[package]]
+name = "quire-canonical-derive"
+version = "0.3.0"
+source = "git+https://github.com/agent-ix/quire-canonical?branch=main#5dc4e12db63b8fae647825b4e4b78df9b6dcadfe"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
 name = "quire-contract-codegen"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#2fad745441029e27561739578d564f1b04e6eaee"
+source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#9e801682f1ed36f13fbc19cd464ba6d6f0dd0873"
 dependencies = [
  "qsl-replay",
+ "quire-canonical",
  "quire-contract-ir",
+ "quire-contract-model",
  "quire-contract-runtime",
  "rustix",
  "serde",
@@ -1347,7 +1371,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-ir"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#0a889f9597b32c8f52a19983326ba763dc0ac4e5"
+source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#6fb6e974efd6b9a9c74515ee7e07df250fa4aacf"
 dependencies = [
  "quire-contract-model",
  "serde",
@@ -1358,26 +1382,31 @@ dependencies = [
 [[package]]
 name = "quire-contract-model"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#0a889f9597b32c8f52a19983326ba763dc0ac4e5"
+source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#6fb6e974efd6b9a9c74515ee7e07df250fa4aacf"
 dependencies = [
  "jsonschema 0.17.1",
+ "quire-canonical",
  "quire-verification-contracts",
+ "quire-walk",
  "serde",
  "serde_json",
  "serde_path_to_error",
  "serde_stacker",
  "sha2",
  "stacker",
+ "unicode-ident",
+ "unicode-normalization",
 ]
 
 [[package]]
 name = "quire-contract-runtime"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-runtime?branch=main#215e443f2de81f002336ad5d480a9c476744f4ed"
+source = "git+https://github.com/agent-ix/quire-contract-runtime?branch=main#c33d8030cd74cdf1d6048b53a18fdb21b2e13d90"
 dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
+ "quire-exact",
  "unicode-normalization",
 ]
 
@@ -1399,7 +1428,7 @@ dependencies = [
 [[package]]
 name = "quire-exact"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#d81193f916d63c4b8937d8260f50d2e871fa4cc8"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#47dd209e79509bde5229f6e7e1c29e60d374064e"
 dependencies = [
  "num-bigint",
  "num-integer",
@@ -1430,9 +1459,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "quire-semantic-value"
+version = "0.1.0"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#47dd209e79509bde5229f6e7e1c29e60d374064e"
+dependencies = [
+ "quire-canonical",
+ "quire-exact",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "quire-verification-contracts"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-verification-contracts?branch=main#ead78f3f1bea336e2cb230a2ed1b98fa10a913e1"
+source = "git+https://github.com/agent-ix/quire-verification-contracts?branch=main#1fc0ff61a8714b358bdd36f6dec01b6bd05fedec"
 dependencies = [
  "chrono",
  "jsonschema 0.55.1",
@@ -1445,6 +1485,11 @@ dependencies = [
  "thiserror",
  "typify",
 ]
+
+[[package]]
+name = "quire-walk"
+version = "0.1.0"
+source = "git+https://github.com/agent-ix/quire-walk?branch=main#89d05df2bcd6740c6f94f79bf6f3b5b007cf22a1"
 
 [[package]]
 name = "quote"
@@ -2071,9 +2116,9 @@ checksum = "0b993bddc193ae5bd0d623b49ec06ac3e9312875fdae725a975c51db1cc1677f"
 
 [[package]]
 name = "unicode-ident"
-version = "1.0.26"
+version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "unicode-normalization"
