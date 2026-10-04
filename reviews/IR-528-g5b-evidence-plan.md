@@ -4,10 +4,14 @@
 
 This plan defines the evidence the IR-528 gate will collect. The cross-repo
 tests belong in `agent-ix/quire-integration`; the driver repository owns the
-CLI/library contract and the gate decision. This is a plan only: the current
-`quire-integration` checkout describes itself as a scaffold and does not yet
-claim the driver CLI, plugin host, cache, AOT runner or G5b gate are
-implemented.
+CLI/library contract and the gate decision. This plan was checked against
+`agent-ix/quire-integration` main at `80431da` (2026-10-04). That revision has
+real integration coverage in `tests/integration.rs`,
+`tests/qsl_codegen_composition.rs`, `tests/qsl_kani_exemplar.rs` and
+`tests/qsl_model_owner_admission.rs`. The new G5b driver-binary coverage below
+is planned; it is not claimed to exist. Reuse or extend the existing
+composition, owner-admission and Kani-exemplar tests where their evidence
+matches the G5b criterion.
 
 Run the gate only after the IR-527 specification and the implementation
 tickets it blocks have merged, and after QSL LC7 removes the old binary. Use
@@ -22,7 +26,7 @@ stderr, exit status, typed record and test logs as the gate evidence bundle.
 | Provider and plugin install | Build a first-party `Provider` into the test binary. Separately launch a fixture plugin only through its caller-named path, exchange canonical hello/request/result frames, and verify that its manifest reaches the shared registry conversion. Exercise missing executable, malformed hello and failed process outcomes. | Linked provider and installed plugin use the same manifest admission and routing contract. A plugin is not discovered from an ambient search path, loaded as a dynamic library or trusted to mark a counterexample refuted without replay. | `quire-integration` provider/plugin host tests; provider manifest fixtures are authored there. |
 | Cache identity | Execute the same eligible prove request twice with unchanged request and manifest bytes; then change one manifest byte without changing any recorded revision pin. Mutate each other meaning input independently. Corrupt an entry's name, preimage and typed result. Attempt to store plugin, internal-failure, cancelled, deadline, time-limited incomplete and wall-time-bearing outcomes. | Unchanged meaning inputs hit; changed manifest content and every changed meaning input miss even with the same pin. Corrupt entries miss. Prohibited outcomes and plugin results are never stored. Hit/miss records identify the tested canonical input set without exposing a second cache-key policy. | `quire-integration` cache composition tests; key construction unit tests remain in `quire-driver`. |
 | AOT parity | Run one checked-package corpus through the interpreter and AOT with identical entries, environments, arguments and accounting limits. Include completed, undefined, refused and incomplete results, source locations, loss records, a boundary limit and one unsupported entry. Build with the toolchain named in the request. | AOT and interpreter return equal typed evaluations and causes for every supported entry. Unsupported and preparation-limit results remain typed; neither silently selects another engine. The test also records that generated code read only the package from the current checked request. | `quire-integration` AOT/interpreter conformance tests, across the public driver-to-QSL API. |
-| Prove, Kani, replay and terminal records | Use the real Kani runner on one generated harness that proves and one that falsifies. Feed the falsifying result through QSL replay. Include a replay mismatch and a second requested item so the test checks item-local records. Capture generated artifact identity, Kani output, replay output and the final `quire-outcome/1` document. | The Kani run is real (not a fabricated provider response). A reproduced counterexample settles `refuted`; a mismatch settles `inconclusive`; CG's FR-331 mapping is the only terminal mapping. The output contains exactly one FR-331 record per requested item and the binary and library paths serialize it identically. | `quire-integration` Kani/replay composition tests; actual Kani execution remains an explicit long gate. |
+| Prove, Kani, replay and terminal records | Extend the existing real-Kani exemplar (`tests/qsl_kani_exemplar.rs`, IT-011) as the execution template. It passed 5/5 with real Kani in 530 seconds serially on the measured Linux run. For G5b, use one generated harness that proves and one that falsifies. Feed the falsifying result through QSL replay. Include a replay mismatch and a second requested item so the test checks item-local records. Capture generated artifact identity, Kani output, replay output and the final `quire-outcome/1` document. | The Kani run is real (not a fabricated provider response). A reproduced counterexample settles `refuted`; a mismatch settles `inconclusive`; CG's FR-331 mapping is the only terminal mapping. The output contains exactly one FR-331 record per requested item and the binary and library paths serialize it identically. | Extend `tests/qsl_kani_exemplar.rs` for the G5b CLI/library composition; retain the real-Kani run as an explicit long gate. The measured 530-second exemplar shows draco's Kani 0.68 setup can run this lane, subject to Linux remaining the authoritative `make ci` gate. |
 
 ## Gate assembly
 
@@ -47,5 +51,7 @@ stderr, exit status, typed record and test logs as the gate evidence bundle.
   own these verbs.
 - QSL AR2 is a prerequisite for the SP-D9 bound-item check; QSL AR3 and
   QSL-514 own its cross-repo acceptance test.
-- Current `quire-integration` code and tests are a scaffold. Every test named
-  above is planned, not claimed to exist or pass.
+- Existing `quire-integration` tests provide reusable evidence at main
+  `80431da`; the G5b-specific binary parity, provider/plugin, cache, AOT and
+  expanded terminal-record assertions remain planned and are not claimed to
+  exist or pass.
