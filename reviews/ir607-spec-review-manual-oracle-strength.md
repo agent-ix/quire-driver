@@ -3,7 +3,7 @@ id: SR-028
 title: "IR-607 spec-review/manual-oracle-strength review of TC-018"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-driver PR #18 initial spec candidate; spec/test-cases/TC-018-binary-process-boundary.md; FR-002 context; ticket IR-607"
+scope: "agent-ix/quire-driver@63aa9bcd8493d10666ece38bee1a65bfe6dac84d; spec/test-cases/TC-018-binary-process-boundary.md; FR-002 context; ticket IR-607"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-driver/TC-018
@@ -358,3 +358,84 @@ The following block records every examined or contextual unit, including clean u
 TC-018 and the repository spec glob passed Quire validation. Catalog validation reports catalog ok (10). Ambient Quire discovery emits inline-data-schema, DuplicateArchetype and DuplicateInverseEdge warnings; the same warnings occur on unchanged TC-009. All review artifacts are validated separately at their explicit scratch paths. This is a spec review, with no implementation or executable tests claimed. The CLI workflow wrapper was not started: the spec-review skill permits this direct path when no required profile applies.
 
 Custody: the lead or fix-round coder must copy this file to reviews/ir607-spec-review-manual-oracle-strength.md in a later authorized commit; the reviewer does not commit it.
+
+## Dispositions
+
+Round 1. Candidate and fix commit: 72ae9d01d62f089c657d675747bfc43be6c245f1. Original finding comment: 1f51e8f8-f526-477f-8bc7-ebac532bf177.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 72ae9d01d62f089c657d675747bfc43be6c245f1; Committed step 3 requires exactly one nonempty ill_typed diagnostic in the parent outcome, renders its expected complete line through QSL using the same source, requires that line on stderr and forbids it on stdout. Structured diagnostic fields remain in the JSON outcome. Lines 68-79 and 91-94 make diagnostic loss detectable. |
+
+### Round 1 evidence and current verdict
+
+Committed step 3 requires exactly one nonempty ill_typed diagnostic in the parent outcome, renders its expected complete line through QSL using the same source, requires that line on stderr and forbids it on stdout. Structured diagnostic fields remain in the JSON outcome. Lines 68-79 and 91-94 make diagnostic loss detectable.
+
+**PASS**. The original oracle-strength finding is fixed; no additional oracle-strength defect found in the fix. No executable test result is claimed in this spec-only pass. The original Summary, Findings and Verdict remain as the historical review record.
+
+```yaml
+round: 1
+reviewed: 72ae9d01d62f089c657d675747bfc43be6c245f1
+original_finding_comment_id: 1f51e8f8-f526-477f-8bc7-ebac532bf177
+method: spec-review/manual-oracle-strength
+dispositions:
+- fnd: FND-001
+  outcome: fixed
+  fix_sha: 72ae9d01d62f089c657d675747bfc43be6c245f1
+  after_excerpt: "   serialization, with no wrapper or changed fields. For `ill-typed`,\
+    \ require\n   exactly one nonempty diagnostic with code `ill_typed` in the parent\
+    \ outcome;\n   retain its cause, locus and message as expected content. Render\
+    \ that\n   diagnostic with QSL's renderer and the same source provision to obtain\
+    \ the\n   nonempty `path:line:column: code: message` diagnostic line (ADR-029\
+    \ IN-3).\n   Assert that stderr contains that complete rendered line and stdout\
+    \ does\n   not. The diagnostic's structured fields remain in stdout's outcome\
+    \ JSON,"
+  reason: Committed step 3 requires exactly one nonempty ill_typed diagnostic in the
+    parent outcome, renders its expected complete line through QSL using the same
+    source, requires that line on stderr and forbids it on stdout. Structured diagnostic
+    fields remain in the JSON outcome. Lines 68-79 and 91-94 make diagnostic loss
+    detectable.
+new_findings: []
+bindings: []
+all_original_findings_closed: true
+spec_review_clean: true
+verdict: PASS
+scope:
+- id: TC-018
+  path: spec/test-cases/TC-018-binary-process-boundary.md
+  role: examined
+  excerpt: "1. Inspect the binary entry point and root argv dispatch. Confirm that\
+    \ it invokes\n   the selected typed operation, uses the applicable ix-cli-kit\
+    \ output, config\n   and version helpers, and has one conversion from QSL's\n\
+    \   `Category::exit_code` result to `std::process::ExitCode`. Check that no path\n\
+    \   converts the category through ix-cli-kit's `Outcome` or a second numeric\n\
+    \   category mapping."
+- id: TC-018
+  path: spec/test-cases/TC-018-binary-process-boundary.md
+  role: examined
+  excerpt: "   serialization, with no wrapper or changed fields. For `ill-typed`,\
+    \ require\n   exactly one nonempty diagnostic with code `ill_typed` in the parent\
+    \ outcome;\n   retain its cause, locus and message as expected content. Render\
+    \ that\n   diagnostic with QSL's renderer and the same source provision to obtain\
+    \ the\n   nonempty `path:line:column: code: message` diagnostic line (ADR-029\
+    \ IN-3).\n   Assert that stderr contains that complete rendered line and stdout\
+    \ does\n   not. The diagnostic's structured fields remain in stdout's outcome\
+    \ JSON,"
+- id: TC-018
+  path: spec/test-cases/TC-018-binary-process-boundary.md
+  role: examined
+  excerpt: "   Write `inv.native` in a temporary directory with these exact UTF-8\
+    \ bytes\n   (including a final newline), from QSL FR-100-AC-5 and its TC-451 example:\n\
+    \n   ```text\n   language \"ix:native\" edition \"1-draft\";\n   profile v = \"\
+    quire.value.complete/v1\";\n   type Digit = Int[0, 9];\n   function inv using\
+    \ v(x: Digit): Boolean pure { 1 / x > 0 }"
+- id: TC-018
+  path: spec/test-cases/TC-018-binary-process-boundary.md
+  role: examined
+  excerpt: "- Each child status is exactly the code returned by QSL's exit function,\n\
+    \  including 20, 21, 22 and 30. There is one pass-through to\n  `std::process::ExitCode`\
+    \ and no ix-cli-kit `Outcome` conversion.\n- Machine stdout contains exactly the\
+    \ unchanged QSL `quire-outcome/1` value\n  for each run. The known `ill_typed`\
+    \ diagnostic retains its structured fields\n  in that value, and its complete\
+    \ nonempty rendered line appears on stderr\n  and is absent from stdout."
+```

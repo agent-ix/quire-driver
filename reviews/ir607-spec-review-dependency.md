@@ -3,7 +3,7 @@ id: SR-024
 title: "IR-607 spec-review/dependency review of TC-018"
 type: SpecReview
 analysis: dependency
-scope: "agent-ix/quire-driver PR #18 initial spec candidate; spec/test-cases/TC-018-binary-process-boundary.md; FR-002 context; ticket IR-607"
+scope: "agent-ix/quire-driver@63aa9bcd8493d10666ece38bee1a65bfe6dac84d; spec/test-cases/TC-018-binary-process-boundary.md; FR-002 context; ticket IR-607"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-driver/TC-018

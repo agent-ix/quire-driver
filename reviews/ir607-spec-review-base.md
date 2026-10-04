@@ -3,7 +3,7 @@ id: SR-022
 title: "IR-607 spec-review/base review of TC-018"
 type: SpecReview
 analysis: base
-scope: "agent-ix/quire-driver PR #18 initial spec candidate; spec/test-cases/TC-018-binary-process-boundary.md; FR-002 context; ticket IR-607"
+scope: "agent-ix/quire-driver@63aa9bcd8493d10666ece38bee1a65bfe6dac84d; spec/test-cases/TC-018-binary-process-boundary.md; FR-002 context; ticket IR-607"
 review_set: subset
 relationships:
   - target: ix://agent-ix/quire-driver/TC-018
@@ -358,3 +358,121 @@ The following block records every examined or contextual unit, including clean u
 TC-018 and the repository spec glob passed Quire validation. Catalog validation reports catalog ok (10). Ambient Quire discovery emits inline-data-schema, DuplicateArchetype and DuplicateInverseEdge warnings; the same warnings occur on unchanged TC-009. All review artifacts are validated separately at their explicit scratch paths. This is a spec review, with no implementation or executable tests claimed. The CLI workflow wrapper was not started: the spec-review skill permits this direct path when no required profile applies.
 
 Custody: the lead or fix-round coder must copy this file to reviews/ir607-spec-review-base.md in a later authorized commit; the reviewer does not commit it.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | TC-018 copies the upstream QSL inv example into a second repository-owned spec fixture: lines 37-44 explicitly source its exact bytes from QSL FR-100-AC-5/TC-451 and repeat the inv division body. This violates the no-copying-code-or-specs rule and gives the example two maintenance homes. Remove the copied upstream example; consume producer-owned published test data or define independently authored driver-owned test input rather than reworking the copy. | spec/test-cases/TC-018-binary-process-boundary.md:37-44 |
+
+Source check: read QSL main FR-100 and TC-451 via GitHub API, read-only. FR-100-AC-5 defines `inv(x: Int[0, 9]): Boolean { 1 / x > 0 }`; TC-018 reproduces that example as `inv using v(x: Digit): Boolean pure { 1 / x > 0 }` and explicitly names its upstream origin. This is a copied example, even though the local declaration adds profile/type syntax. No other reviewer artifacts were read or used.
+
+## Dispositions
+
+Round 1. Candidate and fix commit: 72ae9d01d62f089c657d675747bfc43be6c245f1. Original finding comment: f5eccfe9-0d8c-4577-98f7-8b8339e31d60.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | fixed | 72ae9d01d62f089c657d675747bfc43be6c245f1; Committed step 2 now defines a test-only typed-check adapter, four case selectors, real root argv/input handling, an isolated request observation, and independent parent construction of the QSL expected outcome/status. The adapter cannot replace serialization, stream writes or exit conversion and supplies no numeric exit code. Lines 25-67 resolve the missing arrangement and request/oracle correspondence. |
+| FND-002 | still-open | Newly introduced by the fix commit: the copied QSL inv example remains in TC-018 lines 37-44. No removal or producer-owned dependency has landed. Remove the copy before accepting this candidate. |
+
+### Round 1 evidence and current verdict
+
+Committed step 2 now defines a test-only typed-check adapter, four case selectors, real root argv/input handling, an isolated request observation, and independent parent construction of the QSL expected outcome/status. The adapter cannot replace serialization, stream writes or exit conversion and supplies no numeric exit code. Lines 25-67 resolve the missing arrangement and request/oracle correspondence.
+
+**FAIL**. Both original review findings are closed, but the newly introduced FND-002 remains open; the candidate is not spec-review clean. No executable test result is claimed in this spec-only pass. The original Summary, Findings and Verdict remain as the historical review record.
+
+```yaml
+round: 1
+reviewed: 72ae9d01d62f089c657d675747bfc43be6c245f1
+original_finding_comment_id: f5eccfe9-0d8c-4577-98f7-8b8339e31d60
+method: spec-review/base
+dispositions:
+- fnd: FND-001
+  outcome: fixed
+  fix_sha: 72ae9d01d62f089c657d675747bfc43be6c245f1
+  after_excerpt: "   For each case, spawn the test-built `quire` with argv\n   `[\"\
+    check\", \"<absolute path to inv.native>\", \"--format\", \"text\"]`\n   and that\
+    \ case's `TC018_CASE`, with a fresh `TC018_REQUEST_PATH`. Capture\n   stdout,\
+    \ stderr and the child status. Require the observation file to exist\n   and contain\
+    \ the selected case and exact fixture bytes and path; a missing\n   observation\
+    \ or mismatched request fails the test. Independently obtain the\n   typed result\
+    \ in the parent using the table's operation or constructor over\n   that recorded\
+    \ request, including its source identity, profile and limits,"
+  reason: Committed step 2 now defines a test-only typed-check adapter, four case
+    selectors, real root argv/input handling, an isolated request observation, and
+    independent parent construction of the QSL expected outcome/status. The adapter
+    cannot replace serialization, stream writes or exit conversion and supplies no
+    numeric exit code. Lines 25-67 resolve the missing arrangement and request/oracle
+    correspondence.
+- fnd: FND-002
+  outcome: still-open
+  reason: 'Newly introduced by the fix commit: the copied QSL inv example remains
+    in TC-018 lines 37-44. No removal or producer-owned dependency has landed. Remove
+    the copy before accepting this candidate.'
+new_findings:
+- fnd: FND-002
+  severity: high
+  confidence: high
+  method: spec-review/base
+  check: other
+  artifact_id: TC-018
+  related_ids:
+  - FR-002-AC-2
+  - FR-002-AC-3
+  path: spec/test-cases/TC-018-binary-process-boundary.md
+  lines: 37-44
+  excerpt: "   Write `inv.native` in a temporary directory with these exact UTF-8\
+    \ bytes\n   (including a final newline), from QSL FR-100-AC-5 and its TC-451 example:\n\
+    \n   ```text\n   language \"ix:native\" edition \"1-draft\";\n   profile v = \"\
+    quire.value.complete/v1\";\n   type Digit = Int[0, 9];\n   function inv using\
+    \ v(x: Digit): Boolean pure { 1 / x > 0 }"
+  finding: 'TC-018 copies the upstream QSL inv example into a second repository-owned
+    spec fixture: lines 37-44 explicitly source its exact bytes from QSL FR-100-AC-5/TC-451
+    and repeat the inv division body. This violates the no-copying-code-or-specs rule
+    and gives the example two maintenance homes. Remove the copied upstream example;
+    consume producer-owned published test data or define independently authored driver-owned
+    test input rather than reworking the copy.'
+bindings: []
+all_original_findings_closed: true
+spec_review_clean: false
+verdict: FAIL
+scope:
+- id: TC-018
+  path: spec/test-cases/TC-018-binary-process-boundary.md
+  role: examined
+  excerpt: "1. Inspect the binary entry point and root argv dispatch. Confirm that\
+    \ it invokes\n   the selected typed operation, uses the applicable ix-cli-kit\
+    \ output, config\n   and version helpers, and has one conversion from QSL's\n\
+    \   `Category::exit_code` result to `std::process::ExitCode`. Check that no path\n\
+    \   converts the category through ix-cli-kit's `Outcome` or a second numeric\n\
+    \   category mapping."
+- id: TC-018
+  path: spec/test-cases/TC-018-binary-process-boundary.md
+  role: examined
+  excerpt: "   For each case, spawn the test-built `quire` with argv\n   `[\"check\"\
+    , \"<absolute path to inv.native>\", \"--format\", \"text\"]`\n   and that case's\
+    \ `TC018_CASE`, with a fresh `TC018_REQUEST_PATH`. Capture\n   stdout, stderr\
+    \ and the child status. Require the observation file to exist\n   and contain\
+    \ the selected case and exact fixture bytes and path; a missing\n   observation\
+    \ or mismatched request fails the test. Independently obtain the\n   typed result\
+    \ in the parent using the table's operation or constructor over\n   that recorded\
+    \ request, including its source identity, profile and limits,"
+- id: TC-018
+  path: spec/test-cases/TC-018-binary-process-boundary.md
+  role: examined
+  excerpt: "   Write `inv.native` in a temporary directory with these exact UTF-8\
+    \ bytes\n   (including a final newline), from QSL FR-100-AC-5 and its TC-451 example:\n\
+    \n   ```text\n   language \"ix:native\" edition \"1-draft\";\n   profile v = \"\
+    quire.value.complete/v1\";\n   type Digit = Int[0, 9];\n   function inv using\
+    \ v(x: Digit): Boolean pure { 1 / x > 0 }"
+- id: TC-018
+  path: spec/test-cases/TC-018-binary-process-boundary.md
+  role: examined
+  excerpt: "- Each child status is exactly the code returned by QSL's exit function,\n\
+    \  including 20, 21, 22 and 30. There is one pass-through to\n  `std::process::ExitCode`\
+    \ and no ix-cli-kit `Outcome` conversion.\n- Machine stdout contains exactly the\
+    \ unchanged QSL `quire-outcome/1` value\n  for each run. The known `ill_typed`\
+    \ diagnostic retains its structured fields\n  in that value, and its complete\
+    \ nonempty rendered line appears on stderr\n  and is absent from stdout."
+```

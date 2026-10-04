@@ -34,25 +34,22 @@ checks that the binary preserves them while using ix-cli-kit shared mechanics.
    process exit conversion, and it supplies no numeric exit code. The selector
    exists only in the test build.
 
-   Write `inv.native` in a temporary directory with these exact UTF-8 bytes
-   (including a final newline), from QSL FR-100-AC-5 and its TC-451 example:
-
-   ```text
-   language "ix:native" edition "1-draft";
-   profile v = "quire.value.complete/v1";
-   type Digit = Int[0, 9];
-   function inv using v(x: Digit): Boolean pure { 1 / x > 0 }
-   ```
+   Write `driver-check.native` in a temporary directory using the exact bytes
+   produced by the driver's existing `OVERFLOW_UNIT` fixture in `tests/drive.rs`.
+   Reuse that fixture's factory and input arrangement (`overflow_input`), without
+   duplicating its source or header here. Its driver-owned acceptance test,
+   `tc_006_x_plus_100_in_the_return_context_is_refused_at_check`, establishes
+   the check-stage refusal `undefined_expression/unproved-range`.
 
    | `TC018_CASE` | QSL result supplied at the operation boundary |
    | --- | --- |
-   | `ill-typed` | Call QSL `parse`, `select` and `check` on `inv.native`, with default limits and an uncancelled handle; retain its `StageFailure::Refused` with the `ill_typed` diagnostic (QSL FR-286-AC-2). |
+   | `refused-range` | Call QSL `parse`, `select` and `check` on `driver-check.native`, with default limits and an uncancelled handle; retain its `StageFailure::Refused` with code `undefined_expression` and cause `unproved-range`, as established by the driver test above. |
    | `profile-gated` | Return the typed profile-gated `StageFailure::Refused` sample specified by QSL TC-769 step 3 and FR-285-AC-3, with its locus bound to this request's source. |
    | `cancelled` | Call QSL `check` on the parsed source with a handle already cancelled with `Requested`; retain `StageFailure::Cancelled(Requested)` (QSL FR-276-AC-1). |
    | `fault` | Return `StageFailure::Fault` holding QSL's `InternalFault::new("S3", "tc018-injected-fault")`, the fault variant specified by QSL FR-285-AC-3. |
 
    For each case, spawn the test-built `quire` with argv
-   `["check", "<absolute path to inv.native>", "--format", "text"]`
+   `["check", "<absolute path to driver-check.native>", "--format", "text"]`
    and that case's `TC018_CASE`, with a fresh `TC018_REQUEST_PATH`. Capture
    stdout, stderr and the child status. Require the observation file to exist
    and contain the selected case and exact fixture bytes and path; a missing
@@ -68,9 +65,10 @@ checks that the binary preserves them while using ix-cli-kit shared mechanics.
 3. Repeat each invocation with `--format json`, keeping its case, source and
    request arrangement unchanged. Parse stdout as exactly one JSON value,
    followed only by whitespace, and compare it to the parent's expected QSL
-   serialization, with no wrapper or changed fields. For `ill-typed`, require
-   exactly one nonempty diagnostic with code `ill_typed` in the parent outcome;
-   retain its cause, locus and message as expected content. Render that
+   serialization, with no wrapper or changed fields. For `refused-range`, require
+   a nonempty diagnostic with code `undefined_expression` and cause
+   `unproved-range` in the parent outcome; retain its cause, locus and message
+   as expected content. Render that
    diagnostic with QSL's renderer and the same source provision to obtain the
    nonempty `path:line:column: code: message` diagnostic line (ADR-029 IN-3).
    Assert that stderr contains that complete rendered line and stdout does
@@ -89,6 +87,6 @@ operation adapter, and entry-point review.
   including 20, 21, 22 and 30. There is one pass-through to
   `std::process::ExitCode` and no ix-cli-kit `Outcome` conversion.
 - Machine stdout contains exactly the unchanged QSL `quire-outcome/1` value
-  for each run. The known `ill_typed` diagnostic retains its structured fields
-  in that value, and its complete nonempty rendered line appears on stderr
-  and is absent from stdout.
+  for each run. The known `undefined_expression/unproved-range` diagnostic
+  retains its structured fields in that value, and its complete nonempty
+  rendered line appears on stderr and is absent from stdout.
