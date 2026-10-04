@@ -4,7 +4,7 @@ title: "quire-driver architecture: the one crate that calls both QSL and CG"
 type: ArchitectureDescription
 status: proposed
 owner: kreneskyp
-system: quire-driver library, its use of QSL (spine compile, route, emitted package) and CG (negotiate, generate), and IR's checked-package reader at the hand-off
+system: quire-driver library, its use of QSL (typed spine lifecycle, route, emitted package) and CG (negotiate, generate), and IR's checked-package reader at the hand-off
 relationships:
   - target: ix://agent-ix/quire-driver/FR-001
     type: references
@@ -53,7 +53,7 @@ reports each failure.
 
 | Step | Owner of the call | Crosses in | Crosses out |
 | --- | --- | --- | --- |
-| 1 to 2. S1 to S4 and the E4 emitter | QSL (`qsl_replay::spine::compile`) | unit source, domain package documents, an empty `DependencyInput`, spine stage limits | in-process checked package, `quire.checked-package/v2` bytes, `package_id` |
+| 1 to 2. S1 to S4 and the E4 emitter | QSL (`spine::parse` → `select` → `check` → `package`, sharing one `Cancel`) | unit source, domain package documents, an empty `DependencyInput`, spine stage limits | in-process checked package, `quire.checked-package/v2` bytes, `package_id` |
 | E5. Hand-off | IR (`read_checked_package`) | emitted bytes and `CheckedPackageEvidence` | admitted `CheckedPackageV2` |
 | 3. Candidate step | QSL (`qsl_route`) | items written from the compiled unit's own checked requirement records | candidate set per item |
 | 4. Backend conversion | CG (`BackendKind::from_identity`) | each registered `BackendId` | a CG kind, or a refusal naming every unconverted id |
@@ -99,7 +99,8 @@ recomputes them) and the manifest digests QSL's registry API requires.
 | Condition | Reported by | Kind |
 | --- | --- | --- |
 | A provider manifest does not register; a duplicate backend | driver (from `qsl_route` refusals) | refusal |
-| A spine stage refuses the unit or the emitter fails | QSL, carried unchanged (`CompileRefusal`) | refusal; `stage_limit_exceeded` is a limit refusal |
+| A lifecycle operation refuses the unit or reaches a limit | QSL (`CompileRefusal`), with its catalog cause preserved | refusal; `stage_limit_exceeded/<kind>-exceeded` is a limit refusal |
+| A QSL lifecycle operation reports a fault or cancellation | driver (`DriverFault::Spine`), retaining the operation's compile stage | internal fault (`runtime_invariant`) |
 | A registered backend has no CG kind | driver (`invalid_capability/unknown-backend`, ids in bytewise order, before negotiation) | refusal |
 | Envelope refusal at negotiation | CG (`EnvelopeRefusal`) | refusal |
 | IR refuses the bytes QSL just emitted, or admits them at another `package_id` | driver | internal fault: an upstream broke its contract |
@@ -140,7 +141,7 @@ Candidate statements (local labels; the repo assigns requirement ids when one is
   IR-479, PR #12, merged).
 - D-8. The driver reintroduces no CG pin or attestation API and supplies no artifact-digest
   evidence to IR's reader. QSL's own APIs that carry digests the driver does not check
-  (`DefinitionLock::pinned()` for the root feature, and `ManifestDigest` and `ToolIdentity` in
+  (`DefinitionLock::pinned()` for the root feature, and `ManifestDigest` in
   the registry API) are existing and listed under Current state.
 
 ## Risks
@@ -160,8 +161,9 @@ What is measured today, what is open and with whom, and what is routed.
   `insert_artifact_digest`, imported CG's removed `KaniToolPins` and `AttestationContext`, and
   carried `manifest_digest` and `pinned_tool` in its negotiation envelope; IR-479 deleted these.
 - Still present, as D-8 states: `DefinitionLock::pinned()` (`src/handoff.rs`, read for the root
-  feature) and `ManifestDigest` and `ToolIdentity` (`src/registry.rs`), which QSL's registry API
+  feature) and `ManifestDigest` (`src/registry.rs`), which QSL's registry API
   requires of a provider manifest. The driver passes them through and checks none.
+  The registry API no longer takes `ToolIdentity`, and the driver stores no tool identity.
 - The driver compiles with an empty `DependencyInput` and refuses any `import`
   (`missing_import/missing-selection`, FR-001 step 1). Known and stated, not a gap to fix here.
 - The driver owns the execute, replay and terminal-record chain, as QSL ADR-011 T-13 and ADR-013

@@ -7,7 +7,7 @@ lives downstream of both. Nothing depends on it.
 
 `drive` runs one request:
 
-1. S1 to S4 and the E4 v2 emit, through `qsl_replay::spine::compile`.
+1. S1 to S4 and the E4 v2 emit, through QSL's typed `parse`, `select`, `check` and `package` lifecycle, sharing one `Cancel` handle.
 2. E5: IR's `read_checked_package` reads the emitted bytes; the admitted
    package must carry the emitted `package_id`.
 3. The `route` candidate step, for each item to negotiate. The items are not

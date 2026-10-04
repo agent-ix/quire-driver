@@ -3,6 +3,7 @@
 //! AGE-394 (the lifecycle and CLI design) renders them; this module only types
 //! them.
 
+use qsl_foundation::diagnostic::InternalFault;
 use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::Code;
 use qsl_replay::spine::{CompileRefusal, SpineStage};
@@ -47,6 +48,14 @@ pub enum DriverRefusal {
 /// A violated invariant between the driver and an upstream crate.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum DriverFault {
+    /// QSL's typed lifecycle reported a broken invariant.
+    #[error("QSL {stage:?} spine fault: {fault:?}")]
+    Spine {
+        /// The typed lifecycle operation where the failure surfaced.
+        stage: SpineStage,
+        /// QSL's stable fault details.
+        fault: InternalFault,
+    },
     /// Negotiation returned a different number of settlements, or one out
     /// of request order.
     #[error(
@@ -173,6 +182,7 @@ impl DriverRefusal {
             }
             Self::Envelope(_) => DriverStage::Negotiation,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
+            Self::Fault(DriverFault::Spine { stage, .. }) => DriverStage::Compile(*stage),
             Self::HandoffLimit(_)
             | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
                 DriverStage::Handoff
@@ -210,7 +220,8 @@ impl DriverRefusal {
 
 /// The catalog code of a generation refusal. The driver routes each item
 /// with the kind CG's own conversion gave it, once per request index, so a
-/// kind disagreement, a duplicate index and an empty Kani request are
+/// kind disagreement, a duplicate index, a duplicate harness, a Kani record-count
+/// mismatch, a Kani duplicate position out of range and an empty Kani request are
 /// internal faults. A missing kind context or a malformed Kani context is
 /// the caller's request; the Kani item ceiling and an oversized oracle source
 /// are limits; a claim-map or location-map serialization failure and an
@@ -221,6 +232,9 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
     match error {
         RoutedGenerationError::BackendKindDisagrees { .. }
         | RoutedGenerationError::DuplicateRequestIndex { .. }
+        | RoutedGenerationError::DuplicateHarness { .. }
+        | RoutedGenerationError::KaniRecordCountMismatch { .. }
+        | RoutedGenerationError::KaniDuplicatePositionOutOfRange { .. }
         | RoutedGenerationError::Kani(KaniObligationError::EmptyRequest) => Code::RuntimeInvariant,
         RoutedGenerationError::Kani(KaniObligationError::TooManyItems { .. }) => {
             Code::ResourceExhausted
@@ -258,8 +272,9 @@ fn compile_code(refusal: &CompileRefusal) -> String {
 
 /// The catalog cause a `CompileRefusal` names, where its refusing stage
 /// records one: `Check`'s first refusal, `Profile`'s first refusal (FR-110),
-/// `Link`, an ADR-015 D-1 `Import` or `DependencyInput` refusal, or (through
-/// a `Dependency` wrapper) the library refusal it carries. Exhaustive, not a catch-all: `Source`,
+/// `Limit`'s limit kind, `Link`, an ADR-015 D-1 `Import` or `DependencyInput`
+/// refusal, or (through a `Dependency` wrapper) the library refusal it carries.
+/// Exhaustive, not a catch-all: `Source`,
 /// `Forms`, `Intake` (a `model` declaration's own domain-package intake,
 /// not an ADR-015 D-1 import), `Assembly`, `Emit` and `Omitted` name no
 /// cause in QSL's own catalog today.
@@ -271,6 +286,7 @@ fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
         | CompileRefusal::Assembly { .. }
         | CompileRefusal::Emit(_)
         | CompileRefusal::Omitted(_) => None,
+        CompileRefusal::Limit(limit) => Some(limit.kind().catalog_cause()),
         CompileRefusal::Profile { refusals, .. } => refusals.first().map(|refusal| refusal.cause()),
         CompileRefusal::Check { refusals, .. } => {
             refusals.first().and_then(|refusal| refusal.cause.cause())
@@ -305,6 +321,15 @@ fn generation_message(error: &RoutedGenerationError) -> String {
         ),
         RoutedGenerationError::DuplicateRequestIndex { request_index } => {
             format!("request index {request_index} is routed twice")
+        }
+        RoutedGenerationError::DuplicateHarness { harness } => {
+            format!("Kani harness `{harness}` is emitted more than once")
+        }
+        RoutedGenerationError::KaniRecordCountMismatch { records, items } => {
+            format!("Kani returned {records} record(s) for {items} item(s)")
+        }
+        RoutedGenerationError::KaniDuplicatePositionOutOfRange { first_index, items } => {
+            format!("Kani duplicate position {first_index} is outside {items} item(s)")
         }
         RoutedGenerationError::MissingKindContext { kind } => {
             format!("no generation context for backend kind {}", kind.identity())
@@ -363,11 +388,42 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 mod tests {
     use qsl_foundation::digest::WireNodeId;
     use quire_contract_codegen::{
-        KaniObligationError, OracleGenerationError, RoutedGenerationError,
+        HarnessPath, HarnessSymbol, KaniObligationError, ModuleSymbol, OracleGenerationError,
+        RoutedGenerationError,
     };
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    /// Trace: FR-001-AC-5
+    #[test]
+    fn routed_generation_invariant_errors_are_generation_faults() {
+        for (error, message) in [
+            (
+                RoutedGenerationError::DuplicateHarness {
+                    harness: HarnessPath {
+                        module: ModuleSymbol::try_from("subject").expect("valid module"),
+                        harness: HarnessSymbol::try_from("proof").expect("valid harness"),
+                    },
+                },
+                "CG generation refused the routed items: Kani harness `subject::proof` is emitted more than once",
+            ),
+            (
+                RoutedGenerationError::KaniRecordCountMismatch { records: 1, items: 2 },
+                "CG generation refused the routed items: Kani returned 1 record(s) for 2 item(s)",
+            ),
+            (
+                RoutedGenerationError::KaniDuplicatePositionOutOfRange { first_index: 3, items: 2 },
+                "CG generation refused the routed items: Kani duplicate position 3 is outside 2 item(s)",
+            ),
+        ] {
+            let refusal = DriverRefusal::Generation(error);
+            assert_eq!(refusal.code(), "runtime_invariant");
+            assert_eq!(refusal.kind(), OutcomeKind::Fault);
+            assert_eq!(refusal.stage(), DriverStage::Generation);
+            assert_eq!(refusal.to_string(), message);
+        }
+    }
 
     /// FR-001-AC-5 (TC-004): an internal fault is its own outcome kind, with
     /// code `runtime_invariant`, never a refusal.

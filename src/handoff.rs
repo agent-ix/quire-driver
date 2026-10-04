@@ -7,7 +7,7 @@ use quire_contract_model::{
     CheckedPackageV2,
 };
 
-use qsl_package::EmittedPackage;
+use qsl_replay::spine::EmittedUnit;
 use qsl_semantics::model::key::hex;
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 
@@ -18,11 +18,12 @@ use crate::{CompileInput, DriverFault, DriverRefusal, Upstream};
 pub(crate) fn handoff(
     upstream: &impl Upstream,
     input: &CompileInput<'_>,
-    emitted: &EmittedPackage,
+    emitted: &EmittedUnit,
 ) -> Result<CheckedPackageV2, DriverRefusal> {
     let evidence = evidence(input);
+    let emitted_package = emitted.package();
     let package = match upstream.read_package(
-        emitted.bytes(),
+        emitted_package.bytes(),
         CheckedPackageReadLimits::bounded(),
         &evidence,
     ) {
@@ -34,7 +35,7 @@ pub(crate) fn handoff(
             return Err(DriverRefusal::HandoffLimit(incomplete))
         }
     };
-    let expected = emitted.package_id().hex();
+    let expected = emitted_package.package_id().hex();
     if package.package_id().digest.as_ref() != expected {
         return Err(DriverRefusal::Fault(DriverFault::PackageIdMismatch {
             emitted: expected,
@@ -57,8 +58,8 @@ fn evidence(input: &CompileInput<'_>) -> CheckedPackageEvidence {
     for (digest, document) in input.packages {
         evidence.insert_domain_package_document(hex(digest), document.as_slice());
     }
-    if let Some(root) = DefinitionLock::pinned().entry(CatalogRole::Root) {
-        evidence.support_feature(root.identity);
-    }
+    let lock = DefinitionLock::pinned();
+    let root = lock.entry(CatalogRole::Root);
+    evidence.support_feature(root.identity);
     evidence
 }

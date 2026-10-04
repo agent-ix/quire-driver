@@ -15,10 +15,9 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use qsl_foundation::SourceIdentity;
-use qsl_replay::spine::{CompileRefusal, Compiled, SpineLimits, SpineStage};
+use qsl_replay::spine::{CheckedUnit, CompileRefusal, EmittedUnit, SpineLimits, SpineStage};
 use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{BackendId, Candidate, ManifestDigest, RegistrationCause};
-use qsl_semantics::check::CheckingLimits;
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_contract_codegen::{
     generate_routed, BackendKind, BackendProviderEnvelope, Candidates, Cause,
@@ -40,13 +39,11 @@ use quire_driver::{
 /// `DefinitionLock` root row (read from QSL, never copied here), then `body`.
 fn unit(body: &str) -> String {
     let lock = DefinitionLock::pinned();
-    let root = lock
-        .entry(CatalogRole::Root)
-        .expect("the lock has a root row");
+    let root = lock.entry(CatalogRole::Root);
     format!(
         "language \"ix:native\" edition \"1-draft\";\n\
-         profile v = \"{}\" version \"{}\" digest \"sha256:{}\";\n{body}",
-        root.identity, root.revision_value, root.digest
+         profile v = \"{}\";\n{body}",
+        root.identity
     )
 }
 
@@ -142,11 +139,7 @@ static DEAD_BRANCH_UNIT: LazyLock<String> = LazyLock::new(|| {
 /// (ADR-015 D-1) supplies nothing for: S4 source resolution refuses it at
 /// I1, `missing_import`/`missing-selection`.
 static IMPORT_UNIT: LazyLock<String> = LazyLock::new(|| {
-    unit(
-        "import \"test/library\" version \"1\" digest \
-    \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\" as lib;\n\
-    function f using v(): Boolean pure { true }\n",
-    )
+    unit("import \"test/library\" as lib;\nfunction f using v(): Boolean pure { true }\n")
 });
 
 /// One upstream call, as the driver made it.
@@ -212,7 +205,7 @@ impl Upstream for Recorder {
         bytes: &[u8],
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
-    ) -> Result<Compiled, Box<CompileRefusal>> {
+    ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal> {
         self.calls.borrow_mut().push(Call::Compile);
         QslCg.compile(source, path, bytes, packages, limits)
     }
@@ -291,7 +284,6 @@ fn manifest(identity: &str, digest: u8, kinds: &[&str]) -> ProviderManifest {
     ProviderManifest {
         identity: identity.to_owned(),
         manifest_digest: ManifestDigest::from_digest([digest; 32]),
-        tool: format!("{identity}-tool 1"),
         advertises: kinds
             .iter()
             .map(|kind| (Some((*kind).to_owned()), Some("bounded".to_owned())))
@@ -1352,7 +1344,7 @@ fn tc_003_a_unit_with_no_scalar_applications_routes_nothing() {
 
 /// FR-001-AC-5 (TC-004): the command-level refusals are typed, with a
 /// stage, a catalog code and an outcome kind: a spine refusal, and a
-/// registration refusal.
+/// registration refusal and reachable source/checking limits.
 #[test]
 fn tc_004_command_level_refusals_are_typed() {
     let registry = build_registry(&[]).expect("an empty registry builds");
@@ -1376,31 +1368,43 @@ fn tc_004_command_level_refusals_are_typed() {
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
     assert_eq!(recorder.calls(), [Call::Compile]);
 
-    // A stage limit is its own outcome kind: `not not not true` is four
-    // deep, over a checking depth of 3.
-    let deep_unit = unit("function f using v(): Boolean pure { not not not true }\n");
-    let deep = CompileInput {
-        bytes: deep_unit.as_bytes(),
-        limits: SpineLimits {
-            checking: CheckingLimits::new(u64::MAX, 3).expect("valid limits"),
-            ..SpineLimits::default()
+    for (limits, stage, code) in [
+        {
+            let mut limits = SpineLimits::default();
+            limits.source.source_bytes = 8;
+            (
+                limits,
+                SpineStage::Source,
+                "stage_limit_exceeded/input-bytes-exceeded",
+            )
         },
-        ..input(&packages)
-    };
-    let refusal = drive(
-        &Recorder::default(),
-        deep,
-        &registry,
-        None,
-        GenerationInput::default(),
-    )
-    .expect_err("depth 3 stops a body four deep");
-    assert_eq!(refusal.kind(), OutcomeKind::Limit);
-    assert_eq!(
-        refusal.code(),
-        "stage_limit_exceeded/nesting-depth-exceeded"
-    );
-    assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Check));
+        {
+            let mut limits = SpineLimits::default();
+            limits.checking = limits.checking.with_work_budget(1);
+            (
+                limits,
+                SpineStage::Check,
+                "stage_limit_exceeded/work-budget-exceeded",
+            )
+        },
+    ] {
+        let recorder = Recorder::default();
+        let refusal = drive(
+            &recorder,
+            CompileInput {
+                limits,
+                ..input(&packages)
+            },
+            &registry,
+            None,
+            GenerationInput::default(),
+        )
+        .expect_err("the configured limit is reachable");
+        assert_eq!(refusal.stage(), DriverStage::Compile(stage));
+        assert_eq!(refusal.code(), code);
+        assert_eq!(refusal.kind(), OutcomeKind::Limit);
+        assert_eq!(recorder.calls(), [Call::Compile]);
+    }
 
     // Two manifests, one identity, two distinct digests: both conflict,
     // and `refusals()` reports one entry per distinct digest, ascending.
@@ -1470,10 +1474,7 @@ fn tc_008_a_missing_import_refuses_at_compile_intake() {
 fn tc_008_an_unknown_header_profile_refuses_with_its_cause() {
     let registry = build_registry(&[]).expect("an empty registry builds");
     let packages = BTreeMap::new();
-    let source = "language \"ix:native\" edition \"1-draft\";\n\
-        profile v = \"test:unknown-profile\" version \"1\" digest \
-        \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\n\
-        function f using v(): Boolean pure { true }\n";
+    let source = "language \"ix:native\" edition \"1-draft\";\nprofile v = \"test:unknown-profile\";\nfunction f using v(): Boolean pure { true }\n";
     let broken = CompileInput {
         bytes: source.as_bytes(),
         ..input(&packages)
@@ -1530,6 +1531,7 @@ fn tc_004_e5_identity_and_refusal_are_faults() {
         cause: None,
         locus: None,
         contract_version: None,
+        document_pointer: None,
     };
 
     for answer in [

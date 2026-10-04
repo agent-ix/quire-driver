@@ -17,13 +17,14 @@ relationships:
 The driver SHALL run one request through these steps, in this order (QSL
 ADR-011 T-13, ADR-012 §7.2):
 
-1. S1 to S4 through `qsl_replay::spine::compile`, with an empty
-   `DependencyInput` (ADR-015 D-1): the driver does not yet support
+1. S1 to S4 through QSL's typed `parse`, `select` and `check` operations.
+   These operations and step 2 share one `Cancel` handle. `check` receives an
+   empty `DependencyInput` (ADR-015 D-1): the driver does not yet support
    compiling a unit's `import`s against caller-supplied library source, so
    any `import` refuses at the intake stage,
    `missing_import`/`missing-selection`.
-2. E4: the `quire.checked-package/v2` bytes and `package_id` that the same
-   call emits.
+2. E4: QSL's `package` operation emits the `quire.checked-package/v2`
+   bytes and `package_id` from the checked unit.
 3. The `route` candidate step for each requested item.
 4. The pre-negotiation conversion. Every registered `BackendId` passes once
    through CG's one total conversion, `BackendKind::from_identity`.
@@ -94,8 +95,9 @@ the admitted package only at the `package_id` E4 emitted.
   `invalid-request`. CG's other generation refusals map to `invalid-request`
   (a malformed Kani context), a limit refusal (`resource_exhausted`, the
   Kani item ceiling or an oversized generated source) or an internal fault
-  (a kind disagreement, a duplicate request index, an empty Kani
-  request, a claim-map or location-map serialization failure, or an
+  (a kind disagreement, a duplicate request index, a duplicate harness,
+  a Kani record-count mismatch, a Kani duplicate position out of range,
+  an empty Kani request, a claim-map or location-map serialization failure, or an
   unknown Contract Runtime variant -- none of which the driver produces).
 - A node whose operation has no derivable claim (CG's `NoDerivableClaim`)
   settles `Unsupported` with `no_derivable_claim`, naming the node and CG's
@@ -136,7 +138,7 @@ the admitted package only at the `package_id` E4 emitted.
 ## Dependencies
 
 - QSL ADR-011 §2.1, §6.1 driver row, §7.1 and T-13; ADR-012 §7.1 and §7.2.
-- QSL `qsl-replay` (`spine::compile`) and `qsl-route` (registry, candidate
+- QSL `qsl-replay` (typed spine lifecycle) and `qsl-route` (registry, candidate
   step, routing step).
 - CG `negotiate_backend_provider` and `BackendKind::from_identity`
   (agent-ix/quire-contract-codegen#86); CG `generate_routed` (CG FR-022,
