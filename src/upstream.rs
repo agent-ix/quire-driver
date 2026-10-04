@@ -27,10 +27,32 @@ use quire_contract_model::{
 
 use crate::{DriverFault, DriverRefusal};
 
-fn driver_refusal(failure: FrontEndFailure, stage: SpineStage) -> DriverRefusal {
+#[derive(Clone, Copy, Debug)]
+enum LifecycleOperation {
+    Parse,
+    Select,
+    Check,
+    Package,
+}
+
+impl LifecycleOperation {
+    fn stage(self) -> SpineStage {
+        match self {
+            Self::Parse => SpineStage::Source,
+            Self::Select => SpineStage::Intake,
+            Self::Check => SpineStage::Check,
+            Self::Package => SpineStage::Emit,
+        }
+    }
+}
+
+fn driver_refusal(failure: FrontEndFailure, operation: LifecycleOperation) -> DriverRefusal {
     match refusal_or_fault(failure) {
         Ok(refusal) => DriverRefusal::Compile(refusal),
-        Err(fault) => DriverRefusal::Fault(DriverFault::Spine { stage, fault }),
+        Err(fault) => DriverRefusal::Fault(DriverFault::Spine {
+            stage: operation.stage(),
+            fault,
+        }),
     }
 }
 
@@ -103,10 +125,10 @@ impl Upstream for QslCg {
             bytes,
         };
         let parsed = parse(&request, limits.source, &cancel)
-            .map_err(|failure| driver_refusal(failure, SpineStage::Source))?
+            .map_err(|failure| driver_refusal(failure, LifecycleOperation::Parse))?
             .into_value();
         let models = select(&parsed, packages, limits.model, &cancel)
-            .map_err(|failure| driver_refusal(failure, SpineStage::Intake))?
+            .map_err(|failure| driver_refusal(failure, LifecycleOperation::Select))?
             .into_value();
         let checked = check(
             &parsed,
@@ -116,10 +138,10 @@ impl Upstream for QslCg {
             limits,
             &cancel,
         )
-        .map_err(|failure| driver_refusal(failure, SpineStage::Check))?
+        .map_err(|failure| driver_refusal(failure, LifecycleOperation::Check))?
         .into_value();
         let emitted = package(&checked, PackageLimits::default(), &cancel)
-            .map_err(|failure| driver_refusal(failure, SpineStage::Emit))?
+            .map_err(|failure| driver_refusal(failure, LifecycleOperation::Package))?
             .into_value();
         Ok((checked, emitted))
     }
@@ -155,5 +177,94 @@ impl Upstream for QslCg {
         contexts: &GenerationContexts<'_>,
     ) -> Result<RoutedGeneration, RoutedGenerationError> {
         generate_routed(package, routed, contexts)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use qsl_foundation::diagnostic::{
+        InternalFault, LimitExceeded, LimitKind, LimitsField, StageFailure,
+    };
+    use qsl_replay::spine::CompileRefusal;
+    use quire_exact::CancelCause;
+
+    use super::{driver_refusal, DriverFault, DriverRefusal, LifecycleOperation, SpineStage};
+    use crate::{DriverStage, OutcomeKind};
+
+    const OPERATIONS: [(LifecycleOperation, SpineStage); 4] = [
+        (LifecycleOperation::Parse, SpineStage::Source),
+        (LifecycleOperation::Select, SpineStage::Intake),
+        (LifecycleOperation::Check, SpineStage::Check),
+        (LifecycleOperation::Package, SpineStage::Emit),
+    ];
+
+    /// Trace: FR-001-AC-5
+    #[test]
+    fn lifecycle_faults_retain_details_and_operation_stage() {
+        for (operation, expected_stage) in OPERATIONS {
+            let expected = InternalFault::new("S3", "test-invariant");
+            let refusal = driver_refusal(StageFailure::Fault(expected), operation);
+            assert_eq!(refusal.code(), "runtime_invariant");
+            assert_eq!(refusal.kind(), OutcomeKind::Fault);
+            assert_eq!(refusal.stage(), DriverStage::Compile(expected_stage));
+            let DriverRefusal::Fault(DriverFault::Spine { fault, .. }) = refusal else {
+                panic!("a lifecycle fault must stay an internal fault");
+            };
+            assert_eq!(fault, expected);
+        }
+    }
+
+    /// Trace: FR-001-AC-5
+    #[test]
+    fn lifecycle_cancellation_is_an_internal_fault_at_the_operation_stage() {
+        for (operation, expected_stage) in OPERATIONS {
+            for cause in [CancelCause::Requested, CancelCause::Deadline] {
+                let refusal = driver_refusal(StageFailure::Cancelled(cause), operation);
+                assert_eq!(refusal.code(), "runtime_invariant");
+                assert_eq!(refusal.kind(), OutcomeKind::Fault);
+                assert_eq!(refusal.stage(), DriverStage::Compile(expected_stage));
+                let DriverRefusal::Fault(DriverFault::Spine { fault, .. }) = refusal else {
+                    panic!("unexpected cancellation must be an internal fault");
+                };
+                assert_eq!(
+                    fault,
+                    InternalFault::new("spine", "cancelled-without-a-shared-handle")
+                );
+            }
+        }
+    }
+
+    /// Trace: FR-001-AC-5
+    #[test]
+    fn lifecycle_limits_preserve_qsl_payload_cause_and_field_stage() {
+        for (kind, field, expected_stage, code) in [
+            (
+                LimitKind::InputBytes,
+                LimitsField::SourceBytes,
+                SpineStage::Source,
+                "stage_limit_exceeded/input-bytes-exceeded",
+            ),
+            (
+                LimitKind::WorkBudget,
+                LimitsField::CheckingWorkBudget,
+                SpineStage::Check,
+                "stage_limit_exceeded/work-budget-exceeded",
+            ),
+        ] {
+            let expected = LimitExceeded::new(kind, 8, 9).named(field);
+            for (operation, _) in OPERATIONS {
+                let refusal = driver_refusal(StageFailure::Limit(expected.clone()), operation);
+                assert_eq!(refusal.code(), code);
+                assert_eq!(refusal.kind(), OutcomeKind::Limit);
+                assert_eq!(refusal.stage(), DriverStage::Compile(expected_stage));
+                let DriverRefusal::Compile(refusal) = refusal else {
+                    panic!("a lifecycle limit must be a compile limit");
+                };
+                let CompileRefusal::Limit(limit) = *refusal else {
+                    panic!("the mapped refusal must retain the limit variant");
+                };
+                assert_eq!(limit, expected);
+            }
+        }
     }
 }

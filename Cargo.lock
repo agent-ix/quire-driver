@@ -1421,6 +1421,7 @@ dependencies = [
  "qsl-semantics",
  "quire-contract-codegen",
  "quire-contract-model",
+ "quire-exact",
  "serde_json",
  "thiserror",
 ]

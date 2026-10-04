@@ -284,7 +284,6 @@ fn manifest(identity: &str, digest: u8, kinds: &[&str]) -> ProviderManifest {
     ProviderManifest {
         identity: identity.to_owned(),
         manifest_digest: ManifestDigest::from_digest([digest; 32]),
-        tool: format!("{identity}-tool 1"),
         advertises: kinds
             .iter()
             .map(|kind| (Some((*kind).to_owned()), Some("bounded".to_owned())))
@@ -1345,7 +1344,7 @@ fn tc_003_a_unit_with_no_scalar_applications_routes_nothing() {
 
 /// FR-001-AC-5 (TC-004): the command-level refusals are typed, with a
 /// stage, a catalog code and an outcome kind: a spine refusal, and a
-/// registration refusal.
+/// registration refusal and reachable source/checking limits.
 #[test]
 fn tc_004_command_level_refusals_are_typed() {
     let registry = build_registry(&[]).expect("an empty registry builds");
@@ -1368,6 +1367,44 @@ fn tc_004_command_level_refusals_are_typed() {
     assert_eq!(refusal.code(), "invalid_syntax");
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
     assert_eq!(recorder.calls(), [Call::Compile]);
+
+    for (limits, stage, code) in [
+        {
+            let mut limits = SpineLimits::default();
+            limits.source.source_bytes = 8;
+            (
+                limits,
+                SpineStage::Source,
+                "stage_limit_exceeded/input-bytes-exceeded",
+            )
+        },
+        {
+            let mut limits = SpineLimits::default();
+            limits.checking = limits.checking.with_work_budget(1);
+            (
+                limits,
+                SpineStage::Check,
+                "stage_limit_exceeded/work-budget-exceeded",
+            )
+        },
+    ] {
+        let recorder = Recorder::default();
+        let refusal = drive(
+            &recorder,
+            CompileInput {
+                limits,
+                ..input(&packages)
+            },
+            &registry,
+            None,
+            GenerationInput::default(),
+        )
+        .expect_err("the configured limit is reachable");
+        assert_eq!(refusal.stage(), DriverStage::Compile(stage));
+        assert_eq!(refusal.code(), code);
+        assert_eq!(refusal.kind(), OutcomeKind::Limit);
+        assert_eq!(recorder.calls(), [Call::Compile]);
+    }
 
     // Two manifests, one identity, two distinct digests: both conflict,
     // and `refusals()` reports one entry per distinct digest, ascending.
