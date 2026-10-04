@@ -476,3 +476,52 @@ scope:
     \ diagnostic retains its structured fields\n  in that value, and its complete\
     \ nonempty rendered line appears on stderr\n  and is absent from stdout."
 ```
+
+### Round 2 dispositions
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-002 | fixed | 1a92dc96527b8f47a5e61cbb9635f0119bdce5f5; The fix commit removes the copied QSL inv source entirely and refers to the existing driver-owned OVERFLOW_UNIT fixture and overflow_input arrangement in tests/drive.rs. The unchanged owner test calls the real QslCg path and asserts SpineStage::Check, undefined_expression/unproved-range and OutcomeKind::Refused. TC-018 contains no copied fixture source, digest assertion or pinned external filesystem path. Its nonempty rendered-diagnostic and independent-parent-oracle assertions remain intact. No new finding identified in this fix. |
+
+Round 2 current verdict: **PASS**. All three findings from this reviewer are closed by their latest dispositions; PR #18 is spec-review clean at this candidate. This is a spec-only review; no executable test run is claimed. All eight committed SR copies matched the scratch originals before this append.
+
+```yaml
+round: 2
+reviewed: 1a92dc96527b8f47a5e61cbb9635f0119bdce5f5
+original_finding_comment_id: f5eccfe9-0d8c-4577-98f7-8b8339e31d60
+previous_disposition_comment_id: dc1021ef-bf78-4f0a-a7cd-84f093ad546c
+method: spec-review/base
+dispositions:
+- fnd: FND-002
+  outcome: fixed
+  fix_sha: 1a92dc96527b8f47a5e61cbb9635f0119bdce5f5
+  after_excerpt: "   Write `driver-check.native` in a temporary directory using the\
+    \ exact bytes\n   produced by the driver's existing `OVERFLOW_UNIT` fixture in\
+    \ `tests/drive.rs`.\n   Reuse that fixture's factory and input arrangement (`overflow_input`),\
+    \ without\n   duplicating its source or header here. Its driver-owned acceptance\
+    \ test,\n   `tc_006_x_plus_100_in_the_return_context_is_refused_at_check`, establishes\n\
+    \   the check-stage refusal `undefined_expression/unproved-range`."
+  reason: The fix commit removes the copied QSL inv source entirely and refers to
+    the existing driver-owned OVERFLOW_UNIT fixture and overflow_input arrangement
+    in tests/drive.rs. The unchanged owner test calls the real QslCg path and asserts
+    SpineStage::Check, undefined_expression/unproved-range and OutcomeKind::Refused.
+    TC-018 contains no copied fixture source, digest assertion or pinned external
+    filesystem path. Its nonempty rendered-diagnostic and independent-parent-oracle
+    assertions remain intact. No new finding identified in this fix.
+new_findings: []
+all_findings_closed: true
+spec_review_clean: true
+verdict: PASS
+fixture_checks:
+  driver_fixture_preexisted: true
+  driver_owner_test_preexisted: true
+  driver_fixture_unchanged: true
+  owner_asserts_check_stage_and_refusal: true
+  no_digest_assertion_in_owner_test: true
+  no_source_copy_or_digest_assertion_or_pinned_external_path_in_tc018: true
+  fixture_path: tests/drive.rs:122
+  factory_path: tests/drive.rs:40
+  input_path: tests/drive.rs:340
+  owner_test_path: tests/drive.rs:1005
+committed_sr_copies_matched_before_append: true
+```
