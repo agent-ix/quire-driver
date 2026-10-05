@@ -148,9 +148,8 @@ mod tests {
         })
     }
 
-    /// Trace: FR-005-AC-1, FR-005-AC-3.
     #[test]
-    fn linked_manifests_register_and_resolve_by_backend_identity() {
+    fn linked_manifests_admit_distinct_identities_and_resolve_provider_lookup() {
         let first = provider("agent-ix/provider/first", 1);
         let second = provider("agent-ix/provider/second", 2);
         let providers: [&dyn Provider; 2] = [&first, &second];

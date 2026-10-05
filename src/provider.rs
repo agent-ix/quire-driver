@@ -246,7 +246,6 @@ mod tests {
         }
     }
 
-    /// Trace: FR-009-AC-4.
     #[test]
     fn proved_kani_result_uses_cgs_terminal_mapping() {
         let terminal = result(KaniRunOutcome::Verified)
@@ -259,7 +258,6 @@ mod tests {
         );
     }
 
-    /// Trace: FR-009-AC-4.
     #[test]
     fn falsified_scalar_does_not_guess_a_replay_settlement() {
         let error = result(KaniRunOutcome::Falsified {
@@ -273,7 +271,6 @@ mod tests {
         );
     }
 
-    /// Trace: FR-009-AC-4.
     #[test]
     fn execution_refusal_is_not_rewritten_as_a_terminal_outcome() {
         let item = ProviderItemResult {
