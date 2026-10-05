@@ -12,10 +12,16 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock};
+use std::thread;
 
+use qsl_foundation::diagnostic::Category;
 use qsl_foundation::SourceIdentity;
-use qsl_replay::spine::{CheckedUnit, CompileRefusal, EmittedUnit, SpineLimits, SpineStage};
+use qsl_replay::spine::{
+    check, package, parse, select, CheckedUnit, CompileRefusal, DependencyInput, EmittedUnit,
+    LockEvidence, PackageLimits, ParseRequest, SpineLimits, SpineStage,
+};
 use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{BackendId, Candidate, ManifestDigest, RegistrationCause};
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
@@ -34,6 +40,7 @@ use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
     GenerationInput, KaniInput, OutcomeKind, ProviderManifest, QslCg, Upstream,
 };
+use quire_exact::{Cancel, CancelCause};
 
 /// A unit: the `ix:native` header, the `v` profile selecting QSL's own
 /// `DefinitionLock` root row (read from QSL, never copied here), then `body`.
@@ -49,6 +56,58 @@ fn unit(body: &str) -> String {
 
 static UNIT: LazyLock<String> =
     LazyLock::new(|| unit("function f using v(): Boolean pure { true }\n"));
+
+// Minimal model document authored for TC-019. QSL's package_input helper
+// computes its selection digest, so this test has no copied fixture or pin.
+const CANCEL_MODEL_DOCUMENT: &str = r#"{
+  "contractVersion": "2.0.0",
+  "source": {
+    "identity": "ix://driver/cancellation/model",
+    "version": "1.0.0",
+    "dialect": "spec-bundle",
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "package": {
+    "identity": "driver/cancellation-model",
+    "version": "1.0.0",
+    "manifestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "mappingVersions": [],
+    "profileVersions": [],
+    "lockDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "occurrences": [],
+  "extensions": [],
+  "constructs": [{
+    "kind": {"module": "driver/cancellation-model", "name": "entity"},
+    "moduleVersion": "1.0.0",
+    "manifestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "construct": {
+      "identity": "none",
+      "shape": "record",
+      "members": {},
+      "meaning": "quire.meaning.model.object-type/v1"
+    }
+  }],
+  "types": [{
+    "identity": "ix://driver/cancellation-model/Thing",
+    "displayName": "Thing",
+    "kind": {"module": "driver/cancellation-model", "name": "entity"},
+    "roles": [],
+    "origin": {
+      "generated": {
+        "generatorIdentity": "ix://driver/cancellation/model",
+        "generatorVersion": "1.0.0",
+        "inputIdentities": ["ix://driver/cancellation-model/Thing"]
+      }
+    },
+    "constraints": [],
+    "extensions": [],
+    "unknownPolicy": "reject",
+    "supertypes": [],
+    "fields": [],
+    "operations": []
+  }]
+}"#;
 
 /// A unit with an integer `+` (a `binary` expression) under a range
 /// `conversion` expression. The narrowing `conversion` is not a scalar
@@ -182,6 +241,8 @@ struct Recorder {
     /// (`unroutable_named_backend`), so a settlement-only test cannot tell
     /// the two uses of `named` apart (SR-013 FND-007, SR-014 FND-006).
     envelope: RefCell<Option<BackendProviderEnvelope>>,
+    /// E5's source provisions, captured while the E4 value is still alive.
+    source_provision: RefCell<Option<Vec<(SourceIdentity, String)>>>,
 }
 
 impl Recorder {
@@ -195,6 +256,13 @@ impl Recorder {
             .clone()
             .expect("negotiate was called")
     }
+
+    fn source_provision(&self) -> Vec<(SourceIdentity, String)> {
+        self.source_provision
+            .borrow()
+            .clone()
+            .expect("E5 received E4 source provision")
+    }
 }
 
 impl Upstream for Recorder {
@@ -205,21 +273,29 @@ impl Upstream for Recorder {
         bytes: &[u8],
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
+        cancel: &Cancel,
     ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal> {
         self.calls.borrow_mut().push(Call::Compile);
-        QslCg.compile(source, path, bytes, packages, limits)
+        QslCg.compile(source, path, bytes, packages, limits, cancel)
     }
 
     fn read_package(
         &self,
-        bytes: &[u8],
+        emitted: &EmittedUnit,
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageDispatchResult {
         self.calls.borrow_mut().push(Call::ReadPackage);
+        *self.source_provision.borrow_mut() = Some(
+            emitted
+                .sources()
+                .iter()
+                .map(|source| (source.identity().clone(), source.text().to_owned()))
+                .collect(),
+        );
         match &self.read_answer {
             Some(answer) => answer.clone(),
-            None => QslCg.read_package(bytes, limits, evidence),
+            None => QslCg.read_package(emitted, limits, evidence),
         }
     }
 
@@ -298,7 +374,115 @@ fn input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
         bytes: UNIT.as_bytes(),
         packages,
         limits: SpineLimits::default(),
+        cancel: Cancel::new(),
     }
+}
+
+fn cancellation_source_and_packages() -> (String, BTreeMap<[u8; 32], Vec<u8>>) {
+    let packages = qsl_semantics::model::intake::package_input([CANCEL_MODEL_DOCUMENT.as_bytes()]);
+    let digest = packages.keys().next().expect("one model document");
+    let digest_hex = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let source = unit(&format!(
+        "model M = \"driver/cancellation-model\" version \"1.0.0\" digest \"sha256-jcs:{digest_hex}\";\n\
+         function keep using v(x: M::Thing): Boolean pure {{ true }}\n"
+    ));
+    (source, packages)
+}
+
+/// Baseline QSL charge counts after parse, select, check and package. The
+/// cancellation fixture includes a model so every stage has a charged path.
+fn cancellation_boundaries(
+    source_text: &str,
+    packages: &BTreeMap<[u8; 32], Vec<u8>>,
+) -> [usize; 4] {
+    let observations = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&observations);
+    let cancel = Cancel::observing(move || {
+        seen.fetch_add(1, Ordering::SeqCst);
+    });
+    let source = SourceIdentity::new("agent-ix", "driver-cancellation", "fixture", "1");
+    let request = ParseRequest {
+        source: &source,
+        path: "cancellation-model.native",
+        bytes: source_text.as_bytes(),
+    };
+    let limits = SpineLimits::default();
+    let parsed = parse(&request, limits.source, &cancel)
+        .expect("cancellation fixture parses")
+        .into_value();
+    let after_parse = observations.load(Ordering::SeqCst);
+    let models = select(&parsed, packages, limits.model, &cancel)
+        .expect("cancellation model selects")
+        .into_value();
+    let after_select = observations.load(Ordering::SeqCst);
+    let checked = check(
+        &parsed,
+        &models,
+        &DependencyInput::default(),
+        &LockEvidence::default(),
+        limits,
+        &cancel,
+    )
+    .expect("cancellation fixture checks")
+    .into_value();
+    let after_check = observations.load(Ordering::SeqCst);
+    package(&checked, PackageLimits::default(), &cancel).expect("cancellation fixture packages");
+    let after_package = observations.load(Ordering::SeqCst);
+    assert!(0 < after_parse && after_parse < after_select);
+    assert!(after_select < after_check && after_check < after_package);
+    [after_parse, after_select, after_check, after_package]
+}
+
+/// Cancel from a second thread on exactly the target QSL charge, waiting for
+/// that thread to record the cause before the meter polls the handle.
+fn cancel_on_charge(
+    target: usize,
+    cause: CancelCause,
+) -> (Cancel, thread::JoinHandle<()>, Arc<AtomicBool>) {
+    let observations = Arc::new(AtomicUsize::new(0));
+    let timed_out = Arc::new(AtomicBool::new(false));
+    let (request_cancel, request_cancel_rx) = std::sync::mpsc::channel();
+    let (cancelled, cancelled_rx) = std::sync::mpsc::channel();
+    let cancelled_rx = Arc::new(std::sync::Mutex::new(cancelled_rx));
+    let seen = Arc::clone(&observations);
+    let ack = Arc::clone(&cancelled_rx);
+    let observer_timed_out = Arc::clone(&timed_out);
+    let cancel = Cancel::observing(move || {
+        let charge = seen.fetch_add(1, Ordering::SeqCst) + 1;
+        if charge == target {
+            if request_cancel.send(()).is_err() {
+                observer_timed_out.store(true, Ordering::SeqCst);
+                return;
+            }
+            let acknowledged = ack.lock().ok().is_some_and(|receiver| {
+                receiver
+                    .recv_timeout(std::time::Duration::from_secs(10))
+                    .is_ok()
+            });
+            if !acknowledged {
+                observer_timed_out.store(true, Ordering::SeqCst);
+            }
+        }
+    });
+    let worker_cancel = cancel.clone();
+    let worker_timed_out = Arc::clone(&timed_out);
+    let worker = thread::spawn(move || {
+        if request_cancel_rx
+            .recv_timeout(std::time::Duration::from_secs(120))
+            .is_err()
+        {
+            worker_timed_out.store(true, Ordering::SeqCst);
+            return;
+        }
+        worker_cancel.cancel(cause);
+        if cancelled.send(()).is_err() {
+            worker_timed_out.store(true, Ordering::SeqCst);
+        }
+    });
+    (cancel, worker, timed_out)
 }
 
 fn int_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
@@ -355,6 +539,130 @@ fn int_package() -> Driven {
         GenerationInput::default(),
     )
     .expect("the integer unit drives")
+}
+
+/// Trace: FR-011-AC-1 through FR-011-AC-4 (TC-019 steps 2, 3 and 5).
+#[test]
+fn tc_019_cancellation_preserves_every_stage_and_cause() {
+    let (source_text, packages) = cancellation_source_and_packages();
+    let boundaries = cancellation_boundaries(&source_text, &packages);
+    let registry = build_registry(&[]).expect("an empty registry builds");
+    let stages = [
+        SpineStage::Source,
+        SpineStage::Intake,
+        SpineStage::Check,
+        SpineStage::Emit,
+    ];
+
+    for (index, stage) in stages.into_iter().enumerate() {
+        let target = if index == 0 { 0 } else { boundaries[index - 1] } + 1;
+        for cause in [CancelCause::Requested, CancelCause::Deadline] {
+            let (cancel, worker, timed_out) = cancel_on_charge(target, cause);
+            let recorder = Recorder::default();
+            let outcome = drive(
+                &recorder,
+                CompileInput {
+                    source: SourceIdentity::new("agent-ix", "driver-cancellation", "fixture", "1"),
+                    path: "cancellation-model.native",
+                    bytes: source_text.as_bytes(),
+                    packages: &packages,
+                    limits: SpineLimits::default(),
+                    cancel,
+                },
+                &registry,
+                None,
+                GenerationInput::default(),
+            );
+            worker.join().expect("cancellation worker completes");
+            assert!(
+                !timed_out.load(Ordering::SeqCst),
+                "second-thread cancellation worker timed out at {stage:?}/{cause:?}"
+            );
+            let refusal = outcome.expect_err("a cancelled lifecycle stage returns no Driven value");
+
+            assert_eq!(refusal.stage(), DriverStage::Compile(stage));
+            assert_eq!(refusal.code(), "cancelled");
+            assert_eq!(refusal.kind(), OutcomeKind::Cancelled);
+            let category = refusal
+                .qsl_category()
+                .expect("QSL owns cancellation category");
+            assert_eq!(category, Category::Incomplete);
+            assert_eq!(category.exit_code(), Category::Incomplete.exit_code());
+            assert_eq!(category.exit_code(), 22);
+            assert!(matches!(
+                refusal,
+                DriverRefusal::Cancelled {
+                    stage: seen_stage,
+                    cause: seen_cause,
+                } if seen_stage == stage && seen_cause == cause
+            ));
+            assert_eq!(recorder.calls(), [Call::Compile]);
+        }
+    }
+
+    // An already-cancelled caller handle stops at Source before any stage
+    // work; it does not become the unshared-handle fault from FR-001.
+    let cancel = Cancel::new();
+    cancel.cancel(CancelCause::Requested);
+    let recorder = Recorder::default();
+    let refusal = drive(
+        &recorder,
+        CompileInput {
+            source: SourceIdentity::new("agent-ix", "driver-cancellation", "fixture", "1"),
+            path: "cancellation-model.native",
+            bytes: source_text.as_bytes(),
+            packages: &packages,
+            limits: SpineLimits::default(),
+            cancel,
+        },
+        &registry,
+        None,
+        GenerationInput::default(),
+    )
+    .expect_err("a pre-cancelled caller handle stops at Source");
+    assert!(matches!(
+        refusal,
+        DriverRefusal::Cancelled {
+            stage: SpineStage::Source,
+            cause: CancelCause::Requested,
+        }
+    ));
+    assert_eq!(recorder.calls(), [Call::Compile]);
+}
+
+/// Trace: FR-001-AC-9..10 and FR-011-AC-1 (TC-019 step 4).
+#[test]
+fn tc_019_e5_receives_source_provision_and_checked_unit_retains_bounded_root() {
+    let (source_text, packages) = cancellation_source_and_packages();
+    let registry = build_registry(&[]).expect("an empty registry builds");
+    let recorder = Recorder::default();
+    let source = SourceIdentity::new("agent-ix", "driver-cancellation", "fixture", "1");
+    let limits = SpineLimits::default();
+    let driven = drive(
+        &recorder,
+        CompileInput {
+            source: source.clone(),
+            path: "cancellation-model.native",
+            bytes: source_text.as_bytes(),
+            packages: &packages,
+            limits,
+            cancel: Cancel::new(),
+        },
+        &registry,
+        None,
+        GenerationInput::default(),
+    )
+    .expect("the model fixture drives with empty dependencies");
+
+    let provision = recorder.source_provision();
+    assert_eq!(provision.len(), 1, "only the root source was emitted");
+    assert_eq!(provision[0].0, source);
+    assert_eq!(provision[0].1.as_bytes(), source_text.as_bytes());
+    assert_eq!(driven.package.source().identity(), &provision[0].0);
+    assert_eq!(driven.package.source().text(), provision[0].1);
+    assert!(driven.package.source().text().len() <= limits.source.source_bytes);
+    assert!(driven.package.libraries().is_empty());
+    assert_eq!(recorder.calls()[..2], [Call::Compile, Call::ReadPackage]);
 }
 
 /// `EQ_UNIT` driven with an empty registry: its E5 package.

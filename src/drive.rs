@@ -12,6 +12,7 @@ use qsl_route::{BackendId, Candidate, CandidateOutcome, Mode, Registry};
 use quire_contract_codegen as cg;
 use quire_contract_codegen::{BackendKind, ItemSettlement, RoutedGeneration};
 use quire_contract_model::{CheckedNodeId, CheckedPackageV2};
+use quire_exact::Cancel;
 
 use crate::handoff::handoff;
 use crate::{DriverFault, DriverRefusal, Upstream};
@@ -30,6 +31,9 @@ pub struct CompileInput<'a> {
     pub packages: &'a BTreeMap<[u8; 32], Vec<u8>>,
     /// The S1 to S3 stage limits.
     pub limits: SpineLimits,
+    /// The caller-owned QSL cancellation handle. Pass a clone when the caller
+    /// must retain the ability to cancel this operation from another thread.
+    pub cancel: Cancel,
 }
 
 /// One item settled `supported` and routed: the input CG generation takes.
@@ -114,10 +118,14 @@ pub fn drive(
         input.bytes,
         input.packages,
         input.limits,
+        &input.cancel,
     )?;
     let emitted = emitted_unit.package().clone();
     // E5: IR admits the emitted bytes at the emitted `package_id`.
     let checked = handoff(upstream, &input, &emitted_unit)?;
+    // E4's source provision is needed through E5 for diagnostics, then the
+    // returned CheckedUnit remains the driver's bounded source owner.
+    drop(emitted_unit);
 
     // FR-075: one item per requirement record, in occurrence-key order.
     let items = items_from_requirements(

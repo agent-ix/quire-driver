@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! E5 (ADR-011 §2.1): the E4 v2 bytes handed to IR's checked-package reader,
-//! admitted only at the `package_id` E4 emitted them under.
+//! admitted only at the `package_id` E4 emitted them under. The complete E4
+//! value remains available through admission for bounded diagnostic sources.
 
 use quire_contract_model::{
     CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
@@ -22,19 +23,16 @@ pub(crate) fn handoff(
 ) -> Result<CheckedPackageV2, DriverRefusal> {
     let evidence = evidence(input);
     let emitted_package = emitted.package();
-    let package = match upstream.read_package(
-        emitted_package.bytes(),
-        CheckedPackageReadLimits::bounded(),
-        &evidence,
-    ) {
-        CheckedPackageDispatchResult::AdmittedV2(package) => *package,
-        CheckedPackageDispatchResult::Refused(refusal) => {
-            return Err(DriverRefusal::Fault(DriverFault::HandoffRefused(refusal)))
-        }
-        CheckedPackageDispatchResult::Incomplete(incomplete) => {
-            return Err(DriverRefusal::HandoffLimit(incomplete))
-        }
-    };
+    let package =
+        match upstream.read_package(emitted, CheckedPackageReadLimits::bounded(), &evidence) {
+            CheckedPackageDispatchResult::AdmittedV2(package) => *package,
+            CheckedPackageDispatchResult::Refused(refusal) => {
+                return Err(DriverRefusal::Fault(DriverFault::HandoffRefused(refusal)))
+            }
+            CheckedPackageDispatchResult::Incomplete(incomplete) => {
+                return Err(DriverRefusal::HandoffLimit(incomplete))
+            }
+        };
     let expected = emitted_package.package_id().hex();
     if package.package_id().digest.as_ref() != expected {
         return Err(DriverRefusal::Fault(DriverFault::PackageIdMismatch {

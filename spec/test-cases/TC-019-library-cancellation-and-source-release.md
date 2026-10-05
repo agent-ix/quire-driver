@@ -66,5 +66,6 @@ Scope: FR-001-AC-9 through FR-001-AC-10, FR-011-AC-1 through FR-011-AC-5.
   the current empty dependency input it contains only the root source.
 - No CLI signal or timeout behavior is claimed by this test.
 
-Test location: planned driver library integration tests and API/lifetime
-review.
+Test location: `tests/drive.rs::tc_019_cancellation_preserves_every_stage_and_cause`
+and `tests/drive.rs::tc_019_e5_receives_source_provision_and_checked_unit_retains_bounded_root`;
+the public API and ownership boundary are also subject to review.
