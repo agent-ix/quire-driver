@@ -146,6 +146,9 @@ add library-source intake or expand that baseline contract.
 - IR admission and checked types come from `quire-contract-model`, not a
   driver-local representation. The driver, CG and QSL use one copy of that
   model type, enforced by compilation and the existing TC-005 graph check.
+- FR-011's public cancellation input is QSL's `quire_exact::Cancel` handle, so
+  the driver has a direct `quire-exact` edge to expose and pass that type; QSL
+  retains cancellation semantics and cause ownership.
 - FR-001 and TC-005 describe the existing orchestrator's dependency graph.
   The frontend and non-core components added under ADR-029 CB-3 sit above
   the driver core. An argument parser, terminal renderer, plugin host, cache

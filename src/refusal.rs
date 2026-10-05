@@ -4,6 +4,7 @@
 //! them.
 
 use qsl_foundation::diagnostic::InternalFault;
+use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::Code;
 use qsl_replay::spine::{CompileRefusal, SpineStage};
@@ -13,6 +14,7 @@ use quire_contract_codegen::{
     EnvelopeRefusal, KaniObligationError, OracleGenerationError, RoutedGenerationError,
 };
 use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageRefusal};
+use quire_exact::CancelCause;
 
 /// Why [`crate::drive`] or [`crate::build_registry`] produced no result.
 #[derive(Debug, thiserror::Error)]
@@ -27,6 +29,14 @@ pub enum DriverRefusal {
     /// S1 to S4, or the E4 emitter, refused the unit.
     #[error("{0}")]
     Compile(Box<CompileRefusal>),
+    /// QSL stopped a lifecycle stage because the caller cancelled its handle.
+    #[error("QSL {stage:?} lifecycle cancelled: {cause:?}")]
+    Cancelled {
+        /// The QSL lifecycle stage that stopped.
+        stage: SpineStage,
+        /// The caller's cancellation cause, unchanged.
+        cause: CancelCause,
+    },
     /// MD-2: a registered `BackendId` has no CG backend kind. Every
     /// unconverted id, in bytewise order. Raised before any negotiation.
     #[error("invalid_capability/unknown-backend: no CG backend kind for {}", join(.backends))]
@@ -141,14 +151,17 @@ pub enum DriverStage {
     Generation,
 }
 
-/// The terminal outcome kind a refusal maps to (ADR-011 §2.3, §5): a
-/// refusal, a limit refusal and an internal fault are distinct.
+/// The terminal outcome kind a refusal maps to (ADR-011 §2.3, §5): input
+/// refusal, limit, cancellation incompletion and internal fault remain
+/// distinct.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OutcomeKind {
     /// The input was refused.
     Refused,
     /// A stage reached one of its limits.
     Limit,
+    /// A caller cancellation stopped a lifecycle operation.
+    Incomplete,
     /// An internal invariant was violated.
     Fault,
 }
@@ -158,6 +171,14 @@ impl DriverRefusal {
     pub fn qsl_category(&self) -> Option<Category> {
         match self {
             Self::EmptyBackendIdentity(refusal) => Some(refusal.category()),
+            Self::Cancelled { cause, .. } => {
+                // `StageFailure::Cancelled` has a category independent of
+                // its refusal payload. `LimitExceeded` satisfies the generic
+                // catalog bound without inventing a driver cancellation map.
+                let failure: StageFailure<qsl_foundation::diagnostic::LimitExceeded> =
+                    StageFailure::Cancelled(*cause);
+                Some(failure.category())
+            }
             _ => None,
         }
     }
@@ -170,6 +191,7 @@ impl DriverRefusal {
     pub fn code(&self) -> String {
         match self {
             Self::EmptyBackendIdentity(refusal) => refusal.code().as_str().to_owned(),
+            Self::Cancelled { .. } => Code::Cancelled.as_str().to_owned(),
             Self::Registration(refusals) => refusals.first().map_or_else(
                 || "invalid_capability".to_owned(),
                 |refusal| refusal.catalog_code().to_string(),
@@ -191,6 +213,7 @@ impl DriverRefusal {
             Self::EmptyBackendIdentity(_) => DriverStage::Registry,
             Self::Registration(_) => DriverStage::Registry,
             Self::Compile(refusal) => DriverStage::Compile(refusal.stage()),
+            Self::Cancelled { stage, .. } => DriverStage::Compile(*stage),
             Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
                 DriverStage::Conversion
             }
@@ -215,6 +238,7 @@ impl DriverRefusal {
     pub fn kind(&self) -> OutcomeKind {
         match self {
             Self::EmptyBackendIdentity(_) => OutcomeKind::Refused,
+            Self::Cancelled { .. } => OutcomeKind::Incomplete,
             Self::Compile(refusal) if refusal.code() == Code::StageLimitExceeded => {
                 OutcomeKind::Limit
             }

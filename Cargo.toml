@@ -29,11 +29,11 @@ qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = 
 qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", branch = "main" }
 quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", branch = "main" }
+# QSL's caller-owned cancellation handle is a public driver API type.
+quire-exact = { git = "https://github.com/agent-ix/quire-exact", branch = "main" }
 thiserror = "=2.0.20"
 
 [dev-dependencies]
-# Lifecycle cancellation tests construct QSL's typed cancellation cause.
-quire-exact = { git = "https://github.com/agent-ix/quire-exact", branch = "main" }
 # `serde_json` is no longer needed to read the diagnostics catalog back off
 # the emitted wire (QSL-260 is closed by #453; see src/handoff.rs), so it is
 # no longer a normal dependency. This crate's own tests still use it: to

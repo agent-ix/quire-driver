@@ -118,8 +118,9 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     assert_eq!(graph.package(&graph.root).name, "quire-driver");
 
     // §6.1 driver row: the driver's normal and build edges are QSL layer
-    // crates, CG, IR's model crate (E5's reader and `CheckedNodeId`) and one
-    // error-derive crate. Never the QSL root crate. `serde_json` is a
+    // crates, quire-exact (QSL's caller-owned Cancel API), CG, IR's model
+    // crate (E5's reader and `CheckedNodeId`) and one error-derive crate.
+    // Never the QSL root crate. `serde_json` is a
     // dev-dependency (this crate's own tests use it), so it is not one of
     // these normal/build edges.
     let direct: BTreeSet<&str> = graph
@@ -132,6 +133,7 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         "qsl-replay",
         "qsl-route",
         "qsl-semantics",
+        "quire-exact",
         "quire-contract-codegen",
         "quire-contract-model",
         "thiserror",

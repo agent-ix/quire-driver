@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, package, parse, refusal_or_fault, select, CheckedUnit, DependencyInput, EmittedUnit,
@@ -24,6 +25,7 @@ use quire_contract_model::{
     read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageReadLimits, CheckedPackageV2,
 };
+use quire_exact::Cancel;
 
 use crate::{DriverFault, DriverRefusal};
 
@@ -47,12 +49,18 @@ impl LifecycleOperation {
 }
 
 fn driver_refusal(failure: FrontEndFailure, operation: LifecycleOperation) -> DriverRefusal {
-    match refusal_or_fault(failure) {
-        Ok(refusal) => DriverRefusal::Compile(refusal),
-        Err(fault) => DriverRefusal::Fault(DriverFault::Spine {
+    match failure {
+        StageFailure::Cancelled(cause) => DriverRefusal::Cancelled {
             stage: operation.stage(),
-            fault,
-        }),
+            cause,
+        },
+        failure => match refusal_or_fault(failure) {
+            Ok(refusal) => DriverRefusal::Compile(refusal),
+            Err(fault) => DriverRefusal::Fault(DriverFault::Spine {
+                stage: operation.stage(),
+                fault,
+            }),
+        },
     }
 }
 
@@ -61,7 +69,8 @@ pub trait Upstream {
     /// S1 to S4 and the E4 emitter, composed from QSL's typed lifecycle
     /// operations. The driver supplies no libraries (ADR-015 D-1): it does
     /// not yet support compiling a unit's `import`s against caller-supplied
-    /// library source.
+    /// library source. `cancel` is the caller's handle and is passed unchanged
+    /// to each QSL lifecycle call.
     fn compile(
         &self,
         source: SourceIdentity,
@@ -69,13 +78,15 @@ pub trait Upstream {
         bytes: &[u8],
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
+        cancel: &Cancel,
     ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal>;
 
     /// E5: IR's checked-package reader,
-    /// `quire_contract_model::read_checked_package`.
+    /// `quire_contract_model::read_checked_package`. The full E4 value remains
+    /// available here so E5 adapters can consult its bounded source provisions.
     fn read_package(
         &self,
-        bytes: &[u8],
+        emitted: &EmittedUnit,
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageDispatchResult;
@@ -115,19 +126,17 @@ impl Upstream for QslCg {
         bytes: &[u8],
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
+        cancel: &Cancel,
     ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal> {
-        // All four typed lifecycle operations share one handle. The driver
-        // owns this handle until a caller-facing cancellation API is added.
-        let cancel = Default::default();
         let request = ParseRequest {
             source: &source,
             path,
             bytes,
         };
-        let parsed = parse(&request, limits.source, &cancel)
+        let parsed = parse(&request, limits.source, cancel)
             .map_err(|failure| driver_refusal(failure, LifecycleOperation::Parse))?
             .into_value();
-        let models = select(&parsed, packages, limits.model, &cancel)
+        let models = select(&parsed, packages, limits.model, cancel)
             .map_err(|failure| driver_refusal(failure, LifecycleOperation::Select))?
             .into_value();
         let checked = check(
@@ -136,11 +145,11 @@ impl Upstream for QslCg {
             &DependencyInput::default(),
             &LockEvidence::default(),
             limits,
-            &cancel,
+            cancel,
         )
         .map_err(|failure| driver_refusal(failure, LifecycleOperation::Check))?
         .into_value();
-        let emitted = package(&checked, PackageLimits::default(), &cancel)
+        let emitted = package(&checked, PackageLimits::default(), cancel)
             .map_err(|failure| driver_refusal(failure, LifecycleOperation::Package))?
             .into_value();
         Ok((checked, emitted))
@@ -148,11 +157,11 @@ impl Upstream for QslCg {
 
     fn read_package(
         &self,
-        bytes: &[u8],
+        emitted: &EmittedUnit,
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageDispatchResult {
-        read_checked_package(bytes, limits, evidence)
+        read_checked_package(emitted.package().bytes(), limits, evidence)
     }
 
     fn backend_kind(&self, id: &BackendId) -> Option<BackendKind> {
@@ -214,22 +223,24 @@ mod tests {
         }
     }
 
-    /// Trace: FR-001-AC-5
+    /// Trace: FR-011-AC-2, FR-011-AC-3 and FR-011-AC-4.
     #[test]
-    fn lifecycle_cancellation_is_an_internal_fault_at_the_operation_stage() {
+    fn lifecycle_cancellation_is_incomplete_and_preserves_stage_and_cause() {
         for (operation, expected_stage) in OPERATIONS {
             for cause in [CancelCause::Requested, CancelCause::Deadline] {
                 let refusal = driver_refusal(StageFailure::Cancelled(cause), operation);
-                assert_eq!(refusal.code(), "runtime_invariant");
-                assert_eq!(refusal.kind(), OutcomeKind::Fault);
+                assert_eq!(refusal.code(), "cancelled");
+                assert_eq!(refusal.kind(), OutcomeKind::Incomplete);
                 assert_eq!(refusal.stage(), DriverStage::Compile(expected_stage));
-                let DriverRefusal::Fault(DriverFault::Spine { fault, .. }) = refusal else {
-                    panic!("unexpected cancellation must be an internal fault");
-                };
                 assert_eq!(
-                    fault,
-                    InternalFault::new("spine", "cancelled-without-a-shared-handle")
+                    refusal.qsl_category(),
+                    Some(qsl_replay::Category::Incomplete)
                 );
+                let DriverRefusal::Cancelled { stage, cause: seen } = refusal else {
+                    panic!("QSL cancellation must remain a distinct typed result");
+                };
+                assert_eq!(stage, expected_stage);
+                assert_eq!(seen, cause);
             }
         }
     }
