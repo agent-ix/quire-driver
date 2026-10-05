@@ -14,8 +14,9 @@ name = "quire_driver"
 path = "src/lib.rs"
 
 # ADR-011 §6.1 driver row: the driver depends on the QSL layer crates, on CG
-# and on IR's model crate (the E5 v2 reader and `CheckedNodeId`), and nothing
-# depends on it. It is downstream of CG because CG -> QSL
+# and on IR's model crate (the E5 v2 reader and `CheckedNodeId`), and no QSL,
+# IR or CG package depends on it. Downstream packages such as `quire-cache`
+# may depend on its interface. It is downstream of CG because CG -> QSL
 # (`qsl-replay`) is a normal edge and Cargo refuses a package cycle.
 #
 # The QSL layer crates and CG are tracked on `main` of their repositories, the

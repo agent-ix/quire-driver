@@ -30,9 +30,17 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-driver/FR-011
     type: references
+  - target: ix://agent-ix/quire-driver/FR-012
+    type: references
   - target: ix://agent-ix/quire-driver/TM-001
     type: references
   - target: ix://agent-ix/quire-driver/TC-019
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-020
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-021
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-022
     type: references
   - target: ix://agent-ix/quire-spec-language/ADR-011
     type: references
@@ -56,8 +64,8 @@ relationships:
 IR-527 reconciles this seam description with QSL ADR-029 and the merged
 SP-D1 through SP-D9 requirements. It absorbs IR-351's driver specification,
 architecture and verification-inventory work. [The master specification](../spec.md)
-and [TM-001](../tests.md) integrate FR-001 through FR-010 and TC-001 through
-TC-018. This architecture describes their composition and ownership; the
+and [TM-001](../tests.md) integrate FR-001 through FR-012 and TC-001 through
+TC-022. This architecture describes their composition and ownership; the
 discrete requirements supply the normative acceptance criteria.
 
 ## System Boundary
@@ -79,10 +87,16 @@ terminal value. The driver defines no alternative to these contracts.
 
 QSL ADR-029 also defines the plugin, cache and execution-backend contracts.
 Its CB-3 places the host, cache, AOT adapter and CLI outside the qualified core
-in downstream driver-repository components. That placement does not transfer
-their policy to the driver: FR-006 through FR-008 specify dispatch and typed
-input/result preservation against QSL's PL, CA and EB contracts. This
-reconciliation neither implements those components nor changes their APIs.
+in driver-repository components. The driver repository owns and provides the
+one user-facing binary. Its current target and the IR-607 follow-up to the
+separate `quire-cli` crate are defined in [the system overview](../spec.md#3-system-overview).
+The `quire-driver` package owns the cache interface and SHALL NOT depend on
+the concrete `quire-cache` package. `quire-cache` implements that interface
+as a downstream component; the current binary target does not compose it.
+FR-006 through FR-008 specify
+dispatch and typed input/result preservation against QSL's PL, CA and EB
+contracts; FR-012 specifies the concrete cache component under QSL's CA
+policy.
 
 ## Views
 
@@ -104,7 +118,8 @@ failure ownership across the driver and its upstream libraries.
 | Routing | QSL `qsl-route` | Route after negotiation and only for supported items; retain request indices and checked-node identity | FR-001 / TC-003 |
 | Generation and publication | CG `generate_routed` and CG FR-005 | Supply only routed, relation-bound items and caller contexts; carry generation output and CG-derived claim map without re-derivation | FR-001, FR-010 / TC-006, TC-007, TC-017 |
 | First-party and process-provider execution | Driver `Provider` trait; QSL ADR-029 PV and PL | Invoke only the selected providers with the current emitted package, their negotiated items, limits and cancellation; pass typed results into proof settlement | FR-005..FR-006 / TC-012..TC-013 |
-| Eligible cache calls | QSL ADR-029 CA-1..CA-5 | Supply the typed request, selected provider's exact manifest bytes and cache configuration; preserve the returned typed result | FR-007 / TC-014 |
+| Eligible cache calls | Driver cache interface and QSL ADR-029 CA-1..CA-5 | Supply operation, package and provider identity, admitted `ManifestDigest`, typed request and generation options; preserve typed hit/miss results without depending on `quire-cache` | FR-007 / TC-014 |
+| Cache key and storage | `quire-cache`, implementing QSL ADR-029 CA-1..CA-5 | Derive and verify content identity, enforce typed reads, storage policy and caller byte limits | FR-012 / TC-020..TC-022 |
 | AOT execution | QSL ADR-029 EB | Pass the current checked package, selected entries, limits, cancellation and named toolchain to the selected backend; preserve failures without switching engines | FR-008 / TC-015 |
 | Counterexample replay | QSL S6a / replay operation | Replay each provider counterexample through QSL; retain execution and replay as distinct inputs to settlement | FR-009 / TC-016 |
 | Terminal settlement and outcome recording | CG FR-331 mapping, QSL terminal/outcome types | Call the authoritative mapping with provider result and replay result; write exactly one terminal record per requested item, including unsupported and incomplete items | FR-009 / TC-016 |
@@ -140,9 +155,10 @@ add library-source intake or expand that baseline contract.
 ### Dependency direction and frontend placement
 
 - QSL, IR and CG do not depend on the driver. The driver library depends on
-  their layer/model APIs; the CLI and `quire-integration` consume those
-  libraries downstream. CG's QSL seam remains `qsl-replay`; the driver may
-  call QSL layer crates directly (ADR-011 §6.1, FB-11).
+  their layer/model APIs; downstream components and `quire-cache` may
+  consume its cache interface. The `quire-driver` package does not depend on
+  `quire-cache`. CG's QSL seam remains `qsl-replay`; the driver may call QSL
+  layer crates directly (ADR-011 §6.1, FB-11).
 - IR admission and checked types come from `quire-contract-model`, not a
   driver-local representation. The driver, CG and QSL use one copy of that
   model type, enforced by compilation and the existing TC-005 graph check.
@@ -151,8 +167,11 @@ add library-source intake or expand that baseline contract.
   retains cancellation semantics and cause ownership.
 - FR-001 and TC-005 describe the existing orchestrator's dependency graph.
   The frontend and non-core components added under ADR-029 CB-3 sit above
-  the driver core. An argument parser, terminal renderer, plugin host, cache
-  or alternate execution backend does not become a dependency of the core.
+  the driver core. The `quire-driver` package SHALL NOT depend on
+  `quire-cache`; the separate `quire-cli` crate will compose its implementation
+  of the driver's cache interface after the IR-607 split. An argument parser, terminal renderer, plugin
+  host, cache implementation or alternate execution backend does not become
+  a dependency of the core.
 - `ix-cli-kit` supplies shared command/output, configuration and version
   mechanics at the frontend. The CLI passes QSL's numeric category exit
   result unchanged to `std::process::ExitCode` until a kit pass-through is
@@ -190,7 +209,7 @@ failures; the driver and ix-cli-kit introduce no additional mapping.
 | Decision | Reason and observable tradeoff |
 |---|---|
 | One user-facing CLI in the driver repository | It can see every lifecycle stage without a QSL-to-CG dependency cycle. QSL supplies library operations; a separate CG CLI would duplicate the user contract. |
-| Policy remains with each domain owner | Driver tests can check sequence, inputs, dispatch and unchanged typed results. Plugin/cache/AOT semantic conformance stays with QSL, admission with IR, and generation/settlement with CG. |
+| Policy remains with each domain owner | Driver tests can check sequence, inputs, dispatch and unchanged typed results. QSL owns plugin/cache/AOT contracts; the downstream `quire-cache` component implements CA-1..CA-5, admission stays with IR, and generation/settlement stays with CG. |
 | Replay precedes counterexample settlement | `refuted` requires reproduction under QSL's reference semantics. Failed parity remains inconclusive; the driver calls CG's mapping rather than constructing another one. |
 | Core and frontend dependency closures are separate | Shared CLI mechanics and non-core adapters remain usable without pulling them into the qualified core. No additional qualification binary is delivered by this reconciliation. |
 | Library callers own cancellation | Realtime and embedded callers can stop a run without a process signal or driver-owned timer; a CLI trigger can later remain a thin adapter over the same handle. The driver adds no polling or exit mapping. |
@@ -199,9 +218,10 @@ failures; the driver and ix-cli-kit introduce no additional mapping.
 
 The requirement/test inventory in TM-001 is the checkable expression of these
 decisions. FR-002..FR-010 correspond to SP-D1..SP-D9; FR-001 retains the
-existing generation seam. CG FR-005's CLI-facing conformance and IR-337's
-parity/bound-suite obligations feed G5b through the one binary. CG continues
-to own local atomic publication and generation checks.
+existing generation seam, and FR-012 owns the downstream cache implementation.
+CG FR-005's CLI-facing conformance and IR-337's parity/bound-suite obligations
+feed G5b through the application binary. CG continues to own local atomic
+publication and generation checks.
 
 ## Risks
 
@@ -213,7 +233,7 @@ The merged FR-002..FR-010 and TC-009..TC-018 specify the planned extension.
 | Open work or risk | Owner | Required evidence / review point |
 |---|---|---|
 | The upstream lifecycle APIs can change across repositories | Driver maintenance | Keep the adapter aligned with the typed QSL/IR/CG APIs; the IR-606 adaptation is merged in PR #14. |
-| CLI, caller limits/cancellation/engine selection and provider/plugin/cache composition remain planned | IR-607, IR-608, IR-609, IR-616 | Implement and run TC-009..TC-014 and TC-018..TC-019 against their owning contracts. CLI signal/deadline integration is not claimed by FR-011. |
+| CLI, caller limits/cancellation/engine selection and provider/plugin/cache composition remain planned | IR-607, IR-608, IR-609, IR-616 | Implement and run TC-009..TC-014, TC-018..TC-022 against their owning contracts. TC-014 verifies the injected interface; TC-020..TC-022 verify the separate cache package. CLI signal/deadline integration is not claimed by FR-011. |
 | AOT and execute/replay/terminal-record chain remain planned | IR-610, with CG's terminal-map owner | Run TC-015..TC-016 with paired provider/replay inputs and complete per-item accounting. CG AD-003 is merged (CG PR #214); its merge does not establish terminal-map implementation. |
 | Relation-bound CG input depends on QSL AR2 | QSL-514 / [QSL FR-307](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-307-export-the-bindings-each-item-references.md) (bound-item export and per-item refusals) | Run TC-017 in the QSL-owned `quire-integration` test once AR2 is available. |
 | ix-cli-kit's typed exit model cannot carry QSL category codes | PLAT-1140; driver FR-002 | Preserve QSL's returned numeric code at the process boundary; adopt a kit pass-through only if it preserves that value. |
