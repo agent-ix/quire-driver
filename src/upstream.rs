@@ -230,7 +230,7 @@ mod tests {
             for cause in [CancelCause::Requested, CancelCause::Deadline] {
                 let refusal = driver_refusal(StageFailure::Cancelled(cause), operation);
                 assert_eq!(refusal.code(), "cancelled");
-                assert_eq!(refusal.kind(), OutcomeKind::Incomplete);
+                assert_eq!(refusal.kind(), OutcomeKind::Cancelled);
                 assert_eq!(refusal.stage(), DriverStage::Compile(expected_stage));
                 assert_eq!(
                     refusal.qsl_category(),

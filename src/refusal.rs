@@ -160,8 +160,9 @@ pub enum OutcomeKind {
     Refused,
     /// A stage reached one of its limits.
     Limit,
-    /// A caller cancellation stopped a lifecycle operation.
-    Incomplete,
+    /// A caller cancellation stopped a lifecycle operation. Use
+    /// [`DriverRefusal::qsl_category`] for QSL's broader incomplete category.
+    Cancelled,
     /// An internal invariant was violated.
     Fault,
 }
@@ -238,7 +239,7 @@ impl DriverRefusal {
     pub fn kind(&self) -> OutcomeKind {
         match self {
             Self::EmptyBackendIdentity(_) => OutcomeKind::Refused,
-            Self::Cancelled { .. } => OutcomeKind::Incomplete,
+            Self::Cancelled { .. } => OutcomeKind::Cancelled,
             Self::Compile(refusal) if refusal.code() == Code::StageLimitExceeded => {
                 OutcomeKind::Limit
             }
