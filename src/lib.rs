@@ -45,6 +45,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod cli;
 mod drive;
 mod handoff;
 mod refusal;
