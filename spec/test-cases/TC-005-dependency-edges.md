@@ -12,7 +12,7 @@ relationships:
 
 Verify the driver's place in the crate graph from `cargo metadata`.
 
-Scope: FR-001-AC-1, FR-001-AC-11 and FR-012-AC-14.
+Scope: FR-001-AC-1, FR-001-AC-11 and FR-012-AC-13.
 
 ## Test Procedure
 
@@ -35,9 +35,9 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
   closure is `quire-cache`.
 - The driver's `quire-contract-model` is the package CG's
   `quire-contract-ir` depends on.
-- The workspace has a `quire-driver` package and a separate downstream
-  `quire-cache` package that depends on the driver-owned interface. No
-  transitive normal/build path leads from `quire-driver` to `quire-cache`.
+- If the workspace has a `quire-cache` package, it is separate from
+  `quire-driver` and depends on the driver-owned interface. No transitive
+  normal/build path leads from `quire-driver` to `quire-cache`.
 - No QSL, IR or CG package depends on `quire-driver`. `quire-cache` depends on
   the driver-owned interface; `quire-cli` may depend on the driver interface.
 - CG's one normal or build edge into QSL is `qsl-replay`.

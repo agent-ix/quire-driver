@@ -88,12 +88,11 @@ terminal value. The driver defines no alternative to these contracts.
 QSL ADR-029 also defines the plugin, cache and execution-backend contracts.
 Its CB-3 places the host, cache, AOT adapter and CLI outside the qualified core
 in driver-repository components. The driver repository owns and provides the
-one user-facing binary. Today it is a bin target in the `quire-driver`
-package; the target layout names a separate `quire-cli` crate. Moving the bin
-target is a follow-up under IR-610/CLI work, not part of this spec change. The
-`quire-driver` package owns the cache interface and SHALL NOT depend on the
-concrete `quire-cache` package. `quire-cache` implements that interface as a
-downstream component, and the binary composition includes both packages.
+one user-facing binary. Its current target and the IR-607 follow-up to the
+separate `quire-cli` crate are defined in [the system overview](../spec.md#3-system-overview).
+The `quire-driver` package owns the cache interface and SHALL NOT depend on
+the concrete `quire-cache` package. `quire-cache` implements that interface
+as a downstream component; the current binary target does not compose it.
 FR-006 through FR-008 specify
 dispatch and typed input/result preservation against QSL's PL, CA and EB
 contracts; FR-012 specifies the concrete cache component under QSL's CA
@@ -169,8 +168,8 @@ add library-source intake or expand that baseline contract.
 - FR-001 and TC-005 describe the existing orchestrator's dependency graph.
   The frontend and non-core components added under ADR-029 CB-3 sit above
   the driver core. The `quire-driver` package SHALL NOT depend on
-  `quire-cache`; the binary composition injects its implementation of the
-  driver's cache interface. An argument parser, terminal renderer, plugin
+  `quire-cache`; the separate `quire-cli` crate will compose its implementation
+  of the driver's cache interface after the IR-607 split. An argument parser, terminal renderer, plugin
   host, cache implementation or alternate execution backend does not become
   a dependency of the core.
 - `ix-cli-kit` supplies shared command/output, configuration and version

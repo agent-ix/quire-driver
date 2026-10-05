@@ -50,6 +50,7 @@ scripts/               # local tooling
 
 QSL ADR-011 §6.1: the `quire-driver` package depends on the QSL layer crates
 and CG. Do not add a dependency from `quire-driver` to the downstream
-`quire-cache` package; the driver-repository binary composition supplies the
-cache interface implementation. Do not add a dependency on the QSL root crate
+`quire-cache` package. The current binary target cannot depend on it; IR-607
+moves the binary to `quire-cli` before cache composition. Do not add a
+dependency on the QSL root crate
 `quire-spec-language`; `tests/dependency_edges.rs` fails if one appears.

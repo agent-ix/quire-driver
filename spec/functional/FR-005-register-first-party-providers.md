@@ -47,6 +47,11 @@ registry to the lifecycle operation that uses it.
   and cancellation handle to the selected provider without altering them.
 - The driver SHALL preserve provider results as typed values without
   inferring them from provider diagnostic text.
+- The driver SHALL apply QSL registry duplicate rules to linked providers and
+  process-provider manifests. An identical identity/digest pair is idempotent;
+  conflicting manifests for one `BackendId` withdraw that identity, leaving
+  its items declined rather than invoking either provider (QSL FR-075-AC-2,
+  FR-290-AC-9/10 and QSL-637).
 
 ## Acceptance Criteria
 
@@ -55,6 +60,7 @@ registry to the lifecycle operation that uses it.
 | FR-005-AC-1 | A first-party provider implementing `Provider` returns its FR-331 manifest, which the driver registers with the backend identity equal to the manifest identity. | Test (TC-012) |
 | FR-005-AC-2 | The provider receives the same emitted package, routed request, limits and cancellation handle supplied by the driver, and its typed results are returned without semantic changes. | Test (TC-012) |
 | FR-005-AC-3 | Two providers with distinct manifest identities are registered as distinct backends; a run invokes only the provider selected for its routed items. | Test (TC-012) |
+| FR-005-AC-4 | Identical manifests for one `BackendId` are idempotent; conflicting manifest digests withdraw the identity and its items are declined without invoking either provider. | Test (TC-012) |
 
 ## Dependencies
 

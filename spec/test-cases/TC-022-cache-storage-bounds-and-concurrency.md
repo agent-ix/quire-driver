@@ -13,7 +13,7 @@ relationships:
 Verify cache write, replacement, eviction and concurrent insertion against the
 caller's per-entry and total-store limits.
 
-Scope: FR-012-AC-5 through FR-012-AC-7.
+Scope: FR-012-AC-9 through FR-012-AC-12.
 
 ## Test Procedure
 

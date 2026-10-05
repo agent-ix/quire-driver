@@ -45,18 +45,16 @@ CA-5. It is a separate package and SHALL depend on the driver interface; the
 - The cache key SHALL be SHA-256 over JCS of an object with members `operation`,
   `package_id`, `request`, `backend`, `manifest`, and `target` for `generate`
   only. `backend` is the identity string from `BackendId`; `manifest` is the
-  registry-admitted `ManifestDigest` computed by QSL from canonical FR-331
-  manifest bytes. QSL-636 amends QSpec FR-201/FR-306, QSL FR-288 and ADR-029
-  CA-2 to require this content identity in the key; the manifest digest is
-  explicit JCS input and is not re-derived by this cache.
+  admitted `ManifestDigest`, using QSL's canonical serialization for that
+  typed digest. The cache SHALL use the `ManifestDigest` value supplied by the
+  registry descriptor and SHALL NOT rehash the manifest or invent a separate
+  digest spelling. QSL-636 amends QSpec FR-201/FR-306 and ADR-029 CA-2 to
+  require this content identity in the key.
 - The cache represents generation target and output-affecting options in the
   `target` member. For other operations, the cache omits that member. When
   deriving a key, the cache SHALL exclude paths, timestamps, deadlines,
   recorded pins/revisions, application version, wall time and execution-backend
   labels.
-- The driver SHALL admit the provider manifest through the registry and reject
-  any identity mismatch before constructing `CacheRequest`; `ManifestDigest`
-  is the digest from that admitted descriptor.
 - A lookup SHALL return a hit only when the named entry is present, canonical,
   within the per-entry limit, has a filename matching the requested key, has a
   preimage and digest matching the requested `CacheRequest`, and is accepted by
@@ -72,38 +70,35 @@ CA-5. It is a separate package and SHALL depend on the driver interface; the
   insertion. Temporary files count toward total-store bytes until removed. The
   cache removes its own abandoned temporary files and inspects entries without
   following symlinks. These filesystem policies are this component's storage
-  choices under CA-3.
+  choices under ADR-029 CA-3 and CA-4; they include the per-entry size bound
+  and `NotStored` on an over-capacity insertion.
 - The cache returns `NotStored` for an entry above the per-entry limit or one
   that cannot fit the configured total-store limit after eviction. The cache
   uses no index or ledger; it derives keys from entries and request input
   (ADR-029 CA-3).
-- The per-entry size bound, temporary-file cleanup policy and no-follow symlink
-  handling are driver-side storage choices under ADR-029 CA-3; temporary bytes
-  count against the total-store limit until cleanup removes them.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-012-AC-1 | The key preimage is JCS with operation, package identity, canonical request, backend identity, and manifest digest; `generate` also has a target member. | Test (TC-020) |
-| FR-012-AC-2 | Changed manifest content changes the admitted `ManifestDigest` and derived key when identity and pin remain unchanged. | Test (TC-020) |
-| FR-012-AC-3 | Registry admission rejects a manifest identity mismatch before the driver constructs `CacheRequest`. | Test (TC-020) |
-| FR-012-AC-4 | Changing a meaning input changes the derived key. | Test (TC-020) |
-| FR-012-AC-5 | Changing excluded path, time, deadline, pin, revision, application version or execution-backend label leaves the key unchanged. | Test (TC-020) |
-| FR-012-AC-6 | The `target` member occurs for generate and is absent for prove and analyze. | Test (TC-020) |
-| FR-012-AC-7 | A valid present entry accepted by the requested typed reader is returned as a hit; absent or invalid entries are misses. | Test (TC-021) |
-| FR-012-AC-8 | ADR-029 CA-5 excluded values return `NeverStore`. | Test (TC-021) |
-| FR-012-AC-9 | A deterministic-budget incomplete result within size limits is stored and readable. | Test (TC-021) |
-| FR-012-AC-10 | An entry above the per-entry limit returns `NotStored`. | Test (TC-021) |
-| FR-012-AC-11 | Atomic rename from a temporary file publishes each entry; direct final-name writes are absent, temporary files count toward capacity, and cleanup removes abandoned temporary files without following symlinks. | Test (TC-022) |
-| FR-012-AC-12 | Concurrent same-key writers leave a valid typed entry, and cross-process eviction treats `NotFound` for an already-removed entry as success. | Test (TC-022) |
-| FR-012-AC-13 | The cache keeps stored bytes within configured per-entry and total limits, returns `NotStored` when an entry cannot fit, and uses no index or ledger. | Test (TC-022) |
-| FR-012-AC-14 | `quire-cache` is separate from `quire-driver`, depends on its interface, and is absent from the driver's transitive normal/build dependency closure. | Test (TC-005) |
+| FR-012-AC-1 | The key preimage is JCS with operation, package identity, canonical request, backend identity and the QSL-serialized `ManifestDigest`; `generate` also has a target member. | Test (TC-020) |
+| FR-012-AC-2 | Given identical other key members, different admitted `ManifestDigest` values produce different cache keys. | Test (TC-020) |
+| FR-012-AC-3 | Changing a meaning input changes the derived key. | Test (TC-020) |
+| FR-012-AC-4 | Changing excluded path, time, deadline, pin, revision, application version or execution-backend label leaves the key unchanged. | Test (TC-020) |
+| FR-012-AC-5 | The `target` member occurs for generate and is absent for prove and analyze. | Test (TC-020) |
+| FR-012-AC-6 | A valid present entry accepted by the requested typed reader is returned as a hit; absent or invalid entries are misses. | Test (TC-021) |
+| FR-012-AC-7 | ADR-029 CA-5 excluded values return `NeverStore`. | Test (TC-021) |
+| FR-012-AC-8 | A deterministic-budget incomplete result within size limits is stored and readable. | Test (TC-021) |
+| FR-012-AC-9 | An entry above the per-entry limit returns `NotStored`. | Test (TC-022) |
+| FR-012-AC-10 | Atomic rename from a temporary file publishes each entry; direct final-name writes are absent, temporary files count toward capacity, and cleanup removes abandoned temporary files without following symlinks. | Test (TC-022) |
+| FR-012-AC-11 | Concurrent same-key writers leave a valid typed entry, and cross-process eviction treats `NotFound` for an already-removed entry as success. | Test (TC-022) |
+| FR-012-AC-12 | The cache keeps stored bytes within configured per-entry and total limits, returns `NotStored` when an entry cannot fit, and uses no index or ledger. | Test (TC-022) |
+| FR-012-AC-13 | `quire-cache` is separate from `quire-driver`, depends on its interface, and is absent from the driver's transitive normal/build dependency closure. | Test (TC-005) |
 
 ## Dependencies
 
-- QSL ADR-029 CA-1 through CA-5 and QSL-636 (QSpec FR-201/FR-306, QSL FR-288,
-  and ADR-029 CA-2 cache-key clarification).
+- QSL ADR-029 CA-1 through CA-5 and QSL-636 (QSpec FR-201/FR-306 and ADR-029
+  CA-2 cache-key clarification).
 - [FR-007](./FR-007-cache-results-by-content-identity.md) defines the required
   driver-owned interface; this package implements it downstream.
 - [TC-020](../test-cases/TC-020-cache-content-identity.md),

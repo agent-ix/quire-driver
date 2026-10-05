@@ -20,8 +20,8 @@ relationships:
 
 ## Description
 
-The driver SHALL build the one user-facing `quire` binary. Its lifecycle
-commands, output options, multi-item severity and process behavior SHALL
+The driver repository SHALL provide the one user-facing `quire` binary. Its
+lifecycle commands, output options, multi-item severity and process behavior SHALL
 conform to QSL ADR-029 LC-1, CB-1, CB-4 and CB-5.
 
 Each verb SHALL call its corresponding typed QSL or driver operation.
@@ -48,7 +48,9 @@ total `Category::exit_code` function as the sole category-to-exit mapping.
 ## Behavior
 
 - The `quire` binary SHALL be built from the driver repository; the QSL
-  workspace supplies no competing user binary.
+  workspace supplies no competing user binary. While the binary remains in
+  `src/bin/quire.rs`, the driver SHALL NOT compose the downstream
+  `quire-cache` package. IR-607 moves it into the separate `quire-cli` crate.
 - The CLI SHALL preserve the library's QSL-defined `quire-outcome/1` value
   without adding, removing or changing outcome data.
 - The CLI SHALL use ix-cli-kit for shared command/output, configuration and

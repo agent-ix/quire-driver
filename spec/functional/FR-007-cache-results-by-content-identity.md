@@ -49,6 +49,9 @@ cancellation, deadlines or time-limited incomplete results.
 - The downstream composition SHALL require a `quire-cache` implementation
   that depends on the driver interface; `quire-driver` SHALL NOT depend on the
   concrete `quire-cache` package.
+- When constructing `CacheRequest`, the driver SHALL use a provider identity
+  and `ManifestDigest` from the same admitted registry descriptor; a registry
+  refusal produces no cache lookup.
 
 ## Acceptance Criteria
 
@@ -59,11 +62,12 @@ cancellation, deadlines or time-limited incomplete results.
 | FR-007-AC-3 | A `CacheLookup::Miss` invokes the selected provider exactly once and records the same typed result that the driver returns. | Test (TC-014) |
 | FR-007-AC-4 | A cache I/O fault remains a typed error and is not treated as a miss. | Test (TC-014) |
 | FR-007-AC-5 | `NeverStore` and `NotStored` preserve the provider result and do not fail the operation. | Test (TC-014) |
+| FR-007-AC-6 | A registry identity/digest refusal produces no `CacheRequest` or lookup. | Test (TC-014) |
 
 ## Dependencies
 
 - QSL ADR-029 CA-1 through CA-5 defines cache eligibility and cache semantics;
-  QSL-636 amends QSpec FR-201/FR-306 and QSL FR-288 so `ManifestDigest` is
+  QSL-636 amends QSpec FR-201/FR-306 and ADR-029 CA-2 so `ManifestDigest` is
   explicit key material while `BackendId` remains identity-only.
 - [FR-012](./FR-012-implement-the-downstream-content-addressed-cache.md)
   defines the downstream cache component that implements the interface.

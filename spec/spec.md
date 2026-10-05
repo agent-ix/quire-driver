@@ -133,10 +133,9 @@ The `quire-driver` library sequences QSL, IR and CG calls and builds the
 registry value passed to consumers. The driver repository owns and provides
 the one user-facing `quire` binary; today it is a bin target in the
 `quire-driver` package, while ADR-029 CB-3's target layout places it in a
-separate `quire-cli` crate in this repository. Moving that target is a
-follow-up under existing IR-610/CLI work, outside this spec change. The
-application composes the binary and driver with downstream components such as
-`quire-cache`. The `quire-driver` package does not depend on `quire-cache`;
+separate `quire-cli` crate in this repository. Until IR-607 moves that target,
+the binary cannot depend on `quire-cache`; cache composition follows the
+separate crate. The `quire-driver` package does not depend on `quire-cache`;
 QSL, IR and CG do not depend on the driver. CLI mechanics and
 the cache implementation remain outside the qualified core (QSL ADR-029
 CB-3).
@@ -144,8 +143,9 @@ CB-3).
 ## 4. Requirements Architecture
 
 `quire-driver` owns the sequencing across QSL, IR and CG for the checked
-request lifecycle. The driver-repository `quire` binary composes that library
-with `quire-cache` without making the cache a dependency of the driver core.
+request lifecycle. The future driver-repository `quire-cli` crate composes
+that library with `quire-cache` without making the cache a dependency of the
+driver core. The current binary target does not compose the cache.
 IR-527 absorbs the driver spec, architecture, requirements and test-matrix
 scope previously tracked by IR-351. The tables index the discrete normative
 artifacts; they do not replace their criteria. FR-002 through FR-010 specify
@@ -208,7 +208,14 @@ remain planned. IR-606 adapted the orchestrator to current upstream lifecycle AP
 IR-607 through IR-610 deliver the remaining CLI, options, providers, cache,
 AOT and proof execution chain. IR-609 separates driver/cache integration
 (FR-007, TC-014) from the downstream cache implementation (FR-012,
-TC-020..TC-022). IR-351's shared specification work is absorbed
+TC-020..TC-022). The final process-backend mapping in IR-609 uses the CG
+`BackendKind::Process` variant and QSL-637's PV-4 rules; it remains gated on
+the CG code merge and luna's merge SHA. The mapping checklist is: convert each
+plugin descriptor identity to `BackendKind::Process(BackendId)`; preserve the
+manifest domains and bounds in CG's process descriptor; handle
+`KindOutput::Process` without an artifact; and use the plugin host plus typed
+FR-331 reader for execution and terminal results. Do not implement this slice
+until luna confirms the CG code merge SHA. IR-351's shared specification work is absorbed
 here, with no separate dependency revision ledger or policy artifact.
 
 ## References

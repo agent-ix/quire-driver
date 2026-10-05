@@ -13,7 +13,7 @@ relationships:
 Verify cache reads accept only entries matching the requested identity and
 typed reader, and that CA-5 values are not stored.
 
-Scope: FR-012-AC-3 through FR-012-AC-4.
+Scope: FR-012-AC-6 through FR-012-AC-8.
 
 ## Test Procedure
 

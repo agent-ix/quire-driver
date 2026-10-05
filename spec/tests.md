@@ -46,17 +46,17 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | FR-002 | FR-002-AC-1, FR-002-AC-2, FR-002-AC-3, FR-002-AC-4, FR-002-AC-5 | TC-009, TC-018 | 🚧 Planned |
 | FR-003 | FR-003-AC-1, FR-003-AC-2, FR-003-AC-3 | TC-010 | 🚧 Planned |
 | FR-004 | FR-004-AC-1, FR-004-AC-2, FR-004-AC-3, FR-004-AC-4 | TC-011 | 🚧 Planned |
-| FR-005 | FR-005-AC-1, FR-005-AC-2, FR-005-AC-3 | TC-012 | 🚧 Planned |
+| FR-005 | FR-005-AC-1, FR-005-AC-2, FR-005-AC-3, FR-005-AC-4 | TC-012 | 🚧 Planned |
 | FR-006 | FR-006-AC-1, FR-006-AC-2 | TC-013 | 🚧 Planned |
-| FR-007 | FR-007-AC-1..FR-007-AC-5 | TC-014 | 🚧 Planned |
-| FR-012 | FR-012-AC-1..FR-012-AC-6 | TC-020 | 🚧 Planned |
-| FR-012 | FR-012-AC-7..FR-012-AC-10 | TC-021 | 🚧 Planned |
-| FR-012 | FR-012-AC-11..FR-012-AC-13 | TC-022 | 🚧 Planned |
-| FR-012 | FR-012-AC-14 | TC-005 | 🚧 Planned |
+| FR-007 | FR-007-AC-1..FR-007-AC-6 | TC-014 | 🚧 Planned |
 | FR-008 | FR-008-AC-1, FR-008-AC-2 | TC-015 | 🚧 Planned |
 | FR-009 | FR-009-AC-1, FR-009-AC-2, FR-009-AC-3, FR-009-AC-4, FR-009-AC-5 | TC-016 | 🚧 Planned |
 | FR-010 | FR-010-AC-1, FR-010-AC-2, FR-010-AC-3 | TC-017 | 🚧 Planned in quire-integration; QSL AR2 prerequisite |
 | FR-011 | FR-011-AC-1, FR-011-AC-2, FR-011-AC-3, FR-011-AC-4, FR-011-AC-5 | TC-019 | ✅ Cancellation matrix and API mapping tests present; CLI adapter remains out of scope |
+| FR-012 | FR-012-AC-1..FR-012-AC-5 | TC-020 | 🚧 Planned |
+| FR-012 | FR-012-AC-6..FR-012-AC-8 | TC-021 | 🚧 Planned |
+| FR-012 | FR-012-AC-9..FR-012-AC-12 | TC-022 | 🚧 Planned |
+| FR-012 | FR-012-AC-13 | TC-005 | 🚧 Planned |
 
 ## Test Case Summary
 
@@ -66,24 +66,24 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-002 | An unknown BackendId refuses the run before negotiation | Integration | FR-001-AC-2 | ✅ Tests present |
 | TC-003 | route runs after negotiation, for supported items only | Integration | FR-001-AC-3 | ✅ Tests present |
 | TC-004 | Command-level refusals are typed | Integration | FR-001-AC-5 | ✅ Tests present |
-| TC-005 | The dependency edges match ADR-011 §6.1 and §7.1 | Integration | FR-001-AC-1, FR-001-AC-11, FR-012-AC-14 | ✅ Closure assertion present; downstream edge is checked when `quire-cache` exists |
+| TC-005 | The dependency edges match ADR-011 §6.1 and §7.1 | Integration | FR-001-AC-1, FR-001-AC-11, FR-012-AC-13 | ✅ Closure assertion present; downstream edge is checked when `quire-cache` exists |
 | TC-006 | E5 admits the emitted package and CG generates for the routed items | Integration | FR-001-AC-6, FR-001-AC-7, FR-001-AC-8 | ✅ Tests present |
 | TC-007 | Generation refusals are typed | Integration | FR-001-AC-5, FR-001-AC-6 | ✅ Tests present |
 | TC-008 | A missing import or an unknown header profile refuses at compile | Integration | FR-001-AC-5 | ✅ Tests present |
 | TC-009 | Exercise CLI verbs, outcome documents and exit codes | Integration | FR-002-AC-1, FR-002-AC-2, FR-002-AC-3, FR-002-AC-4, FR-002-AC-5 | 🚧 Planned |
 | TC-010 | Apply explicit lifecycle limits and preserve limit outcomes | Integration | FR-003-AC-1, FR-003-AC-2, FR-003-AC-3 | ✅ Tests present |
 | TC-011 | Select only the requested execution engine | Integration | FR-004-AC-1, FR-004-AC-2, FR-004-AC-3, FR-004-AC-4 | 🚧 Planned |
-| TC-012 | Register and invoke a first-party provider through Provider | Integration | FR-005-AC-1, FR-005-AC-2, FR-005-AC-3 | 🚧 Planned |
+| TC-012 | Register and invoke a first-party provider through Provider | Integration | FR-005-AC-1..FR-005-AC-4 | 🚧 Planned |
 | TC-013 | Dispatch process-provider results through the driver | Integration | FR-006-AC-1, FR-006-AC-2 | 🚧 Planned |
-| TC-014 | Exercise driver calls through a recording cache interface | Integration | FR-007-AC-1..FR-007-AC-5 | 🚧 Planned |
+| TC-014 | Exercise driver calls through a recording cache interface | Integration | FR-007-AC-1..FR-007-AC-6 | 🚧 Planned |
 | TC-015 | Invoke AOT with current checked request inputs | Integration | FR-008-AC-1, FR-008-AC-2 | 🚧 Planned |
 | TC-016 | Settle one terminal record per item after replay | Integration | FR-009-AC-1, FR-009-AC-2, FR-009-AC-3, FR-009-AC-4, FR-009-AC-5 | 🚧 Planned |
 | TC-017 | Send only abstraction-relation-bound items to code generation | Integration | FR-010-AC-1, FR-010-AC-2, FR-010-AC-3 | 🚧 Planned in quire-integration; QSL AR2 prerequisite |
 | TC-018 | Preserve the QSL outcome at the binary process boundary | Integration | FR-002-AC-2, FR-002-AC-3, FR-002-AC-4 | 🚧 Planned |
 | TC-019 | Propagate library cancellation and retain bounded checked-unit source | Integration | FR-001-AC-9, FR-001-AC-10, FR-011-AC-1..FR-011-AC-5 | ✅ `tests/drive.rs::tc_019_cancellation_preserves_every_stage_and_cause`; `tests/drive.rs::tc_019_e5_receives_source_provision_and_checked_unit_retains_bounded_root` |
-| TC-020 | Derive cache identity from meaning inputs and manifest content | Integration | FR-012-AC-1..FR-012-AC-6 | 🚧 Planned in `quire-cache` |
-| TC-021 | Reject invalid cache entries and excluded values | Integration | FR-012-AC-7..FR-012-AC-10 | 🚧 Planned in `quire-cache` |
-| TC-022 | Keep cache writes atomic and within the caller's size limit | Integration | FR-012-AC-11..FR-012-AC-13 | 🚧 Planned in `quire-cache` |
+| TC-020 | Derive cache identity from meaning inputs and manifest content | Integration | FR-012-AC-1..FR-012-AC-5 | 🚧 Planned in `quire-cache` |
+| TC-021 | Reject invalid cache entries and excluded values | Integration | FR-012-AC-6..FR-012-AC-8 | 🚧 Planned in `quire-cache` |
+| TC-022 | Keep cache writes atomic and within the caller's size limit | Integration | FR-012-AC-9..FR-012-AC-12 | 🚧 Planned in `quire-cache` |
 
 ## Integration Test Matrix
 
