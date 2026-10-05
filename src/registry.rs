@@ -2,12 +2,18 @@
 //! The registry value (ADR-012 §7.1): built by the driver from provider
 //! manifests and passed to every consumer as an argument.
 
-use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, Registry};
+use qsl_route::{
+    BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin, Registry,
+};
 use std::ops::Deref;
 
 use crate::{DriverRefusal, Provider};
 
 /// The FR-331 provider-manifest fields the driver registers a backend from.
+///
+/// This type and [`build_registry`] are for compile-time linked providers.
+/// Plugin hello manifests carry `Process` origin and must use the origin-aware
+/// registration path instead (ADR-029 PV-1).
 ///
 /// The `advertises` pairs are the manifest's `(kind, mode)` labels exactly
 /// as it states them; `route` admits them (`BackendDescriptor::admit`), so an
@@ -78,7 +84,9 @@ impl Deref for AdmittedRegistry {
 
 /// Build the registry from `manifests`.
 ///
-/// Every manifest is admitted and registered. When any registration is
+/// Every manifest is admitted with `ProviderOrigin::Linked` and registered.
+/// Do not use this function for plugin hello manifests: those require
+/// `ProviderOrigin::Process` under ADR-029 PV-1. When any registration is
 /// refused (an absent or unknown kind or mode, or a duplicate backend
 /// identity), the run is refused with every refusal, ordered by backend
 /// identity then manifest digest.
@@ -100,6 +108,7 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
         let backend = Candidate::new(backend_id);
         let admitted = BackendDescriptor::admit(
             backend,
+            ProviderOrigin::Linked,
             manifest.manifest_digest,
             manifest
                 .advertises
@@ -147,7 +156,7 @@ pub fn build_linked_providers<'a>(
 
 #[cfg(test)]
 mod tests {
-    use qsl_route::{BackendId, ManifestDigest};
+    use qsl_route::{BackendId, ManifestDigest, ProviderOrigin};
 
     use crate::{KaniProvider, Provider, ProviderManifest};
 
@@ -161,7 +170,7 @@ mod tests {
         })
     }
 
-    /// Trace: FR-005-AC-3.
+    /// Trace: FR-005-AC-1, FR-005-AC-3.
     #[test]
     fn linked_manifests_admit_distinct_identities_and_resolve_provider_lookup() {
         let first = provider("agent-ix/provider/first", 1);
@@ -184,9 +193,13 @@ mod tests {
             Some("agent-ix/provider/second".to_owned())
         );
         assert_eq!(linked.registry().backends().count(), 2);
+        assert!(linked
+            .registry()
+            .descriptors()
+            .all(|descriptor| descriptor.origin() == ProviderOrigin::Linked));
     }
 
-    /// Trace: FR-005-AC-1, FR-005-AC-4.
+    /// Trace: FR-005-AC-4.
     #[test]
     fn identical_linked_manifests_are_idempotent_without_order_dependent_lookup() {
         let first = provider("agent-ix/provider/same", 1);
