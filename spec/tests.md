@@ -66,7 +66,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-007 | Generation refusals are typed | Integration | FR-001-AC-5, FR-001-AC-6 | ✅ Tests present |
 | TC-008 | A missing import or an unknown header profile refuses at compile | Integration | FR-001-AC-5 | ✅ Tests present |
 | TC-009 | Exercise CLI verbs, outcome documents and exit codes | Integration | FR-002-AC-1, FR-002-AC-2, FR-002-AC-3, FR-002-AC-4, FR-002-AC-5 | 🚧 Planned |
-| TC-010 | Apply explicit lifecycle limits and preserve limit outcomes | Integration | FR-003-AC-1, FR-003-AC-2, FR-003-AC-3 | 🚧 Planned |
+| TC-010 | Apply explicit lifecycle limits and preserve limit outcomes | Integration | FR-003-AC-1, FR-003-AC-2, FR-003-AC-3 | ✅ Tests present |
 | TC-011 | Select only the requested execution engine | Integration | FR-004-AC-1, FR-004-AC-2, FR-004-AC-3, FR-004-AC-4 | 🚧 Planned |
 | TC-012 | Register and invoke a first-party provider through Provider | Integration | FR-005-AC-1, FR-005-AC-2, FR-005-AC-3 | 🚧 Planned |
 | TC-013 | Dispatch process-provider results through the driver | Integration | FR-006-AC-1, FR-006-AC-2 | 🚧 Planned |

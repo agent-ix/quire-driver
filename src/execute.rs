@@ -199,9 +199,8 @@ mod tests {
                 if matches!(**compile, CompileRefusal::Limit(_)))));
     }
 
-    /// Trace: FR-003-AC-3, pending QSL-489 correction of StageLimitExceeded category.
+    /// Trace: FR-003-AC-3, QSL's stage-limit category reaches the caller unchanged.
     #[test]
-    #[ignore = "Pending QSL-489: QSL must classify StageLimitExceeded as incomplete (exit 22); driver must not remap it: https://linear.app/agent-ix/issue/QSL-489/lc1-cancel-polled-at-every-charge-split-spinecompile-into-typed-check"]
     fn qsl_stage_limit_refusal_uses_incomplete_category() {
         let mut limits = SpineLimits::default();
         let mut source = limits.source;
@@ -210,5 +209,6 @@ mod tests {
         let failure = execute(request(ExecutionEngine::Interpreter, limits))
             .expect_err("one byte source limit refuses");
         assert_eq!(failure.category(), Category::Incomplete);
+        assert_eq!(failure.category().exit_code(), 22);
     }
 }

@@ -7,7 +7,8 @@ use qsl_foundation::diagnostic::InternalFault;
 use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::Code;
 use qsl_replay::spine::{CompileRefusal, SpineStage};
-use qsl_route::{BackendId, RegistrationRefusal};
+use qsl_replay::Category;
+use qsl_route::{BackendId, EmptyBackendIdentity, RegistrationRefusal};
 use quire_contract_codegen::{
     EnvelopeRefusal, KaniObligationError, OracleGenerationError, RoutedGenerationError,
 };
@@ -16,6 +17,9 @@ use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageRefusal};
 /// Why [`crate::drive`] or [`crate::build_registry`] produced no result.
 #[derive(Debug, thiserror::Error)]
 pub enum DriverRefusal {
+    /// A provider manifest supplied QSL's typed empty-identity refusal.
+    #[error(transparent)]
+    EmptyBackendIdentity(EmptyBackendIdentity),
     /// A provider manifest did not register. Every refusal, ordered by
     /// backend identity then manifest digest.
     #[error("{} backend registration(s) refused", .0.len())]
@@ -150,6 +154,14 @@ pub enum OutcomeKind {
 }
 
 impl DriverRefusal {
+    /// A QSL-owned category carried without translation by a typed refusal.
+    pub fn qsl_category(&self) -> Option<Category> {
+        match self {
+            Self::EmptyBackendIdentity(refusal) => Some(refusal.category()),
+            _ => None,
+        }
+    }
+
     /// The catalog code, rendered `code` or `code/cause`.
     ///
     /// For [`DriverRefusal::Registration`] this is the first refusal's code
@@ -157,6 +169,7 @@ impl DriverRefusal {
     /// carries its own `catalog_code()`.
     pub fn code(&self) -> String {
         match self {
+            Self::EmptyBackendIdentity(refusal) => refusal.code().as_str().to_owned(),
             Self::Registration(refusals) => refusals.first().map_or_else(
                 || "invalid_capability".to_owned(),
                 |refusal| refusal.catalog_code().to_string(),
@@ -175,6 +188,7 @@ impl DriverRefusal {
     /// The step that refused.
     pub fn stage(&self) -> DriverStage {
         match self {
+            Self::EmptyBackendIdentity(_) => DriverStage::Registry,
             Self::Registration(_) => DriverStage::Registry,
             Self::Compile(refusal) => DriverStage::Compile(refusal.stage()),
             Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
@@ -200,6 +214,7 @@ impl DriverRefusal {
     /// The outcome kind this refusal settles.
     pub fn kind(&self) -> OutcomeKind {
         match self {
+            Self::EmptyBackendIdentity(_) => OutcomeKind::Refused,
             Self::Compile(refusal) if refusal.code() == Code::StageLimitExceeded => {
                 OutcomeKind::Limit
             }
@@ -387,6 +402,8 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 #[cfg(test)]
 mod tests {
     use qsl_foundation::digest::WireNodeId;
+    use qsl_replay::Category;
+    use qsl_route::EmptyBackendIdentity;
     use quire_contract_codegen::{
         HarnessPath, HarnessSymbol, KaniObligationError, ModuleSymbol, OracleGenerationError,
         RoutedGenerationError,
@@ -394,6 +411,18 @@ mod tests {
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    #[test]
+    fn empty_backend_identity_preserves_qsl_code_and_category() {
+        let refusal = DriverRefusal::EmptyBackendIdentity(EmptyBackendIdentity);
+        assert_eq!(
+            refusal.code(),
+            qsl_foundation::Code::InvalidIdentifier.as_str()
+        );
+        assert_eq!(refusal.qsl_category(), Some(Category::Refusal));
+        assert_eq!(refusal.kind(), OutcomeKind::Refused);
+        assert_eq!(refusal.stage(), DriverStage::Registry);
+    }
 
     /// Trace: FR-001-AC-5
     #[test]
