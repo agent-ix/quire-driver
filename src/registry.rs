@@ -2,8 +2,7 @@
 //! The registry value (ADR-012 §7.1): built by the driver from provider
 //! manifests and passed to every consumer as an argument.
 
-use qsl_replay::BackendId;
-use qsl_route::{BackendDescriptor, Candidate, ManifestDigest, Registry};
+use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, Registry};
 
 use crate::DriverRefusal;
 

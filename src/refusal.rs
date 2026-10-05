@@ -8,8 +8,7 @@ use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::Code;
 use qsl_replay::spine::{CompileRefusal, SpineStage};
 use qsl_replay::Category;
-use qsl_replay::EmptyBackendIdentity;
-use qsl_route::{BackendId, RegistrationRefusal};
+use qsl_route::{BackendId, EmptyBackendIdentity, RegistrationRefusal};
 use quire_contract_codegen::{
     EnvelopeRefusal, KaniObligationError, OracleGenerationError, RoutedGenerationError,
 };
@@ -403,7 +402,8 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 #[cfg(test)]
 mod tests {
     use qsl_foundation::digest::WireNodeId;
-    use qsl_replay::{Category, EmptyBackendIdentity};
+    use qsl_replay::Category;
+    use qsl_route::EmptyBackendIdentity;
     use quire_contract_codegen::{
         HarnessPath, HarnessSymbol, KaniObligationError, ModuleSymbol, OracleGenerationError,
         RoutedGenerationError,
