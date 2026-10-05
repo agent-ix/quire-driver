@@ -58,6 +58,10 @@ the admitted package only at the `package_id` E4 emitted.
   context is the subject path and the unwind bound. The caller
   supplies no claim map: CG derives each routed item's claim from the
   node's own operation and bound (IR-294).
+- A caller-owned, cloneable QSL `Cancel` handle. The driver passes the same
+  handle through `parse`, `select`, `check` and `package`; the caller may
+  cancel it from another thread while a stage runs. QSL owns polling and
+  returns the typed cancellation failure.
 
 ## Outputs
 
@@ -68,6 +72,11 @@ the admitted package only at the `package_id` E4 emitted.
   FR-014 claim map CG derived for the Kani group, `Some` whenever one ran;
   a caller writes it as `claim-map.json`.
 - Or one command-level refusal.
+- `Driven` retains the checked unit, emitted v2 package bytes, admitted
+  package and downstream results. The driver uses `EmittedUnit` and its
+  source provision for E5 evidence, then drops the `EmittedUnit`; it does not
+  retain or expose that source provision. Callers needing source bytes retain
+  their own input.
 
 ## Behavior
 
@@ -117,6 +126,9 @@ the admitted package only at the `package_id` E4 emitted.
   conflicting digest, not one per conflicting `register` call. Repeating an
   already-conflicting digest (manifests A, B, then A again) does not add a
   third refusal for it.
+- A cancellation failure from any QSL stage propagates as a typed result.
+  QSL owns its category and exit function (ADR-029 CB-4); the driver defines
+  no cancellation-specific category or exit mapping.
 - The driver's normal and build dependencies SHALL be the QSL layer crates,
   CG, IR's model crate `quire-contract-model` (at the revision CG's IR crate
   uses) and `thiserror` (QSL ADR-011 §6.1 driver row), and nothing in its
@@ -134,6 +146,8 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-6 | CG generation is called once, after routing, over the routed items only, each with its request index, its admitted `CheckedNodeId`, its routed backend and its kind; its output is keyed by request index, ascending; a missing kind context refuses the run, and a routed item naming a node the checked package does not hold is an internal fault. | Test (TC-006, TC-007) |
 | FR-001-AC-7 | The E5 read admits the emitted v2 bytes at the emitted `package_id`; an admitted package at another `package_id`, or an IR refusal, is an internal fault at the hand-off before any backend conversion. | Test (TC-004, TC-006) |
 | FR-001-AC-8 | CG generation's output carries the FR-014 claim map CG derived for the Kani group (IR-294), `Some` whenever one ran; a node whose operation has no derivable claim settles `Unsupported` with `no_derivable_claim` and does not affect its routed siblings' records or harnesses. | Test (TC-006) |
+| FR-001-AC-9 | The same caller-owned `Cancel` handle is passed to QSL `parse`, `select`, `check` and `package`; cancellation is surfaced as QSL's typed failure, with no driver-authored category or exit mapping. | Test (TC-019) |
+| FR-001-AC-10 | After E5 hand-off, `Driven` retains no `EmittedUnit` or source provision; it retains the checked unit, emitted package, admitted package and documented downstream results. | Test (TC-019) |
 
 ## Dependencies
 
@@ -145,6 +159,7 @@ the admitted package only at the `package_id` E4 emitted.
   IR-293, IR-294, IR-298, IR-300, IR-302).
 - IR `quire-contract-model`: `read_checked_package`, `CheckedPackageV2`,
   `CheckedNodeId`.
+- QSL ADR-029 LC-3 and CB-4, and QSL FR-276 cancellation semantics.
 
 ## Status
 
