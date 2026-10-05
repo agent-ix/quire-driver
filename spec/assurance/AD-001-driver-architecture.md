@@ -121,8 +121,12 @@ FR-011 places cancellation at the driver library boundary: a caller owns a
 cloneable QSL handle and may cancel from another thread. QSL's typed result,
 `incomplete` category and CB-4 exit mapping remain authoritative. A CLI
 signal/deadline trigger is a separate planned frontend adapter. The E4
-`EmittedUnit` source provision is used as E5 evidence and then released;
-`Driven` does not keep a second source-provision copy alive after hand-off.
+`EmittedUnit` source provision is used as E5 evidence and then released.
+`Driven.package` retains QSL's `CheckedUnit` source so callers can resolve
+diagnostic loci without reacquiring source. Under FR-001's current empty
+`DependencyInput`, it retains only the root source, bounded by the caller's
+per-source limit; the resolved library-source list is empty. Releasing
+`EmittedUnit` drops its duplicate provision after hand-off.
 
 Types cross the QSL/CG seam in their owned wire spellings (ADR-013 T-7).
 The driver treats an unknown capability spelling as `VocabularyMismatch`
@@ -187,7 +191,7 @@ failures; the driver and ix-cli-kit introduce no additional mapping.
 | Replay precedes counterexample settlement | `refuted` requires reproduction under QSL's reference semantics. Failed parity remains inconclusive; the driver calls CG's mapping rather than constructing another one. |
 | Core and frontend dependency closures are separate | Shared CLI mechanics and non-core adapters remain usable without pulling them into the qualified core. No additional qualification binary is delivered by this reconciliation. |
 | Library callers own cancellation | Realtime and embedded callers can stop a run without a process signal or driver-owned timer; a CLI trigger can later remain a thin adapter over the same handle. The driver adds no polling or exit mapping. |
-| Release E4 source provision after E5 | The provision is needed to admit the emitted package, not to route or generate after hand-off. Dropping it avoids retaining its extra source bytes for the lifetime of `Driven`; callers retain their own inputs when needed. |
+| Retain checked-unit source; release E4 provision after E5 | The checked unit's source accessors let callers resolve diagnostic loci without reacquiring source. Under FR-001's empty `DependencyInput`, only the root source is retained, bounded by `SpineLimits.source.source_bytes`; releasing `EmittedUnit` drops its duplicate provision. |
 | G5b is a cross-repository gate | IR-528 gathers evidence in `quire-integration` only. Local driver and owner tests verify components; they cannot claim the whole gate passed. |
 
 The requirement/test inventory in TM-001 is the checkable expression of these

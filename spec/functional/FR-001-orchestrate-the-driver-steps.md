@@ -65,18 +65,23 @@ the admitted package only at the `package_id` E4 emitted.
 
 ## Outputs
 
-- The in-process checked package, the emitted v2 package, IR's admitted
+- The in-process `CheckedUnit`, the emitted v2 package, IR's admitted
   `CheckedPackageV2`, CG's settlement of every item in request order, each
   routed item with its `BackendId` and CG backend kind, and CG's generation
   output in ascending request index. That output's `claim_map` is the
   FR-014 claim map CG derived for the Kani group, `Some` whenever one ran;
   a caller writes it as `claim-map.json`.
 - Or one command-level refusal.
+- Or a `DriverRefusal::Cancelled` result carrying the cancelled QSL stage and
+  cause.
 - `Driven` retains the checked unit, emitted v2 package bytes, admitted
-  package and downstream results. The driver uses `EmittedUnit` and its
-  source provision for E5 evidence, then drops the `EmittedUnit`; it does not
-  retain or expose that source provision. Callers needing source bytes retain
-  their own input.
+  package and downstream results. The checked unit retains its root source
+  and resolved library sources so callers can resolve diagnostic loci without
+  reacquiring source data. E5 consumes the separate E4 `EmittedUnit` source
+  provision; the driver releases that provision after hand-off. Under this
+  requirement's empty `DependencyInput`, no library source is admitted, and
+  the retained root source is bounded by the caller's
+  `SpineLimits.source.source_bytes` setting.
 
 ## Behavior
 
@@ -129,6 +134,12 @@ the admitted package only at the `package_id` E4 emitted.
 - A cancellation failure from any QSL stage propagates as a typed result.
   QSL owns its category and exit function (ADR-029 CB-4); the driver defines
   no cancellation-specific category or exit mapping.
+- When E5 consumes the E4 `EmittedUnit` source provision, the driver SHALL
+  release that E4 provision after hand-off.
+- The driver SHALL retain the `CheckedUnit` root source for diagnostic loci.
+  Under the current empty `DependencyInput`, it retains no library source,
+  and its retained root-source bytes do not exceed
+  `SpineLimits.source.source_bytes`.
 - The driver's normal and build dependencies SHALL be the QSL layer crates,
   CG, IR's model crate `quire-contract-model` (at the revision CG's IR crate
   uses) and `thiserror` (QSL ADR-011 §6.1 driver row), and nothing in its
@@ -146,8 +157,8 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-6 | CG generation is called once, after routing, over the routed items only, each with its request index, its admitted `CheckedNodeId`, its routed backend and its kind; its output is keyed by request index, ascending; a missing kind context refuses the run, and a routed item naming a node the checked package does not hold is an internal fault. | Test (TC-006, TC-007) |
 | FR-001-AC-7 | The E5 read admits the emitted v2 bytes at the emitted `package_id`; an admitted package at another `package_id`, or an IR refusal, is an internal fault at the hand-off before any backend conversion. | Test (TC-004, TC-006) |
 | FR-001-AC-8 | CG generation's output carries the FR-014 claim map CG derived for the Kani group (IR-294), `Some` whenever one ran; a node whose operation has no derivable claim settles `Unsupported` with `no_derivable_claim` and does not affect its routed siblings' records or harnesses. | Test (TC-006) |
-| FR-001-AC-9 | The same caller-owned `Cancel` handle is passed to QSL `parse`, `select`, `check` and `package`; cancellation is surfaced as QSL's typed failure, with no driver-authored category or exit mapping. | Test (TC-019) |
-| FR-001-AC-10 | After E5 hand-off, `Driven` retains no `EmittedUnit` or source provision; it retains the checked unit, emitted package, admitted package and documented downstream results. | Test (TC-019) |
+| FR-001-AC-9 | The same caller-owned `Cancel` handle is passed to QSL `parse`, `select`, `check` and `package`; cancellation returns `DriverRefusal::Cancelled` with QSL's stage and cause, and the driver adds no category or exit mapping. | Test (TC-019) |
+| FR-001-AC-10 | E5 receives the E4 `EmittedUnit` source provision; the returned `Driven` contains no `EmittedUnit`, retains the `CheckedUnit` root source for diagnostic loci, retains no library source under the current empty `DependencyInput`, and retains no more root-source bytes than `SpineLimits.source.source_bytes`. | Test (TC-019) |
 
 ## Dependencies
 

@@ -149,7 +149,7 @@ FR-002 through FR-010 specify SP-D1 through SP-D9 respectively.
 | [FR-008](functional/FR-008-aot-execution-backend.md) | Invoke the selected AOT execution backend |
 | [FR-009](functional/FR-009-settle-execute-and-replay-results.md) | Settle executions after replaying counterexamples |
 | [FR-010](functional/FR-010-send-only-bound-items-to-codegen.md) | Send only abstraction-relation-bound items to code generation |
-| [FR-011](functional/FR-011-cancel-a-driver-library-operation.md) | Cancel a driver library operation through a caller-owned handle |
+| [FR-011](functional/FR-011-cancel-a-driver-library-operation.md) | Cancel driver lifecycle stages through a caller-owned handle |
 | [TC-001](test-cases/TC-001-steps-run-in-order.md) | The steps run in ADR-011 T-13 order |
 | [TC-002](test-cases/TC-002-unknown-backend-refusal.md) | An unknown `BackendId` refuses the run before negotiation |
 | [TC-003](test-cases/TC-003-route-after-negotiation.md) | `route` runs after negotiation, for `supported` items only |
@@ -168,7 +168,7 @@ FR-002 through FR-010 specify SP-D1 through SP-D9 respectively.
 | [TC-016](test-cases/TC-016-execute-replay-and-terminal-records.md) | Settle one terminal record per item after replay |
 | [TC-017](test-cases/TC-017-only-bound-items-reach-codegen.md) | Send only abstraction-relation-bound items to code generation |
 | [TC-018](test-cases/TC-018-binary-process-boundary.md) | Preserve the QSL outcome at the binary process boundary |
-| [TC-019](test-cases/TC-019-library-cancellation-and-source-release.md) | Propagate library cancellation and release the emitted source provision |
+| [TC-019](test-cases/TC-019-library-cancellation-and-source-release.md) | Propagate library cancellation and retain bounded checked-unit source |
 
 ## 5. Verification and Delivery Boundary
 
