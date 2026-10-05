@@ -5,7 +5,7 @@
 use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, Registry};
 use std::ops::Deref;
 
-use crate::DriverRefusal;
+use crate::{DriverRefusal, Provider};
 
 /// The FR-331 provider-manifest fields the driver registers a backend from.
 ///
@@ -29,6 +29,43 @@ pub struct ProviderManifest {
 #[derive(Debug)]
 pub struct AdmittedRegistry {
     registry: Registry,
+}
+
+/// The QSL registry and linked providers admitted from the same manifest set.
+///
+/// Provider lookup is by the opaque backend identity, the same value the
+/// registry routes. Lookup returns `None` when no implementation matches or
+/// when identical idempotent manifests name multiple implementations; the
+/// latter is ambiguous even though QSL admits and routes the identity.
+pub struct LinkedProviders<'a> {
+    admitted: AdmittedRegistry,
+    providers: Vec<(String, &'a dyn Provider)>,
+}
+
+impl LinkedProviders<'_> {
+    /// The immutable registry built from these providers' manifests.
+    #[must_use]
+    pub fn registry(&self) -> &AdmittedRegistry {
+        &self.admitted
+    }
+
+    /// The unique linked provider for `backend`, if present.
+    ///
+    /// Returns `None` when there is no matching provider or when multiple
+    /// implementations share an identical idempotent manifest. The latter
+    /// identity is admitted by QSL, but this lookup does not choose an
+    /// implementation by input order.
+    #[must_use]
+    pub fn provider(&self, backend: &BackendId) -> Option<&dyn Provider> {
+        // A repeated identical manifest is QSL-idempotent, but it does not
+        // identify which of multiple linked implementations should execute.
+        let mut matching = self
+            .providers
+            .iter()
+            .filter(|(identity, _)| identity == backend.as_str());
+        let provider = matching.next()?.1;
+        matching.next().is_none().then_some(provider)
+    }
 }
 
 impl Deref for AdmittedRegistry {
@@ -84,5 +121,88 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
     } else {
         refusals.sort();
         Err(DriverRefusal::Registration(refusals))
+    }
+}
+
+/// Admit compile-time providers and retain the identity-to-provider mapping
+/// used after negotiation and routing.
+pub fn build_linked_providers<'a>(
+    providers: &[&'a dyn Provider],
+) -> Result<LinkedProviders<'a>, DriverRefusal> {
+    let manifests = providers
+        .iter()
+        .map(|provider| provider.manifest())
+        .collect::<Vec<_>>();
+    let admitted = build_registry(&manifests)?;
+    let linked = providers
+        .iter()
+        .zip(manifests)
+        .map(|(provider, manifest)| (manifest.identity, *provider))
+        .collect();
+    Ok(LinkedProviders {
+        admitted,
+        providers: linked,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use qsl_route::{BackendId, ManifestDigest};
+
+    use crate::{KaniProvider, Provider, ProviderManifest};
+
+    use super::build_linked_providers;
+
+    fn provider(identity: &str, digest: u8) -> KaniProvider {
+        KaniProvider::new(ProviderManifest {
+            identity: identity.to_owned(),
+            manifest_digest: ManifestDigest::from_digest([digest; 32]),
+            advertises: Vec::new(),
+        })
+    }
+
+    /// Trace: FR-005-AC-3.
+    #[test]
+    fn linked_manifests_admit_distinct_identities_and_resolve_provider_lookup() {
+        let first = provider("agent-ix/provider/first", 1);
+        let second = provider("agent-ix/provider/second", 2);
+        let providers: [&dyn Provider; 2] = [&first, &second];
+        let linked = build_linked_providers(&providers).expect("both manifests admit");
+
+        let first_id = BackendId::from_wire("agent-ix/provider/first").expect("nonempty id");
+        let second_id = BackendId::from_wire("agent-ix/provider/second").expect("nonempty id");
+        assert_eq!(
+            linked
+                .provider(&first_id)
+                .map(|provider| provider.manifest().identity),
+            Some("agent-ix/provider/first".to_owned())
+        );
+        assert_eq!(
+            linked
+                .provider(&second_id)
+                .map(|provider| provider.manifest().identity),
+            Some("agent-ix/provider/second".to_owned())
+        );
+        assert_eq!(linked.registry().backends().count(), 2);
+    }
+
+    /// Trace: FR-005-AC-1, FR-005-AC-4.
+    #[test]
+    fn identical_linked_manifests_are_idempotent_without_order_dependent_lookup() {
+        let first = provider("agent-ix/provider/same", 1);
+        let second = provider("agent-ix/provider/same", 1);
+        let first_order: [&dyn Provider; 2] = [&first, &second];
+        let reverse_order: [&dyn Provider; 2] = [&second, &first];
+
+        let first_linked =
+            build_linked_providers(&first_order).expect("equal manifests are idempotent");
+        let reverse_linked =
+            build_linked_providers(&reverse_order).expect("equal manifests are idempotent");
+        let id = BackendId::from_wire("agent-ix/provider/same").expect("nonempty id");
+
+        assert_eq!(first_linked.registry().backends().count(), 1);
+        assert_eq!(reverse_linked.registry().backends().count(), 1);
+        assert!(first_linked.provider(&id).is_none());
+        assert!(reverse_linked.provider(&id).is_none());
     }
 }
