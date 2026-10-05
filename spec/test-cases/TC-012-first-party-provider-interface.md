@@ -26,10 +26,12 @@ Scope: FR-005-AC-1 through FR-005-AC-5.
 3. Exercise Kani item preflight with cancellation, backend mismatch, missing
    execution limits, and missing harness; verify each retains its typed
    failure.
-4. Pass a cover-unsatisfied outcome and a timeout outcome through CG's
+4. Call the public `Provider::run` with a selected generated Kani item but no
+   execution limits; verify it returns one typed missing-limits result.
+5. Pass a cover-unsatisfied outcome and a timeout outcome through CG's
    `run_terminal_value`; verify they map to `Proved { success_checks: 0 }`
    and `Incomplete(TimedOut)` respectively.
-5. After the driver/QSL integration follows CG IR-632, verify the QSL
+6. After the driver/QSL integration follows CG IR-632, verify the QSL
    registry builder assigns `Linked` to compile-time provider descriptors
    and `Process` to plugin hello descriptors. Register `Linked` and `Process`
    descriptors with one `BackendId` but different descriptor content;
@@ -37,8 +39,8 @@ Scope: FR-005-AC-1 through FR-005-AC-5.
    pass registry-built descriptors unchanged to CG negotiation and verify CG
    classifies the backend from origin.
 
-Test location: `src/registry.rs` and `src/provider.rs`; full routed invocation
-and process-provider integration remain planned.
+Test location: `src/registry.rs`, `src/provider.rs`, and `tests/drive.rs`; full
+routed invocation and process-provider integration remain planned.
 
 ## Expected Results
 
@@ -49,6 +51,8 @@ and process-provider integration remain planned.
   based on input order.
 - Kani preflight preserves cancellation and backend mismatch and reports
   missing execution limits and harnesses as typed failures.
+- The public `Provider::run` processes each selected item and returns its
+  typed missing-limits refusal when execution is not configured.
 - CG maps cover-unsatisfied to `Proved { success_checks: 0 }` and timeout to
   `Incomplete(TimedOut)`; the driver does not reimplement that mapping.
 - Provider limits and result carriers are Kani-only for this slice.

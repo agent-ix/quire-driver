@@ -38,7 +38,8 @@ use quire_contract_model::{
 };
 use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
-    GenerationInput, KaniInput, OutcomeKind, ProviderManifest, QslCg, Upstream,
+    GenerationInput, KaniInput, KaniProvider, OutcomeKind, Provider, ProviderItemFailure,
+    ProviderLimits, ProviderManifest, ProviderRequest, QslCg, Upstream,
 };
 use quire_exact::{Cancel, CancelCause};
 
@@ -2051,4 +2052,30 @@ fn tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected(
         neg_claim.result
     );
     serde_json::to_vec_pretty(claim_map).expect("the derived claim map serializes");
+}
+
+/// Trace: FR-005-AC-2, FR-005-AC-3.
+#[test]
+fn provider_trait_run_processes_a_selected_item() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the Kani manifest registers");
+    let packages = BTreeMap::new();
+    let driven = drive(&QslCg, int_input(&packages), &registry, None, kani_input())
+        .expect("the Kani item is generated");
+    assert_eq!(driven.generation.items.len(), 1);
+
+    let provider = KaniProvider::new(manifest("kani", 7, &["value-validity"]));
+    let request = ProviderRequest::new(&driven.generation.items);
+    let results = provider.run(
+        &driven.emitted,
+        &request,
+        &ProviderLimits::default(),
+        &Cancel::new(),
+    );
+
+    assert_eq!(results.items.len(), 1);
+    assert!(matches!(
+        results.items[0].result,
+        Err(ProviderItemFailure::MissingExecutionLimits)
+    ));
 }

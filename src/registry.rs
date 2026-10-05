@@ -34,8 +34,9 @@ pub struct AdmittedRegistry {
 /// The QSL registry and linked providers admitted from the same manifest set.
 ///
 /// Provider lookup is by the opaque backend identity, the same value the
-/// registry routes. The map is created only after QSL accepts every
-/// descriptor, so no provider can be selected from a refused identity.
+/// registry routes. Lookup returns `None` when no implementation matches or
+/// when identical idempotent manifests name multiple implementations; the
+/// latter is ambiguous even though QSL admits and routes the identity.
 pub struct LinkedProviders<'a> {
     admitted: AdmittedRegistry,
     providers: Vec<(String, &'a dyn Provider)>,
@@ -48,21 +49,16 @@ impl LinkedProviders<'_> {
         &self.admitted
     }
 
-    /// The linked provider registered for `backend`, if present.
+    /// The unique linked provider for `backend`, if present.
+    ///
+    /// Returns `None` when there is no matching provider or when multiple
+    /// implementations share an identical idempotent manifest. The latter
+    /// identity is admitted by QSL, but this lookup does not choose an
+    /// implementation by input order.
     #[must_use]
     pub fn provider(&self, backend: &BackendId) -> Option<&dyn Provider> {
-        // The registry is authoritative for admitted identities. A repeated
-        // identical manifest is QSL-idempotent, but it does not identify
-        // which of multiple linked implementations should execute. In that
-        // ambiguous case, do not select one based on registration order.
-        if !self
-            .admitted
-            .registry
-            .descriptors()
-            .any(|descriptor| descriptor.id() == backend)
-        {
-            return None;
-        }
+        // A repeated identical manifest is QSL-idempotent, but it does not
+        // identify which of multiple linked implementations should execute.
         let mut matching = self
             .providers
             .iter()
@@ -165,6 +161,7 @@ mod tests {
         })
     }
 
+    /// Trace: FR-005-AC-3.
     #[test]
     fn linked_manifests_admit_distinct_identities_and_resolve_provider_lookup() {
         let first = provider("agent-ix/provider/first", 1);
