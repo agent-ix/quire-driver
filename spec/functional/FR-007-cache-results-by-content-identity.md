@@ -57,12 +57,12 @@ cancellation, deadlines or time-limited incomplete results.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-007-AC-1 | Each lookup carries operation, package identity, canonical request, selected `BackendId`, admitted `ManifestDigest`, and (for `generate`) target and output-affecting options. | Test (TC-014) |
-| FR-007-AC-2 | A valid `CacheLookup::Hit` is returned unchanged and does not invoke the provider. | Test (TC-014) |
+| FR-007-AC-1 | Each lookup carries operation, package identity, canonical request, selected `BackendId`, admitted `ManifestDigest`, and (for `generate`) target and output-affecting options. | Planned (provider dispatch integration) |
+| FR-007-AC-2 | A valid `CacheLookup::Hit` is returned unchanged and does not invoke the provider. | Planned (provider dispatch integration) |
 | FR-007-AC-3 | A `CacheLookup::Miss` invokes the selected provider exactly once and records the same typed result that the driver returns. | Test (TC-014) |
 | FR-007-AC-4 | A cache I/O fault remains a typed error and is not treated as a miss. | Test (TC-014) |
 | FR-007-AC-5 | `NeverStore` and `NotStored` preserve the provider result and do not fail the operation. | Test (TC-014) |
-| FR-007-AC-6 | A registry identity/digest refusal produces no `CacheRequest` or lookup. | Test (TC-014) |
+| FR-007-AC-6 | A registry identity/digest refusal produces no `CacheRequest` or lookup. | Planned (provider dispatch integration) |
 
 ## Dependencies
 

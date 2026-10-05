@@ -125,17 +125,16 @@ impl Graph {
 }
 
 /// FR-001-AC-1, FR-001-AC-11 and FR-012-AC-13 (TC-005)
+/// Trace: FR-012-AC-13; the downstream package consumes the driver interface.
 #[test]
 fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let graph = Graph::load();
     assert_eq!(graph.package(&graph.root).name, "quire-driver");
 
-    // §6.1 driver row: the driver's normal and build edges are QSL layer
-    // crates, quire-exact (QSL's caller-owned Cancel API), CG, IR's model
-    // crate (E5's reader and `CheckedNodeId`) and one error-derive crate.
-    // Never the QSL root crate. `serde_json` is a
-    // dev-dependency (this crate's own tests use it), so it is not one of
-    // these normal/build edges.
+    // §6.1 driver row: QSL layer crates, quire-exact (QSL's caller-owned
+    // Cancel API), CG, IR's model crate (E5's reader and `CheckedNodeId`), and
+    // thiserror. serde_json is dev-only for this metadata test. Never the QSL
+    // root crate.
     let direct: BTreeSet<&str> = graph
         .deps_of(&graph.root)
         .map(|p| p.name.as_str())
@@ -155,11 +154,11 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     .collect();
     assert_eq!(direct, expected);
     assert!(
-        graph
-            .reachable_from(&graph.root)
-            .iter()
-            .all(|id| graph.package(id).name != "quire-cache"),
-        "the quire-driver transitive dependency closure reaches quire-cache"
+        graph.reachable_from(&graph.root).iter().all(|id| !matches!(
+            graph.package(id).name.as_str(),
+            "quire-cache" | "quire-plugin-host"
+        )),
+        "the quire-driver transitive dependency closure reaches a downstream implementation crate"
     );
     let driver_qsl: Vec<&Package> = graph.deps_of(&graph.root).filter(|p| p.is_qsl()).collect();
     assert_eq!(driver_qsl.len(), 5, "five QSL edges, by source");

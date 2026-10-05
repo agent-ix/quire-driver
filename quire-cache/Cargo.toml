@@ -1,0 +1,27 @@
+[package]
+name = "quire-cache"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.1"
+description = "Content-addressed cache boundary for quire-driver provider results."
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/agent-ix/quire-driver"
+publish = false
+
+[dependencies]
+quire-driver = { path = ".." }
+quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main", features = ["serde_json"] }
+qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.151"
+thiserror = "=2.0.20"
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.190"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = "deny"

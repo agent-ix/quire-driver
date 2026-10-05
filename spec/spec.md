@@ -208,13 +208,15 @@ remain planned. IR-606 adapted the orchestrator to current upstream lifecycle AP
 IR-607 through IR-610 deliver the remaining CLI, options, providers, cache,
 AOT and proof execution chain. IR-609 separates driver/cache integration
 (FR-007, TC-014) from the downstream cache implementation (FR-012,
-TC-020..TC-022). The final process-backend mapping in IR-609 uses the CG
-`BackendKind::Process` variant and QSL-637's PV-4 rules; it remains gated on
-CG IR-629 landing `BackendKind::Process` as amended by QSL-637 PV-4. The mapping checklist is: convert each
-plugin descriptor identity to `BackendKind::Process(BackendId)`; preserve the
-manifest domains and bounds in CG's process descriptor; handle
-`KindOutput::Process` without an artifact; and use the plugin host plus typed
-FR-331 reader for execution and terminal results. IR-351's shared specification work is absorbed
+TC-020..TC-022). The final process-backend mapping in IR-609 remains gated on
+the QSL-637 registry-origin API and CG IR-629. The QSL registry builder
+assigns `Process` origin to plugin hello descriptors; the driver supplies
+those descriptors to the builder and passes its registry descriptors unchanged
+to CG negotiation. The driver does not construct `BackendKind::Process`. The mapping checklist is: preserve manifest
+domains and bounds in CG's process descriptor; handle `KindOutput::Process`
+without an artifact; and use the plugin host plus typed FR-331 reader for
+execution and terminal results. Same-identity descriptors with different
+origins conflict and withdraw that identity. IR-351's shared specification work is absorbed
 here, with no separate dependency revision ledger or policy artifact.
 
 ## References

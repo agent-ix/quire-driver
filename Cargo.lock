@@ -1331,6 +1331,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "quire-cache"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "qsl-route",
+ "quire-canonical",
+ "quire-driver",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "quire-canonical"
 version = "0.3.0"
 source = "git+https://github.com/agent-ix/quire-canonical?branch=main#5dc4e12db63b8fae647825b4e4b78df9b6dcadfe"
@@ -1423,6 +1436,7 @@ dependencies = [
  "quire-contract-codegen",
  "quire-contract-model",
  "quire-exact",
+ "serde",
  "serde_json",
  "thiserror",
 ]

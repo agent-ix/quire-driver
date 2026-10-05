@@ -46,17 +46,17 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | FR-002 | FR-002-AC-1, FR-002-AC-2, FR-002-AC-3, FR-002-AC-4, FR-002-AC-5 | TC-009, TC-018 | 🚧 Planned |
 | FR-003 | FR-003-AC-1, FR-003-AC-2, FR-003-AC-3 | TC-010 | 🚧 Planned |
 | FR-004 | FR-004-AC-1, FR-004-AC-2, FR-004-AC-3, FR-004-AC-4 | TC-011 | 🚧 Planned |
-| FR-005 | FR-005-AC-1, FR-005-AC-2, FR-005-AC-3, FR-005-AC-4 | TC-012 | 🚧 Planned |
+| FR-005 | FR-005-AC-1..FR-005-AC-5 | TC-012 | 🚧 Planned; AC-1/4/5 require QSL-637, and AC-5 also requires CG IR-629 |
 | FR-006 | FR-006-AC-1, FR-006-AC-2 | TC-013 | 🚧 Planned |
-| FR-007 | FR-007-AC-1..FR-007-AC-6 | TC-014 | 🚧 Planned |
+| FR-007 | FR-007-AC-1..FR-007-AC-6 | TC-014 | 🚧 AC-1, AC-2 and AC-6 remain planned until provider dispatch is integrated; the helper tests cover cache-call semantics AC-3..AC-5 |
 | FR-008 | FR-008-AC-1, FR-008-AC-2 | TC-015 | 🚧 Planned |
 | FR-009 | FR-009-AC-1, FR-009-AC-2, FR-009-AC-3, FR-009-AC-4, FR-009-AC-5 | TC-016 | 🚧 Planned |
 | FR-010 | FR-010-AC-1, FR-010-AC-2, FR-010-AC-3 | TC-017 | 🚧 Planned in quire-integration; QSL AR2 prerequisite |
 | FR-011 | FR-011-AC-1, FR-011-AC-2, FR-011-AC-3, FR-011-AC-4, FR-011-AC-5 | TC-019 | ✅ Cancellation matrix and API mapping tests present; CLI adapter remains out of scope |
-| FR-012 | FR-012-AC-1..FR-012-AC-5 | TC-020 | 🚧 Planned |
-| FR-012 | FR-012-AC-6..FR-012-AC-8 | TC-021 | 🚧 Planned |
-| FR-012 | FR-012-AC-9..FR-012-AC-12 | TC-022 | 🚧 Planned |
-| FR-012 | FR-012-AC-13 | TC-005 | 🚧 Planned |
+| FR-012 | FR-012-AC-1..FR-012-AC-5 | TC-020 | ✅ Key members, target shape, excluded metadata projection and meaning-input changes are tested with `Trace:` tags |
+| FR-012 | FR-012-AC-6..FR-012-AC-8 | TC-021 | ✅ Matrix binds AC-6, AC-7, and AC-8 to the typed hit/miss, excluded-value, and deterministic incomplete-value test at `quire-cache/src/lib.rs:942` |
+| FR-012 | FR-012-AC-9..FR-012-AC-12 | TC-022 | ✅ Entry bounds, temp cleanup, rename errors, ownership-filtered eviction, concurrent writes and eviction-callsite NotFound are tested with `Trace:` tags |
+| FR-012 | FR-012-AC-13 | TC-005 | ✅ `tests/dependency_edges.rs::tc_005_driver_edges_match_the_adr_011_allow_list` carries a `Trace:` tag |
 
 ## Test Case Summary
 
@@ -73,17 +73,17 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-009 | Exercise CLI verbs, outcome documents and exit codes | Integration | FR-002-AC-1, FR-002-AC-2, FR-002-AC-3, FR-002-AC-4, FR-002-AC-5 | 🚧 Planned |
 | TC-010 | Apply explicit lifecycle limits and preserve limit outcomes | Integration | FR-003-AC-1, FR-003-AC-2, FR-003-AC-3 | ✅ Tests present |
 | TC-011 | Select only the requested execution engine | Integration | FR-004-AC-1, FR-004-AC-2, FR-004-AC-3, FR-004-AC-4 | 🚧 Planned |
-| TC-012 | Register and invoke a first-party provider through Provider | Integration | FR-005-AC-1..FR-005-AC-4 | 🚧 Planned |
+| TC-012 | Register and invoke a first-party provider through Provider | Integration | FR-005-AC-1..FR-005-AC-5 | 🚧 Planned; origin assignment requires QSL-637 and the CG handoff also requires IR-629 |
 | TC-013 | Dispatch process-provider results through the driver | Integration | FR-006-AC-1, FR-006-AC-2 | 🚧 Planned |
-| TC-014 | Exercise driver calls through a recording cache interface | Integration | FR-007-AC-1..FR-007-AC-6 | 🚧 Planned |
+| TC-014 | Exercise the cache-aware provider-call helper through a recording cache interface | Unit | FR-007-AC-1..FR-007-AC-6 | 🚧 Helper tests cover cache-call semantics AC-3..AC-5; admission-to-dispatch integration AC-1, AC-2 and AC-6 remains planned |
 | TC-015 | Invoke AOT with current checked request inputs | Integration | FR-008-AC-1, FR-008-AC-2 | 🚧 Planned |
 | TC-016 | Settle one terminal record per item after replay | Integration | FR-009-AC-1, FR-009-AC-2, FR-009-AC-3, FR-009-AC-4, FR-009-AC-5 | 🚧 Planned |
 | TC-017 | Send only abstraction-relation-bound items to code generation | Integration | FR-010-AC-1, FR-010-AC-2, FR-010-AC-3 | 🚧 Planned in quire-integration; QSL AR2 prerequisite |
 | TC-018 | Preserve the QSL outcome at the binary process boundary | Integration | FR-002-AC-2, FR-002-AC-3, FR-002-AC-4 | 🚧 Planned |
 | TC-019 | Propagate library cancellation and retain bounded checked-unit source | Integration | FR-001-AC-9, FR-001-AC-10, FR-011-AC-1..FR-011-AC-5 | ✅ `tests/drive.rs::tc_019_cancellation_preserves_every_stage_and_cause`; `tests/drive.rs::tc_019_e5_receives_source_provision_and_checked_unit_retains_bounded_root` |
-| TC-020 | Derive cache identity from meaning inputs and manifest content | Integration | FR-012-AC-1..FR-012-AC-5 | 🚧 Planned in `quire-cache` |
-| TC-021 | Reject invalid cache entries and excluded values | Integration | FR-012-AC-6..FR-012-AC-8 | 🚧 Planned in `quire-cache` |
-| TC-022 | Keep cache writes atomic and within the caller's size limit | Integration | FR-012-AC-9..FR-012-AC-12 | 🚧 Planned in `quire-cache` |
+| TC-020 | Derive cache identity from meaning inputs and manifest content | Unit | FR-012-AC-1..FR-012-AC-5 | 🚧 Key, target, and excluded-field projection tests are present; `Trace:` tags identify covered criteria |
+| TC-021 | Reject invalid cache entries and excluded values | Unit | FR-012-AC-6..FR-012-AC-8 | ✅ Quire matrix binds AC-6, AC-7, and AC-8 to `quire-cache/src/lib.rs:942`; typed invalid-entry readers also bind AC-6 |
+| TC-022 | Keep cache writes atomic and within the caller's size limit | Unit | FR-012-AC-9..FR-012-AC-12 | ✅ Size, rename boundary and rename NotFound, temp cleanup, ownership-filtered eviction, concurrency and removal-race tests carry `Trace:` tags |
 
 ## Integration Test Matrix
 
