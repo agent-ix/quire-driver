@@ -9,7 +9,9 @@ repository = "https://github.com/agent-ix/quire-driver"
 publish = false
 
 [dependencies]
+quire-driver = { path = ".." }
 quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main", features = ["serde_json"] }
+qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"

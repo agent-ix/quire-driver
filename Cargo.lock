@@ -1334,7 +1334,9 @@ dependencies = [
 name = "quire-cache"
 version = "0.1.0"
 dependencies = [
+ "qsl-route",
  "quire-canonical",
+ "quire-driver",
  "serde",
  "serde_json",
  "thiserror",
@@ -1433,6 +1435,7 @@ dependencies = [
  "quire-contract-codegen",
  "quire-contract-model",
  "quire-exact",
+ "serde",
  "serde_json",
  "thiserror",
 ]

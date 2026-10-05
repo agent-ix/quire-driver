@@ -45,6 +45,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod cache;
 pub mod cli;
 mod drive;
 pub mod execute;
@@ -54,9 +55,13 @@ mod refusal;
 mod registry;
 mod upstream;
 
+pub use cache::{
+    run_cached, Cache, CacheEligibility, CacheExclusion, CacheFault, CacheLookup, CacheOperation,
+    CacheRequest, CacheRequestError, CacheStore, CachedRunError,
+};
 pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, Routed};
 pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};
 pub use limits::{LimitError, LimitOverrides};
 pub use refusal::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
-pub use registry::{build_registry, ProviderManifest};
+pub use registry::{build_registry, AdmittedRegistry, ProviderManifest};
 pub use upstream::{QslCg, Upstream};

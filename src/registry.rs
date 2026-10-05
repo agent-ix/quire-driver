@@ -3,6 +3,7 @@
 //! manifests and passed to every consumer as an argument.
 
 use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, Registry};
+use std::ops::Deref;
 
 use crate::DriverRefusal;
 
@@ -21,6 +22,23 @@ pub struct ProviderManifest {
     pub advertises: Vec<(Option<String>, Option<String>)>,
 }
 
+/// A registry accepted by the driver's complete manifest-admission pass.
+///
+/// The wrapper exposes only shared access, so callers cannot add a conflicting
+/// descriptor after admission and then create cache requests from stale state.
+#[derive(Debug)]
+pub struct AdmittedRegistry {
+    registry: Registry,
+}
+
+impl Deref for AdmittedRegistry {
+    type Target = Registry;
+
+    fn deref(&self) -> &Self::Target {
+        &self.registry
+    }
+}
+
 /// Build the registry from `manifests`.
 ///
 /// Every manifest is admitted and registered. When any registration is
@@ -36,7 +54,7 @@ pub struct ProviderManifest {
 /// the loop, then reads every duplicate-backend conflict once, after the
 /// loop, from `Registry::refusals` -- the registry's own stable, deduped
 /// account of every identity conflict it currently holds.
-pub fn build_registry(manifests: &[ProviderManifest]) -> Result<Registry, DriverRefusal> {
+pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry, DriverRefusal> {
     let mut registry = Registry::new();
     let mut refusals = Vec::new();
     for manifest in manifests {
@@ -62,7 +80,7 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<Registry, Driver
     }
     refusals.extend(registry.refusals());
     if refusals.is_empty() {
-        Ok(registry)
+        Ok(AdmittedRegistry { registry })
     } else {
         refusals.sort();
         Err(DriverRefusal::Registration(refusals))
