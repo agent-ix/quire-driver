@@ -2,7 +2,9 @@
 //! The registry value (ADR-012 §7.1): built by the driver from provider
 //! manifests and passed to every consumer as an argument.
 
-use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, Registry};
+use qsl_route::{
+    BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin, Registry,
+};
 use std::ops::Deref;
 
 use crate::{DriverRefusal, Provider};
@@ -100,6 +102,7 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
         let backend = Candidate::new(backend_id);
         let admitted = BackendDescriptor::admit(
             backend,
+            ProviderOrigin::Linked,
             manifest.manifest_digest,
             manifest
                 .advertises
@@ -147,7 +150,7 @@ pub fn build_linked_providers<'a>(
 
 #[cfg(test)]
 mod tests {
-    use qsl_route::{BackendId, ManifestDigest};
+    use qsl_route::{BackendId, ManifestDigest, ProviderOrigin};
 
     use crate::{KaniProvider, Provider, ProviderManifest};
 
@@ -184,6 +187,10 @@ mod tests {
             Some("agent-ix/provider/second".to_owned())
         );
         assert_eq!(linked.registry().backends().count(), 2);
+        assert!(linked
+            .registry()
+            .descriptors()
+            .all(|descriptor| descriptor.origin() == ProviderOrigin::Linked));
     }
 
     /// Trace: FR-005-AC-1, FR-005-AC-4.
