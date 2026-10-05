@@ -76,6 +76,19 @@ fn runtime_work_limit_changes_the_call_outcome() {
     );
 }
 
+/// Trace: FR-003-AC-3 / TC-010, a lifecycle stage limit uses QSL's exit code.
+#[test]
+fn lifecycle_stage_limit_uses_incomplete_exit_code() {
+    let output = Command::new(QUIRE)
+        .args(["run", SOURCE, "yes", "--limit", "s1.input_bytes=1"])
+        .output()
+        .expect("run with an exhausted source-byte limit");
+    assert_eq!(
+        output.status.code(),
+        Some(i32::from(Category::Incomplete.exit_code()))
+    );
+}
+
 /// Trace: FR-003-AC-2, malformed caller limits are rejected before file access.
 #[test]
 fn malformed_limit_is_named_and_refused_before_source_read() {

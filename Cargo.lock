@@ -1184,9 +1184,9 @@ dependencies = [
 
 [[package]]
 name = "powerfmt"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
+checksum = "4a6394b9e965e73d0a289ee54f589087e2c676aedf60885baf52c76b771e4958"
 
 [[package]]
 name = "proc-macro2"
@@ -1210,12 +1210,12 @@ dependencies = [
 [[package]]
 name = "qsl-attrs"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#9f2db743e92de02325e4bf4dbe2e61cbaf2196db"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#bcca43356937348525bc098d49557d96039c1bf0"
 
 [[package]]
 name = "qsl-cst"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#9f2db743e92de02325e4bf4dbe2e61cbaf2196db"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#bcca43356937348525bc098d49557d96039c1bf0"
 dependencies = [
  "logos",
  "qsl-attrs",
@@ -1227,7 +1227,7 @@ dependencies = [
 [[package]]
 name = "qsl-eval"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#9f2db743e92de02325e4bf4dbe2e61cbaf2196db"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#bcca43356937348525bc098d49557d96039c1bf0"
 dependencies = [
  "qsl-attrs",
  "qsl-foundation",
@@ -1243,7 +1243,7 @@ dependencies = [
 [[package]]
 name = "qsl-forms"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#9f2db743e92de02325e4bf4dbe2e61cbaf2196db"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#bcca43356937348525bc098d49557d96039c1bf0"
 dependencies = [
  "qsl-cst",
  "qsl-foundation",
@@ -1254,7 +1254,7 @@ dependencies = [
 [[package]]
 name = "qsl-foundation"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#9f2db743e92de02325e4bf4dbe2e61cbaf2196db"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#bcca43356937348525bc098d49557d96039c1bf0"
 dependencies = [
  "qsl-attrs",
  "quire-exact",
@@ -1266,7 +1266,7 @@ dependencies = [
 [[package]]
 name = "qsl-package"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#9f2db743e92de02325e4bf4dbe2e61cbaf2196db"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#bcca43356937348525bc098d49557d96039c1bf0"
 dependencies = [
  "qsl-attrs",
  "qsl-foundation",
@@ -1282,7 +1282,7 @@ dependencies = [
 [[package]]
 name = "qsl-replay"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#9f2db743e92de02325e4bf4dbe2e61cbaf2196db"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#bcca43356937348525bc098d49557d96039c1bf0"
 dependencies = [
  "qsl-attrs",
  "qsl-cst",
@@ -1303,7 +1303,7 @@ dependencies = [
 [[package]]
 name = "qsl-route"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#9f2db743e92de02325e4bf4dbe2e61cbaf2196db"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#bcca43356937348525bc098d49557d96039c1bf0"
 dependencies = [
  "qsl-foundation",
  "qsl-semantics",
@@ -1313,7 +1313,7 @@ dependencies = [
 [[package]]
 name = "qsl-semantics"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#9f2db743e92de02325e4bf4dbe2e61cbaf2196db"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#bcca43356937348525bc098d49557d96039c1bf0"
 dependencies = [
  "agent-ix-extraction-frontend",
  "agent-ix-semantic-ir",
@@ -1356,7 +1356,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-codegen"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#bcce79806a276cce2e4935651ee3477782f2b308"
+source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#7345463a7a9bcc0150d47330e847017181c36772"
 dependencies = [
  "qsl-replay",
  "quire-canonical",

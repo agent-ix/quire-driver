@@ -46,12 +46,6 @@ pub enum LimitError {
         /// The requested value that cannot fit this platform's `usize`.
         value: u64,
     },
-    /// QSL-489 must add this typed builder before this setting can be applied.
-    #[error("QSL-489: QSL does not expose a node-limit builder for `{name}`")]
-    QslBuilderUnavailable {
-        /// The QSL field without a public builder yet.
-        name: String,
-    },
 }
 
 /// Named, non-negative settings supplied with repeatable `--limit` options.
@@ -110,11 +104,7 @@ impl LimitOverrides {
                 "s1.tokens" => limits.source.tokens = as_usize(name, value)?,
                 "s1.nodes" => limits.source.nodes = as_usize(name, value)?,
                 "s1.work_units" => limits.source.work_units = as_usize(name, value)?,
-                "s3.nodes" => {
-                    return Err(LimitError::QslBuilderUnavailable {
-                        name: name.to_owned(),
-                    })
-                }
+                "s3.nodes" => limits.checking = limits.checking.with_nodes(value),
                 "s3.input_bytes" => {
                     limits.checking = limits.checking.with_input_bytes(value);
                 }
@@ -278,16 +268,17 @@ mod tests {
         assert_eq!(call.accounting.work_units, 11);
     }
 
-    /// Trace: FR-003-AC-1, QSL-489 is the pending s3.nodes settings API.
+    /// Trace: FR-003-AC-1, s3.nodes changes only the checking node ceiling.
     #[test]
-    fn s3_nodes_waits_for_qsl_builder() {
+    fn s3_nodes_changes_only_the_checking_node_ceiling() {
         let overrides = LimitOverrides::parse(&["s3.nodes=7".to_owned()]).expect("known setting");
         let mut limits = SpineLimits::default();
+        let original_checking = limits.checking;
         let mut call = call();
-        let error = overrides
+        overrides
             .apply_to(&mut limits, &mut call)
-            .expect_err("the current QSL type has no field builder");
-        assert!(matches!(error, LimitError::QslBuilderUnavailable { .. }));
+            .expect("QSL exposes the typed node builder");
+        assert_eq!(limits.checking, original_checking.with_nodes(7));
     }
 
     /// Trace: FR-003, typed defaults are inherited when no override is supplied.
