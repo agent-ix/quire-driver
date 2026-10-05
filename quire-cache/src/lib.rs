@@ -796,7 +796,7 @@ mod tests {
         );
     }
 
-    /// Trace: FR-012-AC-1, FR-012-AC-3 and FR-012-AC-5.
+    /// Trace: FR-012-AC-1, FR-012-AC-3, FR-012-AC-5.
     #[test]
     fn target_and_meaning_members_match_the_operation_contract() {
         let backend = BackendId::from_wire("agent-ix/provider/test").expect("backend is valid");
@@ -937,7 +937,7 @@ mod tests {
         );
     }
 
-    /// Trace: FR-012-AC-6..FR-012-AC-8; includes a deterministic budget-incomplete value.
+    /// Trace: FR-012-AC-6, FR-012-AC-7, FR-012-AC-8; includes a deterministic budget-incomplete value.
     #[test]
     fn miss_store_typed_hit_and_never_store() {
         let directory = temporary_directory();
@@ -1015,7 +1015,7 @@ mod tests {
         }
     }
 
-    /// Trace: FR-012-AC-5 and FR-012-AC-9; a JCS integer refusal becomes NotStored.
+    /// Trace: FR-012-AC-9; a JCS integer refusal becomes NotStored.
     #[test]
     fn result_above_jcs_integer_range_is_not_stored() {
         let directory = temporary_directory();
@@ -1155,7 +1155,7 @@ mod tests {
         );
     }
 
-    /// Trace: FR-012-AC-1 and FR-012-AC-9; an oversized key preimage misses and cannot be stored.
+    /// Trace: FR-012-AC-1, FR-012-AC-9; an oversized key preimage misses and cannot be stored.
     #[test]
     fn oversized_preimage_misses_and_record_is_not_stored() {
         let directory = temporary_directory();
@@ -1212,7 +1212,7 @@ mod tests {
         assert!(!store.entry_path(&cache_key).exists());
     }
 
-    /// Trace: FR-012-AC-9 and FR-012-AC-12; entry-size refusal preserves the cache bound.
+    /// Trace: FR-012-AC-9, FR-012-AC-12; entry-size refusal preserves the cache bound.
     #[test]
     fn entries_over_the_per_entry_limit_are_not_written() {
         let directory = temporary_directory();
@@ -1324,7 +1324,7 @@ mod tests {
         );
     }
 
-    /// Trace: FR-012-AC-9 and FR-012-AC-12; entry exactly at both limits is accepted.
+    /// Trace: FR-012-AC-9, FR-012-AC-12; entry exactly at both limits is accepted.
     #[test]
     fn exactly_at_configured_limits_is_stored() {
         let directory = temporary_directory();
@@ -1398,7 +1398,7 @@ mod tests {
         assert!(final_path.exists(), "rename publishes the entry");
     }
 
-    /// Trace: FR-012-AC-10 and FR-012-AC-12; temporary bytes count, abandoned files are cleaned, symlinks are not followed.
+    /// Trace: FR-012-AC-10, FR-012-AC-12; temporary bytes count, abandoned files are cleaned, symlinks are not followed.
     #[test]
     fn temporary_capacity_and_abandoned_cleanup_are_enforced() {
         let directory = temporary_directory();
