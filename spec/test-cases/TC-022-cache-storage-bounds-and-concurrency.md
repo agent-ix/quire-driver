@@ -10,26 +10,32 @@ relationships:
 
 ## Description
 
-Verify cache write, replacement, eviction and same-key writer behavior against
-the caller's store-size limit.
+Verify cache write, replacement, eviction and concurrent insertion against the
+caller's per-entry and total-store limits.
 
 Scope: FR-012-AC-5 through FR-012-AC-7.
 
 ## Test Procedure
 
-Write an entry and replace it under the same key. Leave an abandoned temporary
-filename and a symlink with an entry-like name in the directory before
-repeating insertion and lookup. Start concurrent writers for the same
-eligible key and read the entry after both finish. Exercise a total store size
-exactly at its limit, add another entry to trigger eviction, and attempt an
-entry larger than the total limit.
+Use a filesystem spy that fails a direct write to the final key name. Write an
+entry through a unique temporary file in the same directory, flush and close
+it, then atomically rename it; replace it under the same key. Leave an
+abandoned temporary file and a symlink with an entry-like name before repeating
+insertion and lookup. Verify temporary bytes count toward total capacity. Start
+same-key writers concurrently, then run two cache processes that select the
+same eviction candidate and arrange for one to remove it first. Exercise an
+exactly-at-limit store, an insertion requiring eviction, an entry exceeding the
+per-entry limit, and an entry unable to fit within the total limit.
 
 ## Expected Results
 
-- No lookup observes a partial temporary write; a later write removes the
-  abandoned temporary file without following the symlink, and the final named
-  entry decodes with the requested typed reader.
-- Concurrent same-key writers leave a valid entry and do not turn a successful
-  write into a failure solely because a competing writer completed first.
-- A store exactly at the configured limit remains accepted; adding an entry
-  evicts as needed, and an entry that cannot fit is not stored.
+- Direct writes to a final entry name fail verification; only atomic rename
+  publishes an entry, and no lookup observes a partial write.
+- Temporary files count toward total capacity. Cleanup removes abandoned
+  temporaries without following symlinks.
+- Concurrent same-key writers leave a valid typed entry. In the cross-process
+  eviction race, `NotFound` for an already-removed candidate does not fail the
+  insertion.
+- Exactly-at-limit storage is accepted; entries that cannot fit per-entry or
+  total limits return `NotStored`, and eviction otherwise keeps the store within
+  its total byte limit.

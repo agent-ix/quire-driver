@@ -12,13 +12,15 @@ relationships:
 
 Verify the driver's place in the crate graph from `cargo metadata`.
 
-Scope: FR-001-AC-1.
+Scope: FR-001-AC-1, FR-001-AC-11 and FR-012-AC-14.
 
 ## Test Procedure
 
 1. Run `cargo metadata --locked --offline` and read the resolved graph.
    Count normal and build edges. Identify QSL packages by their source,
    `git+https://github.com/agent-ix/quire-spec-language`.
+2. Traverse the complete normal/build dependency closure from `quire-driver`.
+   Identify `quire-cache` and inspect its direct dependency edges.
 
 Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_list`.
 
@@ -29,15 +31,15 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
   `quire-exact`, `quire-contract-codegen`, `quire-contract-model` and
   `thiserror`. The QSL root crate and `quire-cache` are not direct edges.
   `serde_json` is a dev-dependency (this crate's own tests use it), not a
-  normal one.
+  normal one. No package in the driver's transitive normal/build dependency
+  closure is `quire-cache`.
 - The driver's `quire-contract-model` is the package CG's
   `quire-contract-ir` depends on.
-- The workspace has a `quire-driver` package and may include downstream
-  packages such as `quire-cache`. The `quire-driver` package has no dependency
-  edge to `quire-cache`; its direct and transitive QSL, IR and CG graph stays
-  within the listed architecture.
-- No QSL, IR or CG package depends on `quire-driver`. Downstream components
-  such as `quire-cache` or `quire-cli` may depend on the driver interface.
+- The workspace has a `quire-driver` package and a separate downstream
+  `quire-cache` package that depends on the driver-owned interface. No
+  transitive normal/build path leads from `quire-driver` to `quire-cache`.
+- No QSL, IR or CG package depends on `quire-driver`. `quire-cache` depends on
+  the driver-owned interface; `quire-cli` may depend on the driver interface.
 - CG's one normal or build edge into QSL is `qsl-replay`.
 - The graph holds one copy of `quire-contract-model`: the driver's own
   direct dependency, CG's `quire-contract-ir` and QSL's `qsl-package` all

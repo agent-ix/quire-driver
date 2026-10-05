@@ -13,27 +13,29 @@ relationships:
 Verify that the driver sends the exact eligible request and manifest content to
 its injected cache interface and preserves typed hit and miss results.
 
-Scope: FR-007-AC-1 through FR-007-AC-2.
+Scope: FR-007-AC-1 through FR-007-AC-4.
 
 ## Test Procedure
 
-Inject a recording cache interface and a provider spy. On the first invocation,
-return a miss and have the provider return a typed result. Inspect the recorded
-operation, package identity, typed request, provider identity, manifest bytes
-and value passed for recording. On a second invocation, return a typed hit and
-inspect the driver's result and provider call count. On a third invocation,
-change one manifest byte while keeping the provider identity and any recorded
-revision or version pin unchanged; return a miss and inspect the new recorded
-bytes.
+Inject a recording `Cache` and provider spy. Return a miss, then a provider
+result; inspect lookup's operation, package identity, canonical request,
+`BackendId`, admitted `ManifestDigest`, generation target/options and the exact
+typed value passed to `record`. Next return a valid typed hit and inspect the
+unchanged result and provider call count. Change manifest content while keeping
+identity and recorded pin fixed; provide the corresponding newly admitted
+`ManifestDigest` and verify it reaches the interface. Exercise a typed cache
+I/O error and excluded/oversize record outcomes.
 
 ## Expected Results
 
-- The first cache call receives every named typed input and the exact admitted
-  manifest bytes; the provider's typed result is passed for recording and
-  returned unchanged.
-- The hit result is returned unchanged and the provider spy's call count does
-  not increase.
-- The third cache call receives the changed manifest bytes, not a revision or
-  version pin in their place.
+- Lookup receives all FR-007-AC-1 members including generate-only target and
+  options; miss calls the provider exactly once and records/returns its same
+  typed result.
+- A valid typed hit is returned unchanged and does not increment provider calls;
+  an always-miss fake fails this assertion.
+- The changed manifest is represented by its newly admitted `ManifestDigest`,
+  regardless of unchanged identity or pin.
+- Typed I/O faults are not converted to misses; `NeverStore` and `NotStored`
+  preserve the provider result.
 - The recording interface is supplied by the test; the `quire-driver`
   package has no dependency on the concrete `quire-cache` package.

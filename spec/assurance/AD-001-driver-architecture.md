@@ -64,8 +64,8 @@ relationships:
 IR-527 reconciles this seam description with QSL ADR-029 and the merged
 SP-D1 through SP-D9 requirements. It absorbs IR-351's driver specification,
 architecture and verification-inventory work. [The master specification](../spec.md)
-and [TM-001](../tests.md) integrate FR-001 through FR-010 and TC-001 through
-TC-018. This architecture describes their composition and ownership; the
+and [TM-001](../tests.md) integrate FR-001 through FR-012 and TC-001 through
+TC-022. This architecture describes their composition and ownership; the
 discrete requirements supply the normative acceptance criteria.
 
 ## System Boundary
@@ -87,10 +87,14 @@ terminal value. The driver defines no alternative to these contracts.
 
 QSL ADR-029 also defines the plugin, cache and execution-backend contracts.
 Its CB-3 places the host, cache, AOT adapter and CLI outside the qualified core
-in downstream driver-repository components. The `quire-driver` package owns
-the cache interface and SHALL NOT depend on the concrete `quire-cache`
-package. `quire-cache` implements that interface as a downstream component,
-and the application composes both packages. FR-006 through FR-008 specify
+in driver-repository components. The driver repository owns and provides the
+one user-facing binary. Today it is a bin target in the `quire-driver`
+package; the target layout names a separate `quire-cli` crate. Moving the bin
+target is a follow-up under IR-610/CLI work, not part of this spec change. The
+`quire-driver` package owns the cache interface and SHALL NOT depend on the
+concrete `quire-cache` package. `quire-cache` implements that interface as a
+downstream component, and the binary composition includes both packages.
+FR-006 through FR-008 specify
 dispatch and typed input/result preservation against QSL's PL, CA and EB
 contracts; FR-012 specifies the concrete cache component under QSL's CA
 policy.
@@ -115,7 +119,7 @@ failure ownership across the driver and its upstream libraries.
 | Routing | QSL `qsl-route` | Route after negotiation and only for supported items; retain request indices and checked-node identity | FR-001 / TC-003 |
 | Generation and publication | CG `generate_routed` and CG FR-005 | Supply only routed, relation-bound items and caller contexts; carry generation output and CG-derived claim map without re-derivation | FR-001, FR-010 / TC-006, TC-007, TC-017 |
 | First-party and process-provider execution | Driver `Provider` trait; QSL ADR-029 PV and PL | Invoke only the selected providers with the current emitted package, their negotiated items, limits and cancellation; pass typed results into proof settlement | FR-005..FR-006 / TC-012..TC-013 |
-| Eligible cache calls | Driver cache interface and QSL ADR-029 CA-1..CA-5 | Supply the typed request, package and provider identities, exact manifest bytes and generation options; preserve typed hit/miss results without depending on `quire-cache` | FR-007 / TC-014 |
+| Eligible cache calls | Driver cache interface and QSL ADR-029 CA-1..CA-5 | Supply operation, package and provider identity, admitted `ManifestDigest`, typed request and generation options; preserve typed hit/miss results without depending on `quire-cache` | FR-007 / TC-014 |
 | Cache key and storage | `quire-cache`, implementing QSL ADR-029 CA-1..CA-5 | Derive and verify content identity, enforce typed reads, storage policy and caller byte limits | FR-012 / TC-020..TC-022 |
 | AOT execution | QSL ADR-029 EB | Pass the current checked package, selected entries, limits, cancellation and named toolchain to the selected backend; preserve failures without switching engines | FR-008 / TC-015 |
 | Counterexample replay | QSL S6a / replay operation | Replay each provider counterexample through QSL; retain execution and replay as distinct inputs to settlement | FR-009 / TC-016 |
@@ -152,7 +156,7 @@ add library-source intake or expand that baseline contract.
 ### Dependency direction and frontend placement
 
 - QSL, IR and CG do not depend on the driver. The driver library depends on
-  their layer/model APIs; downstream applications and `quire-cache` may
+  their layer/model APIs; downstream components and `quire-cache` may
   consume its cache interface. The `quire-driver` package does not depend on
   `quire-cache`. CG's QSL seam remains `qsl-replay`; the driver may call QSL
   layer crates directly (ADR-011 §6.1, FB-11).
@@ -165,7 +169,7 @@ add library-source intake or expand that baseline contract.
 - FR-001 and TC-005 describe the existing orchestrator's dependency graph.
   The frontend and non-core components added under ADR-029 CB-3 sit above
   the driver core. The `quire-driver` package SHALL NOT depend on
-  `quire-cache`; a downstream application injects its implementation of the
+  `quire-cache`; the binary composition injects its implementation of the
   driver's cache interface. An argument parser, terminal renderer, plugin
   host, cache implementation or alternate execution backend does not become
   a dependency of the core.

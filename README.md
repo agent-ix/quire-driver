@@ -4,7 +4,7 @@ The `quire-driver` library package orchestrates QSL ADR-011 T-13, with IR
 admission between QSL and CG (`quire-contract-codegen`). It remains downstream
 of those libraries and does not depend on the concrete `quire-cache` package.
 The cache is a separate downstream component supplied through the driver's
-cache interface by the application that composes them.
+cache interface by the driver-repository binary composition.
 
 `drive` runs one request:
 
@@ -55,8 +55,8 @@ documents and QSL's root feature; no artifact digest evidence is supplied.
 ## Package boundaries
 
 Keep `quire-cache` outside the `quire-driver` dependency graph. The driver
-library defines and calls the cache interface; a downstream application can
-compose the cache implementation without adding it to the driver's qualified
+library defines and calls the cache interface; the binary composition can
+include the cache implementation without adding it to the driver's qualified
 core.
 
 ## Commands

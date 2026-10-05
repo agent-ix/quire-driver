@@ -14,64 +14,100 @@ relationships:
 
 ## Description
 
-When a result is eligible for reuse, the `quire-cache` component SHALL derive
-and verify one content key from every meaning input required by QSL ADR-029
-CA-2 and SHALL store only values permitted by CA-5.
+The downstream `quire-cache` package SHALL implement the required cache
+interface owned by `quire-driver` and SHALL follow QSL ADR-029 CA-1 through
+CA-5. It is a separate package and SHALL depend on the driver interface; the
+`quire-driver` package SHALL NOT depend on `quire-cache`.
 
 ## Inputs
 
-- The operation, package identity and canonical typed request.
-- The selected backend identity and its exact canonical FR-331 manifest bytes.
-- For generation, the target and every target option that can change output.
-- The caller-named store directory, entry-size limit and total-store limit.
-- A typed value reader matching the reader used for a fresh result.
+- `CacheRequest`: operation (`prove`, `analyze` or `generate`), package
+  identity, canonical typed request, selected `qsl_route::BackendId`, the
+  registry-admitted `qsl_route::ManifestDigest`, and for `generate` the target
+  and output-affecting options.
+- A caller-named storage directory, maximum entry size and total stored-byte
+  limit, plus the typed value reader for the requested result.
+- An eligible typed result for insertion.
 
 ## Outputs
 
-- A verified typed cache hit or a miss.
-- A stored, never-stored or over-capacity insertion outcome.
+- `CacheLookup::Hit(TypedResult)` after key, entry and typed-reader validation,
+  or `CacheLookup::Miss`.
+- A typed cache I/O error for operational filesystem failures (for example,
+  permission denied or corrupt directory operation); it SHALL NOT be disguised
+  as a miss.
+- `CacheStore::Stored`, `CacheStore::NeverStore` for QSL CA-5 exclusions, or
+  `CacheStore::NotStored` when an entry exceeds the per-entry or total-store
+  limit. NeverStore/NotStored do not fail the provider operation.
 
 ## Behavior
 
-- The cache SHALL compute the backend manifest content digest from the exact
-  canonical manifest bytes under `quire.tool-manifest.jcs/v1` and bind that
-  digest and the backend identity into `quire.cache-key/v1`.
-- The cache SHALL include the operation, package identity, canonical request
-  and, for generation, the target and its options in the key preimage.
-- The cache SHALL NOT use a recorded revision, version, path, timestamp,
-  wall-clock deadline, application version or execution backend as a key
-  input.
-- The cache SHALL treat an absent, malformed, noncanonical, size-exceeding,
-  mismatched or incorrectly typed entry as a miss.
-- The cache SHALL write an eligible entry to a temporary name and atomically
-  rename it into the caller-named store.
-- The cache SHALL keep stored entries within the caller's total size limit.
-- The cache SHALL NOT store internal failures, cancellations, deadlines,
-  time-limited incomplete results, plugin results or values that record wall
-  time.
-- The `quire-cache` package SHALL remain downstream of and separate from the
-  `quire-driver` package; `quire-driver` SHALL NOT depend on `quire-cache`.
+- The cache key SHALL be SHA-256 over JCS of an object with members `operation`,
+  `package_id`, `request`, `backend`, `manifest`, and `target` for `generate`
+  only. `backend` is the identity string from `BackendId`; `manifest` is the
+  registry-admitted `ManifestDigest` computed by QSL from canonical FR-331
+  manifest bytes. QSL-636 amends QSpec FR-201/FR-306, QSL FR-288 and ADR-029
+  CA-2 to require this content identity in the key; the manifest digest is
+  explicit JCS input and is not re-derived by this cache.
+- The cache represents generation target and output-affecting options in the
+  `target` member. For other operations, the cache omits that member. When
+  deriving a key, the cache SHALL exclude paths, timestamps, deadlines,
+  recorded pins/revisions, application version, wall time and execution-backend
+  labels.
+- The driver SHALL admit the provider manifest through the registry and reject
+  any identity mismatch before constructing `CacheRequest`; `ManifestDigest`
+  is the digest from that admitted descriptor.
+- A lookup SHALL return a hit only when the named entry is present, canonical,
+  within the per-entry limit, has a filename matching the requested key, has a
+  preimage and digest matching the requested `CacheRequest`, and is accepted by
+  the same typed reader used for a fresh value. An invalid entry is a miss.
+- The cache stores only values eligible under ADR-029 CA-5. The cache stores
+  deterministic budget-incomplete results when within size limits; time-limited
+  incomplete values are not eligible.
+- The cache writes each entry to a unique temporary file in the caller's store,
+  flushes and closes it, then atomically renames it to its final key name. The
+  cache never writes directly to the final name. A process-local lock
+  serializes local eviction and insertion. If another process has already
+  removed an eviction candidate, the cache ignores `NotFound` and continues
+  insertion. Temporary files count toward total-store bytes until removed. The
+  cache removes its own abandoned temporary files and inspects entries without
+  following symlinks. These filesystem policies are this component's storage
+  choices under CA-3.
+- The cache returns `NotStored` for an entry above the per-entry limit or one
+  that cannot fit the configured total-store limit after eviction. The cache
+  uses no index or ledger; it derives keys from entries and request input
+  (ADR-029 CA-3).
+- The per-entry size bound, temporary-file cleanup policy and no-follow symlink
+  handling are driver-side storage choices under ADR-029 CA-3; temporary bytes
+  count against the total-store limit until cleanup removes them.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-012-AC-1 | Two keys with the same operation, package identity, canonical request, provider identity and recorded pin but different exact manifest bytes have different `quire.cache-key/v1` identities; the preimage binds the `quire.tool-manifest.jcs/v1` digest computed from those bytes. | Test |
-| FR-012-AC-2 | Changing any included meaning input changes the key, while changing a path, timestamp, deadline, recorded revision or execution-backend label that is outside the key leaves it unchanged; generate target and options are included only for generate. | Test |
-| FR-012-AC-3 | A missing, malformed, noncanonical, mismatched-name, mismatched-preimage, wrong-digest or typed-reader-rejected entry is a miss and is never returned as a hit. | Test |
-| FR-012-AC-4 | Internal-failure, cancelled, deadline, time-limited incomplete, plugin and wall-time-bearing values return never-stored and leave no readable cache entry. | Test |
-| FR-012-AC-5 | A write is published by atomic rename from a temporary file; lookups never accept temporary names, and a later write removes abandoned temporary files without following symlinks. | Test |
-| FR-012-AC-6 | Concurrent writers of the same key leave a valid typed entry and do not fail solely because a competing writer completed first. | Test |
-| FR-012-AC-7 | Insertion and eviction keep the named entry set within the caller's total byte limit; an entry that cannot fit is not stored. | Test |
+| FR-012-AC-1 | The key preimage is JCS with operation, package identity, canonical request, backend identity, and manifest digest; `generate` also has a target member. | Test (TC-020) |
+| FR-012-AC-2 | Changed manifest content changes the admitted `ManifestDigest` and derived key when identity and pin remain unchanged. | Test (TC-020) |
+| FR-012-AC-3 | Registry admission rejects a manifest identity mismatch before the driver constructs `CacheRequest`. | Test (TC-020) |
+| FR-012-AC-4 | Changing a meaning input changes the derived key. | Test (TC-020) |
+| FR-012-AC-5 | Changing excluded path, time, deadline, pin, revision, application version or execution-backend label leaves the key unchanged. | Test (TC-020) |
+| FR-012-AC-6 | The `target` member occurs for generate and is absent for prove and analyze. | Test (TC-020) |
+| FR-012-AC-7 | A valid present entry accepted by the requested typed reader is returned as a hit; absent or invalid entries are misses. | Test (TC-021) |
+| FR-012-AC-8 | ADR-029 CA-5 excluded values return `NeverStore`. | Test (TC-021) |
+| FR-012-AC-9 | A deterministic-budget incomplete result within size limits is stored and readable. | Test (TC-021) |
+| FR-012-AC-10 | An entry above the per-entry limit returns `NotStored`. | Test (TC-021) |
+| FR-012-AC-11 | Atomic rename from a temporary file publishes each entry; direct final-name writes are absent, temporary files count toward capacity, and cleanup removes abandoned temporary files without following symlinks. | Test (TC-022) |
+| FR-012-AC-12 | Concurrent same-key writers leave a valid typed entry, and cross-process eviction treats `NotFound` for an already-removed entry as success. | Test (TC-022) |
+| FR-012-AC-13 | The cache keeps stored bytes within configured per-entry and total limits, returns `NotStored` when an entry cannot fit, and uses no index or ledger. | Test (TC-022) |
+| FR-012-AC-14 | `quire-cache` is separate from `quire-driver`, depends on its interface, and is absent from the driver's transitive normal/build dependency closure. | Test (TC-005) |
 
 ## Dependencies
 
-- QSL ADR-029 CA-1 through CA-5 and QSpec FR-201 and FR-306 define cache
-  identity, typed-read verification and storage policy.
-- [FR-007](./FR-007-cache-results-by-content-identity.md) defines the driver
-  interface composition; this component does not become a dependency of the
-  driver core.
+- QSL ADR-029 CA-1 through CA-5 and QSL-636 (QSpec FR-201/FR-306, QSL FR-288,
+  and ADR-029 CA-2 cache-key clarification).
+- [FR-007](./FR-007-cache-results-by-content-identity.md) defines the required
+  driver-owned interface; this package implements it downstream.
 - [TC-020](../test-cases/TC-020-cache-content-identity.md),
-  [TC-021](../test-cases/TC-021-cache-entry-integrity-and-policy.md) and
-  [TC-022](../test-cases/TC-022-cache-storage-bounds-and-concurrency.md)
-  verify this component.
+  [TC-021](../test-cases/TC-021-cache-entry-integrity-and-policy.md),
+  [TC-022](../test-cases/TC-022-cache-storage-bounds-and-concurrency.md) and
+  [TC-005](../test-cases/TC-005-dependency-edges.md) verify the component and
+  architecture.

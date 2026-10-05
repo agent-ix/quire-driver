@@ -42,7 +42,7 @@ src/lib.rs             # crate root
 tests/drive.rs         # FR-001 acceptance tests (real QSL and CG calls)
 tests/dependency_edges.rs # FR-001-AC-1: cargo metadata edge check
 benches/               # criterion benchmarks (opt-in; add criterion to dev-deps)
-spec/                  # requirements artifacts (FR-001, TC-001..TC-007)
+spec/                  # requirements artifacts (FR-001..FR-012, TC-001..TC-022)
 scripts/               # local tooling
 ```
 
@@ -50,6 +50,6 @@ scripts/               # local tooling
 
 QSL ADR-011 §6.1: the `quire-driver` package depends on the QSL layer crates
 and CG. Do not add a dependency from `quire-driver` to the downstream
-`quire-cache` package; the application supplies the cache interface
-implementation. Do not add a dependency on the QSL root crate
+`quire-cache` package; the driver-repository binary composition supplies the
+cache interface implementation. Do not add a dependency on the QSL root crate
 `quire-spec-language`; `tests/dependency_edges.rs` fails if one appears.

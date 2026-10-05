@@ -130,17 +130,21 @@ pass-through at the process boundary until the kit can carry QSL's codes.
 ## 3. System Overview
 
 The `quire-driver` library sequences QSL, IR and CG calls and builds the
-registry value passed to consumers. A downstream application supplies the one
-user-facing `quire` binary and composes the driver with downstream components
-such as `quire-cache`. The `quire-driver` package does not depend on
-`quire-cache`; QSL, IR and CG do not depend on the driver. CLI mechanics and
+registry value passed to consumers. The driver repository owns and provides
+the one user-facing `quire` binary; today it is a bin target in the
+`quire-driver` package, while ADR-029 CB-3's target layout places it in a
+separate `quire-cli` crate in this repository. Moving that target is a
+follow-up under existing IR-610/CLI work, outside this spec change. The
+application composes the binary and driver with downstream components such as
+`quire-cache`. The `quire-driver` package does not depend on `quire-cache`;
+QSL, IR and CG do not depend on the driver. CLI mechanics and
 the cache implementation remain outside the qualified core (QSL ADR-029
 CB-3).
 
 ## 4. Requirements Architecture
 
 `quire-driver` owns the sequencing across QSL, IR and CG for the checked
-request lifecycle. A downstream `quire` application composes that library
+request lifecycle. The driver-repository `quire` binary composes that library
 with `quire-cache` without making the cache a dependency of the driver core.
 IR-527 absorbs the driver spec, architecture, requirements and test-matrix
 scope previously tracked by IR-351. The tables index the discrete normative

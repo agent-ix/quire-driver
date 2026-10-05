@@ -109,9 +109,22 @@ impl Graph {
             .map(|(id, _)| id.as_str())
             .collect()
     }
+
+    fn reachable_from(&self, start: &str) -> BTreeSet<&str> {
+        let mut seen = BTreeSet::new();
+        let mut pending = vec![start];
+        while let Some(id) = pending.pop() {
+            for next in &self.deps[id] {
+                if seen.insert(next.as_str()) {
+                    pending.push(next);
+                }
+            }
+        }
+        seen
+    }
 }
 
-/// FR-001-AC-1 (TC-005)
+/// FR-001-AC-1, FR-001-AC-11 and FR-012-AC-14 (TC-005)
 #[test]
 fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let graph = Graph::load();
@@ -143,9 +156,10 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     assert_eq!(direct, expected);
     assert!(
         graph
-            .deps_of(&graph.root)
-            .all(|package| package.name != "quire-cache"),
-        "the quire-driver package depends on the downstream quire-cache component"
+            .reachable_from(&graph.root)
+            .iter()
+            .all(|id| graph.package(id).name != "quire-cache"),
+        "the quire-driver transitive dependency closure reaches quire-cache"
     );
     let driver_qsl: Vec<&Package> = graph.deps_of(&graph.root).filter(|p| p.is_qsl()).collect();
     assert_eq!(driver_qsl.len(), 5, "five QSL edges, by source");
@@ -168,6 +182,15 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
                 package.name
             );
         }
+    }
+
+    let cache = graph.ids_named("quire-cache");
+    if !cache.is_empty() {
+        assert_eq!(cache.len(), 1, "one downstream cache implementation");
+        assert!(
+            graph.deps_of(cache[0]).any(|p| p.name == "quire-driver"),
+            "quire-cache must depend on the driver-owned cache interface"
+        );
     }
 
     // §7.1 / FB-05: CG's one normal or build edge into QSL is `qsl-replay`.
