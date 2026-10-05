@@ -33,6 +33,8 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/FR-010
     type: contains
+  - target: ix://agent-ix/quire-driver/FR-011
+    type: contains
   - target: ix://agent-ix/quire-driver/TC-001
     type: contains
   - target: ix://agent-ix/quire-driver/TC-002
@@ -68,6 +70,8 @@ relationships:
   - target: ix://agent-ix/quire-driver/TC-017
     type: contains
   - target: ix://agent-ix/quire-driver/TC-018
+    type: contains
+  - target: ix://agent-ix/quire-driver/TC-019
     type: contains
 ---
 # Master Requirements Specification
@@ -145,6 +149,7 @@ FR-002 through FR-010 specify SP-D1 through SP-D9 respectively.
 | [FR-008](functional/FR-008-aot-execution-backend.md) | Invoke the selected AOT execution backend |
 | [FR-009](functional/FR-009-settle-execute-and-replay-results.md) | Settle executions after replaying counterexamples |
 | [FR-010](functional/FR-010-send-only-bound-items-to-codegen.md) | Send only abstraction-relation-bound items to code generation |
+| [FR-011](functional/FR-011-cancel-a-driver-library-operation.md) | Cancel driver lifecycle stages through a caller-owned handle |
 | [TC-001](test-cases/TC-001-steps-run-in-order.md) | The steps run in ADR-011 T-13 order |
 | [TC-002](test-cases/TC-002-unknown-backend-refusal.md) | An unknown `BackendId` refuses the run before negotiation |
 | [TC-003](test-cases/TC-003-route-after-negotiation.md) | `route` runs after negotiation, for `supported` items only |
@@ -163,10 +168,11 @@ FR-002 through FR-010 specify SP-D1 through SP-D9 respectively.
 | [TC-016](test-cases/TC-016-execute-replay-and-terminal-records.md) | Settle one terminal record per item after replay |
 | [TC-017](test-cases/TC-017-only-bound-items-reach-codegen.md) | Send only abstraction-relation-bound items to code generation |
 | [TC-018](test-cases/TC-018-binary-process-boundary.md) | Preserve the QSL outcome at the binary process boundary |
+| [TC-019](test-cases/TC-019-library-cancellation-and-source-release.md) | Propagate library cancellation and retain bounded checked-unit source |
 
 ## 5. Verification and Delivery Boundary
 
-[TM-001](tests.md) integrates FR-001 through FR-010 and TC-001 through TC-018.
+[TM-001](tests.md) integrates FR-001 through FR-011 and TC-001 through TC-019.
 It distinguishes existing orchestration tests from planned driver tests and
 records their verification owners. Cross-backend and CLI/library conformance
 formerly described by CG FR-005 and IR-337 feed IR-528's G5b gate exclusively
@@ -176,7 +182,9 @@ and awaits QSL AR2 / QSL-514.
 
 This reconciliation integrates the merged SP-D1–D9 specifications from driver
 PRs #15 and #17. TC-018 was added in PR #18 to verify the binary boundary for
-FR-002. IR-606 adapted the orchestrator to current upstream lifecycle APIs.
+FR-002. IR-616 specifies caller-owned library cancellation and the
+post-handoff source-provision lifetime; CLI signal and deadline triggers
+remain planned. IR-606 adapted the orchestrator to current upstream lifecycle APIs.
 IR-607 through IR-610 deliver the remaining CLI, options, providers, cache,
 AOT and proof execution chain. IR-351's shared specification work is absorbed
 here, with no separate dependency revision ledger or policy artifact.
