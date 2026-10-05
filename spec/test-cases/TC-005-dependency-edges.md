@@ -5,6 +5,10 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-driver/FR-001
     type: verifies
+  - target: ix://agent-ix/quire-driver/FR-012
+    type: verifies
+  - target: ix://agent-ix/quire-driver/FR-013
+    type: verifies
   - target: ix://agent-ix/quire-driver/FR-014
     type: verifies
 ---
@@ -14,13 +18,14 @@ relationships:
 
 Verify the driver's place in the crate graph from `cargo metadata`.
 
-Scope: FR-001-AC-1, FR-001-AC-11, FR-012-AC-13 and FR-014-AC-3.
+Scope: FR-001-AC-1, FR-001-AC-11, FR-012-AC-13, FR-013-AC-12 and FR-014-AC-3.
 
 ## Test Procedure
 
-1. Run `cargo metadata --locked --offline` and read the resolved graph and
-   `workspace_default_members`. Count normal and build edges. Identify QSL
-   packages by their source,
+1. On a clean Cargo cache, run `cargo fetch --locked` before the test target's
+   offline metadata command. Then run `cargo metadata --locked --offline` and
+   read the resolved graph and `workspace_default_members`. Count normal and
+   build edges. Identify QSL packages by their source,
    `git+https://github.com/agent-ix/quire-spec-language`.
 2. Traverse the complete normal/build dependency closure from `quire-driver`.
    Identify `quire-cache` and inspect its direct dependency edges.
@@ -49,3 +54,6 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
 - The graph holds one copy of `quire-contract-model`: the driver's own
   direct dependency, CG's `quire-contract-ir` and QSL's `qsl-package` all
   resolve the same package id (by identity, not just by revision string).
+- A clean-cache `make test` provisions locked dependencies for every target
+  before the offline metadata command and completes successfully. A subsequent
+  test run can pass without network access.

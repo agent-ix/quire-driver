@@ -37,6 +37,8 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/FR-012
     type: contains
+  - target: ix://agent-ix/quire-driver/FR-013
+    type: contains
   - target: ix://agent-ix/quire-driver/FR-014
     type: contains
   - target: ix://agent-ix/quire-driver/TC-001
@@ -83,6 +85,16 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/TC-022
     type: contains
+  - target: ix://agent-ix/quire-driver/TC-023
+    type: contains
+  - target: ix://agent-ix/quire-driver/TC-024
+    type: contains
+  - target: ix://agent-ix/quire-driver/TC-025
+    type: contains
+  - target: ix://agent-ix/quire-driver/TC-026
+    type: contains
+  - target: ix://agent-ix/quire-driver/TC-027
+    type: contains
   - target: ix://agent-ix/quire-driver/TC-028
     type: contains
 ---
@@ -120,7 +132,9 @@ pass-through at the process boundary until the kit can carry QSL's codes.
 - QSL syntax, checking, replay semantics, plugin protocol, cache policy and
   execution-backend semantics; this repository specifies their composition
   according to QSL ADR-029, not replacement contracts. FR-012 specifies the
-  driver repository's cache implementation under that upstream cache policy.
+  driver repository's cache implementation under that upstream cache policy;
+  FR-013 specifies the driver repository's plugin-host implementation under
+  that upstream plugin contract.
 - IR checked-package admission semantics, and CG negotiation, claim derivation,
   generation, atomic publication and terminal mapping semantics.
 - A competing QSL or CG user CLI, a second outcome schema or exit mapping,
@@ -153,8 +167,8 @@ IR-527 absorbs the driver spec, architecture, requirements and test-matrix
 scope previously tracked by IR-351. The tables index the discrete normative
 artifacts; they do not replace their criteria. FR-002 through FR-010 specify
 SP-D1 through SP-D9 respectively; FR-012 specifies the downstream cache
-implementation; FR-014 specifies the `quire-cli` package boundary and its
-parser and test ownership.
+implementation; FR-013 specifies the in-repository plugin host; FR-014 specifies the
+`quire-cli` package boundary and its parser and test ownership.
 
 | ID | Title |
 |---|---|
@@ -171,6 +185,7 @@ parser and test ownership.
 | [FR-010](functional/FR-010-send-only-bound-items-to-codegen.md) | Send only abstraction-relation-bound items to code generation |
 | [FR-011](functional/FR-011-cancel-a-driver-library-operation.md) | Cancel driver lifecycle stages through a caller-owned handle |
 | [FR-012](functional/FR-012-implement-the-downstream-content-addressed-cache.md) | Implement the downstream content-addressed cache |
+| [FR-013](functional/FR-013-host-process-plugins.md) | Host process providers through a bounded session |
 | [FR-014](functional/FR-014-separate-the-user-cli-package.md) | Place the user CLI in a separate workspace package |
 | [TC-001](test-cases/TC-001-steps-run-in-order.md) | The steps run in ADR-011 T-13 order |
 | [TC-002](test-cases/TC-002-unknown-backend-refusal.md) | An unknown `BackendId` refuses the run before negotiation |
@@ -194,12 +209,17 @@ parser and test ownership.
 | [TC-020](test-cases/TC-020-cache-content-identity.md) | Derive cache identity from meaning inputs and manifest content |
 | [TC-021](test-cases/TC-021-cache-entry-integrity-and-policy.md) | Reject invalid cache entries and excluded values |
 | [TC-022](test-cases/TC-022-cache-storage-bounds-and-concurrency.md) | Keep cache writes atomic and within the caller's size limit |
+| [TC-023](test-cases/TC-023-plugin-session-and-admission.md) | Start a plugin session and admit hello before requests |
+| [TC-024](test-cases/TC-024-plugin-frames-and-failure-identity.md) | Enforce plugin framing and preserve typed failures |
+| [TC-025](test-cases/TC-025-plugin-cancellation-and-deadline.md) | Preserve plugin settlement during cancellation and bound deadlines |
+| [TC-026](test-cases/TC-026-plugin-resource-bounds-and-cleanup.md) | Enforce plugin process-tree budgets and bounded cleanup |
+| [TC-027](test-cases/TC-027-clean-cache-plugin-host-gate.md) | Run plugin-host tests and dependency checks from a clean cache |
 | [TC-028](test-cases/TC-028-cli-package-boundary.md) | Keep the CLI package separate from the driver and compose the cache |
 
 ## 5. Verification and Delivery Boundary
 
-[TM-001](tests.md) integrates FR-001 through FR-012 and FR-014, and TC-001
-through TC-022 and TC-028.
+[TM-001](tests.md) integrates FR-001 through FR-014, and TC-001 through
+TC-028.
 It distinguishes existing orchestration tests from planned driver tests and
 records their verification owners. Cross-backend and CLI/library conformance
 formerly described by CG FR-005 and IR-337 feed IR-528's G5b gate exclusively

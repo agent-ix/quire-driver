@@ -32,6 +32,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-driver/FR-012
     type: references
+  - target: ix://agent-ix/quire-driver/FR-013
+    type: references
   - target: ix://agent-ix/quire-driver/FR-014
     type: references
   - target: ix://agent-ix/quire-driver/TM-001
@@ -43,6 +45,16 @@ relationships:
   - target: ix://agent-ix/quire-driver/TC-021
     type: references
   - target: ix://agent-ix/quire-driver/TC-022
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-023
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-024
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-025
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-026
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-027
     type: references
   - target: ix://agent-ix/quire-driver/TC-028
     type: references
@@ -68,8 +80,8 @@ relationships:
 IR-527 reconciles this seam description with QSL ADR-029 and the merged
 SP-D1 through SP-D9 requirements. It absorbs IR-351's driver specification,
 architecture and verification-inventory work. [The master specification](../spec.md)
-and [TM-001](../tests.md) integrate FR-001 through FR-012 and FR-014, and
-TC-001 through TC-022 and TC-028. This architecture describes their composition
+and [TM-001](../tests.md) integrate FR-001 through FR-014, and
+TC-001 through TC-028. This architecture describes their composition
 and ownership; the discrete requirements supply the normative acceptance
 criteria.
 
@@ -126,6 +138,7 @@ failure ownership across the driver and its upstream libraries.
 | Routing | QSL `qsl-route` | Route after negotiation and only for supported items; retain request indices and checked-node identity | FR-001 / TC-003 |
 | Generation and publication | CG `generate_routed` and CG FR-005 | Supply only routed, relation-bound items and caller contexts; carry generation output and CG-derived claim map without re-derivation | FR-001, FR-010 / TC-006, TC-007, TC-017 |
 | First-party and process-provider execution | Driver `Provider` trait; QSL ADR-029 PV and PL | Invoke only the selected providers with the current emitted package, their negotiated items, limits and cancellation; pass typed results into proof settlement | FR-005..FR-006 / TC-012..TC-013 |
+| Process plugin host | Driver-repository `quire-plugin-host`; QSL ADR-029 PL-1..PL-7 | Start hello-first sessions, enforce framing and caller budgets, preserve validated results and typed failures, and terminate the process tree on cancellation or timeout | FR-013 / TC-023..TC-026 |
 | Eligible cache calls | Driver cache interface and QSL ADR-029 CA-1..CA-5 | Supply operation, package and provider identity, admitted `ManifestDigest`, typed request and generation options; preserve typed hit/miss results without depending on `quire-cache` | FR-007 / TC-014 |
 | Cache key and storage | `quire-cache`, implementing QSL ADR-029 CA-1..CA-5 | Derive and verify content identity, enforce typed reads, storage policy and caller byte limits | FR-012 / TC-020..TC-022 |
 | AOT execution | QSL ADR-029 EB | Pass the current checked package, selected entries, limits, cancellation and named toolchain to the selected backend; preserve failures without switching engines | FR-008 / TC-015 |
