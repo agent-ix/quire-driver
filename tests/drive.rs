@@ -1410,11 +1410,13 @@ fn tc_004_command_level_refusals_are_typed() {
     // and `refusals()` reports one entry per distinct digest, ascending.
     let expected_conflicts = [
         (
-            Candidate::new(BackendId::new("kani"), ManifestDigest::from_digest([1; 32])),
+            Candidate::new(BackendId::new("kani")),
+            ManifestDigest::from_digest([1; 32]),
             RegistrationCause::DuplicateBackend,
         ),
         (
-            Candidate::new(BackendId::new("kani"), ManifestDigest::from_digest([2; 32])),
+            Candidate::new(BackendId::new("kani")),
+            ManifestDigest::from_digest([2; 32]),
             RegistrationCause::DuplicateBackend,
         ),
     ];
@@ -1498,13 +1500,15 @@ fn tc_008_an_unknown_header_profile_refuses_with_its_cause() {
 /// `refusal`'s `DriverRefusal::Registration` vector, projected to
 /// `(backend, cause)` pairs: `RegistrationRefusal`'s own fields are
 /// private, so its accessors stand in for a struct literal.
-fn registration_refusals(refusal: &DriverRefusal) -> Vec<(Candidate, RegistrationCause)> {
+fn registration_refusals(
+    refusal: &DriverRefusal,
+) -> Vec<(Candidate, ManifestDigest, RegistrationCause)> {
     let DriverRefusal::Registration(refusals) = refusal else {
         panic!("expected a registration refusal, got {refusal:?}");
     };
     refusals
         .iter()
-        .map(|r| (r.backend().clone(), r.cause().clone()))
+        .map(|r| (r.backend().clone(), r.manifest_digest(), r.cause().clone()))
         .collect()
 }
 

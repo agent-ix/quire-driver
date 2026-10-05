@@ -2,6 +2,7 @@
 //! The registry value (ADR-012 §7.1): built by the driver from provider
 //! manifests and passed to every consumer as an argument.
 
+use qsl_replay::BackendId;
 use qsl_route::{BackendDescriptor, Candidate, ManifestDigest, Registry};
 
 use crate::DriverRefusal;
@@ -40,12 +41,12 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<Registry, Driver
     let mut registry = Registry::new();
     let mut refusals = Vec::new();
     for manifest in manifests {
-        let backend = Candidate::new(
-            qsl_route::BackendId::new(manifest.identity.clone()),
-            manifest.manifest_digest,
-        );
+        let backend_id = BackendId::from_wire(&manifest.identity)
+            .map_err(DriverRefusal::EmptyBackendIdentity)?;
+        let backend = Candidate::new(backend_id);
         let admitted = BackendDescriptor::admit(
             backend,
+            manifest.manifest_digest,
             manifest
                 .advertises
                 .iter()
