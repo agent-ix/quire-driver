@@ -3,9 +3,9 @@
 //! manifests and passed to every consumer as an argument.
 
 use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, Registry};
-use std::ops::Deref;
+use std::{collections::BTreeMap, ops::Deref};
 
-use crate::DriverRefusal;
+use crate::{DriverRefusal, Provider};
 
 /// The FR-331 provider-manifest fields the driver registers a backend from.
 ///
@@ -29,6 +29,30 @@ pub struct ProviderManifest {
 #[derive(Debug)]
 pub struct AdmittedRegistry {
     registry: Registry,
+}
+
+/// The QSL registry and linked providers admitted from the same manifest set.
+///
+/// Provider lookup is by the opaque backend identity, the same value the
+/// registry routes. The map is created only after QSL accepts every
+/// descriptor, so no provider can be selected from a refused identity.
+pub struct LinkedProviders<'a> {
+    admitted: AdmittedRegistry,
+    providers: BTreeMap<String, &'a dyn Provider>,
+}
+
+impl LinkedProviders<'_> {
+    /// The immutable registry built from these providers' manifests.
+    #[must_use]
+    pub fn registry(&self) -> &AdmittedRegistry {
+        &self.admitted
+    }
+
+    /// The linked provider registered for `backend`, if present.
+    #[must_use]
+    pub fn provider(&self, backend: &BackendId) -> Option<&dyn Provider> {
+        self.providers.get(backend.as_str()).copied()
+    }
 }
 
 impl Deref for AdmittedRegistry {
@@ -84,5 +108,68 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
     } else {
         refusals.sort();
         Err(DriverRefusal::Registration(refusals))
+    }
+}
+
+/// Admit compile-time providers and retain the identity-to-provider mapping
+/// used after negotiation and routing.
+pub fn build_linked_providers<'a>(
+    providers: &[&'a dyn Provider],
+) -> Result<LinkedProviders<'a>, DriverRefusal> {
+    let manifests = providers
+        .iter()
+        .map(|provider| provider.manifest())
+        .collect::<Vec<_>>();
+    let admitted = build_registry(&manifests)?;
+    let linked = providers
+        .iter()
+        .zip(manifests)
+        .map(|(provider, manifest)| (manifest.identity, *provider))
+        .collect();
+    Ok(LinkedProviders {
+        admitted,
+        providers: linked,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use qsl_route::{BackendId, ManifestDigest};
+
+    use crate::{KaniProvider, Provider, ProviderManifest};
+
+    use super::build_linked_providers;
+
+    fn provider(identity: &str, digest: u8) -> KaniProvider {
+        KaniProvider::new(ProviderManifest {
+            identity: identity.to_owned(),
+            manifest_digest: ManifestDigest::from_digest([digest; 32]),
+            advertises: Vec::new(),
+        })
+    }
+
+    /// Trace: FR-005-AC-1, FR-005-AC-3.
+    #[test]
+    fn linked_manifests_register_and_resolve_by_backend_identity() {
+        let first = provider("agent-ix/provider/first", 1);
+        let second = provider("agent-ix/provider/second", 2);
+        let providers: [&dyn Provider; 2] = [&first, &second];
+        let linked = build_linked_providers(&providers).expect("both manifests admit");
+
+        let first_id = BackendId::from_wire("agent-ix/provider/first").expect("nonempty id");
+        let second_id = BackendId::from_wire("agent-ix/provider/second").expect("nonempty id");
+        assert_eq!(
+            linked
+                .provider(&first_id)
+                .map(|provider| provider.manifest().identity),
+            Some("agent-ix/provider/first".to_owned())
+        );
+        assert_eq!(
+            linked
+                .provider(&second_id)
+                .map(|provider| provider.manifest().identity),
+            Some("agent-ix/provider/second".to_owned())
+        );
+        assert_eq!(linked.registry().backends().count(), 2);
     }
 }
