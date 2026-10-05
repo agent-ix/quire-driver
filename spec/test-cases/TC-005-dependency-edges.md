@@ -26,13 +26,18 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
 
 - The driver's normal and build dependencies are exactly `qsl-foundation`,
   `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`,
-  `quire-contract-codegen`, `quire-contract-model` and `thiserror`. The QSL
-  root crate is not one. `serde_json` is a dev-dependency (this crate's own
-  tests use it), not a normal one.
+  `quire-exact`, `quire-contract-codegen`, `quire-contract-model` and
+  `thiserror`. The QSL root crate and `quire-cache` are not direct edges.
+  `serde_json` is a dev-dependency (this crate's own tests use it), not a
+  normal one.
 - The driver's `quire-contract-model` is the package CG's
   `quire-contract-ir` depends on.
-- One package is named `quire-driver`, and no edge in the lock reaches a
-  package of that name: nothing in this lock depends on the driver.
+- The workspace has a `quire-driver` package and may include downstream
+  packages such as `quire-cache`. The `quire-driver` package has no dependency
+  edge to `quire-cache`; its direct and transitive QSL, IR and CG graph stays
+  within the listed architecture.
+- No QSL, IR or CG package depends on `quire-driver`. Downstream components
+  such as `quire-cache` or `quire-cli` may depend on the driver interface.
 - CG's one normal or build edge into QSL is `qsl-replay`.
 - The graph holds one copy of `quire-contract-model`: the driver's own
   direct dependency, CG's `quire-contract-ir` and QSL's `qsl-package` all

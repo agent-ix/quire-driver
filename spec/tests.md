@@ -8,8 +8,9 @@ type: TestMatrix
 ## Overview
 
 This authored verification inventory integrates FR-001 and SP-D1 through
-SP-D9 (FR-002 through FR-010) from IR-527, plus FR-011 from IR-616. It covers
-TC-001 through TC-019. Discrete FR and TC artifacts remain authoritative;
+SP-D9 (FR-002 through FR-010) from IR-527, FR-011 from IR-616 and FR-012 for
+the downstream cache component. It covers TC-001 through TC-022. Discrete FR
+and TC artifacts remain authoritative;
 this matrix is their index, not a computed implementation-coverage report.
 
 `✅` means the existing source contains the test implementations named by
@@ -24,7 +25,7 @@ change runs artifact validation, not source tests or the G5b gate.
 | FR-001 / TC-001..TC-008 | Driver orchestration tests in `tests/drive.rs`, `tests/dependency_edges.rs` and `src/refusal.rs`, as named by the TC artifacts; upstream API adaptation is IR-606. |
 | FR-001-AC-9..10, FR-011 / TC-019 | Driver library cancellation matrix and source-provision lifetime tests; API/lifetime review. |
 | FR-002..FR-009 / TC-009..TC-016, TC-018 | Planned driver CLI and composition tests at the locations named by each TC; they check dispatch, input fidelity, typed result preservation and single-owner mappings. |
-| Plugin protocol, cache policy, execution semantics and AOT/interpreter parity | QSL ADR-029 owner suites; driver TC-013..TC-015 check composition boundaries. They do not re-specify upstream policy. |
+| Plugin wire, cache policy, execution semantics and AOT/interpreter parity | QSL ADR-029 owner contracts and suites. Driver TC-013, TC-014 and TC-015 check composition boundaries; quire-cache behavior is verified by TC-020..TC-022 under FR-012. |
 | FR-010 / TC-017 | Planned QSL-owned cross-repository test in `quire-integration`, QSL-514; QSL AR2 is the prerequisite. |
 | G5b acceptance evidence / IR-528 | `quire-integration` only: CLI/library parity across the eight outcome kinds with identical outcome bytes and exit codes; provider/plugin installation; cache hit/miss/never-store; AOT/interpreter parity; absence of a QSL user binary; and prove execution, replay and FR-331 records. |
 
@@ -48,6 +49,9 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | FR-005 | FR-005-AC-1, FR-005-AC-2, FR-005-AC-3 | TC-012 | 🚧 Planned |
 | FR-006 | FR-006-AC-1, FR-006-AC-2 | TC-013 | 🚧 Planned |
 | FR-007 | FR-007-AC-1, FR-007-AC-2 | TC-014 | 🚧 Planned |
+| FR-012 | FR-012-AC-1, FR-012-AC-2 | TC-020 | 🚧 Planned |
+| FR-012 | FR-012-AC-3, FR-012-AC-4 | TC-021 | 🚧 Planned |
+| FR-012 | FR-012-AC-5, FR-012-AC-6, FR-012-AC-7 | TC-022 | 🚧 Planned |
 | FR-008 | FR-008-AC-1, FR-008-AC-2 | TC-015 | 🚧 Planned |
 | FR-009 | FR-009-AC-1, FR-009-AC-2, FR-009-AC-3, FR-009-AC-4, FR-009-AC-5 | TC-016 | 🚧 Planned |
 | FR-010 | FR-010-AC-1, FR-010-AC-2, FR-010-AC-3 | TC-017 | 🚧 Planned in quire-integration; QSL AR2 prerequisite |
@@ -70,9 +74,19 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-011 | Select only the requested execution engine | Integration | FR-004-AC-1, FR-004-AC-2, FR-004-AC-3, FR-004-AC-4 | 🚧 Planned |
 | TC-012 | Register and invoke a first-party provider through Provider | Integration | FR-005-AC-1, FR-005-AC-2, FR-005-AC-3 | 🚧 Planned |
 | TC-013 | Dispatch process-provider results through the driver | Integration | FR-006-AC-1, FR-006-AC-2 | 🚧 Planned |
-| TC-014 | Pass manifest content to the QSL cache | Integration | FR-007-AC-1, FR-007-AC-2 | 🚧 Planned |
+| TC-014 | Exercise driver calls through a recording cache interface | Integration | FR-007-AC-1, FR-007-AC-2 | 🚧 Planned |
 | TC-015 | Invoke AOT with current checked request inputs | Integration | FR-008-AC-1, FR-008-AC-2 | 🚧 Planned |
 | TC-016 | Settle one terminal record per item after replay | Integration | FR-009-AC-1, FR-009-AC-2, FR-009-AC-3, FR-009-AC-4, FR-009-AC-5 | 🚧 Planned |
 | TC-017 | Send only abstraction-relation-bound items to code generation | Integration | FR-010-AC-1, FR-010-AC-2, FR-010-AC-3 | 🚧 Planned in quire-integration; QSL AR2 prerequisite |
 | TC-018 | Preserve the QSL outcome at the binary process boundary | Integration | FR-002-AC-2, FR-002-AC-3, FR-002-AC-4 | 🚧 Planned |
 | TC-019 | Propagate library cancellation and retain bounded checked-unit source | Integration | FR-001-AC-9, FR-001-AC-10, FR-011-AC-1..FR-011-AC-5 | ✅ `tests/drive.rs::tc_019_cancellation_preserves_every_stage_and_cause`; `tests/drive.rs::tc_019_e5_receives_source_provision_and_checked_unit_retains_bounded_root` |
+| TC-020 | Derive cache identity from meaning inputs and manifest content | Integration | FR-012-AC-1, FR-012-AC-2 | 🚧 Planned in `quire-cache` |
+| TC-021 | Reject invalid cache entries and excluded values | Integration | FR-012-AC-3, FR-012-AC-4 | 🚧 Planned in `quire-cache` |
+| TC-022 | Keep cache writes atomic and within the caller's size limit | Integration | FR-012-AC-5, FR-012-AC-6, FR-012-AC-7 | 🚧 Planned in `quire-cache` |
+
+## Integration Test Matrix
+
+| Purpose | Target | Type | Test Cases |
+|---|---|---|---|
+| Verify cache calls carry the exact eligible request and manifest bytes and preserve a typed hit | `quire-driver` cache interface with a recording implementation | service | TC-014 |
+| Verify content identity, typed reads, exclusion policy and bounded atomic storage | Downstream `quire-cache` package and caller-named temporary directory | database | TC-020, TC-021, TC-022 |

@@ -35,6 +35,8 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/FR-011
     type: contains
+  - target: ix://agent-ix/quire-driver/FR-012
+    type: contains
   - target: ix://agent-ix/quire-driver/TC-001
     type: contains
   - target: ix://agent-ix/quire-driver/TC-002
@@ -73,6 +75,12 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/TC-019
     type: contains
+  - target: ix://agent-ix/quire-driver/TC-020
+    type: contains
+  - target: ix://agent-ix/quire-driver/TC-021
+    type: contains
+  - target: ix://agent-ix/quire-driver/TC-022
+    type: contains
 ---
 # Master Requirements Specification
 
@@ -107,7 +115,8 @@ pass-through at the process boundary until the kit can carry QSL's codes.
 
 - QSL syntax, checking, replay semantics, plugin protocol, cache policy and
   execution-backend semantics; this repository specifies their composition
-  according to QSL ADR-029, not replacement contracts.
+  according to QSL ADR-029, not replacement contracts. FR-012 specifies the
+  driver repository's cache implementation under that upstream cache policy.
 - IR checked-package admission semantics, and CG negotiation, claim derivation,
   generation, atomic publication and terminal mapping semantics.
 - A competing QSL or CG user CLI, a second outcome schema or exit mapping,
@@ -120,21 +129,24 @@ pass-through at the process boundary until the kit can carry QSL's codes.
 
 ## 3. System Overview
 
-A downstream Rust driver library and one user-facing `quire` binary. The
-binary builds typed requests, calls QSL or driver operations, and renders the
-returned outcome. The library sequences QSL, IR and CG calls and builds the
-registry value passed to consumers. QSL, IR and CG do not depend on the driver;
-the driver frontend and cross-repository integration suite are downstream
-consumers. CLI mechanics remain outside the qualified core (QSL ADR-029 CB-3).
+The `quire-driver` library sequences QSL, IR and CG calls and builds the
+registry value passed to consumers. A downstream application supplies the one
+user-facing `quire` binary and composes the driver with downstream components
+such as `quire-cache`. The `quire-driver` package does not depend on
+`quire-cache`; QSL, IR and CG do not depend on the driver. CLI mechanics and
+the cache implementation remain outside the qualified core (QSL ADR-029
+CB-3).
 
 ## 4. Requirements Architecture
 
 `quire-driver` owns the sequencing across QSL, IR and CG for the checked
-request lifecycle and supplies the sole user-facing `quire` binary. It sits
-downstream of those libraries. IR-527 absorbs the driver spec, architecture,
-requirements and test-matrix scope previously tracked by IR-351. The tables
-index the discrete normative artifacts; they do not replace their criteria.
-FR-002 through FR-010 specify SP-D1 through SP-D9 respectively.
+request lifecycle. A downstream `quire` application composes that library
+with `quire-cache` without making the cache a dependency of the driver core.
+IR-527 absorbs the driver spec, architecture, requirements and test-matrix
+scope previously tracked by IR-351. The tables index the discrete normative
+artifacts; they do not replace their criteria. FR-002 through FR-010 specify
+SP-D1 through SP-D9 respectively; FR-012 specifies the downstream cache
+implementation.
 
 | ID | Title |
 |---|---|
@@ -145,11 +157,12 @@ FR-002 through FR-010 specify SP-D1 through SP-D9 respectively.
 | [FR-004](functional/FR-004-select-the-execution-engine.md) | Select the execution engine without substitution |
 | [FR-005](functional/FR-005-register-first-party-providers.md) | Register first-party providers through one typed interface |
 | [FR-006](functional/FR-006-host-provider-plugins.md) | Route negotiated items to process providers |
-| [FR-007](functional/FR-007-cache-results-by-content-identity.md) | Supply complete provider identity to the QSL cache |
+| [FR-007](functional/FR-007-cache-results-by-content-identity.md) | Integrate eligible operations through the cache interface |
 | [FR-008](functional/FR-008-aot-execution-backend.md) | Invoke the selected AOT execution backend |
 | [FR-009](functional/FR-009-settle-execute-and-replay-results.md) | Settle executions after replaying counterexamples |
 | [FR-010](functional/FR-010-send-only-bound-items-to-codegen.md) | Send only abstraction-relation-bound items to code generation |
 | [FR-011](functional/FR-011-cancel-a-driver-library-operation.md) | Cancel driver lifecycle stages through a caller-owned handle |
+| [FR-012](functional/FR-012-implement-the-downstream-content-addressed-cache.md) | Implement the downstream content-addressed cache |
 | [TC-001](test-cases/TC-001-steps-run-in-order.md) | The steps run in ADR-011 T-13 order |
 | [TC-002](test-cases/TC-002-unknown-backend-refusal.md) | An unknown `BackendId` refuses the run before negotiation |
 | [TC-003](test-cases/TC-003-route-after-negotiation.md) | `route` runs after negotiation, for `supported` items only |
@@ -163,16 +176,19 @@ FR-002 through FR-010 specify SP-D1 through SP-D9 respectively.
 | [TC-011](test-cases/TC-011-execution-engine-selection.md) | Select only the requested execution engine |
 | [TC-012](test-cases/TC-012-first-party-provider-interface.md) | Register and invoke a first-party provider through Provider |
 | [TC-013](test-cases/TC-013-plugin-host-protocol-and-failures.md) | Dispatch process-provider results through the driver |
-| [TC-014](test-cases/TC-014-cache-content-identity-and-validation.md) | Pass manifest content to the QSL cache |
+| [TC-014](test-cases/TC-014-cache-content-identity-and-validation.md) | Exercise driver calls through a recording cache interface |
 | [TC-015](test-cases/TC-015-aot-matches-interpreter.md) | Invoke AOT with current checked request inputs |
 | [TC-016](test-cases/TC-016-execute-replay-and-terminal-records.md) | Settle one terminal record per item after replay |
 | [TC-017](test-cases/TC-017-only-bound-items-reach-codegen.md) | Send only abstraction-relation-bound items to code generation |
 | [TC-018](test-cases/TC-018-binary-process-boundary.md) | Preserve the QSL outcome at the binary process boundary |
 | [TC-019](test-cases/TC-019-library-cancellation-and-source-release.md) | Propagate library cancellation and retain bounded checked-unit source |
+| [TC-020](test-cases/TC-020-cache-content-identity.md) | Derive cache identity from meaning inputs and manifest content |
+| [TC-021](test-cases/TC-021-cache-entry-integrity-and-policy.md) | Reject invalid cache entries and excluded values |
+| [TC-022](test-cases/TC-022-cache-storage-bounds-and-concurrency.md) | Keep cache writes atomic and within the caller's size limit |
 
 ## 5. Verification and Delivery Boundary
 
-[TM-001](tests.md) integrates FR-001 through FR-011 and TC-001 through TC-019.
+[TM-001](tests.md) integrates FR-001 through FR-012 and TC-001 through TC-022.
 It distinguishes existing orchestration tests from planned driver tests and
 records their verification owners. Cross-backend and CLI/library conformance
 formerly described by CG FR-005 and IR-337 feed IR-528's G5b gate exclusively
@@ -186,7 +202,9 @@ FR-002. IR-616 specifies caller-owned library cancellation and the
 post-handoff source-provision lifetime; CLI signal and deadline triggers
 remain planned. IR-606 adapted the orchestrator to current upstream lifecycle APIs.
 IR-607 through IR-610 deliver the remaining CLI, options, providers, cache,
-AOT and proof execution chain. IR-351's shared specification work is absorbed
+AOT and proof execution chain. IR-609 separates driver/cache integration
+(FR-007, TC-014) from the downstream cache implementation (FR-012,
+TC-020..TC-022). IR-351's shared specification work is absorbed
 here, with no separate dependency revision ledger or policy artifact.
 
 ## References

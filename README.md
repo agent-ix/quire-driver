@@ -1,9 +1,10 @@
 # quire-driver
 
-The orchestrating driver crate of QSL ADR-011 T-13 (§6.1 driver row). It is
-the one crate that calls both QSL and CG (`quire-contract-codegen`), and
-IR's reader between them, so it
-lives downstream of both. Nothing depends on it.
+The `quire-driver` library package orchestrates QSL ADR-011 T-13, with IR
+admission between QSL and CG (`quire-contract-codegen`). It remains downstream
+of those libraries and does not depend on the concrete `quire-cache` package.
+The cache is a separate downstream component supplied through the driver's
+cache interface by the application that composes them.
 
 `drive` runs one request:
 
@@ -50,6 +51,13 @@ lives downstream of both. Nothing depends on it.
 The registry is a value built with `build_registry` from provider manifests
 and passed in as an argument. E5's evidence is the caller's domain package
 documents and QSL's root feature; no artifact digest evidence is supplied.
+
+## Package boundaries
+
+Keep `quire-cache` outside the `quire-driver` dependency graph. The driver
+library defines and calls the cache interface; a downstream application can
+compose the cache implementation without adding it to the driver's qualified
+core.
 
 ## Commands
 

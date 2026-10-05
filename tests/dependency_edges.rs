@@ -141,18 +141,33 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     .into_iter()
     .collect();
     assert_eq!(direct, expected);
+    assert!(
+        graph
+            .deps_of(&graph.root)
+            .all(|package| package.name != "quire-cache"),
+        "the quire-driver package depends on the downstream quire-cache component"
+    );
     let driver_qsl: Vec<&Package> = graph.deps_of(&graph.root).filter(|p| p.is_qsl()).collect();
     assert_eq!(driver_qsl.len(), 5, "five QSL edges, by source");
     assert!(driver_qsl.iter().all(|p| p.name != QSL_ROOT));
 
-    // Nothing in this lock depends on the driver.
+    // The driver core has no incoming edges from upstream QSL, IR or CG.
+    // Downstream components may depend on its cache interface.
     assert_eq!(graph.ids_named("quire-driver").len(), 1);
     for id in graph.deps.keys() {
-        assert!(
-            graph.deps_of(id).all(|p| p.name != "quire-driver"),
-            "`{}` depends on quire-driver",
-            graph.package(id).name
-        );
+        let package = graph.package(id);
+        let upstream = package.is_qsl()
+            || matches!(
+                package.name.as_str(),
+                "quire-contract-codegen" | "quire-contract-ir" | "quire-contract-model"
+            );
+        if upstream {
+            assert!(
+                graph.deps_of(id).all(|p| p.name != "quire-driver"),
+                "upstream `{}` depends on quire-driver",
+                package.name
+            );
+        }
     }
 
     // §7.1 / FB-05: CG's one normal or build edge into QSL is `qsl-replay`.

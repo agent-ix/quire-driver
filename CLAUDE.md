@@ -46,9 +46,10 @@ spec/                  # requirements artifacts (FR-001, TC-001..TC-007)
 scripts/               # local tooling
 ```
 
-## Place in the crate graph
+## Place in the package graph
 
-QSL ADR-011 §6.1 driver row: this crate depends on the QSL layer crates and on
-CG, and nothing depends on it. QSL's and CG's gates never build it. Do not add
-a dependency on the QSL root crate `quire-spec-language`; `tests/dependency_edges.rs`
-fails if one appears.
+QSL ADR-011 §6.1: the `quire-driver` package depends on the QSL layer crates
+and CG. Do not add a dependency from `quire-driver` to the downstream
+`quire-cache` package; the application supplies the cache interface
+implementation. Do not add a dependency on the QSL root crate
+`quire-spec-language`; `tests/dependency_edges.rs` fails if one appears.
