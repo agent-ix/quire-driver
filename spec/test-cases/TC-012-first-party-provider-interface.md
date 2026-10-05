@@ -31,13 +31,11 @@ Scope: FR-005-AC-1 through FR-005-AC-5.
 5. Pass a cover-unsatisfied outcome and a timeout outcome through CG's
    `run_terminal_value`; verify they map to `Proved { success_checks: 0 }`
    and `Incomplete(TimedOut)` respectively.
-6. After the driver/QSL integration follows CG IR-632, verify the QSL
-   registry builder assigns `Linked` to compile-time provider descriptors
-   and `Process` to plugin hello descriptors. Register `Linked` and `Process`
-   descriptors with one `BackendId` but different descriptor content;
-   inspect registry refusals and withdrawn identities. Once CG IR-632 lands,
-   pass registry-built descriptors unchanged to CG negotiation and verify CG
-   classifies the backend from origin.
+6. The Linked-origin half of FR-005-AC-1 is tested in `src/registry.rs`:
+   verify the compile-time provider's QSL descriptor has origin `Linked`.
+   Process-origin plugin hello registration and FR-005-AC-5 remain planned
+   with plugin-host work and CG IR-633; when that integration lands, verify
+   the origin-aware CG projection preserves the registry descriptor's origin.
 
 Test location: `src/registry.rs`, `src/provider.rs`, and `tests/drive.rs`; full
 routed invocation and process-provider integration remain planned.
@@ -59,6 +57,6 @@ routed invocation and process-provider integration remain planned.
   Cancellation is checked between routed items. The current CG execution API
   accepts no cancellation handle, so an already-running harness continues
   until its configured timeout.
-- Process-origin admission and CG origin interpretation remain gated on the
-  driver/QSL integration following CG IR-632. The driver passes descriptors
-  through unchanged and does not construct CG process kinds.
+- Process-origin admission and CG origin interpretation remain planned with
+  plugin-host work and CG IR-633. The driver does not construct CG process
+  kinds from provider manifest bytes.

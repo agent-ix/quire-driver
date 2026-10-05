@@ -63,11 +63,11 @@ registry to the lifecycle operation that uses it.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-005-AC-1 | A compile-time provider implementing `Provider` returns its FR-331 manifest; the QSL registry builder assigns origin `Linked` to the registered descriptor and retains the manifest identity. | Partial (TC-012 checks manifest identity; origin integration follows CG IR-632) |
+| FR-005-AC-1 | A compile-time provider implementing `Provider` returns its FR-331 manifest; the QSL registry builder assigns origin `Linked` to the registered descriptor and retains the manifest identity. | Test (TC-012; `src/registry.rs` asserts the Linked origin; Process origin remains planned under FR-005-AC-5) |
 | FR-005-AC-2 | The provider receives the same emitted package, routed request, limits and cancellation handle supplied by the driver, and its typed results are returned without semantic changes. | Test (TC-012) |
 | FR-005-AC-3 | Two providers with distinct manifest identities are registered as distinct backends; a run invokes only the provider selected for its routed items. | Test (TC-012) |
-| FR-005-AC-4 | The driver preserves QSL registry results: an equal descriptor repeat is idempotent; an unequal descriptor for an existing `BackendId`, including one with a different origin, returns the typed duplicate-backend refusal, withdraws that identity, and invokes neither provider. | Partial (TC-012 checks equal-manifest idempotence; origin conflict handling follows CG IR-632) |
-| FR-005-AC-5 | The driver supplies plugin hello descriptors to the QSL registry builder, which assigns origin `Process`; the driver passes resulting descriptors unchanged to CG negotiation, and CG maps that origin to its process backend kind. | Planned (CG IR-632) |
+| FR-005-AC-4 | The driver preserves QSL registry results: an equal descriptor repeat is idempotent; an unequal descriptor for an existing `BackendId`, including one with a different origin, returns the typed duplicate-backend refusal, withdraws that identity, and invokes neither provider. | Partial (TC-012 checks equal-manifest idempotence; cross-origin provider integration follows CG IR-633) |
+| FR-005-AC-5 | The driver supplies plugin hello descriptors to the QSL registry builder, which assigns origin `Process`; the driver passes resulting descriptors unchanged to CG negotiation, and CG maps that origin to its process backend kind. | Planned (plugin host and CG IR-633) |
 
 The current linked Kani adapter is the only Provider execution adapter. Its
 `ProviderLimits` and result carriers are Kani-specific; they do not yet
