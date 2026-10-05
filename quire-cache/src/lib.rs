@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use qsl_route::{BackendId, ManifestDigest};
-use quire_canonical::{sha256, to_vec, Limits, Sha256Digest};
+use quire_canonical::{sha256_with_domain, to_vec, Limits, Sha256Digest};
 use quire_driver::{
     Cache, CacheEligibility, CacheExclusion, CacheFault, CacheLookup, CacheOperation, CacheRequest,
     CacheStore as DriverCacheStore,
@@ -18,6 +18,9 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
+
+/// QSL ADR-029 CA-2 / QSpec FR-201 cache-key identity domain.
+const CACHE_KEY_DOMAIN: &[u8] = b"quire.cache-key/v1";
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -100,7 +103,7 @@ impl CacheKey {
             preimage_value["target"] = target.clone();
         }
         let preimage = to_vec(&preimage_value, limits)?;
-        let digest = sha256(&preimage_value, limits)?;
+        let digest = sha256_with_domain(CACHE_KEY_DOMAIN, &preimage_value, limits)?;
         Ok(Self { digest, preimage })
     }
 
@@ -236,7 +239,11 @@ impl CacheStore {
         if canonical_preimage.as_slice() != stored_preimage.as_bytes() {
             return Ok(None);
         }
-        let stored_digest = match sha256(&stored_preimage_value, Limits::new(max_preimage_bytes)) {
+        let stored_digest = match sha256_with_domain(
+            CACHE_KEY_DOMAIN,
+            &stored_preimage_value,
+            Limits::new(max_preimage_bytes),
+        ) {
             Ok(digest) => digest,
             Err(_) => return Ok(None),
         };
