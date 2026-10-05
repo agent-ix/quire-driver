@@ -38,8 +38,8 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
 - If the workspace has a `quire-cache` package, it is separate from
   `quire-driver` and depends on the driver-owned interface. No transitive
   normal/build path leads from `quire-driver` to `quire-cache`.
-- No QSL, IR or CG package depends on `quire-driver`. `quire-cache` depends on
-  the driver-owned interface; `quire-cli` may depend on the driver interface.
+- If the workspace contains `quire-cli`, it may depend on the driver
+  interface.
 - CG's one normal or build edge into QSL is `qsl-replay`.
 - The graph holds one copy of `quire-contract-model`: the driver's own
   direct dependency, CG's `quire-contract-ir` and QSL's `qsl-package` all

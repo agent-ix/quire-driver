@@ -37,6 +37,7 @@ Test location: planned driver provider tests.
   cancellation handle as supplied; typed results pass through unchanged.
 - Each provider runs only for its selected items, and distinct manifest
   identities remain distinct backends.
-- Repeating an identical identity/digest pair is idempotent. Conflicting
-  manifests withdraw that backend identity, its items are declined, and neither
-  conflicting provider runs.
+- `qsl_route::Registry` treats an equal descriptor repeat as idempotent.
+  Registering an unequal descriptor for one `BackendId` returns the typed
+  duplicate-backend refusal, withdraws the identity, declines its items and
+  invokes neither provider.

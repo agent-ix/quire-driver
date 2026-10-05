@@ -47,8 +47,8 @@ stderr, exit status, typed record and test logs as the gate evidence bundle.
   abstraction-relation requirements that this plan covers.
 - IR-607 through IR-610 provide the binary, options, provider/cache and
   execution implementations.
-- IR-609's final process-backend mapping waits for the CG `BackendKind::Process`
-  code merge before implementation. QSL-637 supplies the PV-4 registration and
+- IR-609's final process-backend mapping is gated on CG IR-629 landing
+  `BackendKind::Process`, as amended by QSL-637 PV-4. QSL-637 supplies the PV-4 registration and
   descriptor rules. The driver converts each plugin `BackendId` to
   `BackendKind::Process(BackendId)` after the CG merge; the mapping stays the
   last IR-609 slice.

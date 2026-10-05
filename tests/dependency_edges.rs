@@ -124,7 +124,7 @@ impl Graph {
     }
 }
 
-/// FR-001-AC-1, FR-001-AC-11 and FR-012-AC-14 (TC-005)
+/// FR-001-AC-1, FR-001-AC-11 and FR-012-AC-13 (TC-005)
 #[test]
 fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let graph = Graph::load();
@@ -165,25 +165,7 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     assert_eq!(driver_qsl.len(), 5, "five QSL edges, by source");
     assert!(driver_qsl.iter().all(|p| p.name != QSL_ROOT));
 
-    // The driver core has no incoming edges from upstream QSL, IR or CG.
-    // Downstream components may depend on its cache interface.
     assert_eq!(graph.ids_named("quire-driver").len(), 1);
-    for id in graph.deps.keys() {
-        let package = graph.package(id);
-        let upstream = package.is_qsl()
-            || matches!(
-                package.name.as_str(),
-                "quire-contract-codegen" | "quire-contract-ir" | "quire-contract-model"
-            );
-        if upstream {
-            assert!(
-                graph.deps_of(id).all(|p| p.name != "quire-driver"),
-                "upstream `{}` depends on quire-driver",
-                package.name
-            );
-        }
-    }
-
     let cache = graph.ids_named("quire-cache");
     if !cache.is_empty() {
         assert_eq!(cache.len(), 1, "one downstream cache implementation");

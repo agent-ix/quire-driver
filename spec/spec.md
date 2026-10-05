@@ -210,12 +210,11 @@ AOT and proof execution chain. IR-609 separates driver/cache integration
 (FR-007, TC-014) from the downstream cache implementation (FR-012,
 TC-020..TC-022). The final process-backend mapping in IR-609 uses the CG
 `BackendKind::Process` variant and QSL-637's PV-4 rules; it remains gated on
-the CG code merge and luna's merge SHA. The mapping checklist is: convert each
+CG IR-629 landing `BackendKind::Process` as amended by QSL-637 PV-4. The mapping checklist is: convert each
 plugin descriptor identity to `BackendKind::Process(BackendId)`; preserve the
 manifest domains and bounds in CG's process descriptor; handle
 `KindOutput::Process` without an artifact; and use the plugin host plus typed
-FR-331 reader for execution and terminal results. Do not implement this slice
-until luna confirms the CG code merge SHA. IR-351's shared specification work is absorbed
+FR-331 reader for execution and terminal results. IR-351's shared specification work is absorbed
 here, with no separate dependency revision ledger or policy artifact.
 
 ## References
