@@ -3,7 +3,7 @@
 //! manifests and passed to every consumer as an argument.
 
 use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, Registry};
-use std::{collections::BTreeMap, ops::Deref};
+use std::ops::Deref;
 
 use crate::{DriverRefusal, Provider};
 
@@ -38,7 +38,7 @@ pub struct AdmittedRegistry {
 /// descriptor, so no provider can be selected from a refused identity.
 pub struct LinkedProviders<'a> {
     admitted: AdmittedRegistry,
-    providers: BTreeMap<String, &'a dyn Provider>,
+    providers: Vec<(String, &'a dyn Provider)>,
 }
 
 impl LinkedProviders<'_> {
@@ -51,7 +51,24 @@ impl LinkedProviders<'_> {
     /// The linked provider registered for `backend`, if present.
     #[must_use]
     pub fn provider(&self, backend: &BackendId) -> Option<&dyn Provider> {
-        self.providers.get(backend.as_str()).copied()
+        // The registry is authoritative for admitted identities. A repeated
+        // identical manifest is QSL-idempotent, but it does not identify
+        // which of multiple linked implementations should execute. In that
+        // ambiguous case, do not select one based on registration order.
+        if !self
+            .admitted
+            .registry
+            .descriptors()
+            .any(|descriptor| descriptor.id() == backend)
+        {
+            return None;
+        }
+        let mut matching = self
+            .providers
+            .iter()
+            .filter(|(identity, _)| identity == backend.as_str());
+        let provider = matching.next()?.1;
+        matching.next().is_none().then_some(provider)
     }
 }
 
@@ -170,5 +187,25 @@ mod tests {
             Some("agent-ix/provider/second".to_owned())
         );
         assert_eq!(linked.registry().backends().count(), 2);
+    }
+
+    /// Trace: FR-005-AC-1, FR-005-AC-4.
+    #[test]
+    fn identical_linked_manifests_are_idempotent_without_order_dependent_lookup() {
+        let first = provider("agent-ix/provider/same", 1);
+        let second = provider("agent-ix/provider/same", 1);
+        let first_order: [&dyn Provider; 2] = [&first, &second];
+        let reverse_order: [&dyn Provider; 2] = [&second, &first];
+
+        let first_linked =
+            build_linked_providers(&first_order).expect("equal manifests are idempotent");
+        let reverse_linked =
+            build_linked_providers(&reverse_order).expect("equal manifests are idempotent");
+        let id = BackendId::from_wire("agent-ix/provider/same").expect("nonempty id");
+
+        assert_eq!(first_linked.registry().backends().count(), 1);
+        assert_eq!(reverse_linked.registry().backends().count(), 1);
+        assert!(first_linked.provider(&id).is_none());
+        assert!(reverse_linked.provider(&id).is_none());
     }
 }

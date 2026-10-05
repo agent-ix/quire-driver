@@ -158,6 +158,24 @@ impl KaniProvider {
     pub const fn new(manifest: ProviderManifest) -> Self {
         Self { manifest }
     }
+
+    fn run_items(
+        &self,
+        request: &ProviderRequest<'_>,
+        limits: &ProviderLimits<'_>,
+        cancel: &Cancel,
+    ) -> ProviderResults {
+        let mut items = Vec::with_capacity(request.items.len());
+        for item in request.items {
+            let result = run_kani_item(item, &self.manifest.identity, limits.kani, cancel);
+            items.push(ProviderItemResult {
+                request_index: item.request_index,
+                backend: item.backend.clone(),
+                result,
+            });
+        }
+        ProviderResults { items }
+    }
 }
 
 impl Provider for KaniProvider {
@@ -172,32 +190,30 @@ impl Provider for KaniProvider {
         limits: &ProviderLimits<'_>,
         cancel: &Cancel,
     ) -> ProviderResults {
-        let mut items = Vec::with_capacity(request.items.len());
-        for item in request.items {
-            let result = if item.backend.identity != self.manifest.identity {
-                Err(ProviderItemFailure::UnexpectedBackend {
-                    expected: self.manifest.identity.clone(),
-                    actual: item.backend.identity.clone(),
-                })
-            } else if cancel.poll() {
-                Err(ProviderItemFailure::Cancelled(cancel.cause()))
-            } else {
-                run_kani_item(item, limits.kani)
-            };
-            items.push(ProviderItemResult {
-                request_index: item.request_index,
-                backend: item.backend.clone(),
-                result,
-            });
-        }
-        ProviderResults { items }
+        self.run_items(request, limits, cancel)
     }
 }
 
 fn run_kani_item(
     item: &RoutedItemOutput,
+    expected_identity: &str,
     limits: Option<KaniExecutionLimits<'_>>,
+    cancel: &Cancel,
 ) -> Result<KaniExecutionEvidence, ProviderItemFailure> {
+    let has_harness = matches!(
+        &item.output,
+        KindOutput::Kani {
+            harness: Some(_),
+            ..
+        }
+    );
+    let limits = validate_kani_item(
+        expected_identity,
+        &item.backend.identity,
+        has_harness,
+        limits,
+        cancel,
+    )?;
     let KindOutput::Kani {
         harness: Some(harness),
         ..
@@ -205,7 +221,6 @@ fn run_kani_item(
     else {
         return Err(ProviderItemFailure::NoExecutableHarness);
     };
-    let limits = limits.ok_or(ProviderItemFailure::MissingExecutionLimits)?;
     execute_kani_obligation(&KaniExecutionRequest {
         installation: limits.installation,
         harness: KaniExecutableHarness::from(harness),
@@ -216,13 +231,44 @@ fn run_kani_item(
     .map_err(ProviderItemFailure::Execution)
 }
 
+fn validate_kani_item<'a>(
+    expected_identity: &str,
+    actual_identity: &str,
+    has_harness: bool,
+    limits: Option<KaniExecutionLimits<'a>>,
+    cancel: &Cancel,
+) -> Result<KaniExecutionLimits<'a>, ProviderItemFailure> {
+    if expected_identity != actual_identity {
+        return Err(ProviderItemFailure::UnexpectedBackend {
+            expected: expected_identity.to_owned(),
+            actual: actual_identity.to_owned(),
+        });
+    }
+    if cancel.poll() {
+        return Err(ProviderItemFailure::Cancelled(cancel.cause()));
+    }
+    if !has_harness {
+        return Err(ProviderItemFailure::NoExecutableHarness);
+    }
+    limits.ok_or(ProviderItemFailure::MissingExecutionLimits)
+}
+
 #[cfg(test)]
 mod tests {
-    use qsl_replay::TerminalValue;
-    use quire_contract_codegen::{Candidate, KaniRunOutcome, KaniSolver};
+    use qsl_replay::{IncompleteCause, TerminalValue};
+    use quire_contract_codegen::{Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver};
+    use quire_exact::{Cancel, CancelCause};
 
-    use super::{ProviderItemFailure, ProviderItemResult, ProviderTerminalError};
-    use quire_contract_codegen::KaniExecutionEvidence;
+    use super::{
+        KaniProvider, ProviderItemFailure, ProviderItemResult, ProviderLimits, ProviderManifest,
+        ProviderRequest, ProviderTerminalError,
+    };
+    use qsl_route::ManifestDigest;
+    use quire_contract_codegen::{
+        Artifact, KaniExecutionEvidence, KaniScalarObligationHarness, KindOutput,
+        ObligationDisposition, ObligationRecord, ObligationSubject, RoutedItemOutput,
+        ScalarObligationIdentity,
+    };
 
     fn result(outcome: KaniRunOutcome) -> ProviderItemResult {
         ProviderItemResult {
@@ -246,6 +292,79 @@ mod tests {
         }
     }
 
+    fn routed_item(
+        identity: &str,
+        harness: Option<KaniScalarObligationHarness>,
+    ) -> RoutedItemOutput {
+        let checked_node = serde_json::from_value(serde_json::json!({
+            "domain": "quire.checked-semantic-node/v1",
+            "digest": "1".repeat(64),
+        }))
+        .expect("checked node id");
+        let harness_symbol: quire_contract_codegen::HarnessSymbol = "generated_harness"
+            .to_owned()
+            .try_into()
+            .expect("valid harness symbol");
+        RoutedItemOutput {
+            request_index: 0,
+            backend: Candidate {
+                identity: identity.to_owned(),
+            },
+            output: KindOutput::Kani {
+                record: ObligationRecord {
+                    request_index: 0,
+                    kind: None,
+                    subject: ObligationSubject::CheckedNode {
+                        node_id: checked_node,
+                        source_map: Vec::new(),
+                    },
+                    disposition: ObligationDisposition::Supported {
+                        harness_symbol: harness_symbol.clone(),
+                    },
+                },
+                harness,
+            },
+        }
+    }
+
+    fn harness() -> KaniScalarObligationHarness {
+        let node_id = serde_json::from_value(serde_json::json!({
+            "domain": "quire.checked-semantic-node/v1",
+            "digest": "1".repeat(64),
+        }))
+        .expect("checked node id");
+        KaniScalarObligationHarness {
+            identity: ScalarObligationIdentity {
+                node_id,
+                operation_identity: "agent-ix/op/add".to_owned(),
+                oracle_symbol: "oracle".to_owned(),
+                module_symbol: "generated_module"
+                    .to_owned()
+                    .try_into()
+                    .expect("valid module symbol"),
+                harness_symbol: "generated_harness"
+                    .to_owned()
+                    .try_into()
+                    .expect("valid harness symbol"),
+                arguments: Vec::new(),
+                solver: KaniSolver::Cadical,
+                unwind: 1,
+                options: Vec::new(),
+            },
+            rust: Artifact::new("generated.rs", ""),
+            record: Artifact::new("record.json", "{}"),
+        }
+    }
+
+    fn provider() -> KaniProvider {
+        KaniProvider::new(ProviderManifest {
+            identity: "agent-ix/provider/kani".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([1; 32]),
+            advertises: Vec::new(),
+        })
+    }
+
+    /// Trace: FR-005-AC-2, FR-005-AC-3.
     #[test]
     fn proved_kani_result_uses_cgs_terminal_mapping() {
         let terminal = result(KaniRunOutcome::Verified)
@@ -256,8 +375,30 @@ mod tests {
             terminal.value(),
             &TerminalValue::Proved { success_checks: 3 }
         );
+
+        let vacuous = result(KaniRunOutcome::CoverUnsatisfied {
+            satisfied: 0,
+            total: 1,
+        })
+        .terminal_record()
+        .expect("CG maps an unsatisfied cover to a vacuous proof");
+        assert_eq!(
+            vacuous.value(),
+            &TerminalValue::Proved { success_checks: 0 }
+        );
+
+        let timed_out = result(KaniRunOutcome::Inconclusive {
+            reason: KaniInconclusiveReason::TimedOut,
+        })
+        .terminal_record()
+        .expect("CG maps a timeout to an incomplete terminal");
+        assert_eq!(
+            timed_out.value(),
+            &TerminalValue::Incomplete(IncompleteCause::TimedOut)
+        );
     }
 
+    /// Trace: FR-005-AC-2, FR-005-AC-3.
     #[test]
     fn falsified_scalar_does_not_guess_a_replay_settlement() {
         let error = result(KaniRunOutcome::Falsified {
@@ -271,6 +412,7 @@ mod tests {
         );
     }
 
+    /// Trace: FR-005-AC-2, FR-005-AC-3.
     #[test]
     fn execution_refusal_is_not_rewritten_as_a_terminal_outcome() {
         let item = ProviderItemResult {
@@ -284,5 +426,51 @@ mod tests {
             item.terminal_record().expect_err("there is no evidence"),
             ProviderTerminalError::ExecutionDidNotProduceEvidence
         );
+    }
+
+    /// Trace: FR-005-AC-2.
+    #[test]
+    fn kani_item_preflight_preserves_cancellation_and_backend_mismatch() {
+        let provider = provider();
+        let item = routed_item("agent-ix/provider/kani", None);
+        let request = ProviderRequest::new(std::slice::from_ref(&item));
+        let cancel = Cancel::new();
+        cancel.cancel(CancelCause::Requested);
+        let cancelled = provider.run_items(&request, &ProviderLimits::default(), &cancel);
+        assert!(matches!(
+            cancelled.items[0].result,
+            Err(ProviderItemFailure::Cancelled(Some(CancelCause::Requested)))
+        ));
+
+        let mismatched = routed_item("agent-ix/provider/other", None);
+        let request = ProviderRequest::new(std::slice::from_ref(&mismatched));
+        let results = provider.run_items(&request, &ProviderLimits::default(), &Cancel::new());
+        assert!(matches!(
+            results.items[0].result,
+            Err(ProviderItemFailure::UnexpectedBackend { .. })
+        ));
+    }
+
+    /// Trace: FR-005-AC-2.
+    #[test]
+    fn kani_item_preflight_reports_missing_limits_and_harness() {
+        let provider = provider();
+        let with_harness = routed_item("agent-ix/provider/kani", Some(harness()));
+        let request = ProviderRequest::new(std::slice::from_ref(&with_harness));
+        let missing_limits =
+            provider.run_items(&request, &ProviderLimits::default(), &Cancel::new());
+        assert!(matches!(
+            missing_limits.items[0].result,
+            Err(ProviderItemFailure::MissingExecutionLimits)
+        ));
+
+        let without_harness = routed_item("agent-ix/provider/kani", None);
+        let request = ProviderRequest::new(std::slice::from_ref(&without_harness));
+        let missing_harness =
+            provider.run_items(&request, &ProviderLimits::default(), &Cancel::new());
+        assert!(matches!(
+            missing_harness.items[0].result,
+            Err(ProviderItemFailure::NoExecutableHarness)
+        ));
     }
 }
