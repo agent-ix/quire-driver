@@ -253,24 +253,10 @@ fn envelope(
     items: &[RequirementItem],
     named: Option<&BackendId>,
 ) -> Result<(cg::BackendProviderEnvelope, Vec<Vec<Candidate>>), DriverRefusal> {
-    let mut manifest = Vec::new();
-    for descriptor in registry.descriptors() {
-        let mut advertised = Vec::new();
-        for (kind, mode) in descriptor.advertises() {
-            let label = kind.to_wire();
-            let kind = cg::CapabilityKind::from_label(label).ok_or_else(|| {
-                DriverRefusal::Fault(DriverFault::VocabularyMismatch {
-                    label: label.to_owned(),
-                })
-            })?;
-            advertised.push((kind, cg_mode(mode)));
-        }
-        advertised.sort();
-        manifest.push(cg::BackendDescriptor {
-            identity: descriptor.id().as_str().to_owned(),
-            advertised,
-        });
-    }
+    let manifest = registry
+        .descriptors()
+        .map(project_descriptor)
+        .collect::<Result<Vec<_>, _>>()?;
 
     let mut request_items = Vec::with_capacity(items.len());
     let mut candidate_sets = Vec::with_capacity(items.len());
@@ -309,6 +295,38 @@ fn envelope(
         },
         candidate_sets,
     ))
+}
+
+/// Project one QSL registry descriptor to CG's FR-331 envelope descriptor.
+///
+/// QSL layer R owns provider origin; this conversion copies its closed
+/// vocabulary exhaustively without inferring it from the backend identity or
+/// provider bytes (QSL ADR-029 PV-1, CG FR-019-AC-15).
+fn project_descriptor(
+    descriptor: &qsl_route::BackendDescriptor,
+) -> Result<cg::BackendDescriptor, DriverRefusal> {
+    let mut advertised = Vec::new();
+    for (kind, mode) in descriptor.advertises() {
+        let label = kind.to_wire();
+        let kind = cg::CapabilityKind::from_label(label).ok_or_else(|| {
+            DriverRefusal::Fault(DriverFault::VocabularyMismatch {
+                label: label.to_owned(),
+            })
+        })?;
+        advertised.push((kind, cg_mode(mode)));
+    }
+    advertised.sort();
+
+    let origin = match descriptor.origin() {
+        qsl_route::ProviderOrigin::Linked => cg::ProviderOrigin::Linked,
+        qsl_route::ProviderOrigin::Process => cg::ProviderOrigin::Process,
+    };
+
+    Ok(cg::BackendDescriptor {
+        identity: descriptor.id().as_str().to_owned(),
+        advertised,
+        origin,
+    })
 }
 
 /// The routing step over the `supported` settlements only.
@@ -386,5 +404,59 @@ fn cg_extent(extent: ExtentClassification) -> cg::ExtentClassification {
             extent: cg::Mode::Unbounded,
             finite_bound_available,
         },
+    }
+}
+
+#[cfg(test)]
+mod origin_projection_tests {
+    use qsl_route::{
+        BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin, Registry,
+    };
+
+    use quire_contract_codegen as cg;
+
+    use super::project_descriptor;
+
+    fn registry(origin: ProviderOrigin) -> Registry {
+        let candidate = Candidate::new(BackendId::from_wire("kani").expect("nonempty identity"));
+        let descriptor = BackendDescriptor::admit(
+            candidate,
+            origin,
+            ManifestDigest::from_digest([7; 32]),
+            [(Some("value-validity"), Some("bounded"))],
+        )
+        .expect("QSL accepts the typed descriptor");
+        let mut registry = Registry::new();
+        registry
+            .register(descriptor)
+            .expect("one descriptor registers");
+        registry
+    }
+
+    /// Trace: FR-005-AC-5, TC-012.
+    #[test]
+    fn qsl_origins_project_exhaustively_without_changing_descriptor_members() {
+        let linked_registry = registry(ProviderOrigin::Linked);
+        let process_registry = registry(ProviderOrigin::Process);
+        let linked = project_descriptor(
+            linked_registry
+                .descriptors()
+                .next()
+                .expect("one linked descriptor"),
+        )
+        .expect("linked projection succeeds");
+        let process = project_descriptor(
+            process_registry
+                .descriptors()
+                .next()
+                .expect("one process descriptor"),
+        )
+        .expect("process projection succeeds");
+
+        assert_eq!(linked.identity, "kani");
+        assert_eq!(linked.identity, process.identity);
+        assert_eq!(linked.advertised, process.advertised);
+        assert_eq!(linked.origin, cg::ProviderOrigin::Linked);
+        assert_eq!(process.origin, cg::ProviderOrigin::Process);
     }
 }

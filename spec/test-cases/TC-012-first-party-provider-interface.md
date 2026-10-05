@@ -31,14 +31,18 @@ Scope: FR-005-AC-1 through FR-005-AC-5.
 5. Pass a cover-unsatisfied outcome and a timeout outcome through CG's
    `run_terminal_value`; verify they map to `Proved { success_checks: 0 }`
    and `Incomplete(TimedOut)` respectively.
-6. The Linked-origin half of FR-005-AC-1 is tested in `src/registry.rs`:
-   verify the compile-time provider's QSL descriptor has origin `Linked`.
-   Process-origin plugin hello registration and FR-005-AC-5 remain planned
-   with plugin-host work and CG IR-633; when that integration lands, verify
-   the origin-aware CG projection preserves the registry descriptor's origin.
+6. The origin-aware QSL-to-CG descriptor projection is tested in
+   `src/drive.rs`: build separate QSL registries with otherwise equal `kani`
+   descriptors, one `Linked` and one `Process`, then verify their CG
+   projections preserve identity and advertised pairs while mapping each
+   origin to its corresponding CG variant. The Linked-origin half of
+   FR-005-AC-1 is tested in `src/registry.rs`. Process-origin plugin hello
+   registration and FR-005-AC-5's process backend-kind mapping remain planned
+   with plugin-host work.
 
-Test location: `src/registry.rs`, `src/provider.rs`, and `tests/drive.rs`; full
-routed invocation and process-provider integration remain planned.
+Test location: `src/registry.rs`, `src/drive.rs`, `src/provider.rs`, and
+`tests/drive.rs`; full routed invocation and process-provider integration
+remain planned.
 
 ## Expected Results
 
@@ -57,6 +61,6 @@ routed invocation and process-provider integration remain planned.
   Cancellation is checked between routed items. The current CG execution API
   accepts no cancellation handle, so an already-running harness continues
   until its configured timeout.
-- Process-origin admission and CG origin interpretation remain planned with
-  plugin-host work and CG IR-633. The driver does not construct CG process
-  kinds from provider manifest bytes.
+- Process-origin plugin admission remains planned with plugin-host work. CG
+  origin interpretation is covered by the projection test; the driver does
+  not construct CG process kinds from provider manifest bytes.

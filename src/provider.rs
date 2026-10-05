@@ -4,7 +4,10 @@
 use std::{path::Path, time::Duration};
 
 use qsl_package::EmittedPackage;
-use qsl_replay::{RequestIndex, TerminalRecord};
+use qsl_replay::{
+    Operation, OutcomeDocument, OutcomeItem, OutcomeStage, OutcomeWriteError, RequestIndex,
+    TerminalRecord,
+};
 use quire_contract_codegen::{
     execute_kani_obligation, run_terminal_value, Candidate, KaniExecutableHarness,
     KaniExecutionEvidence, KaniExecutionRefusal, KaniExecutionRequest, KaniInstallation,
@@ -127,6 +130,38 @@ pub enum ProviderItemFailure {
 pub struct ProviderResults {
     /// One typed result for every item in the provider request.
     pub items: Vec<ProviderItemResult>,
+}
+
+impl ProviderResults {
+    /// Serialize the available proof terminals with QSL's canonical
+    /// `quire-outcome/1` document. Items that require replay or lack execution
+    /// evidence remain typed errors; the driver does not invent settlements.
+    pub fn outcome_bytes(&self) -> Result<Vec<u8>, ProviderOutcomeError> {
+        let items = self
+            .items
+            .iter()
+            .map(|item| {
+                let terminal = item
+                    .terminal_record()
+                    .map_err(ProviderOutcomeError::Terminal)?;
+                Ok(OutcomeItem::from_terminal(&terminal))
+            })
+            .collect::<Result<Vec<_>, ProviderOutcomeError>>()?;
+        OutcomeDocument::settled(Operation::Prove, Some(OutcomeStage::S6b), items)
+            .to_bytes()
+            .map_err(ProviderOutcomeError::Encode)
+    }
+}
+
+/// Why provider results cannot yet be written as a complete outcome.
+#[derive(Debug, thiserror::Error)]
+pub enum ProviderOutcomeError {
+    /// A provider item has no terminal until its replay lifecycle settles.
+    #[error("provider item is not settled: {0:?}")]
+    Terminal(ProviderTerminalError),
+    /// QSL's canonical outcome serializer failed.
+    #[error(transparent)]
+    Encode(#[from] OutcomeWriteError),
 }
 
 /// A provider linked into the driver binary.
@@ -255,13 +290,15 @@ fn validate_kani_item<'a>(
 
 #[cfg(test)]
 mod tests {
-    use qsl_replay::{IncompleteCause, TerminalValue};
+    use qsl_replay::{
+        IncompleteCause, Operation, OutcomeDocument, OutcomeItem, OutcomeStage, TerminalValue,
+    };
     use quire_contract_codegen::{Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver};
     use quire_exact::{Cancel, CancelCause};
 
     use super::{
         KaniProvider, ProviderItemFailure, ProviderItemResult, ProviderLimits, ProviderManifest,
-        ProviderRequest, ProviderTerminalError,
+        ProviderOutcomeError, ProviderRequest, ProviderResults, ProviderTerminalError,
     };
     use qsl_route::ManifestDigest;
     use quire_contract_codegen::{
@@ -398,6 +435,31 @@ mod tests {
         );
     }
 
+    /// Trace: FR-009-AC-4, TC-016; serialize CG's terminal through QSL's outcome API.
+    #[test]
+    fn provider_results_use_qsl_outcome_serializer() {
+        let results = ProviderResults {
+            items: vec![result(KaniRunOutcome::Verified)],
+        };
+        let record = results.items[0]
+            .terminal_record()
+            .expect("verified result has a terminal");
+        let expected = OutcomeDocument::settled(
+            Operation::Prove,
+            Some(OutcomeStage::S6b),
+            vec![OutcomeItem::from_terminal(&record)],
+        )
+        .to_bytes()
+        .expect("QSL serializes the typed outcome");
+
+        assert_eq!(
+            results
+                .outcome_bytes()
+                .expect("provider results use QSL serialization"),
+            expected
+        );
+    }
+
     /// Trace: FR-009-AC-4.
     #[test]
     fn falsified_scalar_does_not_guess_a_replay_settlement() {
@@ -410,6 +472,17 @@ mod tests {
             error,
             ProviderTerminalError::ReplayUnavailableForScalarObligation
         );
+        let results = ProviderResults {
+            items: vec![result(KaniRunOutcome::Falsified {
+                counterexample: "witness".to_owned(),
+            })],
+        };
+        assert!(matches!(
+            results.outcome_bytes(),
+            Err(ProviderOutcomeError::Terminal(
+                ProviderTerminalError::ReplayUnavailableForScalarObligation
+            ))
+        ));
     }
 
     /// Trace: FR-009-AC-4.
