@@ -60,10 +60,11 @@ registry to the lifecycle operation that uses it.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-005-AC-1 | A first-party provider implementing `Provider` returns its FR-331 manifest, which the driver registers with the backend identity equal to the manifest identity. | Test (TC-012) |
+| FR-005-AC-1 | A compile-time provider implementing `Provider` returns its FR-331 manifest, and the driver registers its descriptor in `qsl_route::Registry` with origin `Linked` and the manifest identity. | Test (TC-012) |
 | FR-005-AC-2 | The provider receives the same emitted package, routed request, limits and cancellation handle supplied by the driver, and its typed results are returned without semantic changes. | Test (TC-012) |
 | FR-005-AC-3 | Two providers with distinct manifest identities are registered as distinct backends; a run invokes only the provider selected for its routed items. | Test (TC-012) |
-| FR-005-AC-4 | The driver preserves `qsl_route::Registry` results: an equal descriptor repeat is idempotent; an unequal descriptor for an existing `BackendId` returns the typed duplicate-backend refusal, withdraws that identity, and invokes neither provider. | Test (TC-012) |
+| FR-005-AC-4 | The driver preserves `qsl_route::Registry` results: an equal descriptor repeat is idempotent; an unequal descriptor for an existing `BackendId` (including a different origin) returns the typed duplicate-backend refusal, withdraws that identity, and invokes neither provider. | Test (TC-012) |
+| FR-005-AC-5 | After QSL-637 lands, the driver registers plugin hello descriptors in the same registry with origin `Process`, then passes the registry descriptors unchanged to CG negotiation; CG maps the process origin to its process backend kind. | Planned (QSL-637 and CG IR-629) |
 
 ## Dependencies
 

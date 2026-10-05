@@ -1334,6 +1334,7 @@ dependencies = [
 name = "quire-cache"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "qsl-route",
  "quire-canonical",
  "quire-driver",

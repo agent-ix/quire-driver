@@ -31,5 +31,6 @@ changing meaning inputs.
   identity and pin remain unchanged; this test treats the digest as QSL input.
 - Each meaning-input change, including a generate target or option, changes the
   key; the target member occurs only for generate.
-- Changes to excluded path, timestamp, deadline, pin, application version and
-  execution-backend labels do not change the key.
+- Changes to excluded path, timestamp, deadline, pin, revision, application
+  version, wall time and execution-backend labels, including nested request
+  fields, do not change the key.

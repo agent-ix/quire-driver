@@ -40,6 +40,7 @@ lint:
 
 .PHONY: test
 test:
+	$(CARGO) fetch --locked
 	$(CARGO) test
 
 .PHONY: build
