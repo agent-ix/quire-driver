@@ -60,21 +60,27 @@ tools:
 	done; \
 	toolchain="$$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' rust-toolchain.toml | head -n 1)"; \
 	if [ -z "$$toolchain" ]; then echo "could not read channel from rust-toolchain.toml" >&2; exit 1; fi; \
-	$(RUSTUP) toolchain install "$$toolchain" --component rustfmt --component clippy; \
+	$(RUSTUP) toolchain install "$$toolchain" --profile minimal --component rustfmt --component clippy --no-self-update; \
 	if ! $(CARGO) deny --version >/dev/null 2>&1; then \
 		$(CARGO) install --locked cargo-deny; \
 	fi; \
-	if ! command -v quire >/dev/null 2>&1; then \
+	is_quire_cli() { \
+		command -v quire >/dev/null 2>&1 || return 1; \
+		quire --version 2>/dev/null | grep -Eq '^quire [^[:space:]]+ \(engine [^[:space:]]+\)$$'; \
+	}; \
+	if ! is_quire_cli; then \
 		if ! command -v "$(NPM)" >/dev/null 2>&1; then \
 			echo "make tools needs npm on PATH to install @agent-ix/quire-cli" >&2; exit 1; \
 		fi; \
 		$(NPM) install --global @agent-ix/quire-cli; \
 	fi; \
 	$(CARGO) deny --version; \
-	if ! command -v quire >/dev/null 2>&1; then \
-		echo "quire was installed but its npm global bin directory is not on PATH" >&2; exit 1; \
+	quire_version="$$(quire --version 2>&1)" || { echo "could not run quire --version" >&2; exit 1; }; \
+	if ! printf '%s\n' "$$quire_version" | grep -Eq '^quire [^[:space:]]+ \(engine [^[:space:]]+\)$$'; then \
+		echo "expected the @agent-ix/quire-cli version output 'quire X (engine Y)'; ensure its npm global bin directory is on PATH" >&2; \
+		exit 1; \
 	fi; \
-	quire --version
+	printf '%s\n' "$$quire_version"
 
 .PHONY: clean
 clean:
