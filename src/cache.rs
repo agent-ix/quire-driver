@@ -160,15 +160,18 @@ pub enum CacheFault {
     Io(#[from] std::io::Error),
     /// A non-I/O operational failure from the cache implementation.
     #[error("cache operation failed: {0}")]
-    Other(String),
+    Other(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
+
+/// An error preserved by a cache value codec or implementation.
+pub type CacheCodecError = Box<dyn std::error::Error + Send + Sync>;
 
 /// A cache value codec supplied by the downstream cache package.
 pub trait CacheValueCodec<T> {
     /// Encode a provider result, bounded by the cache's per-entry limit.
-    fn encode(&self, value: &T, max_bytes: u64) -> Result<Vec<u8>, String>;
+    fn encode(&self, value: &T, max_bytes: u64) -> Result<Vec<u8>, CacheCodecError>;
     /// Decode and validate a stored value using the fresh-result reader.
-    fn decode(&self, bytes: &[u8]) -> Result<T, String>;
+    fn decode(&self, bytes: &[u8]) -> Result<T, CacheCodecError>;
 }
 
 /// Failure from either the cache boundary or the provider closure.
@@ -185,9 +188,18 @@ pub enum CachedRunError<E> {
 impl CacheFault {
     /// Create a non-I/O cache failure from an implementation's diagnostic.
     pub fn new(message: impl Into<String>) -> Self {
-        Self::Other(message.into())
+        Self::Other(Box::new(CacheMessage(message.into())))
+    }
+
+    /// Preserve a typed non-I/O source error from a cache implementation.
+    pub fn from_error(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::Other(Box::new(error))
     }
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct CacheMessage(String);
 
 /// Downstream cache implementation supplied to a driver operation.
 ///
@@ -243,8 +255,9 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        run_cached, Cache, CacheEligibility, CacheExclusion, CacheFault, CacheLookup,
-        CacheOperation, CacheRequest, CacheValueCodec, CacheWriteOutcome, CachedRunError,
+        run_cached, Cache, CacheCodecError, CacheEligibility, CacheExclusion, CacheFault,
+        CacheLookup, CacheOperation, CacheRequest, CacheValueCodec, CacheWriteOutcome,
+        CachedRunError,
     };
 
     #[derive(Default)]
@@ -308,28 +321,33 @@ mod tests {
     where
         T: serde::Serialize + serde::de::DeserializeOwned,
     {
-        fn encode(&self, value: &T, max_bytes: u64) -> Result<Vec<u8>, String> {
-            let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
+        fn encode(&self, value: &T, max_bytes: u64) -> Result<Vec<u8>, CacheCodecError> {
+            let bytes =
+                serde_json::to_vec(value).map_err(|error| Box::new(error) as CacheCodecError)?;
             if bytes.len() as u64 > max_bytes {
-                return Err("encoded value exceeds limit".to_owned());
+                return Err(Box::new(std::io::Error::other(
+                    "encoded value exceeds limit",
+                )));
             }
             Ok(bytes)
         }
 
-        fn decode(&self, bytes: &[u8]) -> Result<T, String> {
-            serde_json::from_slice(bytes).map_err(|error| error.to_string())
+        fn decode(&self, bytes: &[u8]) -> Result<T, CacheCodecError> {
+            serde_json::from_slice(bytes).map_err(|error| Box::new(error) as CacheCodecError)
         }
     }
 
     struct RefusingCodec;
 
     impl CacheValueCodec<String> for RefusingCodec {
-        fn encode(&self, _value: &String, _max_bytes: u64) -> Result<Vec<u8>, String> {
-            Err("canonical encoder refused the result".to_owned())
+        fn encode(&self, _value: &String, _max_bytes: u64) -> Result<Vec<u8>, CacheCodecError> {
+            Err(Box::new(std::io::Error::other(
+                "canonical encoder refused the result",
+            )))
         }
 
-        fn decode(&self, _bytes: &[u8]) -> Result<String, String> {
-            Err("no value accepted".to_owned())
+        fn decode(&self, _bytes: &[u8]) -> Result<String, CacheCodecError> {
+            Err(Box::new(std::io::Error::other("no value accepted")))
         }
     }
 
@@ -364,7 +382,7 @@ mod tests {
 
     const EMPTY_REQUEST: &[u8] = b"{\"items\":[]}";
 
-    /// Trace: FR-007-AC-1 and FR-007-AC-6, the request carries one admitted identity/digest pair.
+    /// Unit check of request shape; provider-dispatch integration remains planned (FR-007-AC-1/6).
     #[test]
     fn cache_request_has_the_typed_meaning_and_admission_inputs() {
         let digest = qsl_route::ManifestDigest::from_digest([7; 32]);
@@ -385,7 +403,7 @@ mod tests {
         assert_eq!(request.target(), Some(EMPTY_REQUEST));
     }
 
-    /// Trace: FR-007-AC-1; operation target shape is checked before cache use.
+    /// Unit check of operation target shape; provider-dispatch integration remains planned (FR-007-AC-1).
     #[test]
     fn cache_request_rejects_missing_and_unexpected_generation_target() {
         let (registry, backend) = registry("kani", [1; 32]);
@@ -415,7 +433,7 @@ mod tests {
         );
     }
 
-    /// Trace: FR-007-AC-1; the selected identity and digest come from that exact descriptor.
+    /// Unit check that the request builder selects the matching admitted descriptor (FR-007-AC-1).
     #[test]
     fn selecting_each_admitted_backend_uses_its_matching_descriptor() {
         let first = qsl_route::BackendId::from_wire("first").expect("valid id");
@@ -487,7 +505,7 @@ mod tests {
         ));
     }
 
-    /// Trace: FR-007-AC-2, a valid hit is unchanged and skips provider dispatch.
+    /// Helper contract test; `drive()` cache-hit dispatch remains planned (FR-007-AC-2).
     #[test]
     fn valid_hit_is_returned_without_calling_the_provider() {
         let (registry, backend) = registry("kani", [0; 32]);

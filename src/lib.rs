@@ -56,8 +56,9 @@ mod registry;
 mod upstream;
 
 pub use cache::{
-    run_cached, Cache, CacheEligibility, CacheExclusion, CacheFault, CacheLookup, CacheOperation,
-    CacheRequest, CacheRequestError, CacheValueCodec, CacheWriteOutcome, CachedRunError,
+    run_cached, Cache, CacheCodecError, CacheEligibility, CacheExclusion, CacheFault, CacheLookup,
+    CacheOperation, CacheRequest, CacheRequestError, CacheValueCodec, CacheWriteOutcome,
+    CachedRunError,
 };
 pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, Routed};
 pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};

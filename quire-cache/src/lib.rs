@@ -95,7 +95,7 @@ fn meaning_only(value: Value) -> Value {
         "executionbackend",
     ];
     match value {
-        Value::Array(values) => Value::Array(values.into_iter().map(meaning_only).collect()),
+        Value::Array(values) => Value::Array(values),
         Value::Object(object) => Value::Object(
             object
                 .into_iter()
@@ -103,7 +103,6 @@ fn meaning_only(value: Value) -> Value {
                     let normalized = key.to_ascii_lowercase().replace(['_', '-'], "");
                     !EXCLUDED.contains(&normalized.as_str())
                 })
-                .map(|(key, value)| (key, meaning_only(value)))
                 .collect(),
         ),
         other => other,
@@ -126,13 +125,16 @@ impl<T> CacheValueCodec<T> for CanonicalJsonCodec
 where
     T: Serialize + DeserializeOwned,
 {
-    fn encode(&self, value: &T, max_bytes: u64) -> Result<Vec<u8>, String> {
-        let json = serde_json::to_value(value).map_err(|error| error.to_string())?;
-        to_vec(&json, Limits::new(max_bytes)).map_err(|error| error.to_string())
+    fn encode(&self, value: &T, max_bytes: u64) -> Result<Vec<u8>, quire_driver::CacheCodecError> {
+        let json = serde_json::to_value(value)
+            .map_err(|error| Box::new(error) as quire_driver::CacheCodecError)?;
+        to_vec(&json, Limits::new(max_bytes))
+            .map_err(|error| Box::new(error) as quire_driver::CacheCodecError)
     }
 
-    fn decode(&self, bytes: &[u8]) -> Result<T, String> {
-        serde_json::from_slice(bytes).map_err(|error| error.to_string())
+    fn decode(&self, bytes: &[u8]) -> Result<T, quire_driver::CacheCodecError> {
+        serde_json::from_slice(bytes)
+            .map_err(|error| Box::new(error) as quire_driver::CacheCodecError)
     }
 }
 
@@ -239,8 +241,10 @@ impl DirectoryCache {
     /// Store a typed value if its policy permits caching.
     ///
     /// The entry is written to a temporary file and atomically renamed into
-    /// place. Eviction removes lexicographically earliest cache keys until the
-    /// new entry fits within the caller's total size limit.
+    /// place. Eviction counts every regular file in the caller-named directory
+    /// but removes only validated cache entries and owned temporary files.
+    /// Entry validation currently runs under the process-local operation lock
+    /// so an insertion sees a consistent eviction decision.
     fn insert_value(&self, key: &CacheKey, value: Value) -> Result<CacheWriteOutcome, CacheError> {
         self.insert_value_before_publish(key, value, |_, _| {})
     }
@@ -369,11 +373,18 @@ impl DirectoryCache {
                             Err(error) => return Err(CacheError::Io(error)),
                         }
                     }
-                    if !is_temporary && !self.is_owned_entry(&path, &name) {
-                        continue;
-                    }
+                    let owned_entry = !is_temporary && self.is_owned_entry(&path, &name);
                     total = total.saturating_add(metadata.len());
-                    entries.push((name, path, metadata.len(), !active_temporary));
+                    entries.push((
+                        name,
+                        path,
+                        metadata.len(),
+                        if is_temporary {
+                            !active_temporary
+                        } else {
+                            owned_entry
+                        },
+                    ));
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -570,7 +581,7 @@ impl Cache for DirectoryCache {
 fn cache_fault(error: CacheError) -> CacheFault {
     match error {
         CacheError::Io(error) => CacheFault::Io(error),
-        other => CacheFault::new(other.to_string()),
+        other => CacheFault::from_error(other),
     }
 }
 
@@ -894,7 +905,7 @@ mod tests {
             None,
         );
         let excluded = serde_json::json!({
-            "items": [{"kind": "integer", "value": 7, "path": "/tmp/a", "timestamp": "old"}],
+            "items": [{"kind": "integer", "value": 7}],
             "path": "/tmp/b", "deadline": 4, "pin": "v1", "revision": "abc",
             "application_version": "1.0", "wall_time": 10, "execution_backend": "local",
         });
@@ -908,6 +919,21 @@ mod tests {
                 5,
                 None
             )
+        );
+        let nested_meaning = serde_json::json!({
+            "items": [{"kind": "integer", "value": 7, "path": "meaningful-symbol"}]
+        });
+        assert_ne!(
+            expected,
+            key_for(
+                CacheOperation::Prove,
+                "package-1",
+                &nested_meaning,
+                &backend,
+                5,
+                None
+            ),
+            "nested request fields remain meaningful when named path"
         );
     }
 
@@ -989,7 +1015,56 @@ mod tests {
         }
     }
 
-    /// Trace: FR-012-AC-9 and FR-012-AC-12.
+    /// Trace: FR-012-AC-5 and FR-012-AC-9; a JCS integer refusal becomes NotStored.
+    #[test]
+    fn result_above_jcs_integer_range_is_not_stored() {
+        let directory = temporary_directory();
+        let backend = BackendId::from_wire("agent-ix/provider/test").expect("id is valid");
+        let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
+            identity: backend.as_str().to_owned(),
+            manifest_digest: ManifestDigest::from_digest([27; 32]),
+            advertises: Vec::new(),
+        }])
+        .expect("descriptor is admitted");
+        let request = admitted_request(&registry, &backend, br#"{"items":[]}"#);
+        let store = DirectoryCache::new(&directory, 4096, 8192);
+        let outcome = Cache::record(
+            &store,
+            &request,
+            &9_007_199_254_740_993_u64,
+            &CanonicalJsonCodec,
+            CacheEligibility::Eligible,
+        )
+        .expect("unencodable cache result does not fail the provider call");
+        assert_eq!(outcome, CacheWriteOutcome::NotStored);
+        assert_eq!(
+            fs::read_dir(&directory).expect("cache dir exists").count(),
+            0
+        );
+    }
+
+    /// Trace: FR-012-AC-6; typed filesystem errors remain I/O errors at the cache boundary.
+    #[test]
+    fn cache_filesystem_io_fault_retains_its_io_type() {
+        let parent = temporary_directory();
+        let file = parent.join("not-a-directory");
+        fs::write(&file, b"file").expect("file occupies the intended cache path");
+        let backend = BackendId::from_wire("agent-ix/provider/test").expect("id is valid");
+        let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
+            identity: backend.as_str().to_owned(),
+            manifest_digest: ManifestDigest::from_digest([28; 32]),
+            advertises: Vec::new(),
+        }])
+        .expect("descriptor is admitted");
+        let request = admitted_request(&registry, &backend, br#"{"items":[]}"#);
+        let store = DirectoryCache::new(&file, 4096, 8192);
+        let error = Cache::lookup::<Value>(&store, &request, &CanonicalJsonCodec)
+            .expect_err("non-directory path fails with I/O");
+        assert!(matches!(&error, CacheFault::Io(_)));
+        assert!(std::error::Error::source(&error).is_some());
+    }
+
+    /// Trace: FR-012-AC-6; typed values rejected by the requested reader are misses.
     #[test]
     fn invalid_typed_value_and_changed_preimage_are_misses() {
         let directory = temporary_directory();
@@ -1119,6 +1194,7 @@ mod tests {
         );
     }
 
+    /// Trace: FR-012-AC-12; entries rejected by the total byte budget are not published.
     #[test]
     fn entries_over_the_store_capacity_are_not_written() {
         let directory = temporary_directory();
@@ -1136,7 +1212,7 @@ mod tests {
         assert!(!store.entry_path(&cache_key).exists());
     }
 
-    /// Trace: FR-012-AC-9; an entry above its separate per-entry limit is NotStored.
+    /// Trace: FR-012-AC-9 and FR-012-AC-12; entry-size refusal preserves the cache bound.
     #[test]
     fn entries_over_the_per_entry_limit_are_not_written() {
         let directory = temporary_directory();
@@ -1184,6 +1260,70 @@ mod tests {
         );
     }
 
+    /// Trace: FR-012-AC-12; foreign files count toward capacity but are never removed.
+    #[test]
+    fn foreign_json_and_tmp_like_files_are_counted_but_preserved() {
+        let directory = temporary_directory();
+        let large = DirectoryCache::new(&directory, 4096, 16_384);
+        let old_key = key(51);
+        let new_key = key(52);
+        let value = serde_json::json!({"payload": "v".repeat(90)});
+        assert_eq!(
+            put(&large, &old_key, &value).expect("owned entry stores"),
+            CacheWriteOutcome::Stored
+        );
+        let old_entry = large.entry_path(&old_key);
+        let foreign_json = directory.join("000-unrelated.json");
+        fs::write(&foreign_json, b"foreign json data").expect("foreign JSON exists");
+        let foreign_temp = directory.join("unrelated.tmp-backup");
+        fs::write(&foreign_temp, b"foreign temp data").expect("foreign temp-like file exists");
+        let old_time = fs::FileTimes::new().set_modified(SystemTime::UNIX_EPOCH);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&foreign_temp)
+            .expect("temp-like file opens")
+            .set_times(old_time)
+            .expect("old timestamp is set");
+        let new_size = fs::metadata(&old_entry).expect("old entry exists").len();
+        let foreign_bytes =
+            fs::metadata(&foreign_json).unwrap().len() + fs::metadata(&foreign_temp).unwrap().len();
+        let bounded = DirectoryCache::new(&directory, 4096, foreign_bytes + new_size);
+        assert_eq!(
+            put(&bounded, &new_key, &value).expect("owned entry is evicted"),
+            CacheWriteOutcome::Stored
+        );
+        assert!(foreign_json.exists(), "unrelated JSON was not evicted");
+        assert!(
+            foreign_temp.exists(),
+            "unrelated temp-like file was not reaped"
+        );
+        assert!(bounded.entry_path(&new_key).exists());
+        assert!(
+            !old_entry.exists(),
+            "validated owned entry was selected for eviction"
+        );
+    }
+
+    /// Trace: FR-012-AC-12; invalid or oversized entry-shaped files count but are not eviction candidates.
+    #[test]
+    fn oversized_or_corrupt_entry_shaped_file_blocks_over_capacity_write() {
+        let directory = temporary_directory();
+        let malformed = directory.join(format!("{}.json", key(53).as_str()));
+        fs::write(&malformed, vec![b'x'; 32]).expect("oversized malformed entry exists");
+        let store = DirectoryCache::new(&directory, 8, 16);
+        assert!(!store
+            .evict_for(
+                &directory.join("new-entry.json"),
+                &directory.join("new-temp"),
+                1
+            )
+            .expect("capacity scan succeeds"));
+        assert!(
+            malformed.exists(),
+            "the cache preserves an invalid entry-shaped file"
+        );
+    }
+
     /// Trace: FR-012-AC-9 and FR-012-AC-12; entry exactly at both limits is accepted.
     #[test]
     fn exactly_at_configured_limits_is_stored() {
@@ -1211,6 +1351,24 @@ mod tests {
             "the store has entries only, no index or ledger"
         );
         assert!(entries[0].to_string_lossy().ends_with(".json"));
+    }
+
+    /// Trace: FR-012-AC-10; a vanished temporary file at the rename site is a normal NotStored.
+    #[test]
+    fn vanished_temporary_rename_returns_not_stored() {
+        let directory = temporary_directory();
+        let store = DirectoryCache::new(&directory, 4096, 8192);
+        let cache_key = key(26);
+        let final_path = store.entry_path(&cache_key);
+        let outcome = store
+            .insert_value_before_publish(
+                &cache_key,
+                serde_json::json!({"terminal":"proved"}),
+                |temporary, _| fs::remove_file(temporary).expect("simulated concurrent removal"),
+            )
+            .expect("a vanished temp is not an operational fault");
+        assert_eq!(outcome, CacheWriteOutcome::NotStored);
+        assert!(!final_path.exists());
     }
 
     /// Trace: FR-012-AC-10; bytes stay under the temporary name until atomic rename.
@@ -1260,7 +1418,8 @@ mod tests {
             std::process::id()
         ));
         fs::write(&active, vec![b'y'; 650]).expect("live temporary file is created");
-        let outside = temporary_directory().with_extension("outside");
+        let outside_directory = temporary_directory();
+        let outside = outside_directory.join("outside");
         fs::write(&outside, b"outside").expect("outside target is created");
         let link = directory.join(format!("{}.json", key(9).as_str()));
         #[cfg(unix)]
@@ -1288,10 +1447,9 @@ mod tests {
             fs::read(&outside).expect("outside file remains"),
             b"outside"
         );
-        let _ = fs::remove_file(outside);
     }
 
-    /// Trace: FR-012-AC-10; concurrent same-key writes publish complete entries.
+    /// Trace: FR-012-AC-11; concurrent same-key writes publish complete entries.
     #[test]
     fn concurrent_same_key_writers_leave_a_valid_entry() {
         let directory = temporary_directory();

@@ -21,9 +21,11 @@ Derive keys for prove, analyze and generate requests. Hold all other key
 members and recorded pin fixed while supplying different admitted
 `ManifestDigest` values. Then vary each meaning key member in turn. For
 generate, vary the target and an output-affecting option separately, and verify
-the target member is absent for prove/analyze. Vary path, timestamp, wall-clock
-deadline, recorded pin, application version and execution-backend label without
-changing meaning inputs.
+the target member is absent for prove/analyze. Vary the explicitly excluded
+top-level path, timestamp, wall-clock deadline, recorded pin, revision,
+application version, wall time and execution-backend label without changing
+meaning inputs. Also vary a nested request field named `path` and verify that
+it remains a meaning input.
 
 ## Expected Results
 
@@ -31,6 +33,6 @@ changing meaning inputs.
   identity and pin remain unchanged; this test treats the digest as QSL input.
 - Each meaning-input change, including a generate target or option, changes the
   key; the target member occurs only for generate.
-- Changes to excluded path, timestamp, deadline, pin, revision, application
-  version, wall time and execution-backend labels, including nested request
-  fields, do not change the key.
+- Changes to excluded top-level path, timestamp, deadline, pin, revision,
+  application version, wall time and execution-backend labels do not change the
+  key; a nested request field named `path` changes the key.

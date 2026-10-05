@@ -209,10 +209,10 @@ IR-607 through IR-610 deliver the remaining CLI, options, providers, cache,
 AOT and proof execution chain. IR-609 separates driver/cache integration
 (FR-007, TC-014) from the downstream cache implementation (FR-012,
 TC-020..TC-022). The final process-backend mapping in IR-609 remains gated on
-the QSL-637 registry-origin API and CG IR-629. The driver registers plugin
-hello descriptors through `qsl_route::Registry` with origin `Process`, then
-passes registry descriptors unchanged to CG negotiation; it does not
-construct `BackendKind::Process`. The mapping checklist is: preserve manifest
+the QSL-637 registry-origin API and CG IR-629. The QSL registry builder
+assigns `Process` origin to plugin hello descriptors; the driver supplies
+those descriptors to the builder and passes its registry descriptors unchanged
+to CG negotiation. The driver does not construct `BackendKind::Process`. The mapping checklist is: preserve manifest
 domains and bounds in CG's process descriptor; handle `KindOutput::Process`
 without an artifact; and use the plugin host plus typed FR-331 reader for
 execution and terminal results. Same-identity descriptors with different

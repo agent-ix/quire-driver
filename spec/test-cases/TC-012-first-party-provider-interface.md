@@ -23,13 +23,14 @@ Scope: FR-005-AC-1 through FR-005-AC-5.
 2. Register it with a second provider using a different identity.
 3. Drive a request with items routed to each provider and inspect registered
    descriptors, recorded arguments, results and invocation counts.
-4. Register the same `Linked` manifest twice and verify idempotence. Then
-   register `Linked` and `Process` descriptors with the same `BackendId` but
-   different descriptor content; inspect registry refusals, withdrawn
-   identities and provider call counts.
-5. Once QSL-637 and CG IR-629 land, register a plugin hello descriptor with
-   origin `Process`, pass the resulting registry descriptors to CG negotiation
-   unchanged, and verify CG classifies the backend from the origin field.
+4. After QSL-637 lands, verify the QSL registry builder assigns `Linked` to
+   compile-time provider descriptors and `Process` to plugin hello descriptors.
+   Register the same descriptor twice and verify idempotence. Then register
+   `Linked` and `Process` descriptors with the same `BackendId` but different
+   descriptor content; inspect registry refusals, withdrawn identities and
+   provider call counts.
+5. Once CG IR-629 lands, pass the registry-built descriptors unchanged to CG
+   negotiation and verify CG classifies the backend from the origin field.
 
 Test location: planned driver provider tests.
 
@@ -45,6 +46,6 @@ Test location: planned driver provider tests.
   Registering an unequal descriptor, including a different origin, for one `BackendId` returns the typed
   duplicate-backend refusal, withdraws the identity, declines its items and
   invokes neither provider.
-- Plugin descriptors are registered through `qsl_route::Registry` with
-  `Process` origin and passed to CG unchanged; the driver does not construct
-  CG process kinds itself. This step is gated on QSL-637 and CG IR-629.
+- The QSL registry builder assigns `Process` to plugin descriptors; the driver
+  passes them to CG unchanged and does not construct CG process kinds. This
+  step is gated on QSL-637 and CG IR-629.
