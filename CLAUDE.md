@@ -39,6 +39,7 @@ make ci             # fmt-check + lint + test + deny + audit-unsafe + docs + spe
 
 ```
 src/lib.rs             # quire-driver library root
+quire-plugin-host/     # PL-2..PL-7 process-provider transport and lifecycle boundary
 tests/drive.rs         # driver acceptance tests (real QSL and CG calls)
 tests/dependency_edges.rs # driver package-graph assertion
 quire-cli/src/cli.rs   # user-facing command parser and handlers

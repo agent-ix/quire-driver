@@ -60,6 +60,11 @@ Keep `quire-cache` outside the `quire-driver` dependency graph. The driver
 library defines the cache interface. After IR-607 moves the CLI into a separate
 crate, that crate can compose the downstream cache implementation.
 
+The `quire-plugin-host` workspace package owns the process transport, framing,
+and lifecycle described by QSL ADR-029 PL-2 through PL-7. Driver dispatch and
+typed settlement through CG's process-provider kind remain a separate
+FR-006/TC-013 integration step gated on CG's IR-629 API.
+
 ## Commands
 
 See `CLAUDE.md`. `make ci` runs every gate.
