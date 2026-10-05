@@ -47,12 +47,16 @@
 
 pub mod cli;
 mod drive;
+pub mod execute;
 mod handoff;
+pub mod limits;
 mod refusal;
 mod registry;
 mod upstream;
 
 pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, Routed};
+pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};
+pub use limits::{LimitError, LimitOverrides};
 pub use refusal::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
 pub use registry::{build_registry, ProviderManifest};
 pub use upstream::{QslCg, Upstream};
