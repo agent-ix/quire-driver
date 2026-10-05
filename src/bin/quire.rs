@@ -428,13 +428,17 @@ mod tests {
     fn bounded_source_read_captures_one_sentinel_byte_over_limit() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ir608-run.qsl");
         let expected = std::fs::read(path).expect("fixture source");
-        let limit = expected.len() - 1;
+        let limit = 8;
+        assert!(
+            expected.len() > limit * 10,
+            "fixture exceeds the buffer bound"
+        );
         let actual = read_source(path, limit).expect("source over limit");
         assert_eq!(
             actual.len(),
             limit + 1,
             "read is bounded to the limit plus one sentinel byte"
         );
-        assert_eq!(actual, expected);
+        assert_eq!(actual, expected[..=limit]);
     }
 }

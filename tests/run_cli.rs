@@ -53,3 +53,45 @@ fn an_unknown_engine_is_a_refusal() {
         Some(i32::from(Category::Refusal.exit_code()))
     );
 }
+
+/// Trace: FR-003-AC-1/AC-3, caller work limits reach QSL's interpreter call.
+#[test]
+fn runtime_work_limit_changes_the_call_outcome() {
+    let exhausted = Command::new(QUIRE)
+        .args(["run", SOURCE, "yes", "--limit", "work_units=0"])
+        .output()
+        .expect("run with exhausted work limit");
+    assert_eq!(
+        exhausted.status.code(),
+        Some(i32::from(Category::Incomplete.exit_code()))
+    );
+
+    let sufficient = Command::new(QUIRE)
+        .args(["run", SOURCE, "yes", "--limit", "work_units=1000"])
+        .output()
+        .expect("run with sufficient work limit");
+    assert_eq!(
+        sufficient.status.code(),
+        Some(i32::from(Category::Success.exit_code()))
+    );
+}
+
+/// Trace: FR-003-AC-2, malformed caller limits are rejected before file access.
+#[test]
+fn malformed_limit_is_named_and_refused_before_source_read() {
+    let output = Command::new(QUIRE)
+        .args([
+            "run",
+            "missing-source.qsl",
+            "yes",
+            "--limit",
+            "s1.input_bytes=invalid",
+        ])
+        .output()
+        .expect("run with malformed limit");
+    assert_eq!(
+        output.status.code(),
+        Some(i32::from(Category::Refusal.exit_code()))
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("s1.input_bytes=invalid"));
+}
