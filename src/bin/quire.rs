@@ -125,7 +125,7 @@ fn dispatch(_verb: Verb, _format: OutputFormat, _raw_arguments: &[OsString]) -> 
 }
 
 fn main() -> ExitCode {
-    let arguments: Vec<OsString> = std::env::args_os().skip(1).take(64).collect();
+    let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
     match parse_invocation(&arguments) {
         Ok(Invocation::Help | Invocation::Version) => process_exit_code(Category::Success),
         Ok(Invocation::Operation {
