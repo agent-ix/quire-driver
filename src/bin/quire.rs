@@ -7,12 +7,14 @@ use std::process::ExitCode;
 use qsl_foundation::diagnostic::Category;
 use quire_driver::cli::process_exit_code;
 
+/// Parser selectors implement the command surface owned by QSL ADR-029.
 #[cfg(test)]
 const VERBS: &[&str] = &[
     "parse", "format", "check", "compile", "run", "analyze", "monitor", "prove", "replay",
     "generate", "inspect", "render",
 ];
 
+/// Output selector for QSL ADR-029's CLI grammar.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 enum OutputFormat {
     #[default]
@@ -21,6 +23,7 @@ enum OutputFormat {
     Dot,
 }
 
+/// Dispatch selector for verbs specified by QSL ADR-029.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Verb {
     Parse,
@@ -61,9 +64,14 @@ impl Verb {
 enum Invocation {
     Help,
     Version,
-    Operation { verb: Verb, format: OutputFormat },
+    Operation {
+        verb: Verb,
+        format: OutputFormat,
+        raw_arguments: Vec<OsString>,
+    },
 }
 
+/// Parse the root command surface defined by QSL ADR-029.
 fn parse_invocation(arguments: &[OsString]) -> Result<Invocation, String> {
     let Some(command) = arguments.first() else {
         return Ok(Invocation::Help);
@@ -103,18 +111,28 @@ fn parse_invocation(arguments: &[OsString]) -> Result<Invocation, String> {
     if format == OutputFormat::Dot && verb != Verb::Inspect {
         return Err("the `dot` format is available only for `inspect`".to_owned());
     }
-    Ok(Invocation::Operation { verb, format })
+    Ok(Invocation::Operation {
+        verb,
+        format,
+        raw_arguments: arguments[1..].to_vec(),
+    })
+}
+
+/// Handler seam: downstream operations receive every original argument.
+fn dispatch(_verb: Verb, _format: OutputFormat, _raw_arguments: &[OsString]) -> Category {
+    // Operation implementations are separate IR-607 follow-up work.
+    Category::Unsupported
 }
 
 fn main() -> ExitCode {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).take(64).collect();
     match parse_invocation(&arguments) {
         Ok(Invocation::Help | Invocation::Version) => process_exit_code(Category::Success),
-        Ok(Invocation::Operation { verb, format }) => {
-            let _ = verb;
-            let _ = format;
-            process_exit_code(Category::Unsupported)
-        }
+        Ok(Invocation::Operation {
+            verb,
+            format,
+            raw_arguments,
+        }) => process_exit_code(dispatch(verb, format, &raw_arguments)),
         Err(_) => process_exit_code(Category::Refusal),
     }
 }
@@ -153,7 +171,8 @@ mod tests {
             parse_invocation(&inspect),
             Ok(Invocation::Operation {
                 verb: Verb::Inspect,
-                format: OutputFormat::Dot
+                format: OutputFormat::Dot,
+                ..
             })
         ));
         let check = vec![
@@ -178,6 +197,21 @@ mod tests {
                 format: OutputFormat::Json,
                 ..
             })
+        ));
+    }
+
+    /// Trace: FR-002, preserve the raw operation arguments for handlers.
+    #[test]
+    fn retains_operation_arguments_at_the_dispatch_boundary() {
+        let args = vec![
+            OsString::from("run"),
+            OsString::from("--limit"),
+            OsString::from("steps=12"),
+            OsString::from("unit.qsl"),
+        ];
+        assert!(matches!(
+            parse_invocation(&args),
+            Ok(Invocation::Operation { raw_arguments, .. }) if raw_arguments == args[1..]
         ));
     }
 }
