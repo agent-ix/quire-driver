@@ -415,7 +415,10 @@ mod tests {
     #[test]
     fn empty_backend_identity_preserves_qsl_code_and_category() {
         let refusal = DriverRefusal::EmptyBackendIdentity(EmptyBackendIdentity);
-        assert_eq!(refusal.code(), "invalid_identifier");
+        assert_eq!(
+            refusal.code(),
+            qsl_foundation::Code::InvalidIdentifier.as_str()
+        );
         assert_eq!(refusal.qsl_category(), Some(Category::Refusal));
         assert_eq!(refusal.kind(), OutcomeKind::Refused);
         assert_eq!(refusal.stage(), DriverStage::Registry);
