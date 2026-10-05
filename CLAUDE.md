@@ -21,6 +21,7 @@ make lint           # clippy with -D warnings
 make test           # cargo test
 make build          # release build
 make clean          # cargo clean
+make tools          # install/check rustfmt, clippy, cargo-deny, and quire
 make deny           # cargo deny check licenses sources
 make spec           # quire validate 'spec/**/*.md'
 make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
