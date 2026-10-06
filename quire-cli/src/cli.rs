@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Initial command shell for the one driver-owned `quire` binary.
+//! Parser and command handlers for the user-facing `quire` binary.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -12,8 +12,13 @@ use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     default_accounting, Call, CallArgument, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
-use quire_driver::cli::process_exit_code;
 use quire_driver::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides};
+
+/// Convert QSL's total category exit result to the process exit type.
+#[must_use]
+fn process_exit_code(category: Category) -> ExitCode {
+    ExitCode::from(category.exit_code())
+}
 
 /// Parser selectors implement the command surface owned by QSL ADR-029.
 #[cfg(test)]
@@ -288,7 +293,7 @@ fn dispatch(verb: Verb, _format: OutputFormat, raw_arguments: &[OsString]) -> Ca
     Category::Unsupported
 }
 
-fn main() -> ExitCode {
+pub(super) fn entrypoint() -> ExitCode {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
     match parse_invocation(&arguments) {
         Ok(Invocation::Help | Invocation::Version) => process_exit_code(Category::Success),
@@ -298,6 +303,31 @@ fn main() -> ExitCode {
             raw_arguments,
         }) => process_exit_code(dispatch(verb, format, &raw_arguments)),
         Err(_) => process_exit_code(Category::Refusal),
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "a failed assertion is the test failure report"
+)]
+mod outcome_tests {
+    use std::process::ExitCode;
+
+    use qsl_foundation::diagnostic::Category;
+
+    use super::process_exit_code;
+
+    /// Trace: FR-002-AC-2, one QSL category exit function.
+    #[test]
+    fn process_code_is_qsl_category_exit_code_without_remapping() {
+        for category in Category::ALL {
+            assert_eq!(
+                process_exit_code(category),
+                ExitCode::from(category.exit_code())
+            );
+        }
     }
 }
 

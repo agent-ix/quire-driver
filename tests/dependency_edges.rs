@@ -32,6 +32,7 @@ struct Graph {
     /// Package id -> the package ids it reaches by a normal or build edge.
     deps: BTreeMap<String, Vec<String>>,
     root: String,
+    workspace_default_members: BTreeSet<String>,
 }
 
 impl Graph {
@@ -87,10 +88,17 @@ impl Graph {
             .as_str()
             .expect("root")
             .to_owned();
+        let workspace_default_members = metadata["workspace_default_members"]
+            .as_array()
+            .expect("workspace default members")
+            .iter()
+            .map(|id| id.as_str().expect("default member id").to_owned())
+            .collect();
         Self {
             packages,
             deps,
             root,
+            workspace_default_members,
         }
     }
 
@@ -124,8 +132,8 @@ impl Graph {
     }
 }
 
-/// FR-001-AC-1, FR-001-AC-11 and FR-012-AC-13 (TC-005)
-/// Trace: FR-012-AC-13; the downstream package consumes the driver interface.
+/// FR-001-AC-1, FR-001-AC-11, FR-012-AC-13 and FR-014-AC-3 (TC-005)
+/// Trace: FR-012-AC-13, FR-014-AC-3; cache boundary and CLI default membership.
 #[test]
 fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let graph = Graph::load();
@@ -165,6 +173,12 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     assert!(driver_qsl.iter().all(|p| p.name != QSL_ROOT));
 
     assert_eq!(graph.ids_named("quire-driver").len(), 1);
+    let cli = graph.ids_named("quire-cli");
+    assert_eq!(cli.len(), 1, "one CLI package");
+    assert!(
+        graph.workspace_default_members.contains(cli[0]),
+        "quire-cli is a workspace default member"
+    );
     let cache = graph.ids_named("quire-cache");
     if !cache.is_empty() {
         assert_eq!(cache.len(), 1, "one downstream cache implementation");

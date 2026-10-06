@@ -47,10 +47,10 @@ total `Category::exit_code` function as the sole category-to-exit mapping.
 
 ## Behavior
 
-- The `quire` binary SHALL be built from the driver repository; the QSL
-  workspace supplies no competing user binary. While the binary remains in
-  `src/bin/quire.rs`, the driver SHALL NOT compose the downstream
-  `quire-cache` package. IR-607 moves it into the separate `quire-cli` crate.
+- The `quire` binary SHALL be provided by the `quire-cli` workspace package;
+  the QSL workspace supplies no competing user binary. The `quire-driver`
+  library SHALL NOT compose the downstream `quire-cache` package. FR-014
+  specifies the separate CLI package boundary.
 - The CLI SHALL preserve the library's QSL-defined `quire-outcome/1` value
   without adding, removing or changing outcome data.
 - The CLI SHALL use ix-cli-kit for shared command/output, configuration and

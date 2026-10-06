@@ -46,7 +46,6 @@
 #![forbid(unsafe_code)]
 
 pub mod cache;
-pub mod cli;
 mod drive;
 pub mod execute;
 mod handoff;

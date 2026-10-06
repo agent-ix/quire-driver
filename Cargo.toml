@@ -10,8 +10,8 @@ repository = "https://github.com/agent-ix/quire-driver"
 publish = false
 
 [workspace]
-members = ["quire-cache"]
-default-members = [".", "quire-cache"]
+members = ["quire-cache", "quire-cli"]
+default-members = [".", "quire-cache", "quire-cli"]
 resolver = "2"
 
 [lib]

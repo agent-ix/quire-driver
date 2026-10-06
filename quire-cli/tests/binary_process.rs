@@ -54,7 +54,7 @@ fn an_unknown_engine_is_a_refusal() {
     );
 }
 
-/// Trace: FR-003-AC-1/AC-3, caller work limits reach QSL's interpreter call.
+/// Trace: FR-003-AC-1, caller work limits reach QSL's interpreter call.
 #[test]
 fn runtime_work_limit_changes_the_call_outcome() {
     let exhausted = Command::new(QUIRE)
