@@ -9,7 +9,9 @@ type: TestMatrix
 
 This authored verification inventory integrates FR-001 and SP-D1 through
 SP-D9 (FR-002 through FR-010) from IR-527, FR-011 from IR-616 and FR-012 for
-the downstream cache component. It covers TC-001 through TC-022. Discrete FR
+the downstream cache component, and FR-014 for the CLI package boundary. It
+covers FR-001 through FR-012 and FR-014, and TC-001 through TC-022 and TC-028.
+Discrete FR
 and TC artifacts remain authoritative;
 this matrix is their index, not a computed implementation-coverage report.
 
@@ -57,6 +59,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | FR-012 | FR-012-AC-6..FR-012-AC-8 | TC-021 | ✅ Matrix binds AC-6, AC-7, and AC-8 to the typed hit/miss, excluded-value, and deterministic incomplete-value test at `quire-cache/src/lib.rs:942` |
 | FR-012 | FR-012-AC-9..FR-012-AC-12 | TC-022 | ✅ Entry bounds, temp cleanup, rename errors, ownership-filtered eviction, concurrent writes and eviction-callsite NotFound are tested with `Trace:` tags |
 | FR-012 | FR-012-AC-13 | TC-005 | ✅ `tests/dependency_edges.rs::tc_005_driver_edges_match_the_adr_011_allow_list` carries a `Trace:` tag |
+| FR-014 | FR-014-AC-1..FR-014-AC-3 | TC-005, TC-028 | 🚧 Workspace target ownership, CLI dependency edges and the cache-free driver closure are specified; package-graph tests remain planned |
 
 ## Test Case Summary
 
@@ -84,6 +87,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-020 | Derive cache identity from meaning inputs and manifest content | Unit | FR-012-AC-1..FR-012-AC-5 | 🚧 Key, target, and excluded-field projection tests are present; `Trace:` tags identify covered criteria |
 | TC-021 | Reject invalid cache entries and excluded values | Unit | FR-012-AC-6..FR-012-AC-8 | ✅ Quire matrix binds AC-6, AC-7, and AC-8 to `quire-cache/src/lib.rs:942`; typed invalid-entry readers also bind AC-6 |
 | TC-022 | Keep cache writes atomic and within the caller's size limit | Unit | FR-012-AC-9..FR-012-AC-12 | ✅ Size, rename boundary and rename NotFound, temp cleanup, ownership-filtered eviction, concurrency and removal-race tests carry `Trace:` tags |
+| TC-028 | Keep the CLI package separate from the driver and compose the cache | Integration | FR-014-AC-1..FR-014-AC-3 | 🚧 Planned workspace metadata and dependency-closure test |
 
 ## Integration Test Matrix
 

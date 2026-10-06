@@ -5,6 +5,8 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-driver/FR-001
     type: verifies
+  - target: ix://agent-ix/quire-driver/FR-014
+    type: verifies
 ---
 # TC-005: The dependency edges match ADR-011 §6.1 and §7.1
 
@@ -13,6 +15,7 @@ relationships:
 Verify the driver's place in the crate graph from `cargo metadata`.
 
 Scope: FR-001-AC-1, FR-001-AC-11 and FR-012-AC-13.
+After the CLI package move, this graph check also verifies FR-014-AC-3.
 
 ## Test Procedure
 
@@ -38,8 +41,9 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
 - If the workspace has a `quire-cache` package, it is separate from
   `quire-driver` and depends on the driver-owned interface. No transitive
   normal/build path leads from `quire-driver` to `quire-cache`.
-- If the workspace contains `quire-cli`, it may depend on the driver
-  interface.
+- When the workspace contains `quire-cli`, it depends on the driver interface
+  and cache package as specified by FR-014; TC-028 verifies its exact package
+  and target edges. The driver's closure remains cache-free.
 - CG's one normal or build edge into QSL is `qsl-replay`.
 - The graph holds one copy of `quire-contract-model`: the driver's own
   direct dependency, CG's `quire-contract-ir` and QSL's `qsl-package` all

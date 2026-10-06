@@ -37,6 +37,8 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/FR-012
     type: contains
+  - target: ix://agent-ix/quire-driver/FR-014
+    type: contains
   - target: ix://agent-ix/quire-driver/TC-001
     type: contains
   - target: ix://agent-ix/quire-driver/TC-002
@@ -80,6 +82,8 @@ relationships:
   - target: ix://agent-ix/quire-driver/TC-021
     type: contains
   - target: ix://agent-ix/quire-driver/TC-022
+    type: contains
+  - target: ix://agent-ix/quire-driver/TC-028
     type: contains
 ---
 # Master Requirements Specification
@@ -167,6 +171,7 @@ implementation.
 | [FR-010](functional/FR-010-send-only-bound-items-to-codegen.md) | Send only abstraction-relation-bound items to code generation |
 | [FR-011](functional/FR-011-cancel-a-driver-library-operation.md) | Cancel driver lifecycle stages through a caller-owned handle |
 | [FR-012](functional/FR-012-implement-the-downstream-content-addressed-cache.md) | Implement the downstream content-addressed cache |
+| [FR-014](functional/FR-014-separate-the-user-cli-package.md) | Place the user CLI in a separate workspace package |
 | [TC-001](test-cases/TC-001-steps-run-in-order.md) | The steps run in ADR-011 T-13 order |
 | [TC-002](test-cases/TC-002-unknown-backend-refusal.md) | An unknown `BackendId` refuses the run before negotiation |
 | [TC-003](test-cases/TC-003-route-after-negotiation.md) | `route` runs after negotiation, for `supported` items only |
@@ -189,10 +194,12 @@ implementation.
 | [TC-020](test-cases/TC-020-cache-content-identity.md) | Derive cache identity from meaning inputs and manifest content |
 | [TC-021](test-cases/TC-021-cache-entry-integrity-and-policy.md) | Reject invalid cache entries and excluded values |
 | [TC-022](test-cases/TC-022-cache-storage-bounds-and-concurrency.md) | Keep cache writes atomic and within the caller's size limit |
+| [TC-028](test-cases/TC-028-cli-package-boundary.md) | Keep the CLI package separate from the driver and compose the cache |
 
 ## 5. Verification and Delivery Boundary
 
-[TM-001](tests.md) integrates FR-001 through FR-012 and TC-001 through TC-022.
+[TM-001](tests.md) integrates FR-001 through FR-012 and FR-014, and TC-001
+through TC-022 and TC-028.
 It distinguishes existing orchestration tests from planned driver tests and
 records their verification owners. Cross-backend and CLI/library conformance
 formerly described by CG FR-005 and IR-337 feed IR-528's G5b gate exclusively
