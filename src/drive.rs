@@ -415,20 +415,24 @@ mod origin_projection_tests {
 
     use quire_contract_codegen as cg;
 
-    use super::project_descriptor;
+    use super::{envelope, project_descriptor};
 
-    fn registry(origin: ProviderOrigin) -> Registry {
-        let candidate = Candidate::new(BackendId::from_wire("kani").expect("nonempty identity"));
-        let descriptor = BackendDescriptor::admit(
+    fn descriptor(origin: ProviderOrigin, identity: &str) -> BackendDescriptor {
+        let candidate =
+            Candidate::new(BackendId::from_wire(identity).expect("identity is nonempty"));
+        BackendDescriptor::admit(
             candidate,
             origin,
             ManifestDigest::from_digest([7; 32]),
             [(Some("value-validity"), Some("bounded"))],
         )
-        .expect("QSL accepts the typed descriptor");
+        .expect("QSL accepts the typed descriptor")
+    }
+
+    fn registry(origin: ProviderOrigin) -> Registry {
         let mut registry = Registry::new();
         registry
-            .register(descriptor)
+            .register(descriptor(origin, "example-provider"))
             .expect("one descriptor registers");
         registry
     }
@@ -453,10 +457,61 @@ mod origin_projection_tests {
         )
         .expect("process projection succeeds");
 
-        assert_eq!(linked.identity, "kani");
+        assert_eq!(linked.identity, "example-provider");
         assert_eq!(linked.identity, process.identity);
         assert_eq!(linked.advertised, process.advertised);
+        assert_eq!(
+            linked.advertised,
+            vec![(cg::CapabilityKind::ValueValidity, cg::Mode::Bounded)]
+        );
         assert_eq!(linked.origin, cg::ProviderOrigin::Linked);
         assert_eq!(process.origin, cg::ProviderOrigin::Process);
+    }
+
+    /// Trace: FR-005-AC-5, TC-012; every registry descriptor reaches CG once.
+    #[test]
+    fn envelope_projects_each_registered_descriptor_once_with_its_origin() {
+        let expected = [
+            (
+                "example/linked",
+                ProviderOrigin::Linked,
+                cg::ProviderOrigin::Linked,
+            ),
+            (
+                "example/process",
+                ProviderOrigin::Process,
+                cg::ProviderOrigin::Process,
+            ),
+        ];
+        let mut registry = Registry::new();
+        for (identity, qsl_origin, _) in expected {
+            registry
+                .register(descriptor(qsl_origin, identity))
+                .expect("distinct descriptors register");
+        }
+
+        let (envelope, _) = envelope(&registry, &[], None).expect("envelope projects");
+        assert_eq!(envelope.manifest.len(), registry.descriptors().count());
+        let mut expected_identities: Vec<String> = expected
+            .iter()
+            .map(|(identity, _, _)| (*identity).to_owned())
+            .collect();
+        expected_identities.sort();
+        let mut projected_identities: Vec<String> = envelope
+            .manifest
+            .iter()
+            .map(|projected| projected.identity.clone())
+            .collect();
+        projected_identities.sort();
+        assert_eq!(projected_identities, expected_identities);
+        for (identity, _, origin) in &expected {
+            let projected: Vec<_> = envelope
+                .manifest
+                .iter()
+                .filter(|projected| projected.identity == *identity)
+                .collect();
+            assert_eq!(projected.len(), 1, "each identity appears once");
+            assert_eq!(projected[0].origin, *origin);
+        }
     }
 }

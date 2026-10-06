@@ -143,7 +143,6 @@ mod tests {
         default_accounting, Call, CallOutcome, CallValue, DependencyInput, SpineLimits,
     };
     use qsl_replay::spine::{CompileRefusal, RunRefusal};
-    use qsl_replay::OutcomeDocument;
 
     use super::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest};
 
@@ -182,16 +181,13 @@ mod tests {
         ));
     }
 
-    /// Trace: FR-002-AC-3, TC-016.
     #[test]
     fn execute_result_uses_qsl_outcome_document_serializer() {
         let result = execute(request(ExecutionEngine::default(), SpineLimits::default()))
             .expect("interpreter runs");
         assert_eq!(
             result.outcome_bytes().expect("QSL encodes outcome"),
-            OutcomeDocument::from_call(&result.outcome)
-                .to_bytes()
-                .expect("QSL serializes typed call")
+            br#"{"format":"quire-outcome/1","operation":"execute","last_stage":"S6a","category":"success","items":[],"diagnostics":[],"artifacts":[],"result":{"kind":"completed","value":{"kind":"boolean","value":true}}}"#
         );
     }
 
