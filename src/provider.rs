@@ -651,27 +651,38 @@ mod tests {
     #[test]
     fn kani_execution_refuses_limits_that_differ_from_generated_identity() {
         let generated = ceilings();
-        let supplied = ProofCeilings {
-            memory_bytes: NonZeroU64::new(2048).expect("positive memory ceiling"),
-            ..generated
-        };
         let item = routed_item("agent-ix/provider/kani", Some(harness()));
         let request = ProviderRequest::new(std::slice::from_ref(&item));
         let installation = KaniInstallation {
             launcher: PathBuf::from("unused-cg-launcher"),
         };
-        let limits = ProviderLimits {
-            kani: Some(KaniExecutionLimits {
-                ceilings: supplied,
-                installation: &installation,
-                crate_directory: Path::new("."),
-                target_directory: Path::new("."),
-            }),
-        };
-        let results = provider().run_items(&request, &limits, &Cancel::new());
-        assert!(matches!(
-            results.items[0].result,
-            Err(ProviderItemFailure::LimitsMismatch { .. })
-        ));
+        let mismatches = [
+            ProofCeilings {
+                memory_bytes: NonZeroU64::new(2048).expect("positive memory ceiling"),
+                ..generated
+            },
+            ProofCeilings {
+                wall_clock: Duration::from_secs(31),
+                ..generated
+            },
+        ];
+        for supplied in mismatches {
+            let limits = ProviderLimits {
+                kani: Some(KaniExecutionLimits {
+                    ceilings: supplied,
+                    installation: &installation,
+                    crate_directory: Path::new("."),
+                    target_directory: Path::new("."),
+                }),
+            };
+            let results = provider().run_items(&request, &limits, &Cancel::new());
+            assert!(matches!(
+                results.items[0].result,
+                Err(ProviderItemFailure::LimitsMismatch {
+                    supplied: actual_supplied,
+                    generated: actual_generated,
+                }) if actual_supplied == supplied && actual_generated == generated
+            ));
+        }
     }
 }
