@@ -43,7 +43,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 
 | Functional Req | Acceptance Criteria | Test Cases | Status |
 |---|---|---|---|
-| FR-001 | FR-001-AC-1..FR-001-AC-11 | TC-001, TC-002, TC-003, TC-004, TC-005, TC-006, TC-007, TC-008, TC-019 | ✅ Existing test sources; TC-005 gains the transitive cache-boundary assertion |
+| FR-001 | FR-001-AC-1..FR-001-AC-11 | TC-001, TC-002, TC-003, TC-004, TC-005, TC-006, TC-007, TC-008, TC-019 | 🚧 Planned: existing test sources are present; the TC-005 transitive cache-boundary assertion and trace-tagged evidence for FR-001-AC-9/AC-10 remain planned. |
 | FR-002 | FR-002-AC-1, FR-002-AC-2, FR-002-AC-3, FR-002-AC-4, FR-002-AC-5 | TC-009, TC-018 | 🚧 QSL-backed execute result serialization is unit-tested in `src/execute.rs`; machine CLI dispatch/writing and process exit integration remain planned. |
 | FR-003 | FR-003-AC-1, FR-003-AC-2, FR-003-AC-3 | TC-010 | ✅ `src/limits.rs` covers override/default and invalid-setting rules; `src/execute.rs` verifies typed stage-limit configured bound and `limits_field()` through the driver wrapper; `quire-cli/tests/binary_process.rs` covers exit category and raised-limit completion. |
 | FR-004 | FR-004-AC-1, FR-004-AC-2, FR-004-AC-3, FR-004-AC-4 | TC-011 | 🚧 Planned: current tests compare the linked interpreter's typed preparation refusal with direct QSL output, but cross-engine no-substitution for a selected-engine failure awaits a second engine or injectable seam. CLI parser and binary-process tests cover engine selection and unavailable-engine refusal. |
@@ -79,7 +79,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-002 | An unknown BackendId refuses the run before negotiation | Integration | FR-001-AC-2 | ✅ Tests present |
 | TC-003 | route runs after negotiation, for supported items only | Integration | FR-001-AC-3 | ✅ Tests present |
 | TC-004 | Command-level refusals are typed | Integration | FR-001-AC-5 | ✅ Tests present |
-| TC-005 | The dependency edges match ADR-011 §6.1 and §7.1 | Integration | FR-001-AC-1, FR-001-AC-11, FR-012-AC-13, FR-013-AC-11, FR-014-AC-2, FR-014-AC-3 | ✅ Driver closure assertion present; downstream edge, host exclusion, CLI host edge and default-member assertion are planned |
+| TC-005 | The dependency edges match ADR-011 §6.1 and §7.1 | Integration | FR-001-AC-1, FR-001-AC-11, FR-012-AC-13, FR-013-AC-11, FR-014-AC-2, FR-014-AC-3 | 🚧 Planned: driver closure assertion exists; transitive cache edge, host exclusion, CLI host edge and default-member assertion remain planned. |
 | TC-006 | E5 admits the emitted package and CG generates for the routed items | Integration | FR-001-AC-6, FR-001-AC-7, FR-001-AC-8 | ✅ Tests present |
 | TC-007 | Generation refusals are typed | Integration | FR-001-AC-5, FR-001-AC-6 | ✅ Tests present |
 | TC-008 | A missing import or an unknown header profile refuses at compile | Integration | FR-001-AC-5 | ✅ Tests present |
@@ -93,7 +93,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-016 | Settle one terminal record per item after replay | Integration | FR-009-AC-1, FR-009-AC-2, FR-009-AC-3, FR-009-AC-4, FR-009-AC-5 | 🚧 Execute and available proved-provider outputs use QSL's canonical serializer; falsified scalar mapping remains unguessed. Scalar replay and full per-item accounting remain planned. |
 | TC-017 | Send only abstraction-relation-bound items to code generation | Integration | FR-010-AC-1, FR-010-AC-2, FR-010-AC-3 | 🚧 Planned in quire-integration; QSL AR2 prerequisite |
 | TC-018 | Preserve the QSL outcome at the binary process boundary | Integration | FR-002-AC-2, FR-002-AC-3, FR-002-AC-4, FR-014-AC-4 | 🚧 Planned: `quire-cli/tests/binary_process.rs` checks selected-engine and limit process statuses; full outcome document bytes and remaining CLI contract cases remain planned. Fixtures belong to `quire-cli`. |
-| TC-019 | Propagate library cancellation and retain bounded checked-unit source | Integration | FR-001-AC-9, FR-001-AC-10, FR-011-AC-1..FR-011-AC-5 | ✅ `tests/drive.rs::tc_019_cancellation_preserves_every_stage_and_cause`; `tests/drive.rs::tc_019_e5_receives_source_provision_and_checked_unit_retains_bounded_root` |
+| TC-019 | Propagate library cancellation and retain bounded checked-unit source | Integration | FR-001-AC-9, FR-001-AC-10, FR-011-AC-1..FR-011-AC-5 | 🚧 Planned: the named cancellation/source-lifetime tests exist, but trace-tagged evidence for FR-001-AC-9/AC-10 remains planned. |
 | TC-020 | Derive cache identity from meaning inputs and manifest content | Unit | FR-012-AC-1..FR-012-AC-5 | 🚧 Key, target, and excluded-field projection tests are present; `Trace:` tags identify covered criteria |
 | TC-021 | Reject invalid cache entries and excluded values | Unit | FR-012-AC-6..FR-012-AC-8 | ✅ Quire matrix binds AC-6, AC-7, and AC-8 to `quire-cache/src/lib.rs:942`; typed invalid-entry readers also bind AC-6 |
 | TC-022 | Keep cache writes atomic and within the caller's size limit | Unit | FR-012-AC-9..FR-012-AC-12 | ✅ Size, rename boundary and rename NotFound, temp cleanup, ownership-filtered eviction, concurrency and removal-race tests carry `Trace:` tags |
