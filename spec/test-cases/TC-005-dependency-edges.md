@@ -5,6 +5,10 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-driver/FR-001
     type: verifies
+  - target: ix://agent-ix/quire-driver/FR-012
+    type: verifies
+  - target: ix://agent-ix/quire-driver/FR-013
+    type: verifies
   - target: ix://agent-ix/quire-driver/FR-014
     type: verifies
 ---
@@ -14,7 +18,8 @@ relationships:
 
 Verify the driver's place in the crate graph from `cargo metadata`.
 
-Scope: FR-001-AC-1, FR-001-AC-11, FR-012-AC-13 and FR-014-AC-3.
+Scope: FR-001-AC-1, FR-001-AC-11, FR-012-AC-13, FR-013-AC-11,
+FR-014-AC-2 and FR-014-AC-3.
 
 ## Test Procedure
 
@@ -33,6 +38,8 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
   `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`,
   `quire-exact`, `quire-contract-codegen`, `quire-contract-model` and
   `thiserror`. The QSL root crate and `quire-cache` are not direct edges.
+  `quire-plugin-host` is not in the driver's normal or build dependency
+  closure.
   `serde_json` is a dev-dependency (this crate's own tests use it), not a
   normal one. No package in the driver's transitive normal/build dependency
   closure is `quire-cache`.
@@ -43,8 +50,9 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
   normal/build path leads from `quire-driver` to `quire-cache`.
 - The `workspace_default_members` array includes `quire-cli`.
 - When the workspace contains `quire-cli`, it depends on the driver interface
-  and cache package as specified by FR-014; TC-028 verifies its exact package
-  and target edges. The driver's closure remains cache-free.
+  and cache package plus `quire-plugin-host` as specified by FR-014; TC-028
+  verifies its exact package and target edges. The driver's closure remains
+  cache-free and host-free.
 - CG's one normal or build edge into QSL is `qsl-replay`.
 - The graph holds one copy of `quire-contract-model`: the driver's own
   direct dependency, CG's `quire-contract-ir` and QSL's `qsl-package` all

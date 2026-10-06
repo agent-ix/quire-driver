@@ -32,6 +32,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-driver/FR-012
     type: references
+  - target: ix://agent-ix/quire-driver/FR-013
+    type: references
   - target: ix://agent-ix/quire-driver/FR-014
     type: references
   - target: ix://agent-ix/quire-driver/TM-001
@@ -43,6 +45,16 @@ relationships:
   - target: ix://agent-ix/quire-driver/TC-021
     type: references
   - target: ix://agent-ix/quire-driver/TC-022
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-023
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-024
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-025
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-026
+    type: references
+  - target: ix://agent-ix/quire-driver/TC-027
     type: references
   - target: ix://agent-ix/quire-driver/TC-028
     type: references
@@ -68,8 +80,8 @@ relationships:
 IR-527 reconciles this seam description with QSL ADR-029 and the merged
 SP-D1 through SP-D9 requirements. It absorbs IR-351's driver specification,
 architecture and verification-inventory work. [The master specification](../spec.md)
-and [TM-001](../tests.md) integrate FR-001 through FR-012 and FR-014, and
-TC-001 through TC-022 and TC-028. This architecture describes their composition
+and [TM-001](../tests.md) integrate FR-001 through FR-014, and
+TC-001 through TC-028. This architecture describes their composition
 and ownership; the discrete requirements supply the normative acceptance
 criteria.
 
@@ -79,7 +91,8 @@ The driver repository owns the downstream orchestration library and the one
 user-facing Cargo `quire` binary. FR-014 places the binary in the separate
 `quire-cli` workspace package. `quire-cli/src/cli.rs` owns argument parsing;
 `quire-cli/src/main.rs` is the binary entry point. CLI tests and their fixtures
-also belong to `quire-cli`. The binary reads explicitly named inputs, builds
+also belong to `quire-cli`. The CLI composes the driver, cache and separate
+`quire-plugin-host` package. The binary reads explicitly named inputs, builds
 typed requests, calls the appropriate library operation, and renders its
 typed outcome. `prove` and `generate` are driver operations;
 QSL owns the other lifecycle operations and the lifecycle contract. The CLI
@@ -96,7 +109,8 @@ terminal value. The driver defines no alternative to these contracts.
 QSL ADR-029 also defines the plugin, cache and execution-backend contracts.
 Its CB-3 places the host, cache, AOT adapter and CLI outside the qualified core
 in driver-repository components. The `quire-cli` package is a workspace
-default member and composes the CLI with `quire-driver` and `quire-cache`.
+default member and composes the CLI with `quire-driver`, `quire-cache` and
+`quire-plugin-host`.
 The `quire-driver` package owns the cache interface and SHALL NOT depend on
 the concrete `quire-cache` package. `quire-cache` implements that interface
 as a downstream component; `quire-cli` composes it without adding it to the
@@ -122,10 +136,12 @@ failure ownership across the driver and its upstream libraries.
 | E5 package admission | IR `read_checked_package` in `quire-contract-model` | Pass emitted bytes and checked-package evidence to IR; require the admitted `package_id` to equal E4's before proceeding | FR-001 / TC-004, TC-006 |
 | Registry and candidates | QSL layer R and ADR-029 PV | Build one registry from admitted manifests and pass it as a value; derive candidate sets from checked request items | FR-001, FR-005 / TC-002, TC-012 |
 | Abstraction-relation selection | QSL AR2, [FR-307](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-307-export-the-bindings-each-item-references.md) (Behavior: Caller and position; Per-item results) | Pass only the admitted relation's bound item subset to CG; preserve QSL's typed required-binding refusal | FR-010 / TC-017 |
-| Conversion and negotiation | CG; QSL ADR-029 PV-4 defines the process-provider extension | Convert registered backends before negotiation, including the specified process-provider kind; validate settlement count, order and membership | FR-001, FR-006 / TC-002, TC-004, TC-013 |
+| Conversion and negotiation | CG; QSL ADR-029 PV-4 defines the process-provider extension | Convert registered backends before negotiation; process-origin backend-kind projection follows CG IR-629 (spec merged, code pending). Validate settlement count, order and membership | FR-001, FR-006 / TC-002, TC-004, TC-013 |
 | Routing | QSL `qsl-route` | Route after negotiation and only for supported items; retain request indices and checked-node identity | FR-001 / TC-003 |
 | Generation and publication | CG `generate_routed` and CG FR-005 | Supply only routed, relation-bound items and caller contexts; carry generation output and CG-derived claim map without re-derivation | FR-001, FR-010 / TC-006, TC-007, TC-017 |
-| First-party and process-provider execution | Driver `Provider` trait; QSL ADR-029 PV and PL | Invoke only the selected providers with the current emitted package, their negotiated items, limits and cancellation; pass typed results into proof settlement | FR-005..FR-006 / TC-012..TC-013 |
+| First-party provider execution | Driver `Provider` trait; QSL ADR-029 PV | Invoke only the selected first-party provider with the current emitted package, its negotiated items, limits and cancellation; preserve typed results | FR-005 / TC-012 |
+| Process-provider seam | Driver-owned process-provider interface; `quire-cli` composition adapter | The `quire-cli` adapter supplies admitted plugin hello manifests to the QSL registry builder; dispatch selected process-provider work and pass validated typed results into the same proof settlement path; the driver has no host-package dependency | FR-006 / TC-013 |
+| Process plugin host | `quire-plugin-host`, composed by `quire-cli`; QSL ADR-029 PL-1..PL-7 | Start hello-first sessions, enforce framing and caller budgets, preserve validated results and typed failures, and terminate the process tree on cancellation or timeout | FR-013 / TC-023..TC-027 |
 | Eligible cache calls | Driver cache interface and QSL ADR-029 CA-1..CA-5 | Supply operation, package and provider identity, admitted `ManifestDigest`, typed request and generation options; preserve typed hit/miss results without depending on `quire-cache` | FR-007 / TC-014 |
 | Cache key and storage | `quire-cache`, implementing QSL ADR-029 CA-1..CA-5 | Derive and verify content identity, enforce typed reads, storage policy and caller byte limits | FR-012 / TC-020..TC-022 |
 | AOT execution | QSL ADR-029 EB | Pass the current checked package, selected entries, limits, cancellation and named toolchain to the selected backend; preserve failures without switching engines | FR-008 / TC-015 |
@@ -165,7 +181,8 @@ add library-source intake or expand that baseline contract.
 - QSL, IR and CG do not depend on the driver. The driver library depends on
   their layer/model APIs; downstream components and `quire-cache` may
   consume its cache interface. The `quire-driver` package does not depend on
-  `quire-cache`. CG's QSL seam remains `qsl-replay`; the driver may call QSL
+  `quire-cache` or `quire-plugin-host`; `quire-cli` composes the driver, cache
+  and process host. CG's QSL seam remains `qsl-replay`; the driver may call QSL
   layer crates directly (ADR-011 §6.1, FB-11).
 - IR admission and checked types come from `quire-contract-model`, not a
   driver-local representation. The driver, CG and QSL use one copy of that
@@ -176,8 +193,9 @@ add library-source intake or expand that baseline contract.
 - FR-001 and TC-005 describe the orchestrator's dependency graph. The frontend
   and non-core components added under ADR-029 CB-3 sit above the driver core.
   The `quire-cli` package owns its parser, CLI tests and fixtures. The
-  `quire-driver` package's cache-free closure is defined by FR-001-AC-11 and
-  FR-012-AC-13; `quire-cli` composes the separate cache implementation.
+  `quire-driver` package's cache-free, host-free closure is defined by
+  FR-001-AC-11, FR-012-AC-13 and FR-013-AC-11; `quire-cli` composes the
+  separate cache and process-host implementations.
   An argument parser, terminal renderer, plugin host, cache implementation or
   alternate execution backend does not become
   a dependency of the core.

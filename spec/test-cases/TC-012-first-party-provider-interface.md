@@ -42,8 +42,10 @@ Scope: FR-005-AC-1 through FR-005-AC-5.
    projections preserve identity and advertised pairs while mapping each
    origin to its corresponding CG variant. The Linked-origin half of
    FR-005-AC-1 is tested in `src/registry.rs`. Process-origin plugin hello
-   registration and FR-005-AC-5's process backend-kind mapping remain planned
-   with plugin-host work.
+   registration through the `quire-cli` process-provider adapter remains
+   planned. `quire-cli` supplies plugin hello manifests to the QSL registry
+   builder. CG IR-629 is spec-merged but its process backend-kind code is
+   pending; the origin projection itself is covered by the driver test.
 
 Test location: `src/registry.rs`, `src/drive.rs`, `src/provider.rs`, and
 `tests/drive.rs`; full routed invocation and process-provider integration
