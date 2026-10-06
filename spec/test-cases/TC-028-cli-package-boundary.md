@@ -3,6 +3,8 @@ id: TC-028
 title: "Keep the CLI package separate from the driver and compose cache and host"
 type: TC
 relationships:
+  - target: ix://agent-ix/quire-driver/FR-006
+    type: verifies
   - target: ix://agent-ix/quire-driver/FR-013
     type: verifies
   - target: ix://agent-ix/quire-driver/FR-014
@@ -16,7 +18,8 @@ Verify workspace membership, executable ownership and the CLI dependency edges,
 including that the CLI composes the process host while the driver core excludes
 it.
 
-Scope: FR-013-AC-11, FR-014-AC-1, FR-014-AC-2, FR-014-AC-4 and FR-014-AC-5.
+Scope: FR-006-AC-1, FR-013-AC-11, FR-014-AC-1, FR-014-AC-2, FR-014-AC-4
+and FR-014-AC-5.
 
 ## Test Procedure
 

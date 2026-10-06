@@ -17,10 +17,13 @@ Scope: FR-013-AC-12 through FR-013-AC-13.
 
 ## Test Procedure
 
-In an isolated Cargo home with no registry or git package cache, run `make
-test` using the repository lockfile and normal network access. Observe the
-fetch step, then the offline metadata check and complete test suite. Repeat
-without network after the fetch has populated the isolated cache.
+1. Invoke the plugin-host test target with the required fixture runtime absent
+   from `PATH`; verify the test process exits with the actionable prerequisite
+   diagnostic before spawning a fixture.
+2. In an isolated Cargo home with no registry or git package cache, run `make
+   test` using the repository lockfile and normal network access. Observe the
+   fetch step, then the offline metadata check and complete test suite. Repeat
+   without network after the fetch has populated the isolated cache.
 
 ## Expected Results
 
@@ -28,5 +31,5 @@ without network after the fetch has populated the isolated cache.
   metadata inspection, including dependencies not built for the host target.
 - The dependency-edge check and full `make test` pass. The second run passes
   without network because the prior locked fetch populated the cache.
-- If the plugin fixture runtime is absent, the host test suite fails with an
-  actionable message naming the missing runtime and installation instructions.
+- With the fixture runtime absent, the host test target fails before spawning
+  with a message naming the missing executable and installation prerequisite.

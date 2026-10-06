@@ -79,10 +79,12 @@ specifies the driver-owned process-provider seam and settlement composition.
   result-validation error, a plugin `fault`, a process-budget breach, or a
   non-zero exit. Those failures SHALL retain their specific typed cause.
 - The host SHALL measure each request's CPU time as the sum of CPU-time deltas
-  for the plugin and all descendants since that request began. It SHALL measure
+  for the plugin and all descendants since that request began. It SHALL sample
   memory as the sum of resident bytes for the current process tree at each
-  poll; exceeding either request budget SHALL return the corresponding typed
-  process-budget failure.
+  poll. Sampling is best-effort: a transient memory peak between polls can
+  exceed the configured value before the next measurement. When a sampled
+  aggregate exceeds either request budget, the host SHALL return the
+  corresponding typed process-budget failure.
 - When a process-tree memory or CPU-time budget is requested on Linux, macOS
   or Windows, the host SHALL enforce it. When such a budget is requested on
   another platform or the runtime cannot observe the complete process tree,
@@ -126,7 +128,7 @@ specifies the driver-owned process-provider seam and settlement composition.
 | FR-013-AC-5 | A plugin's valid typed cancellation settlement received within grace is returned unchanged; no settlement by grace expiry terminates the child and descendants and returns cancellation within the one-second cleanup bound. | Test |
 | FR-013-AC-6 | A deadline expiring while a plugin does not read a request frame returns `TimedOut` within the 20-millisecond polling interval plus the one-second cleanup bound. | Test |
 | FR-013-AC-7 | Truncated, malformed, non-canonical, oversized, unexpected, and wrongly correlated frames produce their specific typed failures without allocation above configured limits. | Test |
-| FR-013-AC-8 | Per-request memory and CPU-time budgets aggregate usage across the plugin process tree; budget breaches terminate descendants and report the corresponding failure. If complete-tree measurement is unavailable, the host returns `ProcessBudgetError::Unavailable` before sending the request. | Test |
+| FR-013-AC-8 | Per-request memory and CPU-time budgets aggregate usage across the plugin process tree; a sampled budget breach terminates descendants and reports the corresponding failure. Memory sampling is best-effort between polls. If complete-tree measurement is unavailable, the host returns `ProcessBudgetError::Unavailable` before sending the request. | Test |
 | FR-013-AC-9 | Stderr beyond the session retention limit is drained but not retained; stderr is available on failures, and reader/writer workers are joined within one second after termination begins. | Test |
 | FR-013-AC-10 | After stdout closes while the child remains alive, process-exit waiting does not busy-wait; EOF before a response preserves an available child exit status. | Test |
 | FR-013-AC-11 | The host uses QSL ADR-029 PL-1 through PL-7 without defining a local wire or manifest-digest format; `quire-driver` excludes the host crate, and `quire-cli` composes it with the driver's seam. | Test (TC-005, TC-028) and analysis |

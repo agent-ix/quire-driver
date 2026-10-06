@@ -20,18 +20,20 @@ Scope: FR-013-AC-5 and FR-013-AC-6.
 Use a fixture that receives cancel and returns a valid, correlated incomplete
 settlement within grace; a second fixture that never settles; and a third that
 completes hello but never reads a request frame. Trigger cancellation in the
-first two cases. Give the third case a 500 ms deadline, a request larger than
-the pipe capacity, and a bounded termination grace. Use synchronization
-handshakes rather than sleeps to arrange fixture states; measure deadline
-return against the configured grace and documented polling interval.
+first two cases. Measure the no-settlement case from grace expiry and require
+cleanup to finish within one second. Give the third case a 500 ms deadline and
+a request larger than the pipe capacity. Use synchronization handshakes rather
+than sleeps; require timeout within the deadline plus 20 milliseconds of
+polling and the one-second cleanup bound, without adding cancellation grace.
 
 ## Expected Results
 
 - The first case returns the plugin's validated settlement unchanged.
 - The second case terminates the process tree after grace and returns the
-  cancellation outcome.
-- The blocked-write case returns `TimedOut` within the configured bound and
-  does not wait for the plugin to read or exit voluntarily.
+  cancellation outcome within one second after grace expires.
+- The blocked-write case returns `TimedOut` no later than 500 ms plus 20 ms
+  plus the one-second cleanup bound. It does not wait for cancellation grace,
+  the plugin to read, or the plugin to exit voluntarily.
 - Malformed frames or plugin faults received during grace retain their typed
   failure instead of becoming cancellation or timeout.
 - Mutation checks removing the valid-settlement path, grace expiry, or
