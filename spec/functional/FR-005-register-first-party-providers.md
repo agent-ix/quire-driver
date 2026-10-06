@@ -61,8 +61,8 @@ registry to the lifecycle operation that uses it.
   A mismatch SHALL remain a typed refusal.
 - CG execution SHALL use the embedded identity ceilings and retain its
   observed ceilings, memory observation and symbolic-argument bounds in the
-  typed execution evidence. CG FR-017 and FR-028 define the wall-clock ceiling
-  as the execution timeout; the driver SHALL NOT supply a second timeout.
+  typed execution evidence. CG FR-028 defines the wall-clock ceiling as the
+  execution timeout; the driver SHALL NOT supply a second timeout.
 - The driver SHALL register linked providers and process-provider manifests
   through `qsl_route::Registry`. The QSL registry builder assigns origin
   `Linked` to compile-time providers and `Process` to plugin hello descriptors;
@@ -88,8 +88,8 @@ The current linked Kani adapter is the only Provider execution adapter. Its
 generalize process or other QSL engines. Callers provide `ProofCeilings`
 (`memory_bytes` and `wall_clock`) during generation and execution; the driver
 requires equality with the generated harness identity, and CG uses that
-embedded value for bounded execution (CG FR-017 and FR-028). Cancellation is checked between
-routed items. CG's current `execute_kani_obligation` API accepts no
+embedded value for bounded execution (CG FR-028). Cancellation is checked
+between routed items. CG's current `execute_kani_obligation` API accepts no
 cancellation handle, so an already-running harness continues until the
 generated identity's `wall_clock` ceiling. Process-origin plugin admission and backend-kind mapping
 remain follow-up work; the QSL-to-CG descriptor projection is covered by

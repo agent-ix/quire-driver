@@ -462,7 +462,8 @@ mod tests {
         })
     }
 
-    /// Trace: FR-005-AC-2.
+    /// Compile-time field witness: CG execution evidence remains available through the provider
+    /// result without being projected into a driver-specific evidence type.
     #[test]
     fn provider_result_retains_kani_resource_and_argument_evidence() {
         let item = result(KaniRunOutcome::Verified);

@@ -63,7 +63,7 @@ remain planned.
 - Caller-provided `ProofCeilings` appear unchanged in the generated harness
   identity; an execution request with differing ceilings is refused before
   execution. CG's evidence fields remain available through the typed provider
-  result. CG FR-017/FR-028 define the wall-clock ceiling in the harness
+  result. CG FR-028 defines the wall-clock ceiling in the harness
   identity as the execution timeout; the driver supplies no second timeout.
 - CG maps cover-unsatisfied to `Proved { success_checks: 0 }` and timeout to
   `Incomplete(TimedOut)`; the driver does not reimplement that mapping.
