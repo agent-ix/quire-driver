@@ -81,7 +81,7 @@ registry to the lifecycle operation that uses it.
 | FR-005-AC-2 | The provider receives the same emitted package, routed request, limits and cancellation handle supplied by the driver, and its typed results are returned without semantic changes. Kani generation uses caller-supplied `ProofCeilings`; execution requires those ceilings to match the harness identity and preserves CG's ceiling, memory and symbolic-argument evidence. | Test (TC-012) |
 | FR-005-AC-3 | Two providers with distinct manifest identities are registered as distinct backends; a run invokes only the provider selected for its routed items. | Test (TC-012) |
 | FR-005-AC-4 | The driver preserves QSL registry results: an equal descriptor repeat is idempotent; an unequal descriptor for an existing `BackendId`, including one with a different origin, returns the typed duplicate-backend refusal, withdraws that identity, and invokes neither provider. | Partial (TC-012 checks equal linked-manifest idempotence; process-origin registration remains with plugin-host work) |
-| FR-005-AC-5 | The driver supplies plugin hello descriptors to the QSL registry builder, which assigns origin `Process`; the driver projects each resulting descriptor's identity, advertised pairs and origin into CG's descriptor without changing their meaning, and CG maps that origin to its process backend kind. | Partial (TC-012 covers the projection; plugin-host process registration and backend-kind mapping remain planned) |
+| FR-005-AC-5 | The driver supplies plugin hello descriptors to the QSL registry builder, which assigns origin `Process`; the driver projects each resulting descriptor's identity, advertised pairs and origin into CG's descriptor without changing their meaning, and CG maps that origin to its process backend kind. | Partial (TC-012 covers the projection; `quire-cli` process-host registration remains planned, and CG IR-629 gates process backend-kind mapping) |
 
 The current linked Kani adapter is the only Provider execution adapter. Its
 `ProviderLimits` and result carriers are Kani-specific; they do not yet
@@ -101,7 +101,8 @@ TC-012 while the execution slice remains Linked-only.
 - QSL ADR-029 PV-1 and PV-3 (the current driver carriers are Kani-only);
   QSL FR-075 and FR-288 for registry identity and provider-manifest
   registration.
-- FR-006 defines the separate out-of-process plugin host boundary.
+- FR-006 defines the driver-owned process-provider seam; FR-013 defines the
+  separate host, and FR-014 defines its `quire-cli` composition.
 - [TC-012](../test-cases/TC-012-first-party-provider-interface.md).
 - [FR-002](FR-002-expose-driver-cli-and-outcome-contract.md) defines the
   command entry point that registers and invokes providers.

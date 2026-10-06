@@ -58,14 +58,15 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | FR-012 | FR-012-AC-6..FR-012-AC-8 | TC-021 | ✅ Matrix binds AC-6, AC-7, and AC-8 to the typed hit/miss, excluded-value, and deterministic incomplete-value test at `quire-cache/src/lib.rs:942` |
 | FR-012 | FR-012-AC-9..FR-012-AC-12 | TC-022 | ✅ Entry bounds, temp cleanup, rename errors, ownership-filtered eviction, concurrent writes and eviction-callsite NotFound are tested with `Trace:` tags |
 | FR-012 | FR-012-AC-13 | TC-005 | ✅ `tests/dependency_edges.rs::tc_005_driver_edges_match_the_adr_011_allow_list` carries a `Trace:` tag |
-| FR-013 | FR-013-AC-1..FR-013-AC-3, FR-013-AC-13 | TC-023 | 🚧 Planned in `quire-plugin-host` |
+| FR-013 | FR-013-AC-1..FR-013-AC-3 | TC-023 | 🚧 Planned in `quire-plugin-host` |
 | FR-013 | FR-013-AC-4, FR-013-AC-7 | TC-024 | 🚧 Planned in `quire-plugin-host` |
 | FR-013 | FR-013-AC-5..FR-013-AC-6 | TC-025 | 🚧 Planned in `quire-plugin-host` |
 | FR-013 | FR-013-AC-8..FR-013-AC-10 | TC-026 | 🚧 Planned in `quire-plugin-host` |
-| FR-013 | FR-013-AC-11 | TC-023..TC-026 | 🚧 Planned; host package boundary and no local protocol duplication |
-| FR-013 | FR-013-AC-12 | TC-005, TC-027 | 🚧 Planned clean-cache fetch and dependency check |
+| FR-013 | FR-013-AC-11 | TC-005, TC-028 | 🚧 Driver closure excludes host; `quire-cli` composes the separate host with the driver seam |
+| FR-013 | FR-013-AC-12 | TC-027 | ✅ `make test` runs `cargo fetch --locked` before offline metadata and tests; clean-cache evidence is specified by TC-027 |
+| FR-013 | FR-013-AC-13 | TC-027 | 🚧 Actionable missing-fixture-runtime diagnostic specified |
 | FR-014 | FR-014-AC-1 | TC-028 | 🚧 Sole `quire-cli` ownership of the Cargo `quire` binary target; package-graph test planned |
-| FR-014 | FR-014-AC-2 | TC-028 | 🚧 Direct `quire-driver` and `quire-cache` dependencies; package-graph test planned |
+| FR-014 | FR-014-AC-2 | TC-028 | 🚧 Direct `quire-driver`, `quire-cache` and `quire-plugin-host` dependencies; package-graph test planned |
 | FR-014 | FR-014-AC-3 | TC-005 | 🚧 `quire-cli` workspace default-member status; metadata assertion planned |
 | FR-014 | FR-014-AC-4 | TC-009, TC-018, TC-028 | 🚧 CLI contract and process-boundary tests and fixtures owned by `quire-cli`; test-location assertions planned |
 | FR-014 | FR-014-AC-5 | TC-028 | 🚧 Parser and binary entry point locations in `quire-cli`; layout assertion planned |
@@ -95,12 +96,12 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-020 | Derive cache identity from meaning inputs and manifest content | Unit | FR-012-AC-1..FR-012-AC-5 | 🚧 Key, target, and excluded-field projection tests are present; `Trace:` tags identify covered criteria |
 | TC-021 | Reject invalid cache entries and excluded values | Unit | FR-012-AC-6..FR-012-AC-8 | ✅ Quire matrix binds AC-6, AC-7, and AC-8 to `quire-cache/src/lib.rs:942`; typed invalid-entry readers also bind AC-6 |
 | TC-022 | Keep cache writes atomic and within the caller's size limit | Unit | FR-012-AC-9..FR-012-AC-12 | ✅ Size, rename boundary and rename NotFound, temp cleanup, ownership-filtered eviction, concurrency and removal-race tests carry `Trace:` tags |
-| TC-023 | Start a plugin session and admit hello before requests | Integration | FR-013-AC-1..FR-013-AC-3, FR-013-AC-13 | 🚧 Planned in `quire-plugin-host` |
+| TC-023 | Start a plugin session and admit hello before requests | Integration | FR-013-AC-1..FR-013-AC-3 | 🚧 Planned in `quire-plugin-host` |
 | TC-024 | Enforce plugin framing and preserve typed failures | Integration | FR-013-AC-4, FR-013-AC-7 | 🚧 Planned in `quire-plugin-host` |
 | TC-025 | Preserve plugin settlement during cancellation and bound deadlines | Integration | FR-013-AC-5..FR-013-AC-6 | 🚧 Planned in `quire-plugin-host` |
 | TC-026 | Enforce plugin process-tree budgets and bounded cleanup | Integration | FR-013-AC-8..FR-013-AC-10 | 🚧 Planned in `quire-plugin-host` |
-| TC-027 | Run plugin-host tests and dependency checks from a clean cache | Integration | FR-013-AC-12 | 🚧 Planned at the repository test-target boundary |
-| TC-028 | Keep the CLI package separate from the driver and compose the cache | Integration | FR-014-AC-1, FR-014-AC-2, FR-014-AC-4, FR-014-AC-5 | 🚧 Planned package metadata and CLI ownership test |
+| TC-027 | Run plugin-host tests and dependency checks from a clean cache | Integration | FR-013-AC-12, FR-013-AC-13 | 🚧 Planned at the repository test-target boundary |
+| TC-028 | Keep the CLI package separate from the driver and compose cache and process host | Integration | FR-013-AC-11, FR-014-AC-1, FR-014-AC-2, FR-014-AC-4, FR-014-AC-5 | 🚧 Planned package metadata and CLI ownership test |
 
 ## Integration Test Matrix
 
@@ -108,4 +109,4 @@ verification; they do not substitute for IR-528 acceptance evidence.
 |---|---|---|---|
 | Verify cache calls carry eligible requests and admitted manifest identity and preserve typed hits | `quire-driver` cache interface with a recording implementation | component | TC-014 |
 | Verify content identity, typed reads, exclusion policy and bounded atomic storage | Downstream `quire-cache` package and caller-named temporary directory | component | TC-020, TC-021, TC-022 |
-| Verify plugin sessions, protocol, typed outcomes, cancellation, deadlines, budgets and cleanup | Driver-repository `quire-plugin-host` with deterministic process fixtures | component | TC-023, TC-024, TC-025, TC-026 |
+| Verify plugin sessions, protocol, typed outcomes, cancellation, deadlines, budgets and cleanup | `quire-plugin-host` with deterministic process fixtures | component | TC-023, TC-024, TC-025, TC-026, TC-027 |

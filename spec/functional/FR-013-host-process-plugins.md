@@ -18,21 +18,22 @@ The `quire-plugin-host` package SHALL implement the process boundary required
 by QSL ADR-029 PL-1 through PL-7. It SHALL expose a session that starts a
 named executable, reads and returns its `hello` manifest before accepting any
 provider request, permits zero or more validated requests, and shuts down the
-same process. The caller SHALL perform manifest admission and typed result
-validation through the host's supplied validation callbacks. This requirement
-specifies the host component; [FR-006](./FR-006-host-provider-plugins.md)
-specifies driver dispatch and settlement composition.
+same process. The `quire-cli` process-provider adapter SHALL perform manifest
+admission and typed result validation through callbacks supplied to the host.
+This requirement specifies the host component; [FR-006](./FR-006-host-provider-plugins.md)
+specifies the driver-owned process-provider seam and settlement composition.
 
 ## Inputs
 
 - An executable path with at least one directory component, argument vector,
-  caller-selected frame and total-byte limits, and the caller's inherited
-  environment and working directory.
-- A caller-provided manifest-admission callback and typed result-validation
-  callback.
+  caller-selected frame, session-byte and stderr-retention limits, and the
+  caller's inherited environment and working directory.
+- Manifest-admission and typed result-validation callbacks supplied by the
+  `quire-cli` process-provider adapter.
 - Zero or more provider requests, each with its request identity, package
-  bytes, negotiated items, and caller-selected cancellation, deadline, memory,
-  CPU-time, and cancellation-grace limits.
+  bytes, negotiated items, cancellation, deadline, cancellation-grace limit,
+  and optional memory and CPU-time budgets. Each resource budget applies to
+  the plugin process tree during that request.
 
 ## Outputs
 
@@ -53,18 +54,22 @@ specifies driver dispatch and settlement composition.
   the manifest before the session can send a request.
 - When manifest admission rejects the hello manifest, the host SHALL write no
   request frame.
-- When admission succeeds, the session SHALL accept zero or more requests and correlate
-  each response to its request identity, validate each result through the
-  caller's callback, and preserve the validated typed result unchanged.
+- When admission succeeds, the session SHALL accept zero or more requests and
+  correlate each response to its request identity, validate each result
+  through the `quire-cli` adapter's callback, and preserve the validated typed
+  result unchanged.
 - Each frame SHALL use the QSL PL-3 length-prefixed JCS wire format.
 - The host SHALL enforce the per-frame limit before allocation and the shared
-  per-run byte limit across both directions. Truncated, non-canonical, malformed,
+  session byte limit across both directions and all requests. Stderr retention
+  is also capped for the whole session. Truncated, non-canonical, malformed,
   oversized, unexpected, or wrongly correlated frames SHALL retain their
   specific typed tool failure.
 - The host SHALL make frame writes interruptible by caller cancellation and
   deadline. A deadline SHALL terminate the plugin process tree and settle as
-  `TimedOut`; a blocked plugin pipe SHALL NOT delay that settlement beyond the
-  configured termination grace plus the documented polling interval.
+  `TimedOut`; the host SHALL poll cancellation, deadlines, process exit and
+  resource use at intervals no longer than 20 milliseconds. A blocked plugin
+  pipe SHALL NOT delay that settlement beyond the polling interval plus the
+  one-second cleanup bound.
 - When cancellation is requested, the host SHALL send the protocol cancel
   frame and continue reading for the configured grace period. A valid,
   admitted and validated plugin settlement received within grace SHALL be
@@ -73,11 +78,20 @@ specifies driver dispatch and settlement composition.
 - Cancellation or timeout SHALL NOT remap a malformed frame, a protocol or
   result-validation error, a plugin `fault`, a process-budget breach, or a
   non-zero exit. Those failures SHALL retain their specific typed cause.
-- Memory and CPU-time budgets SHALL account for the plugin and its descendant
-  processes. On cancellation, timeout, protocol failure, or budget breach,
-  the host SHALL terminate the process tree, drain and join its I/O workers
-  within a bounded cleanup interval, and preserve captured stderr in the
-  returned diagnostic.
+- The host SHALL measure each request's CPU time as the sum of CPU-time deltas
+  for the plugin and all descendants since that request began. It SHALL measure
+  memory as the sum of resident bytes for the current process tree at each
+  poll; exceeding either request budget SHALL return the corresponding typed
+  process-budget failure.
+- When a process-tree memory or CPU-time budget is requested on Linux, macOS
+  or Windows, the host SHALL enforce it. When such a budget is requested on
+  another platform or the runtime cannot observe the complete process tree,
+  the host SHALL return the typed `ProcessBudgetError::Unavailable` before
+  sending that request.
+- When cancellation, timeout, protocol failure, or a budget breach occurs, the
+  host SHALL terminate the process tree and drain and join its I/O workers
+  within one second after termination begins. It SHALL preserve captured
+  stderr in the returned diagnostic.
 - The host SHALL enforce stderr retention limits while continuing to drain
   excess bytes.
 - The host SHALL NOT parse or treat stderr as protocol data.
@@ -90,9 +104,16 @@ specifies driver dispatch and settlement composition.
 - The process host SHALL remain a separate package.
 - The `quire-driver` package SHALL NOT have a normal or build dependency on
   `quire-plugin-host`.
+- The `quire-cli` package SHALL compose the host implementation with the
+  driver's process-provider seam, as specified by FR-014.
 - The process host SHALL NOT implement QSL manifest hashing, cache results, or
   map CG process backend variants; those responsibilities remain with their
   owning components.
+- The repository test suite SHALL run `cargo fetch --locked` before its
+  offline Cargo metadata dependency check.
+- When the plugin fixture runtime is unavailable, the host test suite SHALL
+  fail with an actionable message naming the missing runtime and how to
+  install it.
 
 ## Acceptance Criteria
 
@@ -102,15 +123,15 @@ specifies driver dispatch and settlement composition.
 | FR-013-AC-2 | Before any request, the session returns a valid canonical `hello`; a rejected protocol identity or manifest ends the session and writes no request frame. | Test |
 | FR-013-AC-3 | After successful admission, a session accepts zero, one, or multiple requests over the same process, validates each response, and preserves each typed result and request identity. | Test |
 | FR-013-AC-4 | An invalid typed result, wrong request identity, plugin fault, or non-zero exit is returned as its specific failure and is not converted to cancellation or timeout. | Test |
-| FR-013-AC-5 | A plugin's valid typed cancellation settlement received within grace is returned unchanged; no settlement by grace expiry terminates the child and descendants and returns cancellation. | Test |
-| FR-013-AC-6 | A deadline expiring while a plugin does not read a request frame returns `TimedOut` within the configured termination grace plus the documented polling interval. | Test |
+| FR-013-AC-5 | A plugin's valid typed cancellation settlement received within grace is returned unchanged; no settlement by grace expiry terminates the child and descendants and returns cancellation within the one-second cleanup bound. | Test |
+| FR-013-AC-6 | A deadline expiring while a plugin does not read a request frame returns `TimedOut` within the 20-millisecond polling interval plus the one-second cleanup bound. | Test |
 | FR-013-AC-7 | Truncated, malformed, non-canonical, oversized, unexpected, and wrongly correlated frames produce their specific typed failures without allocation above configured limits. | Test |
-| FR-013-AC-8 | Memory and CPU-time budget breaches account for the plugin process tree, terminate its descendants, and report the corresponding budget failure. | Test |
-| FR-013-AC-9 | Stderr beyond the configured retention limit is drained but not retained; stderr is available on failures, and reader/writer workers are joined within the cleanup bound. | Test |
+| FR-013-AC-8 | Per-request memory and CPU-time budgets aggregate usage across the plugin process tree; budget breaches terminate descendants and report the corresponding failure. If complete-tree measurement is unavailable, the host returns `ProcessBudgetError::Unavailable` before sending the request. | Test |
+| FR-013-AC-9 | Stderr beyond the session retention limit is drained but not retained; stderr is available on failures, and reader/writer workers are joined within one second after termination begins. | Test |
 | FR-013-AC-10 | After stdout closes while the child remains alive, process-exit waiting does not busy-wait; EOF before a response preserves an available child exit status. | Test |
-| FR-013-AC-11 | The host uses QSL ADR-029 PL-1 through PL-7 without defining a local wire or manifest-digest format, and the driver dependency closure excludes the host crate. | Analysis |
-| FR-013-AC-12 | On a clean Cargo cache, `make test` fetches every locked platform dependency before running the offline TC-005 dependency metadata check, and the check passes. | Test |
-| FR-013-AC-13 | The host test suite reports an actionable prerequisite failure when its required fixture runtime is absent. | Test |
+| FR-013-AC-11 | The host uses QSL ADR-029 PL-1 through PL-7 without defining a local wire or manifest-digest format; `quire-driver` excludes the host crate, and `quire-cli` composes it with the driver's seam. | Test (TC-005, TC-028) and analysis |
+| FR-013-AC-12 | On a clean Cargo cache, the repository `make test` target fetches every locked platform dependency before running the offline TC-005 dependency metadata check, and the check passes. | Test (TC-027) |
+| FR-013-AC-13 | The host test suite reports an actionable prerequisite failure naming the missing fixture runtime and its installation instructions. | Test (TC-027) |
 
 ## Dependencies
 

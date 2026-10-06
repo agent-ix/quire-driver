@@ -13,7 +13,7 @@ relationships:
 Verify the repository test target provisions all locked platform dependencies
 before TC-005 performs offline Cargo metadata inspection.
 
-Scope: FR-013-AC-12.
+Scope: FR-013-AC-12 through FR-013-AC-13.
 
 ## Test Procedure
 
@@ -28,3 +28,5 @@ without network after the fetch has populated the isolated cache.
   metadata inspection, including dependencies not built for the host target.
 - The dependency-edge check and full `make test` pass. The second run passes
   without network because the prior locked fetch populated the cache.
+- If the plugin fixture runtime is absent, the host test suite fails with an
+  actionable message naming the missing runtime and installation instructions.

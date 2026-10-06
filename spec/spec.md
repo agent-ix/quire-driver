@@ -133,8 +133,9 @@ pass-through at the process boundary until the kit can carry QSL's codes.
   execution-backend semantics; this repository specifies their composition
   according to QSL ADR-029, not replacement contracts. FR-012 specifies the
   driver repository's cache implementation under that upstream cache policy;
-  FR-013 specifies the driver repository's plugin-host implementation under
-  that upstream plugin contract.
+  FR-013 specifies the separate driver-repository plugin host under that
+  upstream plugin contract; FR-014 specifies `quire-cli` composition of the
+  host and driver-owned process-provider seam.
 - IR checked-package admission semantics, and CG negotiation, claim derivation,
   generation, atomic publication and terminal mapping semantics.
 - A competing QSL or CG user CLI, a second outcome schema or exit mapping,
@@ -151,9 +152,10 @@ The `quire-driver` library sequences QSL, IR and CG calls and builds the
 registry value passed to consumers. FR-014 places the one user-facing Cargo
 `quire` binary in the separate `quire-cli` workspace package. That package
 owns the parser, CLI tests and their fixtures, and is a workspace default
-member. It composes `quire-driver` and `quire-cache`; the `quire-driver`
-package remains independent of `quire-cache` under FR-001-AC-11 and
-FR-012-AC-13. QSL, IR and CG do not depend on the driver. CLI mechanics and
+member. It composes `quire-driver`, `quire-cache` and `quire-plugin-host`; the
+`quire-driver` package remains independent of the cache and host under
+FR-001-AC-11, FR-012-AC-13 and FR-013-AC-11. QSL, IR and CG do not depend on
+the driver. CLI mechanics and
 the cache implementation remain outside the qualified core (QSL ADR-029
 CB-3).
 
@@ -161,8 +163,9 @@ CB-3).
 
 `quire-driver` owns the sequencing across QSL, IR and CG for the checked
 request lifecycle. The `quire-cli` workspace package composes that library
-with `quire-cache`; the cache remains outside the driver core's dependency
-closure under FR-001-AC-11 and FR-012-AC-13.
+with `quire-cache` and `quire-plugin-host`; the cache and host remain outside
+the driver core's dependency closure under FR-001-AC-11, FR-012-AC-13 and
+FR-013-AC-11.
 IR-527 absorbs the driver spec, architecture, requirements and test-matrix
 scope previously tracked by IR-351. The tables index the discrete normative
 artifacts; they do not replace their criteria. FR-002 through FR-010 specify
@@ -214,7 +217,7 @@ implementation; FR-013 specifies the in-repository plugin host; FR-014 specifies
 | [TC-025](test-cases/TC-025-plugin-cancellation-and-deadline.md) | Preserve plugin settlement during cancellation and bound deadlines |
 | [TC-026](test-cases/TC-026-plugin-resource-bounds-and-cleanup.md) | Enforce plugin process-tree budgets and bounded cleanup |
 | [TC-027](test-cases/TC-027-clean-cache-plugin-host-gate.md) | Run plugin-host tests and dependency checks from a clean cache |
-| [TC-028](test-cases/TC-028-cli-package-boundary.md) | Keep the CLI package separate from the driver and compose the cache |
+| [TC-028](test-cases/TC-028-cli-package-boundary.md) | Keep the CLI package separate from the driver and compose cache and host |
 
 ## 5. Verification and Delivery Boundary
 
