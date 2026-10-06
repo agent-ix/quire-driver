@@ -13,14 +13,17 @@ relationships:
 Verify the `--engine` default, closed set, unavailable-engine refusal and
 no-substitution behavior.
 
-Scope: FR-004-AC-1 through FR-004-AC-4.
+Scope: FR-004-AC-1 through FR-004-AC-3. TC-011 partially verifies
+FR-004-AC-4 by comparing the linked interpreter's typed preparation refusal
+with direct QSL output; cross-engine non-substitution remains planned until a
+second engine or injectable engine seam is available.
 
 ## Test Procedure
 
 1. Run an execution request without `--engine` and observe which backend runs.
 2. Run with an unknown engine name.
 3. Run with a recognized engine that is not linked into the binary.
-4. Run the linked interpreter with a source-byte bound that causes a typed
+4. (Partial FR-004-AC-4) Run the linked interpreter with a source-byte bound that causes a typed
    preparation refusal. Compare the driver's exact typed refusal with a direct
    `qsl_replay::spine::run` using the same source, call and limits. Cross-engine
    non-substitution remains unverified until a second engine or injectable
