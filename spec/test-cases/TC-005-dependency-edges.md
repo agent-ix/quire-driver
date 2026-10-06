@@ -19,7 +19,8 @@ Scope: FR-001-AC-1, FR-001-AC-11, FR-012-AC-13 and FR-014-AC-3.
 ## Test Procedure
 
 1. Run `cargo metadata --locked --offline` and read the resolved graph and
-   workspace `default_members`. Count normal and build edges. Identify QSL packages by their source,
+   `workspace_default_members`. Count normal and build edges. Identify QSL
+   packages by their source,
    `git+https://github.com/agent-ix/quire-spec-language`.
 2. Traverse the complete normal/build dependency closure from `quire-driver`.
    Identify `quire-cache` and inspect its direct dependency edges.
@@ -40,7 +41,7 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
 - If the workspace has a `quire-cache` package, it is separate from
   `quire-driver` and depends on the driver-owned interface. No transitive
   normal/build path leads from `quire-driver` to `quire-cache`.
-- The workspace root lists `quire-cli` in `default_members`.
+- The `workspace_default_members` array includes `quire-cli`.
 - When the workspace contains `quire-cli`, it depends on the driver interface
   and cache package as specified by FR-014; TC-028 verifies its exact package
   and target edges. The driver's closure remains cache-free.

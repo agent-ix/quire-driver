@@ -15,7 +15,7 @@ relationships:
 Verify that the driver CLI exposes the specified verbs, preserves typed
 outcomes in `quire-outcome/1` documents and uses QSL's single exit function.
 
-Scope: FR-002-AC-1 through FR-002-AC-5.
+Scope: FR-002-AC-1 through FR-002-AC-5 and FR-014-AC-4.
 
 ## Test Procedure
 

@@ -54,11 +54,11 @@ cache.
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-014-AC-1 | Exactly one workspace package named `quire-cli` provides the `quire` binary target. | Test (TC-028) |
+| FR-014-AC-1 | Exactly one workspace package, `quire-cli`, provides the `quire` binary target. | Test (TC-028) |
 | FR-014-AC-2 | `quire-cli` has direct normal dependency edges to `quire-driver` and `quire-cache`. | Test (TC-028) |
 | FR-014-AC-3 | The workspace root lists `quire-cli` in `default-members`. | Test (TC-005) |
 | FR-014-AC-4 | CLI contract and binary process-boundary tests and their fixtures reside in the `quire-cli` package. | Test (TC-009, TC-018, TC-028) |
-| FR-014-AC-5 | The argument parser is in `quire-cli/src/cli.rs` and its binary entry point is in `quire-cli/src/main.rs`. | Test (TC-028) |
+| FR-014-AC-5 | The CLI parser definition resides in `quire-cli/src/cli.rs`, and the binary entry point is in `quire-cli/src/main.rs`; `quire-driver` does not export a `cli` module. | Test (TC-028) |
 
 ## Dependencies
 
