@@ -51,7 +51,7 @@ binary, and SHALL NOT substitute another engine.
 | FR-004-AC-1 | An execution request without `--engine` runs the interpreter and returns its result. | Test (TC-011) |
 | FR-004-AC-2 | A value outside the closed engine set is refused before any stage with QSL's refusal category and names the supplied value. | Test (TC-011) |
 | FR-004-AC-3 | A recognized engine absent from the binary is refused before any stage with category unsupported; no other engine runs, and process status equals QSL's category exit function. | Test (TC-011) |
-| FR-004-AC-4 | When the selected engine returns unsupported or a typed preparation failure, that result is returned and no other engine is invoked. | Partial (TC-011 verifies the linked interpreter's exact typed preparation refusal against direct QSL output; cross-engine non-substitution remains planned until a second engine or injectable seam exists.) |
+| FR-004-AC-4 | When the selected engine returns unsupported or a typed preparation failure, that result is returned and no other engine is invoked. | Test (TC-011) |
 
 ## Dependencies
 
