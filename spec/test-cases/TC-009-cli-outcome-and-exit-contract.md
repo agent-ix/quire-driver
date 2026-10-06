@@ -5,6 +5,8 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-driver/FR-002
     type: verifies
+  - target: ix://agent-ix/quire-driver/FR-014
+    type: verifies
 ---
 # TC-009: Exercise CLI verbs, outcome documents and exit codes
 
@@ -13,7 +15,7 @@ relationships:
 Verify that the driver CLI exposes the specified verbs, preserves typed
 outcomes in `quire-outcome/1` documents and uses QSL's single exit function.
 
-Scope: FR-002-AC-1 through FR-002-AC-5.
+Scope: FR-002-AC-1 through FR-002-AC-5 and FR-014-AC-4.
 
 ## Test Procedure
 
@@ -35,7 +37,9 @@ Scope: FR-002-AC-1 through FR-002-AC-5.
 6. Run from a directory containing an unnamed configuration file and verify
    that the CLI does not read it.
 
-Test location: planned driver CLI integration tests.
+Test location: `quire-cli/tests/cli_contract.rs`; CLI-specific test fixtures
+reside under `quire-cli/tests/fixtures/`. The parser and command construction
+under test are owned by `quire-cli/src/cli.rs`.
 
 ## Expected Results
 

@@ -5,6 +5,8 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-driver/FR-002
     type: verifies
+  - target: ix://agent-ix/quire-driver/FR-014
+    type: verifies
 ---
 # TC-018: Preserve the QSL outcome at the binary process boundary
 
@@ -76,8 +78,9 @@ checks that the binary preserves them while using ix-cli-kit shared mechanics.
    equal to the parent's value; the absent stdout content is the rendered
    diagnostic line, not those required fields.
 
-Test location: planned driver binary integration tests with the test-only
-operation adapter, and entry-point review.
+Test location: `quire-cli/tests/binary_process.rs` with its test-only
+operation adapter and fixtures under `quire-cli/tests/fixtures/`; entry-point
+review covers `quire-cli/src/main.rs` and `quire-cli/src/cli.rs`.
 
 ## Expected Results
 
