@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Initial command shell for the one driver-owned `quire` binary.
+//! Parser and command handlers for the user-facing `quire` binary.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -12,8 +12,35 @@ use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     default_accounting, Call, CallArgument, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
-use quire_driver::cli::process_exit_code;
 use quire_driver::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides};
+
+/// Convert QSL's total category exit result to the process exit type.
+#[must_use]
+fn process_exit_code(category: Category) -> ExitCode {
+    ExitCode::from(category.exit_code())
+}
+
+/// Boundary for writing an already serialized QSL outcome unchanged.
+#[cfg(test)]
+trait OutcomeSink {
+    /// Write the QSL outcome JSON without changing its schema or values.
+    fn write_outcome(&mut self, outcome_json: &str) -> std::io::Result<()>;
+}
+
+/// Preserve the QSL operation category across the CLI output boundary.
+#[cfg(test)]
+#[must_use]
+fn finish_outcome<S: OutcomeSink>(
+    sink: &mut S,
+    category: Category,
+    outcome_json: &str,
+) -> ExitCode {
+    match sink.write_outcome(outcome_json) {
+        Ok(()) => process_exit_code(category),
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => process_exit_code(category),
+        Err(_) => process_exit_code(Category::InternalFailure),
+    }
+}
 
 /// Parser selectors implement the command surface owned by QSL ADR-029.
 #[cfg(test)]
@@ -288,7 +315,7 @@ fn dispatch(verb: Verb, _format: OutputFormat, raw_arguments: &[OsString]) -> Ca
     Category::Unsupported
 }
 
-fn main() -> ExitCode {
+pub(super) fn entrypoint() -> ExitCode {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
     match parse_invocation(&arguments) {
         Ok(Invocation::Help | Invocation::Version) => process_exit_code(Category::Success),
@@ -298,6 +325,78 @@ fn main() -> ExitCode {
             raw_arguments,
         }) => process_exit_code(dispatch(verb, format, &raw_arguments)),
         Err(_) => process_exit_code(Category::Refusal),
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "a failed assertion is the test failure report"
+)]
+mod outcome_tests {
+    use std::io;
+    use std::process::ExitCode;
+
+    use qsl_foundation::diagnostic::Category;
+
+    use super::{finish_outcome, process_exit_code, OutcomeSink};
+
+    /// Trace: FR-002-AC-2, one QSL category exit function.
+    #[test]
+    fn process_code_is_qsl_category_exit_code_without_remapping() {
+        for category in Category::ALL {
+            assert_eq!(
+                process_exit_code(category),
+                ExitCode::from(category.exit_code())
+            );
+        }
+    }
+
+    /// Trace: FR-002-AC-3, preserve the serialized QSL outcome.
+    #[test]
+    fn outcome_sink_receives_opaque_json_unchanged() {
+        let outcome = r#"{"schema":"quire-outcome/1","items":[]}"#;
+        let mut output = CapturingSink(None);
+        let status = finish_outcome(&mut output, Category::Success, outcome);
+        assert_eq!(status, ExitCode::from(Category::Success.exit_code()));
+        assert_eq!(output.0.as_deref(), Some(outcome));
+    }
+
+    struct CapturingSink(Option<String>);
+
+    impl OutcomeSink for CapturingSink {
+        fn write_outcome(&mut self, outcome_json: &str) -> io::Result<()> {
+            self.0 = Some(outcome_json.to_owned());
+            Ok(())
+        }
+    }
+
+    struct FailingSink(io::ErrorKind);
+
+    impl OutcomeSink for FailingSink {
+        fn write_outcome(&mut self, _outcome_json: &str) -> io::Result<()> {
+            Err(io::Error::from(self.0))
+        }
+    }
+
+    /// Trace: FR-002-AC-2, preserve the outcome code on broken pipes.
+    #[test]
+    fn broken_pipe_keeps_the_operation_category() {
+        let mut output = FailingSink(io::ErrorKind::BrokenPipe);
+        let status = finish_outcome(&mut output, Category::Incomplete, "{}");
+        assert_eq!(status, ExitCode::from(Category::Incomplete.exit_code()));
+    }
+
+    /// Trace: FR-002-AC-2, classify a failed output stream through QSL.
+    #[test]
+    fn other_write_failure_uses_qsl_internal_failure_category() {
+        let mut output = FailingSink(io::ErrorKind::Other);
+        let status = finish_outcome(&mut output, Category::Success, "{}");
+        assert_eq!(
+            status,
+            ExitCode::from(Category::InternalFailure.exit_code())
+        );
     }
 }
 

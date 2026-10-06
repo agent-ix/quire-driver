@@ -1400,6 +1400,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "quire-cli"
+version = "0.1.0"
+dependencies = [
+ "qsl-foundation",
+ "qsl-replay",
+ "quire-cache",
+ "quire-driver",
+ "serde_json",
+]
+
+[[package]]
 name = "quire-code-parse"
 version = "0.2.2"
 source = "git+https://github.com/agent-ix/quire-code-rs?rev=b58164a8cf4e6543d7bc5f5f2042ea792612ed16#b58164a8cf4e6543d7bc5f5f2042ea792612ed16"
