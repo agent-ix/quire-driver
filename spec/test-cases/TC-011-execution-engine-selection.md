@@ -20,8 +20,11 @@ Scope: FR-004-AC-1 through FR-004-AC-4.
 1. Run an execution request without `--engine` and observe which backend runs.
 2. Run with an unknown engine name.
 3. Run with a recognized engine that is not linked into the binary.
-4. Use a test engine that returns unsupported and one that returns a typed
-   preparation failure; observe all engine invocations and the final outcome.
+4. Run the linked interpreter with a source-byte bound that causes a typed
+   preparation refusal. Compare the driver's exact typed refusal with a direct
+   `qsl_replay::spine::run` using the same source, call and limits. Cross-engine
+   non-substitution remains unverified until a second engine or injectable
+   engine seam is available.
 
 Test locations: `src/execute.rs`, `quire-cli/src/cli.rs`, and
 `quire-cli/tests/binary_process.rs`.
@@ -32,5 +35,6 @@ Test locations: `src/execute.rs`, `quire-cli/src/cli.rs`, and
 - An unknown name is refused before any stage with QSL's refusal category.
 - A recognized but unavailable engine is refused before any stage with exit
   status selected by QSL's category exit function and category unsupported.
-- A selected engine's unsupported or preparation result is returned without
-  invoking another engine.
+- The linked interpreter's typed preparation refusal matches direct QSL
+  output. No cross-engine invocation claim is made until a second engine or
+  injectable seam is available.

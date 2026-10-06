@@ -33,6 +33,7 @@ Test location: `src/limits.rs`, `src/execute.rs`, `quire-cli/src/cli.rs`, and
 - The explicit value replaces only its field; omitted fields retain defaults.
 - Invalid options are refused before any stage with QSL's refusal category.
 - The low limit returns QSL's typed `LimitExceeded`; the driver wrapper
-  preserves its configured bound and `limits_field()`. The process status is
-  selected by QSL's category exit function. The raised limit allows the
-  operation to complete.
+  preserves its configured bound and `limits_field()` and has category
+  `Incomplete`. The process status is selected by QSL's category exit
+  function. Raising the source-byte bound to the fixture's byte length allows
+  the operation to complete.

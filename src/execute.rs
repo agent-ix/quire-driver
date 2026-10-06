@@ -204,15 +204,29 @@ mod tests {
         }
     }
 
-    /// Trace: FR-004-AC-4, the selected interpreter's preparation error is returned.
+    /// Trace: FR-004-AC-4, the linked interpreter preserves QSL's exact preparation refusal.
     #[test]
-    fn selected_interpreter_preparation_failure_is_not_substituted() {
+    fn selected_interpreter_preparation_refusal_matches_direct_qsl_run() {
         let mut request = request(ExecutionEngine::Interpreter, SpineLimits::default());
-        request.bytes = b"this is not a QSL unit";
+        let mut source = request.limits.source;
+        source.source_bytes = 1;
+        request.limits.source = source;
 
-        let failure = execute(request).expect_err("invalid selected-engine input refuses");
-        assert_eq!(failure.category(), Category::Refusal);
-        assert!(matches!(failure, ExecutionFailure::Run(_)));
+        let expected = qsl_replay::spine::run(
+            request.source.clone(),
+            request.path,
+            request.bytes,
+            request.packages,
+            request.dependencies,
+            request.limits,
+            &request.call,
+        )
+        .expect_err("the reference QSL run reaches the one-byte source limit");
+        let failure = execute(request).expect_err("selected interpreter returns its refusal");
+        let ExecutionFailure::Run(actual) = failure else {
+            panic!("the driver must preserve the QSL preparation refusal");
+        };
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }
 
     /// Trace: FR-003-AC-3, the driver wrapper preserves QSL limit metadata.
