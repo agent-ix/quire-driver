@@ -10,29 +10,30 @@ relationships:
 
 ## Description
 
-Verify workspace membership, executable ownership and the CLI dependency edges
-without adding the downstream cache to the driver library closure.
+Verify workspace membership, executable ownership and the CLI dependency edges.
 
-Scope: FR-014-AC-1 through FR-014-AC-3.
+Scope: FR-014-AC-1, FR-014-AC-2, FR-014-AC-4 and FR-014-AC-5.
 
 ## Test Procedure
 
 1. Run `cargo metadata --locked --offline --format-version 1` and identify the
    workspace members and package targets for `quire-cli` and `quire-driver`.
 2. Inspect normal dependency edges from `quire-cli`; confirm they include
-   `ix-cli-kit`, `quire-driver` and `quire-cache`.
-3. Traverse the complete normal/build dependency closure from `quire-driver`.
-   Check that no package in the closure is `quire-cache`.
-4. Confirm `quire-driver` has no `quire` binary target and `quire-cli` has the
-   sole `quire` binary target.
+   `quire-driver` and `quire-cache`.
+3. Confirm exactly one workspace package provides the `quire` binary target
+   and that package is `quire-cli`.
+4. Inspect the package test layout. Confirm CLI contract and binary
+   process-boundary tests and their fixtures are under the `quire-cli` package.
+5. Inspect the package source layout. Confirm the argument parser is
+   `quire-cli/src/cli.rs` and the binary entry point is `quire-cli/src/main.rs`.
 
-Test location: `tests/dependency_edges.rs`, added with this requirement.
+Test location: `quire-cli/tests/package_boundary.rs`, added with this
+requirement.
 
 ## Expected Results
 
-- Both packages are workspace members and are distinct package identities.
-- The `quire` binary target belongs to `quire-cli` only.
-- `quire-cli` directly depends on `ix-cli-kit`, `quire-driver` and
-  `quire-cache`.
-- The full normal/build dependency closure from `quire-driver` excludes
-  `quire-cache`.
+- `quire-cli` and `quire-driver` are distinct workspace packages.
+- Only `quire-cli` provides the `quire` binary target.
+- `quire-cli` directly depends on `quire-driver` and `quire-cache`.
+- The CLI tests and their fixtures have the specified `quire-cli` ownership.
+- The parser and binary entry point have the specified `quire-cli` locations.

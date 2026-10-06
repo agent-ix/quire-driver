@@ -134,27 +134,27 @@ pass-through at the process boundary until the kit can carry QSL's codes.
 ## 3. System Overview
 
 The `quire-driver` library sequences QSL, IR and CG calls and builds the
-registry value passed to consumers. The driver repository owns and provides
-the one user-facing `quire` binary; today it is a bin target in the
-`quire-driver` package, while ADR-029 CB-3's target layout places it in a
-separate `quire-cli` crate in this repository. Until IR-607 moves that target,
-the binary cannot depend on `quire-cache`; cache composition follows the
-separate crate. The `quire-driver` package does not depend on `quire-cache`;
-QSL, IR and CG do not depend on the driver. CLI mechanics and
+registry value passed to consumers. FR-014 places the one user-facing Cargo
+`quire` binary in the separate `quire-cli` workspace package. That package
+owns the parser, CLI tests and their fixtures, and is a workspace default
+member. It composes `quire-driver` and `quire-cache`; the `quire-driver`
+package remains independent of `quire-cache` under FR-001-AC-11 and
+FR-012-AC-13. QSL, IR and CG do not depend on the driver. CLI mechanics and
 the cache implementation remain outside the qualified core (QSL ADR-029
 CB-3).
 
 ## 4. Requirements Architecture
 
 `quire-driver` owns the sequencing across QSL, IR and CG for the checked
-request lifecycle. The future driver-repository `quire-cli` crate composes
-that library with `quire-cache` without making the cache a dependency of the
-driver core. The current binary target does not compose the cache.
+request lifecycle. The `quire-cli` workspace package composes that library
+with `quire-cache`; the cache remains outside the driver core's dependency
+closure under FR-001-AC-11 and FR-012-AC-13.
 IR-527 absorbs the driver spec, architecture, requirements and test-matrix
 scope previously tracked by IR-351. The tables index the discrete normative
 artifacts; they do not replace their criteria. FR-002 through FR-010 specify
 SP-D1 through SP-D9 respectively; FR-012 specifies the downstream cache
-implementation.
+implementation; FR-014 specifies the `quire-cli` package boundary and its
+parser and test ownership.
 
 | ID | Title |
 |---|---|
