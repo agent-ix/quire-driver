@@ -36,6 +36,10 @@ and FR-014-AC-5.
    definitions are implemented in `quire-cli/src/cli.rs`, the binary entry
    point is `quire-cli/src/main.rs`, and the `quire-driver` package's
    `src/lib.rs` does not export a `cli` module.
+6. Inspect the `quire-cli` process-provider adapter wiring. Confirm it obtains
+   the plugin hello manifest, supplies it for admission to the driver's single
+   QSL registry, and connects the admitted process provider to the driver's
+   process-provider seam.
 
 Test location: `quire-cli/tests/package_boundary.rs`, added with this
 requirement.
@@ -51,3 +55,5 @@ requirement.
 - The parser definitions and binary entry point have the specified
   `quire-cli` locations, and the `quire-driver` package's `src/lib.rs` does
   not export a `cli` module.
+- The `quire-cli` adapter supplies the plugin hello manifest for admission to
+  the driver's registry and connects the admitted provider to the seam.

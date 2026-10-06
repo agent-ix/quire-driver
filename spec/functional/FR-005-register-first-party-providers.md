@@ -22,8 +22,9 @@ The driver SHALL expose one `Provider` trait in its library for each first-party
 provider linked into the binary. The trait SHALL expose the provider's FR-331
 manifest and run the routed request with the emitted package, provider limits
 and cancellation handle, returning typed provider results. The driver SHALL
-register each provider through its manifest and SHALL pass the resulting
-registry to the lifecycle operation that uses it.
+register each linked provider through its manifest and pass the resulting
+registry to the lifecycle operation that uses it. Process-provider registration
+is specified in Behavior.
 
 ## Inputs
 
@@ -63,8 +64,9 @@ registry to the lifecycle operation that uses it.
   observed ceilings, memory observation and symbolic-argument bounds in the
   typed execution evidence. CG FR-028 defines the wall-clock ceiling as the
   execution timeout; the driver SHALL NOT supply a second timeout.
-- The driver SHALL register linked providers and process-provider manifests
-  through `qsl_route::Registry`. The QSL registry builder assigns origin
+- The driver SHALL obtain admitted plugin hello manifests from `quire-cli` and
+  register them with linked providers through the single `qsl_route::Registry`
+  it builds. The QSL registry builder assigns origin
   `Linked` to compile-time providers and `Process` to plugin hello descriptors;
   the driver passes resulting descriptors to CG without constructing CG
   backend kinds. It SHALL preserve the registry's typed duplicate-backend

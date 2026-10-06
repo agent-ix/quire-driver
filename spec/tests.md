@@ -70,6 +70,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | FR-014 | FR-014-AC-3 | TC-005 | 🚧 `quire-cli` workspace default-member status; metadata assertion planned |
 | FR-014 | FR-014-AC-4 | TC-009, TC-018, TC-028 | 🚧 CLI contract and process-boundary tests and fixtures owned by `quire-cli`; test-location assertions planned |
 | FR-014 | FR-014-AC-5 | TC-028 | 🚧 Parser and binary entry point locations in `quire-cli`; layout assertion planned |
+
 ## Test Case Summary
 
 | Test ID | Title | Type | Traces To | Status |
