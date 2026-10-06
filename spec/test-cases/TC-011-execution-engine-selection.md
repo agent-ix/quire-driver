@@ -23,7 +23,8 @@ Scope: FR-004-AC-1 through FR-004-AC-4.
 4. Use a test engine that returns unsupported and one that returns a typed
    preparation failure; observe all engine invocations and the final outcome.
 
-Test location: planned driver CLI integration tests.
+Test locations: `src/execute.rs`, `quire-cli/src/cli.rs`, and
+`quire-cli/tests/binary_process.rs`.
 
 ## Expected Results
 

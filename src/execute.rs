@@ -137,7 +137,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::LazyLock;
 
-    use qsl_foundation::diagnostic::Category;
+    use qsl_foundation::diagnostic::{Category, LimitsField};
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::{
         default_accounting, Call, CallOutcome, CallValue, DependencyInput, SpineLimits,
@@ -204,18 +204,38 @@ mod tests {
         }
     }
 
-    /// Trace: FR-003-AC-3, the caller's typed limit reaches QSL unchanged.
+    /// Trace: FR-004-AC-4, the selected interpreter's preparation error is returned.
     #[test]
-    fn caller_source_limit_reaches_qsl_as_a_typed_limit_refusal() {
+    fn selected_interpreter_preparation_failure_is_not_substituted() {
+        let mut request = request(ExecutionEngine::Interpreter, SpineLimits::default());
+        request.bytes = b"this is not a QSL unit";
+
+        let failure = execute(request).expect_err("invalid selected-engine input refuses");
+        assert_eq!(failure.category(), Category::Refusal);
+        assert!(matches!(failure, ExecutionFailure::Run(_)));
+    }
+
+    /// Trace: FR-003-AC-3, the driver wrapper preserves QSL limit metadata.
+    #[test]
+    fn caller_source_limit_preserves_configured_bound_and_field() {
         let mut limits = SpineLimits::default();
         let mut source = limits.source;
         source.source_bytes = 1;
         limits.source = source;
         let failure = execute(request(ExecutionEngine::Interpreter, limits))
             .expect_err("one byte source limit refuses");
-        assert!(matches!(failure, ExecutionFailure::Run(ref refusal)
-            if matches!(&**refusal, RunRefusal::Compile(compile)
-                if matches!(**compile, CompileRefusal::Limit(_)))));
+        let ExecutionFailure::Run(ref refusal) = failure else {
+            panic!("the selected engine must preserve QSL's typed limit error");
+        };
+        let RunRefusal::Compile(compile) = &**refusal else {
+            panic!("a source-byte ceiling is a compile-stage limit");
+        };
+        let CompileRefusal::Limit(limit) = &**compile else {
+            panic!("the driver must not remap the QSL limit variant");
+        };
+        assert_eq!(limit.configured_bound(), 1);
+        assert_eq!(limit.limits_field(), Some(LimitsField::SourceBytes));
+        assert!(limit.actual() > u128::from(limit.configured_bound()));
     }
 
     /// Trace: FR-003-AC-3, QSL's stage-limit category reaches the caller unchanged.
