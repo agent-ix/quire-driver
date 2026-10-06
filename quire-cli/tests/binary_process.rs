@@ -45,13 +45,14 @@ fn unavailable_engines_are_not_substituted() {
 #[test]
 fn an_unknown_engine_is_a_refusal() {
     let output = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--engine", "gpu"])
+        .args(["run", "missing-source.qsl", "yes", "--engine", "gpu"])
         .output()
         .expect("run quire");
     assert_eq!(
         output.status.code(),
         Some(i32::from(Category::Refusal.exit_code()))
     );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("gpu"));
 }
 
 /// Trace: FR-003-AC-1, caller work limits reach QSL's interpreter call.
@@ -86,6 +87,17 @@ fn lifecycle_stage_limit_uses_incomplete_exit_code() {
     assert_eq!(
         output.status.code(),
         Some(i32::from(Category::Incomplete.exit_code()))
+    );
+
+    let source_bytes = std::fs::read(SOURCE).expect("read fixture to set exact source bound");
+    let bound = format!("s1.input_bytes={}", source_bytes.len());
+    let raised = Command::new(QUIRE)
+        .args(["run", SOURCE, "yes", "--limit", &bound])
+        .output()
+        .expect("run with the source bound raised to the fixture length");
+    assert_eq!(
+        raised.status.code(),
+        Some(i32::from(Category::Success.exit_code()))
     );
 }
 
