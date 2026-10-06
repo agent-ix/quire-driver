@@ -28,10 +28,15 @@ Scope: FR-005-AC-1 through FR-005-AC-5.
    failure.
 4. Call the public `Provider::run` with a selected generated Kani item but no
    execution limits; verify it returns one typed missing-limits result.
-5. Pass a cover-unsatisfied outcome and a timeout outcome through CG's
+5. Generate a Kani item with explicit `ProofCeilings`; verify the harness
+   identity carries those exact memory and wall-clock values. Verify a typed
+   `ProviderItemResult` retains CG's execution ceilings, memory observation
+   and symbolic-argument bounds. Supply a different memory or wall-clock
+   ceiling and verify a typed mismatch refusal occurs before CG execution.
+6. Pass a cover-unsatisfied outcome and a timeout outcome through CG's
    `run_terminal_value`; verify they map to `Proved { success_checks: 0 }`
    and `Incomplete(TimedOut)` respectively.
-6. The origin-aware QSL-to-CG descriptor projection is tested in
+7. The origin-aware QSL-to-CG descriptor projection is tested in
    `src/drive.rs`: build separate QSL registries with otherwise equal `kani`
    descriptors, one `Linked` and one `Process`, then verify their CG
    projections preserve identity and advertised pairs while mapping each
@@ -55,12 +60,17 @@ remain planned.
   missing execution limits and harnesses as typed failures.
 - The public `Provider::run` processes each selected item and returns its
   typed missing-limits refusal when execution is not configured.
+- Caller-provided `ProofCeilings` appear unchanged in the generated harness
+  identity; an execution request with differing ceilings is refused before
+  execution. CG's evidence fields remain available through the typed provider
+  result. CG FR-028 defines the wall-clock ceiling in the harness
+  identity as the execution timeout; the driver supplies no second timeout.
 - CG maps cover-unsatisfied to `Proved { success_checks: 0 }` and timeout to
   `Incomplete(TimedOut)`; the driver does not reimplement that mapping.
 - Provider limits and result carriers are Kani-only for this slice.
   Cancellation is checked between routed items. The current CG execution API
   accepts no cancellation handle, so an already-running harness continues
-  until its configured timeout.
+  until its identity's `wall_clock` ceiling.
 - Process-origin plugin admission remains planned with plugin-host work. CG
   origin interpretation is covered by the projection test; the driver does
   not construct CG process kinds from provider manifest bytes.

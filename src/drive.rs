@@ -63,9 +63,11 @@ pub struct GenerationInput<'a> {
     pub kani: Option<KaniInput<'a>>,
 }
 
-/// The Kani generation context. Fields have CG FR-015's meanings.
+/// The Kani generation context, including CG FR-028's proof ceilings.
 #[derive(Clone, Copy, Debug)]
 pub struct KaniInput<'a> {
+    /// Caller-supplied resource ceilings embedded in every generated harness.
+    pub ceilings: cg::ProofCeilings,
     /// Rust path of the customer subject.
     pub subject_path: &'a str,
     /// Loop unwind bound.
@@ -210,6 +212,7 @@ fn generate(
     }
     let contexts = cg::GenerationContexts {
         kani: generation.kani.map(|kani| cg::KaniGenerationContext {
+            ceilings: kani.ceilings,
             subject_path: kani.subject_path,
             unwind: kani.unwind,
         }),
