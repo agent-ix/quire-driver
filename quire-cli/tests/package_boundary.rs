@@ -110,7 +110,7 @@ fn parser_and_cli_tests_live_in_the_cli_package() {
     let driver_lib = fs::read_to_string(root.join("src/lib.rs")).expect("read driver library");
     assert!(!driver_lib.contains("pub mod cli;"));
 
-    for relative in ["tests/cli_skeleton.rs", "tests/run_cli.rs"] {
+    for relative in ["tests/cli_contract.rs", "tests/binary_process.rs"] {
         assert!(
             cli_root.join(relative).is_file(),
             "missing quire-cli/{relative}"
