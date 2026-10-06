@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use qsl_foundation::diagnostic::Category;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{Call, CallOutcome, DependencyInput, RunRefusal, SpineLimits};
+use qsl_replay::{OutcomeDocument, OutcomeWriteError};
 use qsl_semantics::library::PackageId;
 
 /// The engine selected for one execution request.
@@ -74,6 +75,14 @@ pub struct ExecutionResult {
     pub package_id: PackageId,
     /// QSL's unchanged typed execution outcome.
     pub outcome: CallOutcome,
+}
+
+impl ExecutionResult {
+    /// Serialize QSL's canonical `quire-outcome/1` document for this call.
+    /// The driver does not define or translate the document shape.
+    pub fn outcome_bytes(&self) -> Result<Vec<u8>, OutcomeWriteError> {
+        OutcomeDocument::from_call(&self.outcome).to_bytes()
+    }
 }
 
 /// Why a selected execution did not produce a typed result.
@@ -170,6 +179,16 @@ mod tests {
             result.outcome,
             CallOutcome::Completed(CallValue::Boolean(true))
         ));
+    }
+
+    #[test]
+    fn execute_result_uses_qsl_outcome_document_serializer() {
+        let result = execute(request(ExecutionEngine::default(), SpineLimits::default()))
+            .expect("interpreter runs");
+        assert_eq!(
+            result.outcome_bytes().expect("QSL encodes outcome"),
+            br#"{"format":"quire-outcome/1","operation":"execute","last_stage":"S6a","category":"success","items":[],"diagnostics":[],"artifacts":[],"result":{"kind":"completed","value":{"kind":"boolean","value":true}}}"#
+        );
     }
 
     /// Trace: FR-004-AC-3, unavailable engines are unsupported before work.

@@ -10,24 +10,30 @@ relationships:
 
 ## Description
 
-Verify that provider execution and QSL replay feed one authoritative terminal
-record per requested item.
+Verify the available proved-provider terminal path uses QSL's canonical
+`OutcomeItem` and `OutcomeDocument` serializer. Full replay-driven settlement
+for every requested item remains planned.
 
 Scope: FR-009-AC-1 through FR-009-AC-5.
 
 ## Test Procedure
 
-Run one multi-item proof request with a checked package emitted during that
-request. Include successful and unsupported items, a Kani counterexample
-reproduced by replay, a counterexample that fails replay parity, a replay
-refusal, a replay fault and a budget-incomplete item. Compare each terminal
-record with CG's FR-331 mapping of the paired provider and replay results.
+Run a verified Kani result through `ProviderResults::outcome_bytes` and compare
+the bytes with QSL's `OutcomeDocument::settled` over
+`OutcomeItem::from_terminal`. Verify that a falsified scalar without replay
+remains a typed error and produces no guessed outcome.
 
-Test location: planned prove/replay integration tests.
+The multi-item replay scenarios below remain planned until the driver has the
+CG replay adapter and complete per-item settlement path.
+
+Test location: `src/provider.rs`; full prove/replay integration remains
+planned.
 
 ## Expected Results
 
-- The provider receives the emitted package from the same request.
+- Available proved-provider outcomes are serialized by QSL's
+  `OutcomeDocument`; the driver defines no JSON document shape.
+- A falsified scalar without QSL replay does not produce a terminal document.
 - A counterexample is `refuted` only when replay reproduces it; parity
   disagreement is `inconclusive`, replay refusal keeps its cause, and replay
   fault is an internal failure.

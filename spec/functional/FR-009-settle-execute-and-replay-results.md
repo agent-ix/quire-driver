@@ -57,8 +57,8 @@ execution and replay when settling the item.
 | FR-009-AC-1 | The proof provider receives the generated request and the exact checked-package bytes emitted by the same request. | Test |
 | FR-009-AC-2 | A provider counterexample settles `refuted` only when QSL replay reproduces it; a disagreement or completed non-reproduction settles `inconclusive` with a replay-parity cause. | Test |
 | FR-009-AC-3 | A replay refusal retains its typed cause and a replay fault is an internal failure; neither is converted to `refuted`. | Test |
-| FR-009-AC-4 | The terminal result is composed by CG's FR-331 mapping from both the provider result and replay result; the driver introduces no second mapping. | Test |
-| FR-009-AC-5 | The outcome contains exactly one FR-331 terminal record for every requested item, including unsupported and incomplete items. | Test |
+| FR-009-AC-4 | The terminal result is composed by CG's FR-331 mapping from both the provider result and replay result; the driver introduces no second mapping. | Partial (TC-016 proves QSL serialization for an available CG terminal; replay-combined settlement remains planned) |
+| FR-009-AC-5 | The outcome contains exactly one FR-331 terminal record for every requested item, including unsupported and incomplete items. | Partial (TC-016 serializes available provider terminals through QSL; full per-item replay accounting remains planned) |
 
 ## Dependencies
 

@@ -66,7 +66,7 @@ pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, 
 pub use limits::{LimitError, LimitOverrides};
 pub use provider::{
     KaniExecutionLimits, KaniProvider, Provider, ProviderItemFailure, ProviderItemResult,
-    ProviderLimits, ProviderRequest, ProviderResults, ProviderTerminalError,
+    ProviderLimits, ProviderOutcomeError, ProviderRequest, ProviderResults, ProviderTerminalError,
 };
 pub use refusal::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
 pub use registry::{

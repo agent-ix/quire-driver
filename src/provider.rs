@@ -4,7 +4,10 @@
 use std::{path::Path, time::Duration};
 
 use qsl_package::EmittedPackage;
-use qsl_replay::{RequestIndex, TerminalRecord};
+use qsl_replay::{
+    Operation, OutcomeDocument, OutcomeItem, OutcomeStage, OutcomeWriteError, RequestIndex,
+    TerminalRecord,
+};
 use quire_contract_codegen::{
     execute_kani_obligation, run_terminal_value, Candidate, KaniExecutableHarness,
     KaniExecutionEvidence, KaniExecutionRefusal, KaniExecutionRequest, KaniInstallation,
@@ -81,8 +84,7 @@ impl ProviderItemResult {
         if matches!(&evidence.outcome, KaniRunOutcome::Falsified { .. }) {
             return Err(ProviderTerminalError::ReplayUnavailableForScalarObligation);
         }
-        let value = run_terminal_value(&evidence.outcome, evidence.success_checks, None)
-            .map_err(ProviderTerminalError::TerminalPair)?;
+        let value = run_terminal_value(&evidence.outcome, evidence.success_checks, None)?;
         Ok(TerminalRecord::new(
             RequestIndex::new(self.request_index),
             value,
@@ -91,15 +93,18 @@ impl ProviderItemResult {
 }
 
 /// Why a Kani item does not yet have a terminal record.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ProviderTerminalError {
     /// Kani execution returned a typed refusal instead of evidence.
+    #[error("provider execution did not produce evidence")]
     ExecutionDidNotProduceEvidence,
     /// The scalar harness requires a replay adapter that is not present in
     /// the locked CG API; no settlement is guessed.
+    #[error("scalar replay is unavailable for terminal settlement")]
     ReplayUnavailableForScalarObligation,
     /// CG rejected the outcome/settlement pair.
-    TerminalPair(TerminalPairError),
+    #[error(transparent)]
+    TerminalPair(#[from] TerminalPairError),
 }
 
 /// Why one routed item did not yield Kani evidence.
@@ -127,6 +132,37 @@ pub enum ProviderItemFailure {
 pub struct ProviderResults {
     /// One typed result for every item in the provider request.
     pub items: Vec<ProviderItemResult>,
+}
+
+impl ProviderResults {
+    /// Serialize these provider items with QSL's canonical `quire-outcome/1`
+    /// document. This covers only the items in `self`; it is not a complete
+    /// per-request outcome. Items that require replay or lack execution
+    /// evidence remain typed errors; the driver does not invent settlements.
+    pub fn outcome_bytes(&self) -> Result<Vec<u8>, ProviderOutcomeError> {
+        let items = self
+            .items
+            .iter()
+            .map(|item| {
+                let terminal = item.terminal_record()?;
+                Ok(OutcomeItem::from_terminal(&terminal))
+            })
+            .collect::<Result<Vec<_>, ProviderOutcomeError>>()?;
+        OutcomeDocument::settled(Operation::Prove, Some(OutcomeStage::S6b), items)
+            .to_bytes()
+            .map_err(Into::into)
+    }
+}
+
+/// Why provider results cannot yet be written as a complete outcome.
+#[derive(Debug, thiserror::Error)]
+pub enum ProviderOutcomeError {
+    /// A provider item has no terminal until its replay lifecycle settles.
+    #[error(transparent)]
+    Terminal(#[from] ProviderTerminalError),
+    /// QSL's canonical outcome serializer failed.
+    #[error(transparent)]
+    Encode(#[from] OutcomeWriteError),
 }
 
 /// A provider linked into the driver binary.
@@ -255,13 +291,16 @@ fn validate_kani_item<'a>(
 
 #[cfg(test)]
 mod tests {
-    use qsl_replay::{IncompleteCause, TerminalValue};
+    use qsl_replay::{
+        IncompleteCause, Operation, OutcomeDocument, OutcomeItem, OutcomeStage, TerminalValue,
+    };
     use quire_contract_codegen::{Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver};
     use quire_exact::{Cancel, CancelCause};
+    use serde_json::Value;
 
     use super::{
         KaniProvider, ProviderItemFailure, ProviderItemResult, ProviderLimits, ProviderManifest,
-        ProviderRequest, ProviderTerminalError,
+        ProviderOutcomeError, ProviderRequest, ProviderResults, ProviderTerminalError,
     };
     use qsl_route::ManifestDigest;
     use quire_contract_codegen::{
@@ -271,8 +310,12 @@ mod tests {
     };
 
     fn result(outcome: KaniRunOutcome) -> ProviderItemResult {
+        result_at(4, outcome)
+    }
+
+    fn result_at(request_index: usize, outcome: KaniRunOutcome) -> ProviderItemResult {
         ProviderItemResult {
-            request_index: 4,
+            request_index,
             backend: Candidate {
                 identity: "agent-ix/provider/kani".to_owned(),
             },
@@ -398,6 +441,55 @@ mod tests {
         );
     }
 
+    /// Trace: FR-009-AC-4, TC-016; serialize CG's terminal through QSL's outcome API.
+    #[test]
+    fn provider_results_use_qsl_outcome_serializer() {
+        let results = ProviderResults {
+            items: vec![result(KaniRunOutcome::Verified)],
+        };
+        let record = results.items[0]
+            .terminal_record()
+            .expect("verified result has a terminal");
+        let expected = OutcomeDocument::settled(
+            Operation::Prove,
+            Some(OutcomeStage::S6b),
+            vec![OutcomeItem::from_terminal(&record)],
+        )
+        .to_bytes()
+        .expect("QSL serializes the typed outcome");
+
+        assert_eq!(
+            results
+                .outcome_bytes()
+                .expect("provider results use QSL serialization"),
+            expected
+        );
+    }
+
+    /// Trace: FR-009-AC-5, TC-016; serialize each provider item once in order.
+    #[test]
+    fn provider_outcome_bytes_include_each_provider_item_once_in_request_order() {
+        let results = ProviderResults {
+            items: vec![
+                result_at(2, KaniRunOutcome::Verified),
+                result_at(5, KaniRunOutcome::Verified),
+            ],
+        };
+        let document: Value = serde_json::from_slice(
+            &results
+                .outcome_bytes()
+                .expect("both provider items have terminals"),
+        )
+        .expect("QSL bytes are JSON");
+        let items = document["items"].as_array().expect("items is an array");
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["request_index"], 2);
+        assert_eq!(items[1]["request_index"], 5);
+        assert_eq!(items[0]["result"], "proved");
+        assert_eq!(items[1]["result"], "proved");
+    }
+
     /// Trace: FR-009-AC-4.
     #[test]
     fn falsified_scalar_does_not_guess_a_replay_settlement() {
@@ -410,6 +502,17 @@ mod tests {
             error,
             ProviderTerminalError::ReplayUnavailableForScalarObligation
         );
+        let results = ProviderResults {
+            items: vec![result(KaniRunOutcome::Falsified {
+                counterexample: "witness".to_owned(),
+            })],
+        };
+        assert!(matches!(
+            results.outcome_bytes(),
+            Err(ProviderOutcomeError::Terminal(
+                ProviderTerminalError::ReplayUnavailableForScalarObligation
+            ))
+        ));
     }
 
     /// Trace: FR-009-AC-4.
