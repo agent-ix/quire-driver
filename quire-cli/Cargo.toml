@@ -16,10 +16,12 @@ path = "src/main.rs"
 [dependencies]
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+# IR-609 follows with composition between the CLI package and this cache.
 quire-cache = { path = "../quire-cache" }
 quire-driver = { path = ".." }
 
 [dev-dependencies]
+regex = "=1.13.1"
 serde_json = "=1.0.151"
 
 [lints.rust]

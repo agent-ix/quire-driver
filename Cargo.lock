@@ -1407,6 +1407,7 @@ dependencies = [
  "qsl-replay",
  "quire-cache",
  "quire-driver",
+ "regex",
  "serde_json",
 ]
 

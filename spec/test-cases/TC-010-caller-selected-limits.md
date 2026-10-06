@@ -24,7 +24,8 @@ Scope: FR-003-AC-1 through FR-003-AC-3.
 3. Run an input that exceeds a chosen limit, then repeat with the limit raised
    to fit the input.
 
-Test location: `src/limits.rs`, `src/execute.rs`, and `tests/run_cli.rs`.
+Test location: `src/limits.rs`, `src/execute.rs`, and
+`quire-cli/tests/binary_process.rs`.
 
 ## Expected Results
 

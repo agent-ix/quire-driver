@@ -20,28 +20,6 @@ fn process_exit_code(category: Category) -> ExitCode {
     ExitCode::from(category.exit_code())
 }
 
-/// Boundary for writing an already serialized QSL outcome unchanged.
-#[cfg(test)]
-trait OutcomeSink {
-    /// Write the QSL outcome JSON without changing its schema or values.
-    fn write_outcome(&mut self, outcome_json: &str) -> std::io::Result<()>;
-}
-
-/// Preserve the QSL operation category across the CLI output boundary.
-#[cfg(test)]
-#[must_use]
-fn finish_outcome<S: OutcomeSink>(
-    sink: &mut S,
-    category: Category,
-    outcome_json: &str,
-) -> ExitCode {
-    match sink.write_outcome(outcome_json) {
-        Ok(()) => process_exit_code(category),
-        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => process_exit_code(category),
-        Err(_) => process_exit_code(Category::InternalFailure),
-    }
-}
-
 /// Parser selectors implement the command surface owned by QSL ADR-029.
 #[cfg(test)]
 const VERBS: &[&str] = &[
@@ -335,12 +313,11 @@ pub(super) fn entrypoint() -> ExitCode {
     reason = "a failed assertion is the test failure report"
 )]
 mod outcome_tests {
-    use std::io;
     use std::process::ExitCode;
 
     use qsl_foundation::diagnostic::Category;
 
-    use super::{finish_outcome, process_exit_code, OutcomeSink};
+    use super::process_exit_code;
 
     /// Trace: FR-002-AC-2, one QSL category exit function.
     #[test]
@@ -351,52 +328,6 @@ mod outcome_tests {
                 ExitCode::from(category.exit_code())
             );
         }
-    }
-
-    /// Trace: FR-002-AC-3, preserve the serialized QSL outcome.
-    #[test]
-    fn outcome_sink_receives_opaque_json_unchanged() {
-        let outcome = r#"{"schema":"quire-outcome/1","items":[]}"#;
-        let mut output = CapturingSink(None);
-        let status = finish_outcome(&mut output, Category::Success, outcome);
-        assert_eq!(status, ExitCode::from(Category::Success.exit_code()));
-        assert_eq!(output.0.as_deref(), Some(outcome));
-    }
-
-    struct CapturingSink(Option<String>);
-
-    impl OutcomeSink for CapturingSink {
-        fn write_outcome(&mut self, outcome_json: &str) -> io::Result<()> {
-            self.0 = Some(outcome_json.to_owned());
-            Ok(())
-        }
-    }
-
-    struct FailingSink(io::ErrorKind);
-
-    impl OutcomeSink for FailingSink {
-        fn write_outcome(&mut self, _outcome_json: &str) -> io::Result<()> {
-            Err(io::Error::from(self.0))
-        }
-    }
-
-    /// Trace: FR-002-AC-2, preserve the outcome code on broken pipes.
-    #[test]
-    fn broken_pipe_keeps_the_operation_category() {
-        let mut output = FailingSink(io::ErrorKind::BrokenPipe);
-        let status = finish_outcome(&mut output, Category::Incomplete, "{}");
-        assert_eq!(status, ExitCode::from(Category::Incomplete.exit_code()));
-    }
-
-    /// Trace: FR-002-AC-2, classify a failed output stream through QSL.
-    #[test]
-    fn other_write_failure_uses_qsl_internal_failure_category() {
-        let mut output = FailingSink(io::ErrorKind::Other);
-        let status = finish_outcome(&mut output, Category::Success, "{}");
-        assert_eq!(
-            status,
-            ExitCode::from(Category::InternalFailure.exit_code())
-        );
     }
 }
 

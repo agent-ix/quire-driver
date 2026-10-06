@@ -12,7 +12,29 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use regex::Regex;
 use serde_json::Value;
+
+fn strip_rust_comments(source: &str) -> String {
+    Regex::new(r"(?s)/\*.*?\*/|//[^\n]*")
+        .expect("comment expression compiles")
+        .replace_all(source, "")
+        .into_owned()
+}
+
+fn has_cli_export(source: &str) -> bool {
+    let source = strip_rust_comments(source);
+    Regex::new(r"(?m)\bpub\s+(?:mod\s+cli\b(?:\s*\{|\s*;)|use\b[^;]*\bas\s+cli\b)")
+        .expect("CLI export expression compiles")
+        .is_match(&source)
+}
+
+fn has_parser_definition(source: &str) -> bool {
+    let source = strip_rust_comments(source);
+    Regex::new(r"(?m)\b(?:pub(?:\([^)]*\))?\s+)?fn\s+parse_invocation\b")
+        .expect("parser expression compiles")
+        .is_match(&source)
+}
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -53,7 +75,7 @@ fn direct_normal_dependencies(package: &Value) -> BTreeSet<&str> {
         .collect()
 }
 
-/// Trace: FR-014-AC-1/AC-2, Cargo owns one quire target in quire-cli.
+/// Trace: FR-014-AC-1, FR-014-AC-2, Cargo owns one quire target in quire-cli.
 #[test]
 fn cargo_target_and_dependencies_belong_to_quire_cli() {
     let metadata = metadata();
@@ -90,7 +112,7 @@ fn cargo_target_and_dependencies_belong_to_quire_cli() {
     assert!(!dependencies.contains("ix-cli-kit"));
 }
 
-/// Trace: FR-014-AC-4/AC-5, the parser, binary entry point, CLI tests and
+/// Trace: FR-014-AC-4, FR-014-AC-5, the parser, binary entry point, CLI tests and
 /// fixtures are owned by quire-cli, and the library exports no CLI module.
 #[test]
 fn parser_and_cli_tests_live_in_the_cli_package() {
@@ -98,7 +120,7 @@ fn parser_and_cli_tests_live_in_the_cli_package() {
     let cli_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let parser_path = cli_root.join("src/cli.rs");
     let parser = fs::read_to_string(&parser_path).expect("read CLI parser source");
-    assert!(parser.contains("fn parse_invocation("));
+    assert!(has_parser_definition(&parser));
     assert!(parser.contains("enum Verb"));
     assert!(parser.contains("enum OutputFormat"));
 
@@ -108,7 +130,7 @@ fn parser_and_cli_tests_live_in_the_cli_package() {
     assert!(!main.contains("fn parse_invocation("));
 
     let driver_lib = fs::read_to_string(root.join("src/lib.rs")).expect("read driver library");
-    assert!(!driver_lib.contains("pub mod cli;"));
+    assert!(!has_cli_export(&driver_lib));
 
     for relative in ["tests/cli_contract.rs", "tests/binary_process.rs"] {
         assert!(
@@ -129,4 +151,22 @@ fn parser_and_cli_tests_live_in_the_cli_package() {
         !root.join(fixture).exists(),
         "CLI fixture remains in quire-driver"
     );
+}
+
+/// Comment examples do not count as definitions or public exports.
+#[test]
+fn source_matchers_ignore_comments_and_detect_cli_export_forms() {
+    assert!(!has_parser_definition("// fn parse_invocation() {}\n"));
+    assert!(has_parser_definition("fn parse_invocation() {}"));
+
+    for declaration in [
+        "pub mod cli;",
+        "pub mod cli {}",
+        "pub use crate::inner as cli;",
+    ] {
+        assert!(has_cli_export(declaration), "missed {declaration}");
+    }
+    assert!(!has_cli_export(
+        "// pub mod cli;\n/* pub mod cli {} */\n/// pub use x as cli;"
+    ));
 }
