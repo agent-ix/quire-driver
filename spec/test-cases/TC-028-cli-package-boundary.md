@@ -26,8 +26,8 @@ Scope: FR-014-AC-1, FR-014-AC-2, FR-014-AC-4 and FR-014-AC-5.
    process-boundary tests and their fixtures are under the `quire-cli` package.
 5. Inspect the parser definition and entry point. Confirm the CLI parsing
    definitions are implemented in `quire-cli/src/cli.rs`, the binary entry
-   point is `quire-cli/src/main.rs`, and `quire-driver/src/lib.rs` does not
-   export a `cli` module.
+   point is `quire-cli/src/main.rs`, and the `quire-driver` package's
+   `src/lib.rs` does not export a `cli` module.
 
 Test location: `quire-cli/tests/package_boundary.rs`, added with this
 requirement.
@@ -39,4 +39,5 @@ requirement.
 - `quire-cli` directly depends on `quire-driver` and `quire-cache`.
 - The CLI tests and their fixtures have the specified `quire-cli` ownership.
 - The parser definitions and binary entry point have the specified
-  `quire-cli` locations, and `quire-driver` does not export a `cli` module.
+  `quire-cli` locations, and the `quire-driver` package's `src/lib.rs` does
+  not export a `cli` module.
