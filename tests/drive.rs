@@ -12,9 +12,11 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::thread;
+use std::time::Duration;
 
 use qsl_foundation::diagnostic::Category;
 use qsl_foundation::SourceIdentity;
@@ -29,8 +31,8 @@ use quire_contract_codegen::{
     generate_routed, BackendKind, BackendProviderEnvelope, Candidates, Cause,
     ClaimDerivationRefusal, ClaimDisposition, DerivedDomain, Disposition, EnvelopeRefusal,
     GenerationContexts, ItemSettlement, KaniGenerationContext, KindOutput, ObligationDisposition,
-    OperationProvenance, RoutedGeneration, RoutedGenerationError, RoutedGenerationItem,
-    UnsupportedObligation,
+    OperationProvenance, ProofCeilings, RoutedGeneration, RoutedGenerationError,
+    RoutedGenerationItem, UnsupportedObligation,
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
@@ -768,9 +770,17 @@ fn member_literal<'a>(body: &'a serde_json::Value, name: &str) -> Option<&'a str
 fn kani_input() -> GenerationInput<'static> {
     GenerationInput {
         kani: Some(KaniInput {
+            ceilings: proof_ceilings(),
             subject_path: "crate::subject",
             unwind: 1,
         }),
+    }
+}
+
+fn proof_ceilings() -> ProofCeilings {
+    ProofCeilings {
+        memory_bytes: NonZeroU64::new(64 * 1024 * 1024).expect("positive memory ceiling"),
+        wall_clock: Duration::from_secs(30),
     }
 }
 
@@ -898,6 +908,7 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
         }],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
+                ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
             }),
@@ -1140,6 +1151,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
         }],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
+                ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
             }),
@@ -1181,6 +1193,7 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
         }],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
+                ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
             }),
@@ -1395,6 +1408,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
         ],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
+                ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
             }),
@@ -1593,6 +1607,7 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
         }],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
+                ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
             }),
@@ -2011,6 +2026,7 @@ fn tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected(
         }],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
+                ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
             }),
@@ -2063,13 +2079,21 @@ fn provider_trait_run_processes_a_selected_item() {
     let driven = drive(&QslCg, int_input(&packages), &registry, None, kani_input())
         .expect("the Kani item is generated");
     assert_eq!(driven.generation.items.len(), 1);
+    let KindOutput::Kani {
+        harness: Some(harness),
+        ..
+    } = &driven.generation.items[0].output
+    else {
+        panic!("the selected Kani item has a generated harness");
+    };
+    assert_eq!(harness.identity.ceilings, proof_ceilings());
 
     let provider = KaniProvider::new(manifest("kani", 7, &["value-validity"]));
     let request = ProviderRequest::new(&driven.generation.items);
     let results = provider.run(
         &driven.emitted,
         &request,
-        &ProviderLimits::default(),
+        &ProviderLimits { kani: None },
         &Cancel::new(),
     );
 

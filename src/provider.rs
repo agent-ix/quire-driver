@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Linked provider interface and the built-in Kani execution adapter.
 
-use std::{path::Path, time::Duration};
+use std::path::Path;
 
 use qsl_package::EmittedPackage;
 use qsl_replay::{
@@ -41,21 +41,22 @@ impl<'a> ProviderRequest<'a> {
 }
 
 /// Kani's bounded execution inputs. The caller owns the generated crate and
-/// target directories; CG verifies each harness is present in that crate.
+/// target directories; CG verifies each harness is present in that crate and
+/// executes with the ceilings embedded in its identity.
 #[derive(Clone, Copy, Debug)]
 pub struct KaniExecutionLimits<'a> {
+    /// Must match the ceilings embedded in the generated harness.
+    pub ceilings: quire_contract_codegen::ProofCeilings,
     /// The explicitly selected Kani installation.
     pub installation: &'a KaniInstallation,
     /// Directory containing the generated harness source.
     pub crate_directory: &'a Path,
     /// Cargo target directory for Kani's build.
     pub target_directory: &'a Path,
-    /// Per-harness wall-clock bound.
-    pub timeout: Duration,
 }
 
 /// Resource and execution configuration supplied to a provider.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct ProviderLimits<'a> {
     /// Kani execution configuration; absent when this provider has no Kani
     /// harnesses in the current binary.
@@ -120,6 +121,13 @@ pub enum ProviderItemFailure {
         expected: String,
         /// The identity the routed item names.
         actual: String,
+    },
+    /// Provider execution limits differ from the ceilings used to generate the harness.
+    LimitsMismatch {
+        /// Caller-supplied execution limits.
+        supplied: quire_contract_codegen::ProofCeilings,
+        /// Ceilings recorded by the generated harness.
+        generated: quire_contract_codegen::ProofCeilings,
     },
     /// No Kani execution configuration was supplied.
     MissingExecutionLimits,
@@ -257,14 +265,28 @@ fn run_kani_item(
     else {
         return Err(ProviderItemFailure::NoExecutableHarness);
     };
+    ensure_matching_ceilings(limits.ceilings, harness.identity.ceilings)?;
     execute_kani_obligation(&KaniExecutionRequest {
         installation: limits.installation,
         harness: KaniExecutableHarness::from(harness),
         crate_directory: limits.crate_directory,
         target_directory: limits.target_directory,
-        timeout: limits.timeout,
     })
     .map_err(ProviderItemFailure::Execution)
+}
+
+fn ensure_matching_ceilings(
+    supplied: quire_contract_codegen::ProofCeilings,
+    generated: quire_contract_codegen::ProofCeilings,
+) -> Result<(), ProviderItemFailure> {
+    if supplied == generated {
+        Ok(())
+    } else {
+        Err(ProviderItemFailure::LimitsMismatch {
+            supplied,
+            generated,
+        })
+    }
 }
 
 fn validate_kani_item<'a>(
@@ -291,18 +313,27 @@ fn validate_kani_item<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU64;
+    use std::path::{Path, PathBuf};
+    use std::time::Duration;
+
     use qsl_replay::{
         IncompleteCause, Operation, OutcomeDocument, OutcomeItem, OutcomeStage, TerminalValue,
     };
-    use quire_contract_codegen::{Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver};
+    use quire_contract_codegen::{
+        Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver, MemoryMechanism,
+        MemoryObservation, ProofCeilings, SymbolicArgumentBounds, SymbolicBounds,
+    };
     use quire_exact::{Cancel, CancelCause};
     use serde_json::Value;
 
     use super::{
-        KaniProvider, ProviderItemFailure, ProviderItemResult, ProviderLimits, ProviderManifest,
-        ProviderOutcomeError, ProviderRequest, ProviderResults, ProviderTerminalError,
+        KaniExecutionLimits, KaniProvider, ProviderItemFailure, ProviderItemResult, ProviderLimits,
+        ProviderManifest, ProviderOutcomeError, ProviderRequest, ProviderResults,
+        ProviderTerminalError,
     };
     use qsl_route::ManifestDigest;
+    use quire_contract_codegen::KaniInstallation;
     use quire_contract_codegen::{
         Artifact, KaniExecutionEvidence, KaniScalarObligationHarness, KindOutput,
         ObligationDisposition, ObligationRecord, ObligationSubject, RoutedItemOutput,
@@ -320,6 +351,18 @@ mod tests {
                 identity: "agent-ix/provider/kani".to_owned(),
             },
             result: Ok(KaniExecutionEvidence {
+                ceilings: ceilings(),
+                memory: MemoryObservation {
+                    mechanism: MemoryMechanism::LinuxPidNamespaceProcfsTreeRss,
+                    peak_resident_bytes: Some(16),
+                },
+                symbolic_arguments: vec![SymbolicArgumentBounds {
+                    identifier: "value".to_owned(),
+                    bounds: SymbolicBounds::Integer {
+                        minimum: -1,
+                        maximum: 1,
+                    },
+                }],
                 kind: None,
                 harness_path: "generated::claim".to_owned(),
                 launcher_path: "/tools/cargo-kani".to_owned(),
@@ -333,6 +376,17 @@ mod tests {
                 batch: None,
             }),
         }
+    }
+
+    fn ceilings() -> ProofCeilings {
+        ProofCeilings {
+            memory_bytes: NonZeroU64::new(1024).expect("positive memory ceiling"),
+            wall_clock: Duration::from_secs(30),
+        }
+    }
+
+    fn no_limits() -> ProviderLimits<'static> {
+        ProviderLimits { kani: None }
     }
 
     fn routed_item(
@@ -378,6 +432,7 @@ mod tests {
         .expect("checked node id");
         KaniScalarObligationHarness {
             identity: ScalarObligationIdentity {
+                ceilings: ceilings(),
                 node_id,
                 operation_identity: "agent-ix/op/add".to_owned(),
                 oracle_symbol: "oracle".to_owned(),
@@ -405,6 +460,23 @@ mod tests {
             manifest_digest: ManifestDigest::from_digest([1; 32]),
             advertises: Vec::new(),
         })
+    }
+
+    /// Trace: FR-005-AC-2.
+    #[test]
+    fn provider_result_retains_kani_resource_and_argument_evidence() {
+        let item = result(KaniRunOutcome::Verified);
+        let evidence = item.result.expect("fixture carries Kani evidence");
+        assert_eq!(evidence.ceilings, ceilings());
+        assert_eq!(evidence.memory.peak_resident_bytes, Some(16));
+        assert_eq!(evidence.symbolic_arguments[0].identifier, "value");
+        assert_eq!(
+            evidence.symbolic_arguments[0].bounds,
+            SymbolicBounds::Integer {
+                minimum: -1,
+                maximum: 1
+            }
+        );
     }
 
     /// Trace: FR-009-AC-4.
@@ -539,7 +611,7 @@ mod tests {
         let request = ProviderRequest::new(std::slice::from_ref(&item));
         let cancel = Cancel::new();
         cancel.cancel(CancelCause::Requested);
-        let cancelled = provider.run_items(&request, &ProviderLimits::default(), &cancel);
+        let cancelled = provider.run_items(&request, &no_limits(), &cancel);
         assert!(matches!(
             cancelled.items[0].result,
             Err(ProviderItemFailure::Cancelled(Some(CancelCause::Requested)))
@@ -547,7 +619,7 @@ mod tests {
 
         let mismatched = routed_item("agent-ix/provider/other", None);
         let request = ProviderRequest::new(std::slice::from_ref(&mismatched));
-        let results = provider.run_items(&request, &ProviderLimits::default(), &Cancel::new());
+        let results = provider.run_items(&request, &no_limits(), &Cancel::new());
         assert!(matches!(
             results.items[0].result,
             Err(ProviderItemFailure::UnexpectedBackend { .. })
@@ -560,8 +632,7 @@ mod tests {
         let provider = provider();
         let with_harness = routed_item("agent-ix/provider/kani", Some(harness()));
         let request = ProviderRequest::new(std::slice::from_ref(&with_harness));
-        let missing_limits =
-            provider.run_items(&request, &ProviderLimits::default(), &Cancel::new());
+        let missing_limits = provider.run_items(&request, &no_limits(), &Cancel::new());
         assert!(matches!(
             missing_limits.items[0].result,
             Err(ProviderItemFailure::MissingExecutionLimits)
@@ -569,11 +640,38 @@ mod tests {
 
         let without_harness = routed_item("agent-ix/provider/kani", None);
         let request = ProviderRequest::new(std::slice::from_ref(&without_harness));
-        let missing_harness =
-            provider.run_items(&request, &ProviderLimits::default(), &Cancel::new());
+        let missing_harness = provider.run_items(&request, &no_limits(), &Cancel::new());
         assert!(matches!(
             missing_harness.items[0].result,
             Err(ProviderItemFailure::NoExecutableHarness)
+        ));
+    }
+
+    /// Trace: FR-005-AC-2.
+    #[test]
+    fn kani_execution_refuses_limits_that_differ_from_generated_identity() {
+        let generated = ceilings();
+        let supplied = ProofCeilings {
+            memory_bytes: NonZeroU64::new(2048).expect("positive memory ceiling"),
+            ..generated
+        };
+        let item = routed_item("agent-ix/provider/kani", Some(harness()));
+        let request = ProviderRequest::new(std::slice::from_ref(&item));
+        let installation = KaniInstallation {
+            launcher: PathBuf::from("unused-cg-launcher"),
+        };
+        let limits = ProviderLimits {
+            kani: Some(KaniExecutionLimits {
+                ceilings: supplied,
+                installation: &installation,
+                crate_directory: Path::new("."),
+                target_directory: Path::new("."),
+            }),
+        };
+        let results = provider().run_items(&request, &limits, &Cancel::new());
+        assert!(matches!(
+            results.items[0].result,
+            Err(ProviderItemFailure::LimitsMismatch { .. })
         ));
     }
 }
