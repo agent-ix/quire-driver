@@ -360,12 +360,12 @@ fn run(options: RunOptions) -> CommandResult {
     let packages = BTreeMap::new();
     let dependencies = DependencyInput::default();
     let mut limits = SpineLimits::default();
-    let mut call = Call {
+    let call = Call {
         function: options.function,
         arguments: options.arguments,
         accounting: default_accounting(DEFAULT_WORK_UNITS),
     };
-    if let Err(error) = options.limits.apply_to(&mut limits, &mut call) {
+    if let Err(error) = options.limits.apply_to(&mut limits) {
         return CommandResult::input_refusal(error.to_string());
     }
     let bytes = match read_source(&options.path, limits.source.source_bytes) {
@@ -656,7 +656,10 @@ mod tests {
         assert_eq!(options.path, "unit.qsl");
         assert_eq!(options.function, "yes");
         assert_eq!(options.engine, ExecutionEngine::Interpreter);
-        assert_eq!(options.limits.values().get("s1.input_bytes"), Some(&1024));
+        assert_eq!(
+            options.limits.values(),
+            &[(qsl_foundation::Setting::S1InputBytes, 1024)]
+        );
     }
 
     /// Trace: FR-004-AC-2, an unknown engine fails before any source stage.

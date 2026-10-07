@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Integration checks for IR-608 run engine selection.
+//! Integration checks for CLI run options and QSL results.
 
 use std::process::Command;
 #[cfg(unix)]
@@ -208,11 +208,11 @@ fn an_unknown_engine_is_a_refusal() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("gpu"));
 }
 
-/// Trace: FR-003-AC-1, caller work limits reach QSL's interpreter call.
+/// Trace: FR-003-AC-1, the exposed checking work bound reaches QSL unchanged.
 #[test]
-fn runtime_work_limit_changes_the_call_outcome() {
+fn checking_work_limit_changes_the_call_outcome() {
     let exhausted = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--limit", "work_units=0"])
+        .args(["run", SOURCE, "yes", "--limit", "s3.work_units=0"])
         .output()
         .expect("run with exhausted work limit");
     assert_eq!(
@@ -221,7 +221,7 @@ fn runtime_work_limit_changes_the_call_outcome() {
     );
 
     let sufficient = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--limit", "work_units=1000"])
+        .args(["run", SOURCE, "yes", "--limit", "s3.work_units=1000"])
         .output()
         .expect("run with sufficient work limit");
     assert_eq!(
@@ -254,25 +254,91 @@ fn lifecycle_stage_limit_uses_incomplete_exit_code() {
     );
 }
 
-/// Trace: FR-003-AC-2, malformed caller limits are rejected before file access.
+/// Trace: FR-003-AC-2, FR-003-AC-7, FR-003-AC-8.
 #[test]
-fn malformed_limit_is_named_and_refused_before_source_read() {
+fn qsl_rejects_unknown_malformed_and_duplicate_limits_before_source_read() {
+    for operand in [
+        "normalization.work_units=1",
+        "s1.input_bytes=invalid",
+        "s1.input_bytes=1", // duplicated below using the same option twice
+    ] {
+        let mut command = Command::new(QUIRE);
+        command.args(["run", "missing-source.qsl", "yes", "--limit", operand]);
+        if operand == "s1.input_bytes=1" {
+            command.args(["--limit", operand]);
+        }
+        let output = command.output().expect("run with invalid QSL limit");
+        assert_eq!(
+            output.status.code(),
+            Some(i32::from(Category::Refusal.exit_code())),
+            "{operand}"
+        );
+        assert!(output.stdout.is_empty(), "{operand}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(operand), "{operand}: {stderr}");
+        assert!(
+            !stderr.contains("could not read source"),
+            "{operand}: {stderr}"
+        );
+    }
+}
+
+/// Trace: FR-003-AC-5, QSL-recognized settings absent from run bounds are distinct refusals.
+#[test]
+fn recognized_setting_unavailable_for_run_is_named_before_source_read() {
     let output = Command::new(QUIRE)
         .args([
             "run",
             "missing-source.qsl",
             "yes",
             "--limit",
-            "s1.input_bytes=invalid",
+            "explore.states=2",
+            "--format",
+            "json",
         ])
         .output()
-        .expect("run with malformed limit");
+        .expect("run with a setting unavailable to run");
     assert_eq!(
         output.status.code(),
         Some(i32::from(Category::Refusal.exit_code()))
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("explore.states"), "{stderr}");
+    assert!(
+        stderr.contains("unavailable for the `run` operation"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("could not read source"), "{stderr}");
+    assert_eq!(
+        output.stdout,
+        expected_document_bytes(Code::InvalidRequest, stderr.trim_end())
+    );
+}
+
+/// Trace: FR-003-AC-2, parser refusals take precedence over operation bounds.
+#[test]
+fn invalid_operand_precedes_recognized_but_unavailable_setting() {
+    let output = Command::new(QUIRE)
+        .args([
+            "run",
+            "missing-source.qsl",
+            "yes",
+            "--limit",
+            "explore.states=2",
+            "--limit",
+            "normalization.work_units=1",
+        ])
+        .output()
+        .expect("run with an unknown operand and unavailable setting");
+    assert_eq!(output.status.code(), Some(20));
     assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("s1.input_bytes=invalid"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("normalization.work_units"), "{stderr}");
+    assert!(
+        !stderr.contains("unavailable for the `run` operation"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("could not read source"), "{stderr}");
 }
 
 /// Trace: FR-002-AC-8; a full stderr device does not replace a refusal exit with a panic.
