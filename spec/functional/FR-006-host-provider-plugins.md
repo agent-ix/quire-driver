@@ -46,9 +46,10 @@ settlement path used for first-party providers.
 ## Behavior
 
 - The driver SHALL expose and invoke a process-provider seam that receives
-  the named executable, admitted provider identity, emitted package bytes,
-  negotiated items and caller limits. The driver package SHALL NOT depend on
-  `quire-plugin-host`.
+  the named executable, admitted provider identity, one `EmittedPackage` value
+  (including its bytes and matching `package_id`), caller-supplied deadline,
+  the driver's registered-candidate manifest snapshot, negotiated items and
+  caller limits. The driver package SHALL NOT depend on `quire-plugin-host`.
 - The `quire-cli` composition SHALL implement the process-provider seam with
   `quire-plugin-host`, using QSL ADR-029 PL-1 through PL-7 as the authoritative
   lifecycle and failure contract. It SHALL use FR-331's provider envelope and
@@ -59,19 +60,25 @@ settlement path used for first-party providers.
   admitter to the driver's existing registry without re-admitting it or
   building a second registry, and send only the items negotiated to that
   provider.
-- The driver SHALL retain the losslessly decoded FR-331 provider-manifest
-  descriptors when they are admitted and SHALL compose each request's
-  `manifest` registry snapshot from those descriptors. It SHALL NOT reconstruct
-  the snapshot from QSL registry descriptors, which do not retain optional
-  FR-331 fields.
-- The driver SHALL build each request's `package` from the emitted package's
-  exact bytes and its `package_id` from that same `EmittedPackage` value.
-- The driver SHALL copy the `deadline_ms` supplied in the caller's
+- The driver registry record SHALL retain one lossless FR-331 manifest DTO for
+  each registered candidate: process DTOs are retained at hello admission and
+  linked-provider DTOs are retained when their descriptors are built. The
+  driver SHALL compose the request's manifest snapshot from those records for
+  the complete registered candidate set. It SHALL NOT reconstruct the
+  snapshot from QSL registry descriptors, which do not retain optional FR-331
+  fields.
+- The `quire-cli` adapter SHALL serialize the supplied manifest snapshot
+  without reconstructing it or adding members.
+- The `quire-cli` adapter SHALL build each request's `package` from the emitted
+  package's exact bytes and its `package_id` from that same `EmittedPackage`
+  value.
+- The `quire-cli` adapter SHALL copy the `deadline_ms` supplied in the caller's
   process-provider request into the FR-331 request. It SHALL NOT add
   request-level `domains` or `limits`.
-- The driver SHALL source each serialized item from CG's routed output and
-  routing request: request index, claim locus and kind, extent/bounds, selected
-  backend and candidate set. Temporal proof bounds SHALL appear under
+- The `quire-cli` adapter SHALL source each serialized item from CG's routed
+  output and routing request: request index, claim locus and kind,
+  extent/bounds, selected backend and candidate set.
+- The `quire-cli` adapter SHALL place temporal proof bounds under
   `items[].temporal.subject.proof_bounds`. The current CG routed output does
   not retain all these fields; their projection is a named integration gap for
   IR-629, and bounds `kind` additionally depends on QSL-654.
@@ -79,19 +86,20 @@ settlement path used for first-party providers.
   path only when QSL supplies a terminal mapping for it. A result without a
   currently supported terminal mapping SHALL remain typed, unmapped provider
   data; it SHALL NOT be assigned a fabricated terminal.
-- The driver SHALL map a FR-331 `declined` result to QSL
-  `TerminalValue::Declined { code }` using its typed code, and SHALL keep any
-  response without a specified QSL terminal mapping typed and unmapped.
-- The driver SHALL put the FR-272 diagnostic code and available locus and
-  message into a QSL `OutcomeDiagnostic` in the outcome document. It SHALL NOT
-  parse free-form message or `detail` text to choose a terminal; terminal
-  mappings must be defined by QSL.
+- The driver's shared settlement path SHALL map a FR-331 `declined` result to
+  QSL `TerminalValue::Declined { code }` using its typed code, and SHALL keep
+  any response without a specified QSL terminal mapping typed and unmapped.
+- The driver's shared settlement path SHALL put the FR-272 cause, diagnostic
+  code and available locus and message into a QSL `OutcomeDiagnostic` in the
+  outcome document. It SHALL NOT parse free-form message or `detail` text to
+  choose a terminal; terminal mappings must be defined by QSL.
 - When the plugin rejects a request because `package_id` does not match the
   decoded package bytes, or because the package spelling is non-canonical, the
-  driver SHALL decode the plugin's FR-331 response, preserve each routed item
-  identity, and map each failed item to QSL `TerminalValue::Failed`. The
-  corresponding typed FR-272 diagnostic is carried separately in the outcome
-  document. Results for unrelated providers SHALL remain unchanged.
+  `quire-cli` adapter SHALL decode the plugin's FR-331 response and preserve
+  each routed item identity and typed FR-272 diagnostic. The driver's shared
+  settlement path SHALL map each failed item to QSL `TerminalValue::Failed`
+  and carry the diagnostic separately in the outcome document. Results for
+  unrelated providers SHALL remain unchanged.
 - The driver SHALL synthesize provider failures only for host/protocol failures
   defined by ADR-029 PL-7; it SHALL NOT attribute a request-body refusal to
   QSL, which has no process request-body reader.
@@ -123,23 +131,25 @@ settlement path used for first-party providers.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the caller-named executable path, emitted package bytes and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Planned (TC-013, TC-028; process invocation awaits IR-629) |
+| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the caller-named executable path, one `EmittedPackage` value, the caller-supplied deadline, the registered-candidate manifest snapshot and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Planned (TC-013, TC-028; process invocation awaits IR-629) |
 | FR-006-AC-2 | Validated typed results returned through the process-provider seam enter the same driver proof settlement path as first-party provider results when QSL defines their terminal mapping; results without a current QSL mapping remain typed and unmapped, while unrelated routed items retain their own results. | Planned (TC-013; IR-629, IR-677, QSL-490 and QSL-655) |
 | FR-006-AC-3 | Before normal CLI command termination, the adapter requests graceful shutdown of every active plugin session; on Linux and macOS, if `RunLimits.cancellation_grace` expires first, the process tree terminates and cleanup completes within one second. The merged Windows host force-terminates the Job Object through `terminate_tree`/`terminate_job`; native Windows evidence remains planned. Kill-on-close is separately planned under IR-674. | Test (TC-028) |
 | FR-006-AC-4 | On Linux or macOS, handled SIGINT or SIGTERM while a plugin session is starting, running or shutting down requests cancellation through the caller-owned QSL handle, waits for settlement or `RunLimits.cancellation_grace` expiry, and cleans up the plugin process tree before the CLI restores the default disposition and re-raises the signal. No QSL cancellation cause is claimed; with no active session, the platform's default signal disposition is retained. | Test (TC-028) |
-| FR-006-AC-5 | The request's manifest snapshot is composed from retained, losslessly decoded FR-331 hello DTOs; the adapter does not reconstruct optional FR-331 fields from QSL registry descriptors. | Planned (TC-013) |
-| FR-006-AC-6 | The serialized `package` is the unpadded base64url encoding of the emitted package's exact bytes. | Planned (TC-013) |
-| FR-006-AC-7 | The serialized `package_id` comes from the same `EmittedPackage` value as the encoded package bytes. | Planned (TC-013) |
-| FR-006-AC-8 | The serialized request's `deadline_ms` equals the caller-supplied process-provider deadline. | Planned (TC-013) |
-| FR-006-AC-9 | The serialized request has no top-level `domains` or `limits` member. | Planned (TC-013) |
-| FR-006-AC-10 | Each serialized item preserves its request index, claim locus and kind from the CG routed output. | Planned (TC-013; full source projection awaits IR-629) |
-| FR-006-AC-11 | Each serialized item preserves its selected backend and candidate set from the CG routed output. | Planned (TC-013; full source projection awaits IR-629) |
-| FR-006-AC-12 | Each serialized item preserves extent/bounds, and temporal proof bounds appear under `items[].temporal.subject.proof_bounds`. | Planned (TC-013; full source projection awaits IR-629 and QSL-654) |
-| FR-006-AC-13 | A plugin `declined` result's typed code is preserved in QSL `TerminalValue::Declined { code }`; a result without a specified QSL terminal mapping remains typed and unmapped. | Planned (TC-013) |
-| FR-006-AC-14 | The FR-272 diagnostic code and available locus and message are carried in a QSL `OutcomeDiagnostic` in the outcome document; free-form message or `detail` text does not select a terminal. | Planned (TC-013) |
-| FR-006-AC-15 | Given a plugin response marking every routed item failed with FR-272 `stale_dependency/content-mismatch`, the driver maps each item to QSL `TerminalValue::Failed` and preserves its identity. | Planned (TC-013) |
-| FR-006-AC-16 | Given a plugin response marking every routed item failed with FR-272 `invalid_runtime_input/invalid-value` for a non-canonical package spelling, the driver maps each item to QSL `TerminalValue::Failed` and preserves its identity. | Planned (TC-013) |
-| FR-006-AC-17 | The driver synthesizes failed provider results only for host/protocol failures defined by ADR-029 PL-7; it does not attribute a process request-body refusal to QSL. | Planned (TC-013) |
+| FR-006-AC-5 | The driver composes the request manifest snapshot from the lossless FR-331 DTO retained in each registered-candidate registry record, covering linked and process providers; the `quire-cli` adapter serializes that snapshot without reconstructing or adding members. | Planned (TC-013) |
+| FR-006-AC-6 | The `quire-cli` adapter serializes `package` as the unpadded base64url encoding of the emitted package's exact bytes. | Planned (TC-013) |
+| FR-006-AC-7 | The `quire-cli` adapter serializes `package_id` from the same `EmittedPackage` value as the encoded package bytes. | Planned (TC-013) |
+| FR-006-AC-8 | The `quire-cli` adapter serializes `deadline_ms` equal to the caller-supplied process-provider deadline. | Planned (TC-013) |
+| FR-006-AC-9 | The `quire-cli` adapter serializes a request without top-level `domains` or `limits` members. | Planned (TC-013) |
+| FR-006-AC-10 | The `quire-cli` adapter serializes each item's request index, claim locus and kind from CG's routed output. | Planned (TC-013; full source projection awaits IR-629) |
+| FR-006-AC-11 | The `quire-cli` adapter serializes each item's selected backend and candidate set from CG's routed output. | Planned (TC-013; full source projection awaits IR-629) |
+| FR-006-AC-12 | The `quire-cli` adapter serializes each item's extent and bounds from CG's routed output. | Planned (TC-013; full source projection awaits IR-629 and QSL-654) |
+| FR-006-AC-13 | The `quire-cli` adapter serializes each item's temporal proof bounds under `items[].temporal.subject.proof_bounds`. | Planned (TC-013; full source projection awaits IR-629) |
+| FR-006-AC-14 | The driver's shared settlement path preserves a plugin `declined` result's typed code in QSL `TerminalValue::Declined { code }`. | Planned (TC-013) |
+| FR-006-AC-15 | A validated result without a specified QSL terminal mapping remains typed and unmapped in the driver's shared settlement path. | Planned (TC-013; IR-677 and QSL result-mapping APIs) |
+| FR-006-AC-16 | The driver's shared settlement path carries the FR-272 cause, diagnostic code and available locus and message in a QSL `OutcomeDiagnostic`; free-form message or `detail` text does not select a terminal. | Planned (TC-013) |
+| FR-006-AC-17 | Given a plugin response marking every routed item failed with FR-272 cause `stale_dependency` and code `content-mismatch`, the `quire-cli` adapter preserves the typed response and routed item identities, and the driver's shared settlement path maps each item to QSL `TerminalValue::Failed` with the diagnostic from FR-006-AC-16. | Planned (TC-013) |
+| FR-006-AC-18 | Given a plugin response marking every routed item failed with FR-272 cause `invalid_runtime_input` and code `invalid-value` for a non-canonical package spelling, the `quire-cli` adapter preserves the typed response and routed item identities, and the driver's shared settlement path maps each item to QSL `TerminalValue::Failed` with the diagnostic from FR-006-AC-16. | Planned (TC-013) |
+| FR-006-AC-19 | The driver synthesizes failed provider results only for host/protocol failures defined by ADR-029 PL-7; it does not attribute a process request-body refusal to QSL. | Planned (TC-013) |
 
 ## Dependencies
 
