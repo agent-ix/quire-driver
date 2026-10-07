@@ -659,7 +659,7 @@ mod tests {
         }
     }
 
-    /// Trace: FR-005-AC-12, FR-005-AC-14, FR-005-AC-15.
+    /// Trace: FR-005-AC-15.
     #[test]
     fn hello_admits_process_descriptor_and_retains_full_manifest() {
         let stage = hello(
@@ -801,7 +801,7 @@ mod tests {
         assert_eq!(encode_package_bytes(&bytes), "-_8");
     }
 
-    /// Trace: FR-006-AC-5, FR-006-AC-7, FR-006-AC-8, FR-006-AC-13.
+    /// Trace: FR-006-AC-7, FR-006-AC-8, FR-006-AC-13.
     #[test]
     fn request_wire_keeps_package_bounds_and_temporal_proof_bounds_at_contract_paths() {
         let item = RequestItem {
@@ -916,6 +916,12 @@ mod tests {
         assert!(matches!(
             RequestStage::from_emitted(&package, &manifests, 100, Vec::new()),
             Err(RequestStageError::EmptyRequest)
+        ));
+        let mut missing_wire = manifests[1].clone();
+        missing_wire.wire = None;
+        assert!(matches!(
+            RequestStage::from_emitted(&package, &[missing_wire], 100, vec![item.clone()]),
+            Err(RequestStageError::ManifestDescriptor)
         ));
         assert!(matches!(
             RequestStage::from_emitted(&package, &[], 100, vec![item.clone()]),
