@@ -37,7 +37,7 @@ settlement path used for first-party providers.
 - The typed provider results returned for the routed items, consumed by the
   driver's proof settlement path.
 - Bounded plugin process-tree cleanup before normal CLI termination or exit
-  after handled SIGINT/SIGTERM.
+  after handled SIGINT/SIGTERM on platforms covered by this requirement.
 
 ## Behavior
 
@@ -49,36 +49,42 @@ settlement path used for first-party providers.
   `quire-plugin-host`, using QSL ADR-029 PL-1 through PL-7 as the authoritative
   contract; it SHALL add no plugin wire format, lifecycle or failure mapping.
 - The `quire-cli` adapter SHALL start the host session with the caller-named
-  executable path, admit its hello manifest through the shared manifest
-  boundary, and send only the items negotiated to that provider.
+  executable path, pass the once-admitted descriptor returned by the host hello
+  admitter to the driver's existing registry without re-admitting it or
+  building a second registry, and send only the items negotiated to that
+  provider.
 - The driver SHALL pass the seam's validated typed results to the same
   settlement path used for first-party provider results.
-- The `quire-cli` adapter SHALL close every active plugin session before
-  normal command termination. If graceful session shutdown exceeds the QSL
-  cancellation grace, it SHALL terminate the process tree and await cleanup
-  within the one-second bound in FR-013.
-- When `quire-cli` receives SIGINT or SIGTERM while a plugin session is
-  starting, running or shutting down, it SHALL request cancellation through
-  the caller-owned QSL handle,
-  allow the QSL cancellation grace to complete, terminate any remaining
+- The `quire-cli` adapter SHALL request graceful shutdown of every active
+  plugin session before normal command termination. On Linux and macOS, if
+  graceful shutdown exceeds `RunLimits.cancellation_grace`, it SHALL terminate
+  the process tree and await cleanup within the one-second bound in FR-013.
+  Windows forced process-tree cleanup is planned under IR-674 and specified by
+  FR-013-AC-14; this requirement does not claim the merged host provides it.
+- When `quire-cli` on Linux or macOS receives SIGINT or SIGTERM while a plugin
+  session is starting, running or shutting down, it SHALL request cancellation
+  through the caller-owned QSL handle, allow `RunLimits.cancellation_grace` to
+  expire or the session to settle, terminate any remaining
   plugin process tree, and await cleanup within the one-second bound in
-  FR-013 before exiting. This guarantee covers handled signals and normal
-  command termination; it does not cover an uncatchable host kill on Unix or
-  a plugin descendant that deliberately leaves the host's process group.
-- When `quire-cli` runs on Windows, it SHALL close each active plugin session
-  before CLI termination. The host SHALL use the session's owning Job Object
-  handle configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`; closing that
-  handle SHALL terminate remaining job members.
+  FR-013 before exiting. The CLI SHALL then exit with the conventional
+  signal-terminated process status; this requirement makes no claim about a
+  QSL cancellation cause for the signal. If no plugin session is active, the
+  CLI SHALL retain the platform's default signal disposition. This guarantee
+  does not cover an uncatchable host kill on Unix or a plugin descendant that
+  deliberately leaves the host's process group.
+- Windows console control events, including Ctrl+C and console close, retain
+  the platform's default disposition; this requirement makes no plugin cleanup
+  guarantee for those events. Windows process-tree cleanup, if supported by
+  the host, is specified only by [FR-013-AC-14](./FR-013-host-process-plugins.md).
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the caller-named executable path, current emitted package bytes and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and admits the hello manifest. | Test (TC-013, TC-028) |
+| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the caller-named executable path, current emitted package bytes and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Test (TC-013, TC-028) |
 | FR-006-AC-2 | Validated typed results returned through the process-provider seam enter the same driver proof settlement path as first-party provider results, while unrelated routed items retain their own provider results. | Test (TC-013) |
-| FR-006-AC-3 | Before normal CLI command termination, every active plugin session is shut down; if graceful shutdown expires, its process tree terminates and cleanup completes within one second. | Test (TC-028) |
-| FR-006-AC-4 | Handled SIGINT or SIGTERM while a plugin session is starting, running or shutting down requests QSL cancellation and cleans up the plugin process tree before CLI exit; forced termination cleanup completes within one second after it begins. | Test (TC-028) |
-| FR-006-AC-5 | When `quire-cli` terminates on Windows with a plugin session active, it closes the session's owning Job Object handle; the host configures `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` so remaining job members terminate. | Test (TC-028) |
+| FR-006-AC-3 | Before normal CLI command termination, the adapter requests graceful shutdown of every active plugin session; on Linux and macOS, if `RunLimits.cancellation_grace` expires first, the process tree terminates and cleanup completes within one second. Windows forced process-tree cleanup is planned under IR-674 and is not claimed here. | Test (TC-028) |
+| FR-006-AC-4 | On Linux or macOS, handled SIGINT or SIGTERM while a plugin session is starting, running or shutting down requests cancellation through the caller-owned QSL handle, waits for settlement or `RunLimits.cancellation_grace` expiry, cleans up the plugin process tree before CLI exit, and returns the conventional signal-terminated process status without claiming a QSL cause; with no active session, the platform's default signal disposition is retained. | Test (TC-028) |
 
 ## Dependencies
 

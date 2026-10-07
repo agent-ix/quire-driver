@@ -1,5 +1,5 @@
 ---
-id: SR-044
+id: SR-052
 title: "scope-boundary analysis of IR-672 adapter specification"
 type: SpecReview
 analysis: scope-boundary
@@ -20,4 +20,4 @@ Responsibility is divided among QSL, the driver, the CLI adapter, and the proces
 ## Analysis Notes
 
 - The driver package remains host-free and does not define process origin or CG backend mapping.
-- Windows Job Object creation, assignment, and kill-on-close are host responsibilities; CLI closes the owning session on exit.
+- The Windows cleanup mechanism decision belongs to IR-674; CLI owns only its adapter-level signal and normal session lifecycle responsibilities.

@@ -64,9 +64,12 @@ is specified in Behavior.
   observed ceilings, memory observation and symbolic-argument bounds in the
   typed execution evidence. CG FR-028 defines the wall-clock ceiling as the
   execution timeout; the driver SHALL NOT supply a second timeout.
-- The `quire-cli` adapter SHALL supply admitted plugin hello manifests to the
-  driver. The driver SHALL register them with linked providers through the one
-  `qsl_route::Registry` it builds. The QSL registry builder assigns origin
+- The process host hello admitter and the driver's registry builder SHALL use
+  the same QSL manifest-admission boundary exactly once: the host returns the
+  admitted descriptor, and the registry registers it without re-admitting it.
+  `quire-cli` SHALL NOT build a second registry. The driver SHALL register the
+  admitted process descriptors with linked providers through its one
+  `qsl_route::Registry`. The QSL registry builder assigns origin
   `Linked` to compile-time providers and `Process` to plugin hello descriptors;
   the driver passes resulting descriptors to CG without constructing CG
   backend kinds. It SHALL preserve the registry's typed duplicate-backend
@@ -83,7 +86,7 @@ is specified in Behavior.
 | FR-005-AC-2 | The provider receives the same emitted package, routed request, limits and cancellation handle supplied by the driver, and its typed results are returned without semantic changes. Kani generation uses caller-supplied `ProofCeilings`; execution requires those ceilings to match the harness identity and preserves CG's ceiling, memory and symbolic-argument evidence. | Test (TC-012) |
 | FR-005-AC-3 | Two providers with distinct manifest identities are registered as distinct backends; a run invokes only the provider selected for its routed items. | Test (TC-012) |
 | FR-005-AC-4 | The driver preserves QSL registry results: an equal descriptor repeat is idempotent; an unequal descriptor for an existing `BackendId`, including one with a different origin, returns the typed duplicate-backend refusal, withdraws that identity, and invokes neither provider. | Partial (TC-012 checks equal linked-manifest idempotence; process-origin registration remains with plugin-host work) |
-| FR-005-AC-5 | `quire-cli` supplies plugin hello manifests to the QSL registry builder, which admits them and assigns origin `Process`; the driver projects each resulting descriptor's identity, advertised pairs and origin into CG's descriptor without changing their meaning, and CG maps that origin to its process backend kind. | Partial (TC-012 covers the projection; `quire-cli` process-host registration remains planned. CG IR-629 is spec-merged but its process backend-kind code is pending.) |
+| FR-005-AC-5 | The host hello admitter returns the once-admitted process descriptor to `quire-cli`; the driver registers it without re-admission in its single QSL registry, which assigns origin `Process`. The driver projects each resulting descriptor's identity, advertised pairs and origin into CG's descriptor without changing their meaning, and CG maps that origin to its process backend kind. | Partial (TC-012 covers projection; CLI/host composition remains planned. CG IR-629 process backend-kind code is pending.) |
 
 The current linked Kani adapter is the only Provider execution adapter. Its
 `ProviderLimits` and result carriers are Kani-specific; they do not yet

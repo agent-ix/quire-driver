@@ -1,5 +1,5 @@
 ---
-id: SR-038
+id: SR-046
 title: "base checklist review of IR-672 adapter specification"
 type: SpecReview
 analysis: base
@@ -9,18 +9,18 @@ review_set: all
 
 ## Summary
 
-The adapter ownership and shutdown requirements are stated across the functional requirements, test cases, matrix, and architecture record. The driver remains independent of the process host, while `quire-cli` owns composition and lifecycle handling. The process-to-CG mapping remains an explicit external dependency.
+The adapter ownership and shutdown requirements are stated across the functional requirements, test cases, matrix, and architecture record. The driver remains independent of the process host, while `quire-cli` owns composition and lifecycle handling. Process-to-CG mapping remains an explicit external dependency, and Windows kill-on-close is marked planned under IR-674 because the merged host cannot provide it through its standard-library path.
 
 ## Findings
 
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
-| FND-001 | low | Windows Job Object assignment must precede plugin execution; this is now stated in FR-013 and verified by TC-028. | FR-013-AC-14..15, TC-028 |
+| FND-001 | high | The merged host cannot meet Windows kill-on-close through its current standard-library Job Object path; FR-013-AC-14 and the architecture row now mark the mechanism planned under IR-674. | FR-013-AC-14, AD-001 |
 
 ## Checklist Notes
 
-- Identifiers are unique and traceable; FR-006-AC-3..5 and FR-013-AC-14..15 have TC-028 coverage.
-- TC-005 covers the direct CLI-to-host dependency and host-free driver closure; TC-028 covers adapter behavior.
-- TC-028 distinguishes package-graph checks from lifecycle checks gated on CG IR-629.
+- Identifiers are unique and traceable; FR-006-AC-3..4 and FR-013-AC-14..15 have TC-028 coverage.
+- TC-005's host-free driver closure is already tested; its direct CLI-to-host edge assertion remains planned for the code slice. TC-028 covers existing package layout plus planned adapter behavior.
+- TC-028 gates only end-to-end provider routing on CG IR-629; package and fixture lifecycle checks are independent.
 - Unix uncatchable host termination and descendants escaping the host process group are stated exclusions.
-- Quire validation passed after the requirement and test-case edits.
+- Quire validation exits 0 with 0 grammar findings; it emits seven ambient catalog notices (DuplicateArchetype x5, inline-data-schema, DuplicateInverseEdge).

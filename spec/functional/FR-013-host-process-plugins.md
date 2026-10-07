@@ -100,14 +100,10 @@ specifies the driver-owned process-provider seam and settlement composition.
 - The host SHALL avoid unbounded busy-wait while waiting for process exit.
 - When graceful shutdown begins, the host SHALL send the shutdown frame and
   observe process exit within the configured grace.
-- When the host runs on Windows, it SHALL assign the plugin and its descendants
-  to a Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` before
-  allowing plugin code to execute.
-- When the host closes the session's owning Windows Job Object handle, the host SHALL terminate every remaining job member.
-- When the host cannot create the Windows Job Object or assign the plugin
-  child before plugin execution begins, it SHALL return a typed host-start
-  failure, dispatch no provider request, and terminate any child it already
-  created.
+- Planned under IR-674: determine whether the merged process host can provide
+  Windows process-tree cleanup. The current merged host does not configure
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` through its standard-library Job Object
+  path; this specification does not claim that Windows cleanup is implemented.
 - When the child exits non-zero, the host SHALL return a process failure.
   EOF before the expected frame SHALL preserve an available
   process exit status in preference to a generic missing-frame error.
@@ -142,8 +138,8 @@ specifies the driver-owned process-provider seam and settlement composition.
 | FR-013-AC-11 | The host uses QSL ADR-029 PL-1 through PL-7 without defining a local wire or manifest-digest format; `quire-driver` excludes the host crate, and `quire-cli` has a direct host dependency and composes it with the driver's seam. | Test (TC-005, TC-028) and analysis |
 | FR-013-AC-12 | On a clean Cargo cache, the repository `make test` target fetches every locked platform dependency before running the offline TC-005 dependency metadata check, and the check passes. | Test (TC-027) |
 | FR-013-AC-13 | The host test suite reports an actionable prerequisite failure naming the missing fixture runtime and its installation instructions. | Test (TC-027) |
-| FR-013-AC-14 | When the host runs on Windows, it assigns the plugin process tree to a Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`; closing the session's owning job handle terminates remaining job members. | Test (TC-028) |
-| FR-013-AC-15 | When Windows Job Object creation or child assignment fails, the host returns a typed start failure, dispatches no provider request, and terminates any child already created. | Test (TC-028) |
+| FR-013-AC-14 | When a supported Windows process-tree cleanup mechanism is selected under IR-674, the host assigns the plugin process tree to a kill-on-close Job Object before plugin code executes; closing the owning job handle terminates remaining job members. | Planned (IR-674 mechanism decision; Windows-native evidence required) |
+| FR-013-AC-15 | When Windows process-tree cleanup setup fails before plugin execution, the host returns a typed start failure, dispatches no provider request, and terminates any child already created. | Analysis/Inspection (review Windows host startup/error path in `quire-plugin-host`; runtime evidence requires a native Windows runner and an injectable or distinguishable setup-failure seam) |
 
 ## Dependencies
 

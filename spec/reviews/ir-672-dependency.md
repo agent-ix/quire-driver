@@ -1,5 +1,5 @@
 ---
-id: SR-041
+id: SR-049
 title: "dependency analysis of IR-672 adapter specification"
 type: SpecReview
 analysis: dependency
@@ -21,4 +21,4 @@ The adapter depends on the host implementation and CLI package boundary. CG IR-6
 
 - `quire-cli` composes `quire-plugin-host`; `quire-driver` excludes that dependency.
 - QSL owns origin vocabulary and registry admission. The driver passes descriptors through without constructing CG backend kinds.
-- Windows Job Object lifecycle behavior is host-owned; signal initiation and active-session closure are CLI-adapter responsibilities.
+- Windows Job Object mechanism is owned by IR-674; signal initiation and active-session closure are CLI-adapter responsibilities.
