@@ -15,6 +15,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-301
     type: depends_on
+  - target: ix://agent-ix/ix-cli-kit/FR-008
+    type: depends_on
 ---
 # FR-002: Expose the lifecycle through one driver CLI and outcome contract
 
@@ -86,8 +88,12 @@ the fallback when that function returns reserved value `5`.
   module for canonical JSON encoding.
 - When the CLI resolves configuration values, it SHALL use ix-cli-kit's
   `config` module.
-- The CLI SHALL use ix-cli-kit's `version` module for build provenance and
-  version agreement.
+- When the user invokes `quire --version`, the CLI SHALL report the semantic
+  version declared by the `quire-cli` Cargo package.
+- When `quire-cli` runs its built-binary version-agreement check, it SHALL
+  compare `CARGO_PKG_VERSION` with the version reported by the built
+  `quire --version` command through
+  `ix_cli_kit::version::Agreement::command`.
 - The CLI SHALL keep its argument parser in the `quire-cli` package.
 - The CLI SHALL read only input paths named by its arguments and read no
   unnamed configuration file.
@@ -106,7 +112,8 @@ the fallback when that function returns reserved value `5`.
 | FR-002-AC-8 | When the CLI writes results and diagnostics, it uses ix-cli-kit's `streams` module for stream discipline. | Test (TC-009, TC-018) |
 | FR-002-AC-9 | When the CLI writes machine-mode outcomes, it uses ix-cli-kit's `json` module for canonical JSON encoding. | Test (TC-009, TC-018) |
 | FR-002-AC-10 | When the CLI resolves configuration values, it uses ix-cli-kit's `config` module. | Test (TC-009) |
-| FR-002-AC-11 | The CLI uses ix-cli-kit's `version` module for build provenance and version agreement. | Test (TC-009) |
+| FR-002-AC-11 | When invoked with `--version`, the CLI reports the semantic version declared by the `quire-cli` Cargo package. | Test (TC-009) |
+| FR-002-AC-12 | The `quire-cli` built-binary version-agreement check uses `ix_cli_kit::version::Agreement::command` to compare `CARGO_PKG_VERSION` with the output of the built `quire --version` command and requires agreement. | Test (TC-009) |
 
 ## Dependencies
 
@@ -116,5 +123,7 @@ the fallback when that function returns reserved value `5`.
   exit-code pass-through; QSL ADR-029 remains authoritative for category
   outcomes and codes. IR-607 adopts the exit module first and retains the
   remaining required kit mechanics as open work.
+- [ix-cli-kit FR-008](ix://agent-ix/ix-cli-kit/FR-008) defines the built-binary
+  version agreement used by AC-12.
 - [TC-009](../test-cases/TC-009-cli-outcome-and-exit-contract.md).
 - [TC-018](../test-cases/TC-018-binary-process-boundary.md), adding verification for AC-2 through AC-4 and AC-6.
