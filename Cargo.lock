@@ -1430,6 +1430,7 @@ dependencies = [
  "qsl-package",
  "qsl-replay",
  "qsl-route",
+ "qsl-semantics",
  "quire-cache",
  "quire-canonical",
  "quire-driver",
@@ -1438,6 +1439,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "signal-hook",
  "thiserror",
 ]

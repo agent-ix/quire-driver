@@ -667,6 +667,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([digest; 32]),
             advertises: Vec::new(),
+            wire: None,
         }])
         .expect("test manifest is admitted");
         let request = CacheRequest::new(
@@ -760,6 +761,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: digest,
             advertises: Vec::new(),
+            wire: None,
         }])
         .expect("descriptor is admitted");
         let request_value = serde_json::json!({"items": [], "budget": 20});
@@ -948,6 +950,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: manifest,
             advertises: Vec::new(),
+            wire: None,
         }])
         .expect("manifest is admitted");
         let request_bytes = br#"{"items":[],"work_limit":20}"#;
@@ -993,6 +996,7 @@ mod tests {
                     identity: backend.as_str().to_owned(),
                     manifest_digest: excluded_manifest,
                     advertises: Vec::new(),
+                    wire: None,
                 }])
                 .expect("excluded descriptor is admitted");
             let excluded_request = admitted_request(&excluded_registry, &backend, request_bytes);
@@ -1024,6 +1028,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([27; 32]),
             advertises: Vec::new(),
+            wire: None,
         }])
         .expect("descriptor is admitted");
         let request = admitted_request(&registry, &backend, br#"{"items":[]}"#);
@@ -1054,6 +1059,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([28; 32]),
             advertises: Vec::new(),
+            wire: None,
         }])
         .expect("descriptor is admitted");
         let request = admitted_request(&registry, &backend, br#"{"items":[]}"#);
@@ -1164,6 +1170,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([23; 32]),
             advertises: Vec::new(),
+            wire: None,
         }])
         .expect("descriptor is admitted");
         let request_bytes = serde_json::to_vec(&serde_json::json!({"meaning": "x".repeat(1024)}))

@@ -6,7 +6,9 @@ use qsl_route::{
     BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin, RegistrationRefusal,
     Registry,
 };
+use serde_json::Value;
 use std::ops::Deref;
+use std::sync::Arc;
 
 use crate::{DriverRefusal, Provider};
 
@@ -27,6 +29,26 @@ pub struct ProviderManifest {
     pub manifest_digest: ManifestDigest,
     /// Each advertised `(kind, mode)` label pair; `None` is an absent label.
     pub advertises: Vec<(Option<String>, Option<String>)>,
+    /// Losslessly retained FR-331 descriptor received at process hello.
+    /// Linked providers leave this absent; their wire descriptor is projected
+    /// from the fields above. Clones share the same process wire allocation.
+    pub wire: Option<Arc<Value>>,
+}
+
+impl ProviderManifest {
+    /// Return this provider's FR-331 descriptor for a request registry snapshot.
+    #[must_use]
+    pub fn wire_descriptor(&self) -> Value {
+        if let Some(wire) = &self.wire {
+            return (**wire).clone();
+        }
+        serde_json::json!({
+            "backend": self.identity,
+            "advertises": self.advertises.iter().map(|(kind, mode)| {
+                serde_json::json!({"kind": kind, "mode": mode})
+            }).collect::<Vec<_>>()
+        })
+    }
 }
 
 /// A registry accepted by the driver's complete manifest-admission pass.
@@ -37,6 +59,7 @@ pub struct ProviderManifest {
 #[derive(Debug)]
 pub struct AdmittedRegistry {
     registry: Registry,
+    manifests: Vec<ProviderManifest>,
 }
 
 /// The QSL registry and linked providers admitted from the same manifest set.
@@ -57,17 +80,47 @@ impl LinkedProviders<'_> {
         &self.admitted
     }
 
-    /// Register caller-admitted descriptors into the same registry that owns
-    /// the linked providers. QSL retains authority over duplicate identity
-    /// refusal and withdrawal; this method does not re-admit descriptors. If
-    /// QSL reports a conflict, its registry remains in that post-conflict
-    /// state: non-conflicting registrations remain, each conflicting identity
-    /// is withdrawn, and later calls continue to return the retained refusal.
+    /// The retained FR-331 descriptor snapshot in registry order.
+    #[must_use]
+    pub fn manifest_snapshot(&self) -> Vec<Value> {
+        let mut manifests = self
+            .admitted
+            .manifests
+            .iter()
+            .map(ProviderManifest::wire_descriptor)
+            .collect::<Vec<_>>();
+        manifests.sort_by(|left, right| left["backend"].as_str().cmp(&right["backend"].as_str()));
+        manifests
+    }
+
+    /// The retained typed manifest records backing [`Self::manifest_snapshot`].
+    #[must_use]
+    pub fn manifest_records(&self) -> &[ProviderManifest] {
+        &self.admitted.manifests
+    }
+
+    /// Register caller-admitted descriptors and their lossless FR-331 DTOs in
+    /// the same registry that owns linked providers. Every registered
+    /// descriptor has one retained manifest snapshot source. QSL retains
+    /// authority over duplicate refusal; this method does not re-admit.
     pub fn register_admitted(
         &mut self,
-        descriptors: impl IntoIterator<Item = BackendDescriptor>,
+        admissions: impl IntoIterator<Item = (BackendDescriptor, ProviderManifest)>,
     ) -> Result<(), DriverRefusal> {
-        register_into_registry(&mut self.admitted.registry, descriptors)
+        let admissions = admissions.into_iter().collect::<Vec<_>>();
+        register_into_registry(
+            &mut self.admitted.registry,
+            admissions.iter().map(|(descriptor, _)| descriptor.clone()),
+        )?;
+        for (_, manifest) in admissions {
+            if !self.admitted.manifests.iter().any(|retained| {
+                retained.identity == manifest.identity
+                    && retained.manifest_digest == manifest.manifest_digest
+            }) {
+                self.admitted.manifests.push(manifest);
+            }
+        }
+        Ok(())
     }
 
     /// The unique linked provider for `backend`, if present.
@@ -124,6 +177,7 @@ impl Deref for AdmittedRegistry {
 pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry, DriverRefusal> {
     let mut registry = Registry::new();
     let mut refusals = Vec::new();
+    let mut admitted_manifests = Vec::new();
     for manifest in manifests {
         let backend_id = BackendId::from_wire(&manifest.identity)
             .map_err(DriverRefusal::EmptyBackendIdentity)?;
@@ -142,13 +196,25 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
                 // The conflict is read back, deduped, from `refusals()`
                 // below; a successful registration needs nothing here.
                 let _ = registry.register(descriptor);
+                if !admitted_manifests
+                    .iter()
+                    .any(|retained: &ProviderManifest| {
+                        retained.identity == manifest.identity
+                            && retained.manifest_digest == manifest.manifest_digest
+                    })
+                {
+                    admitted_manifests.push(manifest.clone());
+                }
             }
             Err(refusal) => refusals.push(refusal),
         }
     }
     refusals.extend(registry.refusals());
     if refusals.is_empty() {
-        Ok(AdmittedRegistry { registry })
+        Ok(AdmittedRegistry {
+            registry,
+            manifests: admitted_manifests,
+        })
     } else {
         refusals.sort();
         Err(DriverRefusal::Registration(refusals))
@@ -208,6 +274,7 @@ mod tests {
             identity: identity.to_owned(),
             manifest_digest: ManifestDigest::from_digest([digest; 32]),
             advertises: Vec::new(),
+            wire: None,
         })
     }
 
@@ -229,7 +296,18 @@ mod tests {
         .expect("the host hello admitter returns a QSL-admitted descriptor");
         let id = BackendId::from_wire("agent-ix/plugin/test").expect("nonempty identity");
         linked
-            .register_admitted([descriptor])
+            .register_admitted([(
+                descriptor,
+                ProviderManifest {
+                    identity: "agent-ix/plugin/test".to_owned(),
+                    manifest_digest: ManifestDigest::from_digest([8; 32]),
+                    advertises: vec![(
+                        Some("operation-contract".to_owned()),
+                        Some("bounded".to_owned()),
+                    )],
+                    wire: None,
+                },
+            )])
             .expect("descriptor registers into the existing registry");
         let registered = linked
             .registry()
@@ -238,6 +316,11 @@ mod tests {
             .expect("registered descriptor");
         assert_eq!(registered.origin(), ProviderOrigin::Process);
         assert_eq!(linked.registry().backends().count(), 2);
+        let snapshot = linked.manifest_snapshot();
+        assert_eq!(snapshot.len(), 2);
+        assert!(snapshot
+            .iter()
+            .any(|manifest| manifest["backend"] == "agent-ix/plugin/test"));
     }
 
     /// Trace: FR-005-AC-4.
@@ -258,7 +341,18 @@ mod tests {
         .expect("process descriptor admits");
 
         let refusal = linked
-            .register_admitted([process])
+            .register_admitted([(
+                process,
+                ProviderManifest {
+                    identity: identity.to_owned(),
+                    manifest_digest: ManifestDigest::from_digest([2; 32]),
+                    advertises: vec![(
+                        Some("operation-contract".to_owned()),
+                        Some("bounded".to_owned()),
+                    )],
+                    wire: None,
+                },
+            )])
             .expect_err("different origin and manifest conflict");
         let refusals = match refusal {
             crate::DriverRefusal::Registration(refusals) => refusals,
@@ -304,7 +398,32 @@ mod tests {
         .expect("process descriptor admits");
 
         linked
-            .register_admitted([process.clone(), process])
+            .register_admitted([
+                (
+                    process.clone(),
+                    ProviderManifest {
+                        identity: "agent-ix/provider/process".to_owned(),
+                        manifest_digest: ManifestDigest::from_digest([2; 32]),
+                        advertises: vec![(
+                            Some("operation-contract".to_owned()),
+                            Some("bounded".to_owned()),
+                        )],
+                        wire: None,
+                    },
+                ),
+                (
+                    process,
+                    ProviderManifest {
+                        identity: "agent-ix/provider/process".to_owned(),
+                        manifest_digest: ManifestDigest::from_digest([2; 32]),
+                        advertises: vec![(
+                            Some("operation-contract".to_owned()),
+                            Some("bounded".to_owned()),
+                        )],
+                        wire: None,
+                    },
+                ),
+            ])
             .expect("identical descriptor repeat is idempotent");
         assert_eq!(linked.registry().backends().count(), 2);
         assert_eq!(linked.registry().refusals().count(), 0);

@@ -487,7 +487,7 @@ mod tests {
         use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
         use quire_driver::{
             ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
-            ProviderRequest, ProviderResults,
+            ProviderManifest, ProviderRequest, ProviderResults,
         };
         use quire_exact::Cancel;
         use serde_json::Value;
@@ -537,15 +537,25 @@ mod tests {
                     context,
                     |manifest: &Value| {
                         let identity = manifest["identity"].as_str().ok_or("missing identity")?;
-                        BackendDescriptor::admit(
+                        let digest = ManifestDigest::from_digest([4; 32]);
+                        let descriptor = BackendDescriptor::admit(
                             Candidate::new(
                                 BackendId::from_wire(identity).map_err(|e| e.to_string())?,
                             ),
                             ProviderOrigin::Process,
-                            ManifestDigest::from_digest([4; 32]),
+                            digest,
                             Vec::<(Option<&str>, Option<&str>)>::new(),
                         )
-                        .map_err(|e| format!("{e:?}"))
+                        .map_err(|e| format!("{e:?}"))?;
+                        Ok((
+                            descriptor,
+                            ProviderManifest {
+                                identity: identity.to_owned(),
+                                manifest_digest: digest,
+                                advertises: Vec::new(),
+                                wire: None,
+                            },
+                        ))
                     },
                     |_: ProcessProviderRequest<'_>| serde_json::json!({"items": []}),
                     |_: &Value, _: &Value| Ok::<(), String>(()),
@@ -567,8 +577,11 @@ mod tests {
                 };
                 if stage.starts_with("request") {
                     let request_cancel = Cancel::new();
+                    let package = crate::test_support::emitted_package();
                     let request = ProcessProviderRequest {
-                        emitted_package: b"signal test package",
+                        emitted_package: &package,
+                        deadline_ms: 4096,
+                        manifest: &[],
                         provider_request: ProviderRequest::new(&[]),
                         cancel: &request_cancel,
                     };
