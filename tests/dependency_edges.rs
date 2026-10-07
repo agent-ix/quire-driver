@@ -132,7 +132,7 @@ impl Graph {
     }
 }
 
-/// Trace: FR-001-AC-1, FR-001-AC-11, FR-012-AC-13, FR-013-AC-11, FR-014-AC-2, FR-014-AC-3 (TC-005); cache boundary and CLI composition/default membership.
+/// Trace: FR-001-AC-1, FR-001-AC-11, FR-012-AC-13, FR-013-AC-11, FR-014-AC-2, FR-014-AC-3 (TC-005); driver closure, cache boundary and CLI default membership.
 #[test]
 fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let graph = Graph::load();
@@ -175,10 +175,10 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let cli = graph.ids_named("quire-cli");
     assert_eq!(cli.len(), 1, "one CLI package");
     let cli_direct: BTreeSet<&str> = graph.deps_of(cli[0]).map(|p| p.name.as_str()).collect();
-    for required in ["quire-driver", "quire-cache", "quire-plugin-host"] {
+    for required in ["quire-driver", "quire-cache"] {
         assert!(
             cli_direct.contains(required),
-            "quire-cli must directly compose {required}"
+            "quire-cli must directly depend on {required}"
         );
     }
     assert!(

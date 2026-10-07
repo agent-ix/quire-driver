@@ -1259,6 +1259,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "process-wrap"
+version = "10.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f21b97672d2dc848e7b25701ab4535618b92f4861c13cc3f7f7bed52ad3c8da"
+dependencies = [
+ "indexmap",
+ "nix",
+ "windows",
+]
+
+[[package]]
 name = "psm"
 version = "0.1.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1435,7 +1446,6 @@ dependencies = [
  "qsl-replay",
  "quire-cache",
  "quire-driver",
- "quire-plugin-host",
  "regex",
  "serde_json",
 ]
@@ -1543,6 +1553,7 @@ dependencies = [
 name = "quire-plugin-host"
 version = "0.1.0"
 dependencies = [
+ "process-wrap",
  "quire-canonical",
  "quire-exact",
  "serde",

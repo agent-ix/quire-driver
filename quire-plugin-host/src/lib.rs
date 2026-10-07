@@ -5,16 +5,17 @@
 //! FR-331 bodies remain caller-typed; this crate does not define a second
 //! provider schema or settlement vocabulary.
 
+use process_wrap::std::{ChildWrapper, CommandWrap};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, Signal, System};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
 use quire_canonical::{to_vec, Limits};
 use quire_exact::{Cancel, CancelCause};
@@ -25,6 +26,7 @@ use thiserror::Error;
 
 /// The sole protocol identity accepted by ADR-029 PL-4.
 pub const PROTOCOL: &str = "quire.plugin-wire/v1";
+const WORKER_CLEANUP_LIMIT: Duration = Duration::from_secs(1);
 
 /// Caller-controlled per-frame and per-run byte ceilings from ADR-029 PL-3.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -227,20 +229,22 @@ fn spawn_writer<W: Write + Send + 'static>(
     writer: W,
     max_frame_bytes: u64,
     budget: Arc<ByteBudget>,
-) -> (mpsc::Sender<WriterMessage>, thread::JoinHandle<()>) {
+) -> io::Result<(mpsc::Sender<WriterMessage>, thread::JoinHandle<()>)> {
     let (sender, receiver) = mpsc::channel::<WriterMessage>();
-    let thread = thread::spawn(move || {
-        let mut writer = FrameWriter::with_budget(writer, max_frame_bytes, budget);
-        while let Ok(message) = receiver.recv() {
-            let result = writer.write(&message.frame);
-            let failed = result.is_err();
-            let _ = message.completion.send(result);
-            if failed {
-                break;
+    let thread = thread::Builder::new()
+        .name("quire-plugin-stdin".to_owned())
+        .spawn(move || {
+            let mut writer = FrameWriter::with_budget(writer, max_frame_bytes, budget);
+            while let Ok(message) = receiver.recv() {
+                let result = writer.write(&message.frame);
+                let failed = result.is_err();
+                let _ = message.completion.send(result);
+                if failed {
+                    break;
+                }
             }
-        }
-    });
-    (sender, thread)
+        })?;
+    Ok((sender, thread))
 }
 
 impl<W: Write> FrameWriter<W> {
@@ -309,33 +313,6 @@ pub struct RunLimits {
     pub max_process_cpu_time: Option<Duration>,
 }
 
-/// Inputs to one host-managed process-provider request.
-pub struct RunRequest<'a, Q> {
-    /// The exact executable path selected by the caller; no discovery occurs.
-    pub executable: &'a Path,
-    /// Caller-supplied argument vector, passed without shell interpretation.
-    pub arguments: &'a [std::ffi::OsString],
-    /// The FR-331 request body for the items routed to this process.
-    pub body: &'a Q,
-    /// Caller-selected transport and cancellation budgets.
-    pub limits: RunLimits,
-    /// Caller-owned cancellation handle. The host reads its cause but no clock.
-    pub cancel: &'a Cancel,
-}
-
-/// A successful one-request plugin run.
-#[derive(Debug)]
-pub struct PluginRun<M, R> {
-    /// The admitted manifest returned in the plugin's initial `hello`.
-    pub manifest: M,
-    /// The typed FR-331 result for the routed request.
-    pub result: R,
-    /// Opaque standard-error bytes, truncated to the caller's limit.
-    pub stderr: Vec<u8>,
-    /// Whether additional standard-error bytes were discarded.
-    pub stderr_truncated: bool,
-}
-
 /// Inputs to a hello-first plugin session. No provider request is required to
 /// start the process or admit its manifest.
 pub struct SessionStart<'a> {
@@ -364,7 +341,7 @@ pub struct SessionFinished<M> {
 /// A hello-admitted process session that accepts zero or more sequential
 /// provider requests before shutdown (QSL ADR-029 PL-6).
 pub struct PluginSession<M, F, A> {
-    child: Option<Child>,
+    child: Option<Box<dyn ChildWrapper>>,
     manifest: Option<M>,
     writer: Option<mpsc::Sender<WriterMessage>>,
     writer_thread: Option<thread::JoinHandle<()>>,
@@ -388,7 +365,12 @@ where
         start: SessionStart<'_>,
         admit_manifest: impl FnOnce(&M) -> Result<(), A>,
     ) -> Result<Self, PluginError<A, std::convert::Infallible, F>> {
-        if !has_directory_component(start.executable) {
+        if !has_directory_component(start.executable) || is_shell_script(start.executable) {
+            if is_shell_script(start.executable) {
+                return Err(PluginError::ShellScriptExecutable(
+                    start.executable.to_path_buf(),
+                ));
+            }
             return Err(PluginError::BareExecutableName(
                 start.executable.to_path_buf(),
             ));
@@ -396,59 +378,112 @@ where
         if let Some(cause) = start.cancel.cause() {
             return Err(cancel_error(cause));
         }
-        let mut child = Command::new(start.executable)
+        let mut command = Command::new(start.executable);
+        command
             .args(start.arguments)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut command = CommandWrap::from(command);
+        #[cfg(unix)]
+        command.wrap(process_wrap::std::ProcessGroup::leader());
+        #[cfg(windows)]
+        command.wrap(process_wrap::std::JobObject);
+        let mut child = command
             .spawn()
             .map_err(|error| PluginError::from_spawn(start.executable, error))?;
-        let monitor = ProcessMonitor::new(
-            &child,
+        let mut monitor = ProcessMonitor::new(
+            child.as_ref(),
             start.limits.max_process_memory_bytes,
             start.limits.max_process_cpu_time,
         );
-        let Some(stdin) = child.stdin.take() else {
+        let Some(stdin) = child.stdin().take() else {
             let _ = child.kill();
             let _ = child.wait();
             return Err(PluginError::MissingPipe("stdin"));
         };
-        let Some(stdout) = child.stdout.take() else {
+        let Some(stdout) = child.stdout().take() else {
             let _ = child.kill();
             let _ = child.wait();
             return Err(PluginError::MissingPipe("stdout"));
         };
-        let Some(stderr) = child.stderr.take() else {
+        let Some(stderr) = child.stderr().take() else {
             let _ = child.kill();
             let _ = child.wait();
             return Err(PluginError::MissingPipe("stderr"));
         };
 
         let byte_budget = Arc::new(ByteBudget::new(start.limits.frames.max_total_bytes));
-        let (writer, writer_thread) = spawn_writer(
+        let (writer, writer_thread) = match spawn_writer(
             stdin,
             start.limits.frames.max_frame_bytes,
             Arc::clone(&byte_budget),
-        );
-        let (sender, receiver) = mpsc::channel::<Result<Option<Envelope>, FrameError>>();
-        let reader_thread = thread::spawn(move || {
-            let mut reader =
-                FrameReader::with_budget(stdout, start.limits.frames.max_frame_bytes, byte_budget);
-            loop {
-                let event = match reader.read::<Envelope>() {
-                    Ok(Some(frame)) => Some(Ok(Some(frame))),
-                    Ok(None) => Some(Ok(None)),
-                    Err(error) => Some(Err(error)),
-                };
-                let Some(event) = event else { break };
-                let terminal = !matches!(event, Ok(Some(_)));
-                if sender.send(event).is_err() || terminal {
-                    break;
-                }
+        ) {
+            Ok(workers) => workers,
+            Err(error) => {
+                monitor.terminate_tree(child.as_mut());
+                return Err(PluginError::WorkerSpawn {
+                    worker: "stdin writer",
+                    source: error,
+                });
             }
-        });
+        };
+        let (sender, receiver) = mpsc::channel::<Result<Option<Envelope>, FrameError>>();
+        let reader_thread = match thread::Builder::new()
+            .name("quire-plugin-stdout".to_owned())
+            .spawn(move || {
+                let mut reader = FrameReader::with_budget(
+                    stdout,
+                    start.limits.frames.max_frame_bytes,
+                    byte_budget,
+                );
+                loop {
+                    let event = match reader.read::<Envelope>() {
+                        Ok(Some(frame)) => Some(Ok(Some(frame))),
+                        Ok(None) => Some(Ok(None)),
+                        Err(error) => Some(Err(error)),
+                    };
+                    let Some(event) = event else { break };
+                    let terminal = !matches!(event, Ok(Some(_)));
+                    if sender.send(event).is_err() || terminal {
+                        break;
+                    }
+                }
+            }) {
+            Ok(handle) => handle,
+            Err(error) => {
+                drop(writer);
+                monitor.terminate_tree(child.as_mut());
+                if join_thread_within(&writer_thread, WORKER_CLEANUP_LIMIT) {
+                    let _ = writer_thread.join();
+                }
+                return Err(PluginError::WorkerSpawn {
+                    worker: "stdout reader",
+                    source: error,
+                });
+            }
+        };
         let stderr_limit = start.limits.max_stderr_bytes;
-        let stderr_thread = thread::spawn(move || capture_stderr(stderr, stderr_limit));
+        let stderr_thread = match thread::Builder::new()
+            .name("quire-plugin-stderr".to_owned())
+            .spawn(move || capture_stderr(stderr, stderr_limit))
+        {
+            Ok(handle) => handle,
+            Err(error) => {
+                drop(writer);
+                monitor.terminate_tree(child.as_mut());
+                if join_thread_within(&reader_thread, WORKER_CLEANUP_LIMIT) {
+                    let _ = reader_thread.join();
+                }
+                if join_thread_within(&writer_thread, WORKER_CLEANUP_LIMIT) {
+                    let _ = writer_thread.join();
+                }
+                return Err(PluginError::WorkerSpawn {
+                    worker: "stderr capture",
+                    source: error,
+                });
+            }
+        };
         let mut session = Self {
             child: Some(child),
             manifest: None,
@@ -468,8 +503,12 @@ where
                 .child
                 .as_mut()
                 .ok_or(PluginError::MissingPipe("child"))?;
-            let envelope =
-                next_frame(&session.receiver, child, start.cancel, &mut session.monitor)?;
+            let envelope = next_frame(
+                &session.receiver,
+                child.as_mut(),
+                start.cancel,
+                &mut session.monitor,
+            )?;
             if envelope.kind == Kind::Fault {
                 return Err(PluginError::Fault(envelope.decode_body::<F>()?));
             }
@@ -532,13 +571,14 @@ where
                     body: request_body,
                 },
                 cancel,
-                child,
+                child.as_mut(),
                 &mut self.monitor,
             )?;
             let frame = match next_frame(
                 &self.receiver,
                 self.child
                     .as_mut()
+                    .map(Box::as_mut)
                     .ok_or(PluginError::MissingPipe("child"))?,
                 cancel,
                 &mut self.monitor,
@@ -554,11 +594,13 @@ where
                             kind: Kind::Cancel,
                             body: serde_json::json!({"id": request_id}),
                         },
+                        self.limits.cancellation_grace,
                     )?;
                     let frame = match next_frame_with_grace::<A, V, F>(
                         &self.receiver,
                         self.child
                             .as_mut()
+                            .map(Box::as_mut)
                             .ok_or(PluginError::MissingPipe("child"))?,
                         self.limits.cancellation_grace,
                         &mut self.monitor,
@@ -599,16 +641,19 @@ where
         let result = (|| {
             let id = self.next_id.saturating_sub(1);
             let writer = self.writer.as_ref().ok_or(PluginError::WriterThread)?;
-            send_shutdown(writer, id)?;
+            send_shutdown(writer, id, self.limits.cancellation_grace)?;
             self.writer.take();
-            self.writer_thread
-                .take()
-                .ok_or(PluginError::WriterThread)?
+            let writer_thread = self.writer_thread.take().ok_or(PluginError::WriterThread)?;
+            if !join_thread_within(&writer_thread, self.limits.cancellation_grace) {
+                return Err(PluginError::WorkerJoinTimeout("writer"));
+            }
+            writer_thread
                 .join()
                 .map_err(|_| PluginError::WriterThread)?;
             let child = self
                 .child
                 .as_mut()
+                .map(Box::as_mut)
                 .ok_or(PluginError::MissingPipe("child"))?;
             wait_for_exit(
                 &self.receiver,
@@ -620,8 +665,12 @@ where
                 self.stderr_thread
                     .take()
                     .ok_or(PluginError::CaptureThread)?,
+                self.limits.cancellation_grace,
             )?;
-            join_reader(self.reader_thread.take().ok_or(PluginError::ReaderThread)?)?;
+            join_reader(
+                self.reader_thread.take().ok_or(PluginError::ReaderThread)?,
+                self.limits.cancellation_grace,
+            )?;
             self.child.take();
             Ok(SessionFinished {
                 manifest: self.manifest.take().ok_or(PluginError::MissingManifest)?,
@@ -636,26 +685,32 @@ where
     }
 
     fn abort<V>(&mut self, cause: PluginError<A, V, F>) -> PluginError<A, V, F> {
+        let cleanup_until = Instant::now()
+            .checked_add(WORKER_CLEANUP_LIMIT)
+            .unwrap_or_else(Instant::now);
         if let Some(child) = self.child.as_mut() {
-            self.monitor.terminate_tree(child);
+            self.monitor.terminate_tree(child.as_mut());
         }
         self.writer.take();
         let (stderr, stderr_truncated, capture_error) = match self.stderr_thread.take() {
-            Some(handle) => match handle.join() {
+            Some(handle) if join_thread_until(&handle, cleanup_until) => match handle.join() {
                 Ok(Ok(captured)) => (captured.bytes, captured.truncated, None),
                 Ok(Err(error)) => (Vec::new(), false, Some(error.to_string())),
                 Err(_) => (Vec::new(), false, Some("stderr worker panicked".to_owned())),
             },
+            Some(_) => (
+                Vec::new(),
+                false,
+                Some("stderr worker did not stop within cancellation grace".to_owned()),
+            ),
             None => (Vec::new(), false, None),
         };
-        let reader_join_failed = self
-            .reader_thread
-            .take()
-            .is_some_and(|handle| handle.join().is_err());
-        let writer_join_failed = self
-            .writer_thread
-            .take()
-            .is_some_and(|handle| handle.join().is_err());
+        let reader_join_failed = self.reader_thread.take().is_some_and(|handle| {
+            !join_thread_until(&handle, cleanup_until) || handle.join().is_err()
+        });
+        let writer_join_failed = self.writer_thread.take().is_some_and(|handle| {
+            !join_thread_until(&handle, cleanup_until) || handle.join().is_err()
+        });
         PluginError::WithDiagnostics {
             cause: Box::new(cause),
             stderr,
@@ -669,257 +724,34 @@ where
 
 impl<M, F, A> Drop for PluginSession<M, F, A> {
     fn drop(&mut self) {
+        let cleanup_until = Instant::now()
+            .checked_add(WORKER_CLEANUP_LIMIT)
+            .unwrap_or_else(Instant::now);
         if let Some(child) = self.child.as_mut() {
-            self.monitor.terminate_tree(child);
+            self.monitor.terminate_tree(child.as_mut());
         }
         self.writer.take();
         if let Some(handle) = self.writer_thread.take() {
-            let _ = handle.join();
+            if join_thread_until(&handle, cleanup_until) {
+                let _ = handle.join();
+            }
         }
         if let Some(handle) = self.reader_thread.take() {
-            let _ = handle.join();
+            if join_thread_until(&handle, cleanup_until) {
+                let _ = handle.join();
+            }
         }
         if let Some(handle) = self.stderr_thread.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-/// Run the caller-named plugin through the ADR-029 PL-2..PL-7 lifecycle.
-///
-/// `admit_manifest` performs the caller's typed registration/admission before
-/// any request is sent. `validate_result` checks item membership, advertised
-/// kinds, terminal completeness and the manifest identity against the caller's
-/// typed FR-331 reader. No second manifest, request or result schema is defined
-/// here.
-pub fn run<M, Q, R, F, A, V>(
-    request: RunRequest<'_, Q>,
-    admit_manifest: impl FnOnce(&M) -> Result<(), A>,
-    validate_result: impl FnOnce(&M, &R) -> Result<(), V>,
-) -> Result<PluginRun<M, R>, PluginError<A, V, F>>
-where
-    M: DeserializeOwned,
-    Q: Serialize,
-    R: DeserializeOwned,
-    F: DeserializeOwned,
-{
-    if !has_directory_component(request.executable) {
-        return Err(PluginError::BareExecutableName(
-            request.executable.to_path_buf(),
-        ));
-    }
-    if request.cancel.cause().is_some() {
-        return Err(cancel_error(
-            request.cancel.cause().unwrap_or(CancelCause::Requested),
-        ));
-    }
-    let mut child = Command::new(request.executable)
-        .args(request.arguments)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| PluginError::from_spawn(request.executable, error))?;
-    let mut monitor = ProcessMonitor::new(
-        &child,
-        request.limits.max_process_memory_bytes,
-        request.limits.max_process_cpu_time,
-    );
-    let stdin = child
-        .stdin
-        .take()
-        .ok_or(PluginError::MissingPipe("stdin"))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or(PluginError::MissingPipe("stdout"))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or(PluginError::MissingPipe("stderr"))?;
-
-    let byte_budget = Arc::new(ByteBudget::new(request.limits.frames.max_total_bytes));
-    let (writer, writer_thread) = spawn_writer(
-        stdin,
-        request.limits.frames.max_frame_bytes,
-        Arc::clone(&byte_budget),
-    );
-    let (sender, receiver) = mpsc::channel::<Result<Option<Envelope>, FrameError>>();
-    let reader_budget = Arc::clone(&byte_budget);
-    let frame_max = request.limits.frames.max_frame_bytes;
-    let mut reader_thread = Some(thread::spawn(move || {
-        let mut reader = FrameReader::with_budget(stdout, frame_max, reader_budget);
-        loop {
-            match reader.read::<Envelope>() {
-                Ok(Some(frame)) => {
-                    if sender.send(Ok(Some(frame))).is_err() {
-                        break;
-                    }
-                }
-                Ok(None) => {
-                    let _ = sender.send(Ok(None));
-                    break;
-                }
-                Err(error) => {
-                    let _ = sender.send(Err(error));
-                    break;
-                }
+            if join_thread_until(&handle, cleanup_until) {
+                let _ = handle.join();
             }
-        }
-    }));
-    let stderr_limit = request.limits.max_stderr_bytes;
-    let mut stderr_thread = Some(thread::spawn(move || capture_stderr(stderr, stderr_limit)));
-
-    let result = (|| {
-        let hello = next_frame(&receiver, &mut child, request.cancel, &mut monitor)?;
-        if hello.kind == Kind::Fault {
-            hello.validate_protocol()?;
-            return Err(PluginError::Fault(hello.decode_body::<F>()?));
-        }
-        expect_kind(&hello, Kind::Hello)?;
-        let manifest = hello.decode_body::<M>()?;
-        admit_manifest(&manifest).map_err(PluginError::ManifestAdmission)?;
-
-        // Refuse unobservable requested process budgets before exposing any
-        // request bytes to the child (FR-013-AC-8).
-        monitor
-            .begin_request()
-            .map_err(PluginError::ProcessBudget)?;
-
-        let request_id = 1_u64;
-        let request_body = serde_json::to_value(request.body).map_err(PluginError::Json)?;
-        write_frame_cancellable(
-            &writer,
-            Envelope {
-                protocol: PROTOCOL.to_owned(),
-                id: request_id,
-                kind: Kind::Request,
-                body: request_body,
-            },
-            request.cancel,
-            &mut child,
-            &mut monitor,
-        )?;
-
-        let result_frame = match next_frame(&receiver, &mut child, request.cancel, &mut monitor) {
-            Ok(frame) => frame,
-            Err(PluginError::Cancelled) => {
-                write_frame_control(
-                    &writer,
-                    Envelope {
-                        protocol: PROTOCOL.to_owned(),
-                        id: request_id,
-                        kind: Kind::Cancel,
-                        body: serde_json::json!({"id": request_id}),
-                    },
-                )?;
-                let frame = next_frame_with_grace::<A, V, F>(
-                    &receiver,
-                    &mut child,
-                    request.limits.cancellation_grace,
-                    &mut monitor,
-                );
-                match frame {
-                    Ok(frame) => {
-                        expect_request_id(&frame, request_id)?;
-                        if frame.kind == Kind::Fault {
-                            return Err(PluginError::Fault(frame.decode_body::<F>()?));
-                        }
-                        expect_kind(&frame, Kind::Result)?;
-                        let typed = frame.decode_body::<R>()?;
-                        validate_result(&manifest, &typed)
-                            .map_err(PluginError::ResultValidation)?;
-                        send_shutdown(&writer, request_id)?;
-                        wait_for_exit(
-                            &receiver,
-                            &mut child,
-                            &mut monitor,
-                            request.limits.cancellation_grace,
-                        )?;
-                        let (stderr, stderr_truncated) =
-                            join_stderr(stderr_thread.take().ok_or(PluginError::CaptureThread)?)?;
-                        join_reader(reader_thread.take().ok_or(PluginError::ReaderThread)?)?;
-                        return Ok(PluginRun {
-                            manifest,
-                            result: typed,
-                            stderr,
-                            stderr_truncated,
-                        });
-                    }
-                    Err(PluginError::GraceExpired) => {
-                        return Err(cancel_error(
-                            request.cancel.cause().unwrap_or(CancelCause::Requested),
-                        ));
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-            Err(error) => return Err(error),
-        };
-
-        expect_request_id(&result_frame, request_id)?;
-        if result_frame.kind == Kind::Fault {
-            return Err(PluginError::Fault(result_frame.decode_body::<F>()?));
-        }
-        expect_kind(&result_frame, Kind::Result)?;
-        let typed = result_frame.decode_body::<R>()?;
-        validate_result(&manifest, &typed).map_err(PluginError::ResultValidation)?;
-        send_shutdown(&writer, request_id)?;
-        wait_for_exit(
-            &receiver,
-            &mut child,
-            &mut monitor,
-            request.limits.cancellation_grace,
-        )?;
-        let (stderr, stderr_truncated) =
-            join_stderr(stderr_thread.take().ok_or(PluginError::CaptureThread)?)?;
-        join_reader(reader_thread.take().ok_or(PluginError::ReaderThread)?)?;
-        Ok(PluginRun {
-            manifest,
-            result: typed,
-            stderr,
-            stderr_truncated,
-        })
-    })();
-
-    match result {
-        Ok(run) => {
-            drop(writer);
-            writer_thread
-                .join()
-                .map_err(|_| PluginError::WriterThread)?;
-            Ok(run)
-        }
-        Err(cause) => {
-            drop(writer);
-            monitor.terminate_tree(&mut child);
-            let (stderr, stderr_truncated, capture_error) = match stderr_thread.take() {
-                Some(handle) => match handle.join() {
-                    Ok(Ok(captured)) => (captured.bytes, captured.truncated, None),
-                    Ok(Err(error)) => (Vec::new(), false, Some(error.to_string())),
-                    Err(_) => (Vec::new(), false, Some("stderr worker panicked".to_owned())),
-                },
-                None => (Vec::new(), false, None),
-            };
-            let reader_join_failed = reader_thread
-                .take()
-                .is_some_and(|handle| handle.join().is_err());
-            let writer_join_failed = writer_thread.join().is_err();
-            Err(PluginError::WithDiagnostics {
-                cause: Box::new(cause),
-                stderr,
-                stderr_truncated,
-                capture_error,
-                reader_join_failed,
-                writer_join_failed,
-            })
         }
     }
 }
 
 fn next_frame<A, V, F>(
     receiver: &Receiver<Result<Option<Envelope>, FrameError>>,
-    child: &mut Child,
+    child: &mut dyn ChildWrapper,
     cancel: &Cancel,
     monitor: &mut ProcessMonitor,
 ) -> Result<Envelope, PluginError<A, V, F>> {
@@ -937,10 +769,10 @@ fn next_frame<A, V, F>(
             Ok(Err(error)) => return Err(PluginError::Frame(error)),
             Err(RecvTimeoutError::Disconnected) => return Err(eof_error(child)?),
             Err(RecvTimeoutError::Timeout) => {
-                monitor.check().map_err(PluginError::ProcessBudget)?;
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
                     return Err(PluginError::Exited(status));
                 }
+                monitor.check().map_err(PluginError::ProcessBudget)?;
             }
         }
     }
@@ -948,11 +780,13 @@ fn next_frame<A, V, F>(
 
 fn next_frame_with_grace<A, V, F>(
     receiver: &Receiver<Result<Option<Envelope>, FrameError>>,
-    child: &mut Child,
+    child: &mut dyn ChildWrapper,
     grace: Duration,
     monitor: &mut ProcessMonitor,
 ) -> Result<Envelope, PluginError<A, V, F>> {
-    let until = Instant::now() + grace;
+    let Some(until) = Instant::now().checked_add(grace) else {
+        return Err(PluginError::GraceExpired);
+    };
     loop {
         let Some(remaining) = until.checked_duration_since(Instant::now()) else {
             return Err(PluginError::GraceExpired);
@@ -968,10 +802,10 @@ fn next_frame_with_grace<A, V, F>(
             }
             Ok(Err(error)) => return Err(PluginError::Frame(error)),
             Err(RecvTimeoutError::Timeout) => {
-                monitor.check().map_err(PluginError::ProcessBudget)?;
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
                     return Err(PluginError::Exited(status));
                 }
+                monitor.check().map_err(PluginError::ProcessBudget)?;
             }
         }
     }
@@ -981,7 +815,7 @@ fn write_frame_cancellable<A, V, F>(
     writer: &mpsc::Sender<WriterMessage>,
     frame: Envelope,
     cancel: &Cancel,
-    child: &mut Child,
+    child: &mut dyn ChildWrapper,
     monitor: &mut ProcessMonitor,
 ) -> Result<(), PluginError<A, V, F>> {
     let (completion, receiver) = mpsc::channel();
@@ -997,10 +831,10 @@ fn write_frame_cancellable<A, V, F>(
             Ok(Err(error)) => return Err(PluginError::Frame(error)),
             Err(RecvTimeoutError::Disconnected) => return Err(PluginError::WriterThread),
             Err(RecvTimeoutError::Timeout) => {
-                monitor.check().map_err(PluginError::ProcessBudget)?;
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
                     return Err(PluginError::Exited(status));
                 }
+                monitor.check().map_err(PluginError::ProcessBudget)?;
             }
         }
     }
@@ -1009,17 +843,36 @@ fn write_frame_cancellable<A, V, F>(
 fn write_frame_control<A, V, F>(
     writer: &mpsc::Sender<WriterMessage>,
     frame: Envelope,
+    grace: Duration,
 ) -> Result<(), PluginError<A, V, F>> {
     let (completion, receiver) = mpsc::channel();
     writer
         .send(WriterMessage { frame, completion })
         .map_err(|_| PluginError::WriterThread)?;
-    match receiver.recv_timeout(Duration::from_millis(20)) {
+    match receiver.recv_timeout(grace) {
         Ok(Ok(())) => Ok(()),
         Ok(Err(error)) => Err(PluginError::Frame(error)),
         Err(RecvTimeoutError::Timeout) => Err(PluginError::WriterUnresponsive),
         Err(RecvTimeoutError::Disconnected) => Err(PluginError::WriterThread),
     }
+}
+
+fn join_thread_within(handle: &thread::JoinHandle<impl Sized>, timeout: Duration) -> bool {
+    let Some(until) = Instant::now().checked_add(timeout) else {
+        return false;
+    };
+    join_thread_until(handle, until)
+}
+
+fn join_thread_until(handle: &thread::JoinHandle<impl Sized>, until: Instant) -> bool {
+    while !handle.is_finished() {
+        let now = Instant::now();
+        if now >= until {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(5).min(until.saturating_duration_since(now)));
+    }
+    true
 }
 
 fn expect_kind<A, V, F>(envelope: &Envelope, expected: Kind) -> Result<(), PluginError<A, V, F>> {
@@ -1050,6 +903,7 @@ fn expect_request_id<A, V, F>(
 fn send_shutdown<A, V, F>(
     writer: &mpsc::Sender<WriterMessage>,
     id: u64,
+    grace: Duration,
 ) -> Result<(), PluginError<A, V, F>> {
     write_frame_control(
         writer,
@@ -1059,19 +913,22 @@ fn send_shutdown<A, V, F>(
             kind: Kind::Shutdown,
             body: serde_json::json!({}),
         },
+        grace,
     )?;
     Ok(())
 }
 
 fn wait_for_exit<A, V, F>(
     receiver: &Receiver<Result<Option<Envelope>, FrameError>>,
-    child: &mut Child,
+    child: &mut dyn ChildWrapper,
     monitor: &mut ProcessMonitor,
     shutdown_grace: Duration,
 ) -> Result<ExitStatus, PluginError<A, V, F>> {
     let mut status = None;
     let mut stdout_closed = false;
-    let until = Instant::now() + shutdown_grace;
+    let Some(until) = Instant::now().checked_add(shutdown_grace) else {
+        return Err(PluginError::ShutdownTimeout);
+    };
     loop {
         if Instant::now() >= until {
             return Err(PluginError::ShutdownTimeout);
@@ -1088,6 +945,14 @@ fn wait_for_exit<A, V, F>(
                 };
             }
             thread::sleep(Duration::from_millis(20));
+            status = child.try_wait().map_err(PluginError::Wait)?;
+            if let Some(status) = status {
+                return if status.success() {
+                    Ok(status)
+                } else {
+                    Err(PluginError::Exited(status))
+                };
+            }
             monitor.check().map_err(PluginError::ProcessBudget)?;
             continue;
         }
@@ -1111,8 +976,26 @@ fn has_directory_component(path: &Path) -> bool {
     }) || path.components().count() > 1
 }
 
-fn eof_error<A, V, F>(child: &mut Child) -> Result<PluginError<A, V, F>, PluginError<A, V, F>> {
-    let until = Instant::now() + Duration::from_millis(20);
+fn is_shell_script(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        path.extension().is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("bat") || extension.eq_ignore_ascii_case("cmd")
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+fn eof_error<A, V, F>(
+    child: &mut dyn ChildWrapper,
+) -> Result<PluginError<A, V, F>, PluginError<A, V, F>> {
+    let Some(until) = Instant::now().checked_add(Duration::from_millis(20)) else {
+        return Ok(PluginError::MissingFrame);
+    };
     loop {
         match child.try_wait().map_err(PluginError::Wait)? {
             Some(status) => return Ok(PluginError::Exited(status)),
@@ -1130,10 +1013,16 @@ struct ProcessMonitor {
     last_cpu_ms: HashMap<(Pid, u64), u64>,
     request_cpu_ms: u64,
     request_active: bool,
+    #[cfg(test)]
+    force_unavailable: bool,
 }
 
 impl ProcessMonitor {
-    fn new(child: &Child, memory_limit: Option<u64>, cpu_time_limit: Option<Duration>) -> Self {
+    fn new(
+        child: &dyn ChildWrapper,
+        memory_limit: Option<u64>,
+        cpu_time_limit: Option<Duration>,
+    ) -> Self {
         Self {
             system: System::new(),
             pid: Pid::from_u32(child.id()),
@@ -1142,6 +1031,8 @@ impl ProcessMonitor {
             last_cpu_ms: HashMap::new(),
             request_cpu_ms: 0,
             request_active: false,
+            #[cfg(test)]
+            force_unavailable: false,
         }
     }
 
@@ -1159,7 +1050,7 @@ impl ProcessMonitor {
             }
         }
         self.request_active = true;
-        Ok(())
+        self.check()
     }
 
     fn check(&mut self) -> Result<(), ProcessBudgetError> {
@@ -1197,13 +1088,31 @@ impl ProcessMonitor {
     }
 
     fn refresh_tree(&mut self) -> Result<Vec<Pid>, ProcessBudgetError> {
-        if !sysinfo::IS_SUPPORTED_SYSTEM {
+        if !cfg!(any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows"
+        )) || !sysinfo::IS_SUPPORTED_SYSTEM
+            || {
+                #[cfg(test)]
+                {
+                    self.force_unavailable
+                }
+                #[cfg(not(test))]
+                {
+                    false
+                }
+            }
+        {
             return Err(ProcessBudgetError::Unavailable);
         }
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
-            ProcessRefreshKind::nothing().with_memory().with_cpu(),
+            ProcessRefreshKind::nothing()
+                .with_memory()
+                .with_cpu()
+                .without_tasks(),
         );
         if self.system.process(self.pid).is_none() {
             return Err(ProcessBudgetError::Unavailable);
@@ -1232,16 +1141,11 @@ impl ProcessMonitor {
         Ok(tree)
     }
 
-    fn terminate_tree(&mut self, child: &mut Child) {
-        if let Ok(tree) = self.refresh_tree() {
-            for pid in tree.into_iter().rev() {
-                if let Some(process) = self.system.process(pid) {
-                    let _ = process.kill_with(Signal::Kill);
-                }
-            }
-        }
+    fn terminate_tree(&mut self, child: &mut dyn ChildWrapper) {
+        // `process-wrap` attaches descendants to one Unix process group or
+        // Windows Job Object before returning from spawn. Its kill operation
+        // therefore includes orphaned descendants whose parent exited.
         let _ = child.kill();
-        let _ = child.wait();
     }
 }
 
@@ -1285,7 +1189,11 @@ fn capture_stderr(mut stderr: impl Read, maximum: u64) -> io::Result<CapturedStd
 
 fn join_stderr<A, V, F>(
     handle: thread::JoinHandle<io::Result<CapturedStderr>>,
+    timeout: Duration,
 ) -> Result<(Vec<u8>, bool), PluginError<A, V, F>> {
+    if !join_thread_within(&handle, timeout.min(WORKER_CLEANUP_LIMIT)) {
+        return Err(PluginError::WorkerJoinTimeout("stderr"));
+    }
     let captured = handle
         .join()
         .map_err(|_| PluginError::CaptureThread)?
@@ -1293,7 +1201,13 @@ fn join_stderr<A, V, F>(
     Ok((captured.bytes, captured.truncated))
 }
 
-fn join_reader<A, V, F>(handle: thread::JoinHandle<()>) -> Result<(), PluginError<A, V, F>> {
+fn join_reader<A, V, F>(
+    handle: thread::JoinHandle<()>,
+    timeout: Duration,
+) -> Result<(), PluginError<A, V, F>> {
+    if !join_thread_within(&handle, timeout.min(WORKER_CLEANUP_LIMIT)) {
+        return Err(PluginError::WorkerJoinTimeout("stdout reader"));
+    }
     handle.join().map_err(|_| PluginError::ReaderThread)
 }
 
@@ -1329,6 +1243,9 @@ pub enum PluginError<A, V, F> {
     /// instead of being looked up through `PATH`.
     #[error("plugin executable {0:?} must be an explicit path with a directory component")]
     BareExecutableName(PathBuf),
+    /// Windows batch scripts would invoke a command shell.
+    #[error("plugin executable {0:?} cannot be a Windows batch script")]
+    ShellScriptExecutable(PathBuf),
     /// The session did not contain a hello-admitted manifest.
     #[error("plugin session has no admitted manifest")]
     MissingManifest,
@@ -1408,9 +1325,21 @@ pub enum PluginError<A, V, F> {
     /// The stdin frame writer thread stopped unexpectedly.
     #[error("plugin frame writer thread terminated unexpectedly")]
     WriterThread,
-    /// A control frame could not be written within one polling interval.
-    #[error("plugin frame writer did not complete within 20 milliseconds")]
+    /// A control frame could not be written within the cancellation grace.
+    #[error("plugin frame writer did not complete within the grace period")]
     WriterUnresponsive,
+    /// A process I/O worker remained alive after bounded cleanup.
+    #[error("plugin {0} worker did not stop within the cleanup grace")]
+    WorkerJoinTimeout(&'static str),
+    /// A named process I/O worker could not be started.
+    #[error("could not start plugin {worker} worker: {source}")]
+    WorkerSpawn {
+        /// The worker role that failed to start.
+        worker: &'static str,
+        /// The operating-system thread creation error.
+        #[source]
+        source: io::Error,
+    },
     /// The stderr capture thread panicked.
     #[error("plugin stderr capture thread terminated unexpectedly")]
     CaptureThread,
@@ -1494,8 +1423,9 @@ pub enum FrameError {
 )]
 mod tests {
     use super::{
-        run, Envelope, FrameError, FrameLimits, FrameReader, FrameWriter, Kind, PluginError,
-        PluginSession, ProcessBudgetError, RunLimits, RunRequest, SessionStart, PROTOCOL,
+        spawn_writer, write_frame_control, Envelope, FrameError, FrameLimits, FrameReader,
+        FrameWriter, Kind, PluginError, PluginSession, ProcessBudgetError, RunLimits, SessionStart,
+        PROTOCOL,
     };
     use quire_exact::Cancel;
     use quire_exact::CancelCause;
@@ -1528,6 +1458,7 @@ mod tests {
         max_total_bytes: 4096,
     };
 
+    /// Trace: FR-013-AC-7, TC-024; JCS frames round-trip with exact length-prefix accounting.
     #[test]
     fn frame_round_trips_one_canonical_value() {
         let envelope = Envelope {
@@ -1552,6 +1483,7 @@ mod tests {
         assert_eq!(reader.read::<Envelope>().expect("clean EOF"), None);
     }
 
+    /// Trace: FR-013-AC-7, TC-024; refuse non-canonical and oversized input before decoding.
     #[test]
     fn reader_rejects_noncanonical_and_oversized_frames() {
         let mut noncanonical = (13_u64).to_be_bytes().to_vec();
@@ -1568,6 +1500,7 @@ mod tests {
         ));
     }
 
+    /// Trace: FR-013-AC-7, TC-024; input and output share one aggregate frame budget.
     #[test]
     fn writer_and_reader_enforce_aggregate_bytes() {
         let value = serde_json::json!("x");
@@ -1592,6 +1525,7 @@ mod tests {
         ));
     }
 
+    /// Trace: FR-013-AC-7, TC-024; reject protocol identity before decoding a typed body.
     #[test]
     fn body_decode_requires_protocol_identity() {
         let envelope = Envelope {
@@ -1607,7 +1541,22 @@ mod tests {
     }
 
     fn failure_fixture() -> std::path::PathBuf {
+        ensure_fixture_runtime("python3").unwrap_or_else(|message| panic!("{message}"));
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/failure-plugin.py")
+    }
+
+    fn ensure_fixture_runtime(executable: &str) -> Result<(), String> {
+        let available = Command::new(executable)
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success());
+        if available {
+            Ok(())
+        } else {
+            Err(format!(
+                "quire-plugin-host tests require fixture runtime {executable:?}; install Python 3 and rerun make test"
+            ))
+        }
     }
 
     fn ready_fixture_path() -> std::path::PathBuf {
@@ -1655,7 +1604,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    /// Trace: FR-013-AC-1, FR-013-AC-2, FR-013-AC-3; admit hello and serve zero or multiple requests.
+    /// Trace: FR-013-AC-1, FR-013-AC-2, FR-013-AC-3, TC-023; admit hello and serve zero or multiple requests.
     #[test]
     fn session_admits_hello_then_accepts_zero_or_multiple_requests() {
         let cancel = Cancel::new();
@@ -1705,7 +1654,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    /// Trace: FR-013-AC-5; return a validated settlement received within cancellation grace.
+    /// Trace: FR-013-AC-5, TC-025; return a validated settlement received within cancellation grace.
     #[test]
     fn session_preserves_valid_result_received_during_cancel_grace() {
         let cancel = Cancel::new();
@@ -1740,7 +1689,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    /// Trace: FR-013-AC-2, FR-013-AC-4; preserve admission, validation, plugin fault, and exit failures.
+    /// Trace: FR-013-AC-2, FR-013-AC-4, TC-023, TC-024; preserve admission, validation, plugin fault, and exit failures.
     #[test]
     fn session_reports_admission_result_fault_and_exit_failures_with_diagnostics() {
         let cancel = Cancel::new();
@@ -1808,7 +1757,7 @@ mod tests {
         }
     }
 
-    /// Trace: FR-013-AC-4, FR-013-AC-5; a plugin fault during cancellation grace remains a fault.
+    /// Trace: FR-013-AC-4, FR-013-AC-5, TC-024, TC-025; a plugin fault during cancellation grace remains a fault.
     #[cfg(unix)]
     #[test]
     fn cancellation_grace_preserves_plugin_faults() {
@@ -1842,7 +1791,7 @@ mod tests {
         let _ = std::fs::remove_file(ready);
     }
 
-    /// Trace: FR-013-AC-5; grace expiry terminates a non-settling plugin and returns cancellation.
+    /// Trace: FR-013-AC-5, FR-013-AC-9, TC-025; grace expiry kills the process group and joins workers within one second.
     #[cfg(unix)]
     #[test]
     fn cancellation_grace_expiry_terminates_the_plugin() {
@@ -1873,13 +1822,71 @@ mod tests {
             })
             .expect_err("missing settlement expires cancellation grace");
         assert!(matches!(error.primary_cause(), PluginError::Cancelled));
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(matches!(
+            &error,
+            PluginError::WithDiagnostics {
+                reader_join_failed: false,
+                writer_join_failed: false,
+                ..
+            }
+        ));
         cancellation.join().expect("cancellation sender exits");
         let _ = std::fs::remove_file(ready);
     }
 
+    /// Trace: FR-013-AC-9, FR-013-AC-10, TC-026; kill descendants holding inherited pipes.
     #[cfg(unix)]
-    /// Trace: FR-013-AC-7, FR-013-AC-9, FR-013-AC-10; preserve truncated frames and bound stderr.
+    #[test]
+    fn shutdown_kills_descendant_holding_stdout_and_bounds_reader_join() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let arguments = [OsString::from("descendant-hang")];
+        let mut limits = session_limits();
+        limits.cancellation_grace = Duration::from_millis(100);
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits,
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        let request = test_request();
+        session
+            .request(&request, &cancel, |_manifest, _result: &TestResult| {
+                Ok::<(), String>(())
+            })
+            .expect("plugin settles the request");
+        let started = Instant::now();
+        let error = session
+            .shutdown()
+            .expect_err("inherited stdout remains open");
+        assert!(matches!(
+            error.primary_cause(),
+            PluginError::ShutdownTimeout
+        ));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        match error {
+            PluginError::WithDiagnostics {
+                reader_join_failed,
+                writer_join_failed,
+                ..
+            } => {
+                assert!(
+                    !reader_join_failed,
+                    "group cleanup releases inherited stdout"
+                );
+                assert!(!writer_join_failed, "shutdown releases the stdin writer");
+            }
+            other => panic!("expected cleanup diagnostics, got {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    /// Trace: FR-013-AC-7, FR-013-AC-9, FR-013-AC-10, TC-024, TC-026; preserve truncated frames and bound stderr.
     #[test]
     fn session_preserves_truncated_hello_status_and_bounds_stderr() {
         let cancel = Cancel::new();
@@ -1944,18 +1951,18 @@ mod tests {
         assert!(finished.stderr_truncated);
     }
 
-    /// Trace: FR-013-AC-13; report the fixture runtime prerequisite clearly.
+    /// Trace: FR-013-AC-13, TC-027; report an actionable fixture runtime prerequisite.
     #[test]
     fn fixture_runtime_prerequisite_names_python3() {
-        let result = Command::new("python3").arg("--version").output();
-        assert!(
-            result.is_ok_and(|output| output.status.success()),
-            "quire-plugin-host tests require Python 3 on PATH; install Python 3 and rerun make test"
+        assert_eq!(ensure_fixture_runtime("python3"), Ok(()));
+        assert_eq!(
+            ensure_fixture_runtime("quire-plugin-host-python3-missing-test"),
+            Err("quire-plugin-host tests require fixture runtime \"quire-plugin-host-python3-missing-test\"; install Python 3 and rerun make test".to_owned())
         );
     }
 
     #[cfg(unix)]
-    /// Trace: FR-013-AC-6; deadlines interrupt a blocked request write.
+    /// Trace: FR-013-AC-6, TC-025; deadlines interrupt a blocked request write.
     #[test]
     fn blocked_request_write_observes_deadline_within_a_bounded_interval() {
         let cancel = Cancel::new();
@@ -2007,7 +2014,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    /// Trace: FR-013-AC-1, FR-013-AC-8; refuse bare executable names and enforce CPU budgets.
+    /// Trace: FR-013-AC-1, FR-013-AC-8, TC-023, TC-026; refuse bare executable names and enforce CPU budgets.
     #[test]
     fn session_enforces_cpu_budget_and_refuses_bare_executable_names() {
         let cancel = Cancel::new();
@@ -2051,120 +2058,290 @@ mod tests {
         ));
     }
 
+    /// Trace: FR-013-AC-2, TC-023; reject protocol identity before manifest admission.
     #[cfg(unix)]
     #[test]
-    fn process_run_admits_manifest_validates_result_and_captures_stderr() {
+    fn session_rejects_wrong_protocol_before_admission() {
         let cancel = Cancel::new();
-        let request = TestRequest {
-            items: vec!["item-1".to_owned(), "item-2".to_owned()],
-        };
-        let executable =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/echo-plugin.py");
-        let run = run::<TestManifest, TestRequest, TestResult, serde_json::Value, _, _>(
-            RunRequest {
+        let executable = failure_fixture();
+        let arguments = [OsString::from("wrong-protocol")];
+        let error = match PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
                 executable: &executable,
-                arguments: &[],
-                body: &request,
-                limits: RunLimits {
-                    frames: LIMITS,
-                    max_stderr_bytes: 128,
-                    cancellation_grace: Duration::from_millis(50),
-                    max_process_memory_bytes: None,
-                    max_process_cpu_time: None,
-                },
+                arguments: &arguments,
+                limits: session_limits(),
                 cancel: &cancel,
             },
-            |manifest: &TestManifest| {
-                (manifest.identity == "agent-ix/provider/test")
-                    .then_some(())
-                    .ok_or_else(|| "unexpected identity".to_owned())
-            },
-            |manifest: &TestManifest, result: &TestResult| {
-                (manifest.identity == result.identity && result.items == request.items)
-                    .then_some(())
-                    .ok_or_else(|| "result did not match admitted request".to_owned())
-            },
-        )
-        .expect("fixture plugin completes a valid run");
-
-        assert_eq!(run.manifest.identity, "agent-ix/provider/test");
-        assert!(run.manifest.advertises.is_empty());
-        assert_eq!(run.result.items, request.items);
-        assert_eq!(run.stderr, b"opaque provider diagnostic\n");
-        assert!(!run.stderr_truncated);
-    }
-
-    /// Trace: FR-013-AC-7, unexpected extra frames retain their typed failure.
-    #[cfg(unix)]
-    #[test]
-    fn process_run_rejects_a_frame_after_the_result_before_clean_exit() {
-        let cancel = Cancel::new();
-        let request = TestRequest {
-            items: vec!["item-1".to_owned()],
+            |_manifest| Ok::<(), String>(()),
+        ) {
+            Ok(_) => panic!("wrong protocol must not reach admission"),
+            Err(error) => error,
         };
-        let executable =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/extra-frame-plugin.py");
-        let result = run::<TestManifest, TestRequest, TestResult, serde_json::Value, _, _>(
-            RunRequest {
-                executable: &executable,
-                arguments: &[],
-                body: &request,
-                limits: RunLimits {
-                    frames: LIMITS,
-                    max_stderr_bytes: 16,
-                    cancellation_grace: Duration::from_millis(50),
-                    max_process_memory_bytes: None,
-                    max_process_cpu_time: None,
-                },
-                cancel: &cancel,
-            },
-            |_manifest: &TestManifest| Ok::<(), String>(()),
-            |_manifest: &TestManifest, _result: &TestResult| Ok::<(), String>(()),
-        );
-
         assert!(matches!(
-            result
-                .as_ref()
-                .expect_err("extra frame is rejected")
-                .primary_cause(),
-            PluginError::UnexpectedFrame
+            error.primary_cause(),
+            PluginError::Frame(FrameError::WrongProtocol(_))
         ));
     }
 
-    /// Trace: FR-013-AC-8, observed memory budget breaches are typed.
+    /// Trace: FR-013-AC-4, FR-013-AC-7, TC-024; reject a response correlated to another request.
     #[cfg(unix)]
     #[test]
-    fn process_run_stops_when_observed_memory_exceeds_the_caller_limit() {
+    fn session_rejects_wrong_request_id() {
         let cancel = Cancel::new();
-        let request = TestRequest {
-            items: vec!["item-1".to_owned()],
-        };
-        let executable =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/echo-plugin.py");
-        let result = run::<TestManifest, TestRequest, TestResult, serde_json::Value, _, _>(
-            RunRequest {
+        let executable = failure_fixture();
+        let arguments = [OsString::from("wrong-id")];
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
                 executable: &executable,
-                arguments: &[],
-                body: &request,
-                limits: RunLimits {
-                    frames: LIMITS,
-                    max_stderr_bytes: 16,
-                    cancellation_grace: Duration::from_millis(50),
-                    max_process_memory_bytes: Some(1),
-                    max_process_cpu_time: None,
-                },
+                arguments: &arguments,
+                limits: session_limits(),
                 cancel: &cancel,
             },
-            |_manifest: &TestManifest| Ok::<(), String>(()),
-            |_manifest: &TestManifest, _result: &TestResult| Ok::<(), String>(()),
-        );
-
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        let error = session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect_err("wrong request id is rejected");
         assert!(matches!(
-            result
-                .as_ref()
-                .expect_err("memory budget is enforced")
-                .primary_cause(),
+            error.primary_cause(),
+            PluginError::UnexpectedId {
+                expected: 1,
+                actual: 2
+            }
+        ));
+    }
+
+    /// Trace: FR-013-AC-8, TC-026; refuse dispatch when complete process measurement is unavailable.
+    #[cfg(unix)]
+    #[test]
+    fn begin_request_returns_unavailable_before_dispatch() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let arguments = [OsString::from("normal")];
+        let mut limits = session_limits();
+        limits.max_process_memory_bytes = Some(u64::MAX);
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits,
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        session.monitor.force_unavailable = true;
+        let error = session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect_err("measurement failure prevents request dispatch");
+        assert!(matches!(
+            error.primary_cause(),
+            PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
+        ));
+    }
+
+    /// Trace: FR-013-AC-8, TC-026; aggregate resident memory across descendant processes.
+    #[cfg(unix)]
+    #[test]
+    fn process_memory_budget_includes_descendant_usage() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let arguments = [OsString::from("descendant-memory")];
+        let mut limits = session_limits();
+        limits.max_process_memory_bytes = Some(40 * 1024 * 1024);
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits,
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        let error = session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect_err("descendant pushes aggregate process memory over the limit");
+        assert!(matches!(
+            error.primary_cause(),
             PluginError::ProcessBudget(ProcessBudgetError::MemoryExceeded)
+        ));
+    }
+
+    /// Trace: FR-013-AC-8, TC-026; accumulate CPU deltas for a short-lived descendant.
+    #[cfg(unix)]
+    #[test]
+    fn process_cpu_budget_includes_short_lived_descendant() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let arguments = [OsString::from("descendant-cpu")];
+        let mut limits = session_limits();
+        limits.max_process_cpu_time = Some(Duration::from_millis(50));
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits,
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        let error = session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect_err("descendant CPU exceeds aggregate request limit");
+        assert!(matches!(
+            error.primary_cause(),
+            PluginError::ProcessBudget(ProcessBudgetError::CpuTimeExceeded)
+        ));
+    }
+
+    struct SlowWriter;
+
+    impl std::io::Write for SlowWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            thread::sleep(Duration::from_millis(500));
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Trace: FR-013-AC-5, FR-013-AC-9, TC-025; control writes use the configured grace.
+    #[test]
+    fn cancellation_control_write_wait_is_bounded_by_grace() {
+        let (writer, worker) = spawn_writer(
+            SlowWriter,
+            LIMITS.max_frame_bytes,
+            std::sync::Arc::new(super::ByteBudget::new(LIMITS.max_total_bytes)),
+        )
+        .expect("writer worker starts");
+        let grace = Duration::from_millis(80);
+        let started = Instant::now();
+        let error = write_frame_control::<String, String, String>(
+            &writer,
+            Envelope {
+                protocol: PROTOCOL.to_owned(),
+                id: 1,
+                kind: Kind::Cancel,
+                body: serde_json::json!({"id": 1}),
+            },
+            grace,
+        )
+        .expect_err("blocked control write is bounded");
+        assert!(matches!(error, PluginError::WriterUnresponsive));
+        assert!(started.elapsed() >= Duration::from_millis(60));
+        assert!(started.elapsed() < Duration::from_millis(250));
+        drop(writer);
+        assert!(super::join_thread_within(&worker, Duration::from_secs(1)));
+        worker
+            .join()
+            .expect("worker exits after its bounded fake write");
+    }
+
+    /// Trace: FR-013-AC-8, TC-026; sysinfo thread tasks do not inflate process-tree membership.
+    #[cfg(unix)]
+    #[test]
+    fn multithreaded_plugin_counts_as_one_process() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let arguments = [OsString::from("thread-tasks")];
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits: session_limits(),
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        let members = session.monitor.refresh_tree().expect("tree sampling works");
+        assert_eq!(members, vec![session.monitor.pid]);
+        drop(session);
+    }
+    /// Trace: FR-013-AC-7, TC-024; charge hello, requests and results to one session budget.
+    #[cfg(unix)]
+    #[test]
+    fn session_shares_aggregate_byte_budget_across_directions() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let arguments = [OsString::from("echo")];
+        let mut limits = session_limits();
+        limits.frames.max_total_bytes = 400;
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits,
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello fits within the shared run budget");
+        let request = TestRequest {
+            items: vec!["x".repeat(160)],
+        };
+        let error = session
+            .request(&request, &cancel, |_manifest, _result: &TestResult| {
+                Ok::<(), String>(())
+            })
+            .expect_err("the response exceeds the combined hello/request/response budget");
+        assert!(matches!(
+            error.primary_cause(),
+            PluginError::Frame(FrameError::RunTooLarge { .. })
+        ));
+    }
+
+    /// Trace: FR-013-AC-7, TC-024; reject frames sent after the request result.
+    #[cfg(unix)]
+    #[test]
+    fn session_rejects_extra_frame_after_result() {
+        let cancel = Cancel::new();
+        let executable =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/extra-frame-plugin.py");
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &[],
+                limits: session_limits(),
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect("the primary result is valid");
+        let error = session
+            .shutdown()
+            .expect_err("post-result frames are rejected");
+        assert!(matches!(
+            error.primary_cause(),
+            PluginError::UnexpectedFrame
         ));
     }
 }

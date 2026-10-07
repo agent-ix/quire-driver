@@ -131,7 +131,7 @@ specifies the driver-owned process-provider seam and settlement composition.
 | FR-013-AC-8 | Per-request memory and CPU-time budgets aggregate usage across the plugin process tree; a sampled budget breach terminates descendants and reports the corresponding failure. Memory sampling is best-effort between polls. If complete-tree measurement is unavailable, the host returns `ProcessBudgetError::Unavailable` before sending the request. | Test |
 | FR-013-AC-9 | Stderr beyond the session retention limit is drained but not retained; stderr is available on failures, and reader/writer workers are joined within one second after termination begins. | Test |
 | FR-013-AC-10 | After stdout closes while the child remains alive, process-exit waiting does not busy-wait; EOF before a response preserves an available child exit status. | Test |
-| FR-013-AC-11 | The host uses QSL ADR-029 PL-1 through PL-7 without defining a local wire or manifest-digest format; `quire-driver` excludes the host crate, and `quire-cli` composes it with the driver's seam. | Test (TC-005, TC-028) and analysis |
+| FR-013-AC-11 | The host uses QSL ADR-029 PL-1 through PL-7 without defining a local wire or manifest-digest format; `quire-driver` excludes the host crate. CLI composition through the driver's seam is specified and verified in the separate adapter slice. | Test (TC-005, TC-028) and analysis |
 | FR-013-AC-12 | On a clean Cargo cache, the repository `make test` target fetches every locked platform dependency before running the offline TC-005 dependency metadata check, and the check passes. | Test (TC-027) |
 | FR-013-AC-13 | The host test suite reports an actionable prerequisite failure naming the missing fixture runtime and its installation instructions. | Test (TC-027) |
 

@@ -16,11 +16,9 @@ path = "src/main.rs"
 [dependencies]
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
-# IR-609 composes the user-facing CLI with its separately bounded cache and
-# process-plugin host packages.
+# IR-609 composes the user-facing CLI with its separately bounded cache.
 quire-cache = { path = "../quire-cache" }
 quire-driver = { path = ".." }
-quire-plugin-host = { path = "../quire-plugin-host" }
 
 [dev-dependencies]
 regex = "=1.13.1"

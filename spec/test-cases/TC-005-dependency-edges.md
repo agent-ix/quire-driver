@@ -50,9 +50,9 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
   normal/build path leads from `quire-driver` to `quire-cache`.
 - The `workspace_default_members` array includes `quire-cli`.
 - When the workspace contains `quire-cli`, it depends on the driver interface
-  and cache package plus `quire-plugin-host` as specified by FR-014; TC-028
-  verifies its exact package and target edges. The driver's closure remains
-  cache-free and host-free.
+  and cache package. Its direct process-host edge is planned for the separate
+  adapter slice; TC-028 owns the CLI package and target checks. The driver's
+  closure remains cache-free and host-free.
 - CG's one normal or build edge into QSL is `qsl-replay`.
 - The graph holds one copy of `quire-contract-model`: the driver's own
   direct dependency, CG's `quire-contract-ir` and QSL's `qsl-package` all
