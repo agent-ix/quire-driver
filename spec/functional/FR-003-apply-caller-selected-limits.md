@@ -9,6 +9,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-277
     type: depends_on
+  - target: ix://agent-ix/quire-spec-language/FR-255
+    type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-275
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-300
@@ -42,6 +44,14 @@ return QSL's typed limit outcome and report no success.
 - If a caller supplies an unknown limit field, malformed value or duplicate,
   then the CLI SHALL reject it before the operation begins with QSL's refusal
   category.
+- The driver SHALL resolve each `--limit` name with QSL's `Setting::from_name`
+  and SHALL use the resulting typed setting, rather than a driver-owned name
+  alias or name-to-field table, when applying the value.
+- The driver SHALL use the resulting typed setting with the selected
+  operation's QSL `SettingLimits::set_bound` to select the bound to change.
+  If QSL recognizes a setting but the selected operation does not expose it,
+  the CLI SHALL reject the option before the operation begins with QSL's
+  refusal category.
 - The driver SHALL pass the computed limits values to the selected operation.
 - The driver SHALL preserve each explicit caller value when building the
   computed limits values.
@@ -55,12 +65,15 @@ return QSL's typed limit outcome and report no success.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-003-AC-1 | Setting one valid `--limit` overrides only its named field; every omitted field retains its published default, and the effective limits passed to the operation equal those values. | Test (TC-010) |
-| FR-003-AC-2 | An unknown field, malformed value or invalid duplicate `--limit` is refused before any stage with QSL's refusal category and names the option value. | Test (TC-010) |
+| FR-003-AC-2 | A name that QSL does not recognize, a setting not exposed by the selected operation, a malformed value or a duplicate `--limit` is refused before any stage with QSL's refusal category and names the option value. | Test (TC-010) |
 | FR-003-AC-3 | An input that reaches a caller-lowered bound returns typed `LimitExceeded` with the configured value and field name and QSL's incomplete category; the process status equals QSL's category exit function. Raising the same bound to fit the input allows the operation to complete. | Test (TC-010) |
+| FR-003-AC-4 | Each accepted `--limit` name is an exact name resolved by QSL `Setting::from_name`; the driver accepts no spelling or alias that QSL does not resolve. | Test (TC-010) |
+| FR-003-AC-5 | Applying an accepted setting changes only the bound selected by QSL `SettingLimits::set_bound`; every other operation limit retains its prior value. | Test (TC-010) |
 
 ## Dependencies
 
-- QSL ADR-029 LC-4 and FR-277; QSpec FR-300's caller-supplied limits.
+- QSL ADR-029 LC-4, FR-255 and FR-277; QSpec FR-300's caller-supplied
+  limits.
 - [FR-002](FR-002-expose-driver-cli-and-outcome-contract.md) defines the
   command entry point and exit function.
 - [TC-010](../test-cases/TC-010-caller-selected-limits.md).
