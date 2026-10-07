@@ -1424,11 +1424,14 @@ dependencies = [
 name = "quire-cli"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "ix-cli-kit",
  "qsl-foundation",
+ "qsl-package",
  "qsl-replay",
  "qsl-route",
  "quire-cache",
+ "quire-canonical",
  "quire-driver",
  "quire-exact",
  "quire-plugin-host",

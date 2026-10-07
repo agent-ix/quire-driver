@@ -251,6 +251,10 @@ mod tests {
             .join("../quire-plugin-host/tests/fixtures/echo-plugin.py")
     }
 
+    fn backend_provider_fixture_path() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/backend-provider-plugin.py")
+    }
+
     fn wrong_result_fixture_path() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wrong-result-plugin.py")
     }
@@ -360,6 +364,88 @@ mod tests {
         assert_eq!(finished.manifest.identity, "agent-ix/provider/test");
         assert_eq!(finished.stderr, b"opaque provider diagnostic\n");
         assert!(!finished.stderr_truncated);
+    }
+
+    #[test]
+    fn fr331_hello_is_admitted_once_and_retained_for_registry_snapshot() {
+        use crate::backend_provider::{ManifestAdmissionError, ManifestStage};
+
+        let admissions = Arc::new(AtomicUsize::new(0));
+        let admission_count = Arc::clone(&admissions);
+        let provider = HostProcessProvider::<
+            ManifestStage,
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            ManifestAdmissionError,
+            String,
+            _,
+            _,
+            _,
+            _,
+        >::new(
+            crate::signals::SignalContext::default(),
+            move |manifest: &ManifestStage| {
+                admission_count.fetch_add(1, Ordering::Relaxed);
+                manifest
+                    .clone()
+                    .admit_process()
+                    .map(|admitted| admitted.descriptor().clone())
+            },
+            |_: ProcessProviderRequest<'_>| serde_json::json!({"items": []}),
+            |manifest: &ManifestStage, result: &serde_json::Value| {
+                if result["identity"] == manifest.manifest[0]["backend"] {
+                    Ok(())
+                } else {
+                    Err("result identity differs from admitted hello".to_owned())
+                }
+            },
+            |_| ProviderResults::default(),
+        );
+        let cancel = Cancel::new();
+        let fixture = backend_provider_fixture_path();
+        assert!(fixture.is_file(), "FR-331 fixture exists");
+        let mut session = provider
+            .start(
+                &python_path(),
+                &[fixture.into_os_string()],
+                limits(),
+                &cancel,
+            )
+            .expect("typed FR-331 hello is admitted");
+        assert_eq!(admissions.load(Ordering::Relaxed), 1);
+        assert_eq!(session.descriptor().origin(), ProviderOrigin::Process);
+        assert_eq!(
+            session.descriptor().id().as_str(),
+            "agent-ix/provider/fr331-fixture"
+        );
+
+        let mut linked = build_linked_providers(&[]).expect("one registry builds");
+        linked
+            .register_admitted([session.descriptor().clone()])
+            .expect("no second admission is performed");
+        assert_eq!(
+            linked
+                .registry()
+                .descriptors()
+                .next()
+                .expect("one process descriptor is registered")
+                .origin(),
+            ProviderOrigin::Process
+        );
+
+        let request = ProcessProviderRequest {
+            emitted_package: b"checked package bytes",
+            provider_request: ProviderRequest::new(&[]),
+            cancel: &cancel,
+        };
+        session
+            .invoke(request)
+            .expect("fixture responds to request");
+        let finished = session.shutdown().expect("session ends cleanly");
+        assert_eq!(finished.manifest.manifest.len(), 1);
+        assert_eq!(finished.manifest.manifest[0]["domains"][0], "integer");
+        assert_eq!(finished.manifest.manifest[0]["bounds"]["max_states"], 8);
     }
 
     #[test]
