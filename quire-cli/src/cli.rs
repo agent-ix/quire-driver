@@ -4,15 +4,17 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::process::ExitCode;
 
-use ix_cli_kit::exit::caller_exit_code;
-use qsl_foundation::diagnostic::Category;
+use ix_cli_kit::exit::{caller_exit_code, RESERVED_COMMAND_NOT_FOUND};
+use ix_cli_kit::streams::{self, Diagnostics};
+use qsl_foundation::diagnostic::{Category, Code};
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     default_accounting, Call, CallArgument, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
+use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use quire_driver::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides};
 
 /// Pass QSL's category result through the kit without converting it to an `Outcome`.
@@ -23,10 +25,12 @@ fn process_exit_code(category: Category) -> ExitCode {
         Ok(exit_code) => exit_code,
         Err(error) => {
             let fallback = Category::InternalFailure.exit_code();
-            let _ = writeln!(
-                std::io::stderr().lock(),
-                "driver exit mapping rejected result {} (reserved code {}); using fallback code {fallback}.",
-                error.rejected_code, error.reserved_code
+            emit_diagnostic(
+                "ExitMappingFailure",
+                &format!(
+                    "driver exit mapping rejected result {} (reserved code {}); using fallback code {fallback}.",
+                    error.rejected_code, error.reserved_code
+                ),
             );
             ExitCode::from(fallback)
         }
@@ -40,10 +44,23 @@ compile_error!("the TC-018 test adapter is unavailable in release builds");
 fn category_exit_result(category: Category) -> u8 {
     #[cfg(all(feature = "tc018-test-adapter", debug_assertions))]
     if std::env::var_os("TC018_CASE").as_deref() == Some(std::ffi::OsStr::new("reserved-exit")) {
-        return 5;
+        return RESERVED_COMMAND_NOT_FOUND;
     }
 
     category.exit_code()
+}
+
+/// Write a diagnostic to a caller-owned sink without panicking on a closed
+/// stderr pipe.
+fn write_diagnostic<W: Write>(sink: &mut W, kind: &str, message: &str) -> io::Result<()> {
+    streams::Record::error(kind, message).write(Diagnostics::default(), sink)
+}
+
+/// Best-effort stderr output; a closed diagnostic pipe must not replace the
+/// command's already selected QSL exit result with a panic.
+fn emit_diagnostic(kind: &str, message: &str) {
+    let mut stderr = io::stderr().lock();
+    let _ = write_diagnostic(&mut stderr, kind, message);
 }
 
 /// Parser selectors implement the command surface owned by QSL ADR-029.
@@ -249,12 +266,68 @@ impl RunOptions {
     }
 }
 
+/// One command's QSL category, optional outcome document, and diagnostic.
+struct CommandResult {
+    category: Category,
+    document: Option<OutcomeDocument>,
+    diagnostic: Option<String>,
+}
+
+impl CommandResult {
+    fn document(document: OutcomeDocument) -> Self {
+        Self {
+            category: document.category(),
+            document: Some(document),
+            diagnostic: None,
+        }
+    }
+
+    fn failure(category: Category, message: impl Into<String>) -> Self {
+        Self {
+            category,
+            document: None,
+            diagnostic: Some(message.into()),
+        }
+    }
+
+    /// An input refusal raised before QSL runs, recorded with QSL's native code.
+    fn input_refusal(message: impl Into<String>) -> Self {
+        Self::catalog_failure(Code::InvalidRequest, message)
+    }
+
+    fn catalog_failure(code: Code, message: impl Into<String>) -> Self {
+        let message = message.into();
+        Self::document(
+            OutcomeDocument::new(Operation::Execute, None, code.category()).with_diagnostics(vec![
+                OutcomeDiagnostic::new(None, code.as_str(), None, message.clone()),
+            ]),
+        )
+        .with_diagnostic(message)
+    }
+
+    fn with_diagnostic(mut self, message: impl Into<String>) -> Self {
+        self.diagnostic = Some(message.into());
+        self
+    }
+}
+
+fn write_result_diagnostics<W: Write>(result: &CommandResult, sink: &mut W) -> io::Result<()> {
+    if let Some(message) = &result.diagnostic {
+        return write_diagnostic(sink, "DriverDiagnostic", message);
+    }
+    if let Some(document) = &result.document {
+        for diagnostic in document.diagnostics() {
+            write_diagnostic(sink, "QslDiagnostic", diagnostic.message())?;
+        }
+    }
+    Ok(())
+}
+
 /// Run one complete-V1 function through QSL's interpreter.
-fn run(options: RunOptions) -> Category {
+fn run(options: RunOptions) -> CommandResult {
     if options.engine != ExecutionEngine::Interpreter {
         let failure = ExecutionFailure::UnsupportedEngine(options.engine);
-        eprintln!("{failure}");
-        return failure.category();
+        return CommandResult::failure(failure.category(), failure.to_string());
     }
     let packages = BTreeMap::new();
     let dependencies = DependencyInput::default();
@@ -265,11 +338,14 @@ fn run(options: RunOptions) -> Category {
         accounting: default_accounting(DEFAULT_WORK_UNITS),
     };
     if let Err(error) = options.limits.apply_to(&mut limits, &mut call) {
-        eprintln!("{error}");
-        return Category::Refusal;
+        return CommandResult::input_refusal(error.to_string());
     }
-    let Ok(bytes) = read_source(&options.path, limits.source.source_bytes) else {
-        return Category::Refusal;
+    let bytes = match read_source(&options.path, limits.source.source_bytes) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let message = format!("could not read source {}: {error}", options.path);
+            return CommandResult::catalog_failure(Code::IoError, message);
+        }
     };
     let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
     match execute(ExecutionRequest {
@@ -282,8 +358,8 @@ fn run(options: RunOptions) -> Category {
         call,
         engine: options.engine,
     }) {
-        Ok(result) => result.outcome.category(),
-        Err(failure) => failure.category(),
+        Ok(result) => CommandResult::document(OutcomeDocument::from_call(&result.outcome)),
+        Err(failure) => CommandResult::failure(failure.category(), failure.to_string()),
     }
 }
 
@@ -305,23 +381,70 @@ fn dispatch(
     _format: OutputFormat,
     raw_arguments: &[OsString],
     _signals: crate::signals::SignalContext,
-) -> Category {
+) -> CommandResult {
     if verb == Verb::Run {
         return match RunOptions::parse(raw_arguments) {
             Ok(options) => run(options),
-            Err(error) => {
-                eprintln!("{error}");
-                Category::Refusal
-            }
+            Err(error) => CommandResult::input_refusal(error),
         };
     }
     if raw_arguments
         .iter()
         .any(|argument| matches!(argument.to_str(), Some("--engine" | "--limit")))
     {
-        return Category::Refusal;
+        let option = raw_arguments
+            .iter()
+            .find_map(|argument| match argument.to_str() {
+                Some(option @ ("--engine" | "--limit")) => Some(option),
+                _ => None,
+            })
+            .unwrap_or("--engine or --limit");
+        return CommandResult::failure(
+            Category::Refusal,
+            format!("option `{option}` is only accepted by `run`"),
+        );
     }
-    Category::Unsupported
+    CommandResult {
+        category: Category::Unsupported,
+        document: None,
+        diagnostic: None,
+    }
+}
+
+/// Emit one result document with the kit's canonical JSON and stream APIs.
+fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
+    let mut stderr = io::stderr().lock();
+    let _ = write_result_diagnostics(result, &mut stderr);
+    drop(stderr);
+    let Some(document) = &result.document else {
+        return result.category;
+    };
+    if format != OutputFormat::Json {
+        return result.category;
+    }
+    match ix_cli_kit::json::encode_canonical(document, false) {
+        Ok(mut encoded) => {
+            encoded.push('\n');
+            match streams::write_primary_stdout(encoded.as_bytes()) {
+                Ok(()) => result.category,
+                Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => result.category,
+                Err(error) => {
+                    emit_diagnostic(
+                        "OutputFailure",
+                        &format!("could not write outcome document: {error}"),
+                    );
+                    Category::InternalFailure
+                }
+            }
+        }
+        Err(error) => {
+            emit_diagnostic(
+                "OutputFailure",
+                &format!("could not encode outcome document: {error}"),
+            );
+            Category::InternalFailure
+        }
+    }
 }
 
 pub(super) fn entrypoint() -> ExitCode {
@@ -333,17 +456,25 @@ pub(super) fn entrypoint() -> ExitCode {
             format,
             raw_arguments,
         }) => {
-            // Current handlers return categories without writing stdout. Keep
-            // result emission after exit conversion when output support lands,
-            // so a rejected reserved result cannot accompany a result document.
-            process_exit_code(dispatch(
+            // Check the exit invariant before output so a rejected reserved
+            // result cannot accompany an outcome document.
+            let result = dispatch(
                 verb,
                 format,
                 &raw_arguments,
                 crate::signals::SignalContext::default(),
-            ))
+            );
+            let exit_result = category_exit_result(result.category);
+            if exit_result == RESERVED_COMMAND_NOT_FOUND {
+                process_exit_code(result.category)
+            } else {
+                process_exit_code(emit_result(&result, format))
+            }
         }
-        Err(_) => process_exit_code(Category::Refusal),
+        Err(message) => {
+            let result = CommandResult::failure(Category::Refusal, message);
+            process_exit_code(emit_result(&result, OutputFormat::Text))
+        }
     }
 }
 
@@ -354,11 +485,13 @@ pub(super) fn entrypoint() -> ExitCode {
     reason = "a failed assertion is the test failure report"
 )]
 mod outcome_tests {
+    use std::io;
     use std::process::ExitCode;
 
     use qsl_foundation::diagnostic::Category;
+    use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 
-    use super::process_exit_code;
+    use super::{process_exit_code, write_diagnostic, write_result_diagnostics, CommandResult};
 
     /// Trace: FR-002-AC-2; one QSL exit function preserves its numeric results.
     #[test]
@@ -368,6 +501,43 @@ mod outcome_tests {
         for (category, expected_code) in Category::ALL.into_iter().zip(expected) {
             assert_eq!(process_exit_code(category), ExitCode::from(expected_code));
         }
+    }
+
+    struct ClosedPipe;
+
+    impl io::Write for ClosedPipe {
+        fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+    }
+
+    /// Trace: FR-002-AC-8; a closed diagnostic sink returns an error without panicking.
+    #[test]
+    fn diagnostic_write_reports_a_closed_stderr_pipe_without_panicking() {
+        let mut sink = ClosedPipe;
+        let error = write_diagnostic(&mut sink, "DriverDiagnostic", "refused request")
+            .expect_err("closed pipe is reported to its caller");
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+    }
+
+    /// Trace: FR-002-AC-8; QSL document diagnostics are retained on stderr.
+    #[test]
+    fn typed_outcome_diagnostics_are_written_to_stderr() {
+        let document = OutcomeDocument::new(Operation::Execute, None, Category::Refusal)
+            .with_diagnostics(vec![OutcomeDiagnostic::new(
+                None,
+                "invalid-request",
+                None,
+                "the selected function has no parameter named x",
+            )]);
+        let result = CommandResult::document(document);
+        let mut stderr = Vec::new();
+        write_result_diagnostics(&result, &mut stderr).expect("write QSL diagnostic");
+        assert_eq!(stderr, b"the selected function has no parameter named x\n");
     }
 }
 
