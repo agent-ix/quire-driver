@@ -3,7 +3,8 @@
 //! manifests and passed to every consumer as an argument.
 
 use qsl_route::{
-    BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin, Registry,
+    BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin, RegistrationRefusal,
+    Registry,
 };
 use std::ops::Deref;
 
@@ -133,6 +134,27 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
     }
 }
 
+/// Register descriptors admitted by the caller (for example, the CLI's
+/// process-host hello admitter) without performing descriptor admission a
+/// second time. The caller supplies each descriptor's origin; this function
+/// preserves it and delegates duplicate-backend policy to QSL's registry.
+pub fn register_admitted_descriptors(
+    mut admitted: AdmittedRegistry,
+    descriptors: impl IntoIterator<Item = BackendDescriptor>,
+) -> Result<AdmittedRegistry, DriverRefusal> {
+    let mut refusals: Vec<RegistrationRefusal> = Vec::new();
+    for descriptor in descriptors {
+        let _ = admitted.registry.register(descriptor);
+    }
+    refusals.extend(admitted.registry.refusals());
+    if refusals.is_empty() {
+        Ok(admitted)
+    } else {
+        refusals.sort();
+        Err(DriverRefusal::Registration(refusals))
+    }
+}
+
 /// Admit compile-time providers and retain the identity-to-provider mapping
 /// used after negotiation and routing.
 pub fn build_linked_providers<'a>(
@@ -160,7 +182,7 @@ mod tests {
 
     use crate::{KaniProvider, Provider, ProviderManifest};
 
-    use super::build_linked_providers;
+    use super::{build_linked_providers, register_admitted_descriptors};
 
     fn provider(identity: &str, digest: u8) -> KaniProvider {
         KaniProvider::new(ProviderManifest {
@@ -168,6 +190,29 @@ mod tests {
             manifest_digest: ManifestDigest::from_digest([digest; 32]),
             advertises: Vec::new(),
         })
+    }
+
+    /// Trace: FR-005-AC-5, caller-admitted Process origin is preserved by registration.
+    #[test]
+    fn registers_a_caller_admitted_process_descriptor_without_re_admission() {
+        let linked_provider = provider("agent-ix/provider/linked", 7);
+        let linked = build_linked_providers(&[&linked_provider]).expect("linked provider admits");
+        let descriptor = qsl_route::BackendDescriptor::admit(
+            qsl_route::Candidate::new(BackendId::from_wire("agent-ix/plugin/test").unwrap()),
+            ProviderOrigin::Process,
+            ManifestDigest::from_digest([8; 32]),
+            [(Some("operation-contract"), Some("bounded"))],
+        )
+        .expect("the host hello admitter returns a QSL-admitted descriptor");
+        let admitted = register_admitted_descriptors(linked.admitted, [descriptor])
+            .expect("descriptor registers into the existing registry");
+        let id = BackendId::from_wire("agent-ix/plugin/test").unwrap();
+        let registered = admitted
+            .descriptors()
+            .find(|descriptor| descriptor.id() == &id)
+            .expect("registered descriptor");
+        assert_eq!(registered.origin(), ProviderOrigin::Process);
+        assert_eq!(admitted.backends().count(), 2);
     }
 
     /// Trace: FR-005-AC-1, FR-005-AC-3.

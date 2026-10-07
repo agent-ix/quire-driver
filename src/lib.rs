@@ -50,6 +50,7 @@ mod drive;
 pub mod execute;
 mod handoff;
 pub mod limits;
+mod process_provider;
 pub mod provider;
 mod refusal;
 mod registry;
@@ -63,6 +64,9 @@ pub use cache::{
 pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, Routed};
 pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};
 pub use limits::{LimitError, LimitOverrides};
+pub use process_provider::{
+    invoke_process_provider, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
+};
 pub use provider::{
     KaniExecutionLimits, KaniProvider, Provider, ProviderItemFailure, ProviderItemResult,
     ProviderLimits, ProviderOutcomeError, ProviderRequest, ProviderResults, ProviderTerminalError,
@@ -70,6 +74,7 @@ pub use provider::{
 pub use quire_contract_codegen::ProofCeilings;
 pub use refusal::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
 pub use registry::{
-    build_linked_providers, build_registry, AdmittedRegistry, LinkedProviders, ProviderManifest,
+    build_linked_providers, build_registry, register_admitted_descriptors, AdmittedRegistry,
+    LinkedProviders, ProviderManifest,
 };
 pub use upstream::{QslCg, Upstream};
