@@ -5,8 +5,13 @@
 //! session an inherited `SIG_IGN` disposition is overridden by `signal-hook`
 //! for the process lifetime; cleanup on plugin-session signals takes precedence.
 //!
-//! Signal lifecycle tests require an unsandboxed runner with cross-process
-//! signal and process-group support.
+//! The tests `signal_is_forwarded_after_active_cleanup_and_defaults_without_a_session`
+//! and `plugin_session_signals_cancel_and_reap_each_active_lifecycle_stage`
+//! require an unsandboxed runner with cross-process signal and process-group
+//! support. A sandbox failure can show `signal() == None` where SIGTERM/SIGINT
+//! was expected, or a bounded-wait timeout; previous sandbox runs failed in
+//! about 6–7 s versus about 14 s with normal permissions. Rerun under normal,
+//! unsandboxed permissions.
 
 use std::collections::BTreeMap;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -189,8 +194,12 @@ pub(crate) fn run<T>(operation: impl FnOnce(SignalContext) -> T) -> Result<T, st
     reason = "signal harness failures are the test failure report"
 )]
 mod tests {
-    //! Signal lifecycle subprocess tests require an unsandboxed runner with
-    //! working cross-process signals and process-group controls.
+    //! `signal_is_forwarded_after_active_cleanup_and_defaults_without_a_session`
+    //! and `plugin_session_signals_cancel_and_reap_each_active_lifecycle_stage`
+    //! need normal, unsandboxed cross-process signal and process-group
+    //! permissions. Sandbox failures can report `signal() == None` where
+    //! SIGTERM/SIGINT was expected, or a bounded-wait timeout; rerun with normal
+    //! permissions.
 
     use super::{lock_active, SignalContext};
     use quire_exact::Cancel;
@@ -411,7 +420,7 @@ mod tests {
                 let status = child.wait().expect("wait for child that missed readiness");
                 let (stdout, stderr) = read_child_output(&mut child);
                 panic!(
-                    "{mode} child became ready: {}",
+                    "{mode} child did not become ready within 3 s: {}",
                     child_failure(status, &stdout, &stderr)
                 );
             }
@@ -643,7 +652,7 @@ mod tests {
                 let status = child.wait().expect("wait for child that missed readiness");
                 let (stdout, stderr) = read_child_output(&mut child);
                 panic!(
-                    "{stage} fixture reached its blocking point; {}",
+                    "{stage} fixture did not become ready within 5 s; {}",
                     child_failure(status, &stdout, &stderr)
                 );
             }
@@ -662,6 +671,7 @@ mod tests {
                 }
                 thread::sleep(Duration::from_millis(5));
             };
+            let elapsed = started.elapsed();
             let expected = if stage.ends_with("-int") {
                 signal_hook::consts::signal::SIGINT
             } else {
@@ -669,35 +679,35 @@ mod tests {
             };
             let (stdout, stderr) = read_child_output(&mut child);
             let failure = child_failure(status, &stdout, &stderr);
-            assert_eq!(status.signal(), Some(expected), "{failure}");
+            assert_eq!(status.signal(), Some(expected), "{stage}: {failure}");
             assert!(
-                started.elapsed() < Duration::from_millis(1500),
+                elapsed < Duration::from_millis(1500),
                 "{stage} signal must cancel and clean the plugin promptly; {failure}"
             );
             assert!(
                 !stdout
                     .windows(b"QUIRE_OUTCOME_SENTINEL".len())
                     .any(|window| window == b"QUIRE_OUTCOME_SENTINEL"),
-                "signal wrote outcome bytes: {failure}"
+                "{stage}: signal wrote outcome bytes: {failure}"
             );
             assert!(
                 !outcome.exists(),
-                "signal wrote outcome document; {failure}"
+                "{stage}: signal wrote outcome document; {failure}"
             );
             if stage.starts_with("request") {
                 assert!(
                     request_cancelled.exists(),
-                    "invoke request handle was registered; {failure}"
+                    "{stage}: invoke request handle was registered; {failure}"
                 );
             }
             thread::sleep(Duration::from_millis(2200));
             assert!(
                 !descendant.exists(),
-                "{stage} descendant was reaped; {failure}"
+                "{stage}: descendant was reaped; {failure}"
             );
             assert!(
                 !plugin_marker.exists(),
-                "{stage} plugin was reaped; {failure}"
+                "{stage}: plugin was reaped; {failure}"
             );
             let _ = std::fs::remove_file(ready);
             let _ = std::fs::remove_file(descendant);

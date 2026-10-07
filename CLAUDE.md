@@ -28,8 +28,12 @@ make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
 make ci             # fmt-check + lint + test + deny + audit-unsafe + docs + spec
 ```
 
-The `quire-cli` signal lifecycle tests require an unsandboxed runner with
-working cross-process signals and process-group controls.
+The `quire-cli` tests `signal_is_forwarded_after_active_cleanup_and_defaults_without_a_session`
+and `plugin_session_signals_cancel_and_reap_each_active_lifecycle_stage` need
+normal, unsandboxed cross-process signal and process-group permissions. A
+sandbox failure can report `signal() == None` where SIGTERM/SIGINT was expected,
+or exceed a bounded wait (observed in about 6–7 s in sandbox runs versus about
+14 s with normal permissions). Rerun under normal, unsandboxed permissions.
 
 ## Safety scaffolding
 
