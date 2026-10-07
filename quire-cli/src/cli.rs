@@ -290,7 +290,7 @@ impl CommandResult {
         }
     }
 
-    /// An input refusal raised before QSL runs, recorded with QSL's catalog code.
+    /// An input refusal raised before QSL runs, recorded with QSL's native code.
     fn input_refusal(message: impl Into<String>) -> Self {
         Self::catalog_failure(Code::InvalidRequest, message)
     }
@@ -524,7 +524,7 @@ mod outcome_tests {
         assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
     }
 
-    /// Trace: FR-002-AC-3, FR-002-AC-8; QSL document diagnostics are retained on stderr.
+    /// Trace: FR-002-AC-8; QSL document diagnostics are retained on stderr.
     #[test]
     fn typed_outcome_diagnostics_are_written_to_stderr() {
         let document = OutcomeDocument::new(Operation::Execute, None, Category::Refusal)

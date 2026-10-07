@@ -2,6 +2,8 @@
 //! Integration checks for IR-608 run engine selection.
 
 use std::process::Command;
+#[cfg(unix)]
+use std::process::{ExitStatus, Stdio};
 
 use qsl_foundation::diagnostic::{Category, Code};
 use qsl_foundation::SourceIdentity;
@@ -13,6 +15,28 @@ use quire_driver::{execute, ExecutionEngine, ExecutionRequest};
 
 const QUIRE: &str = env!("CARGO_BIN_EXE_quire");
 const SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ir608-run.qsl");
+
+#[cfg(unix)]
+fn status_with_unwritable_stderr(arguments: &[&str], reserved_exit: bool) -> ExitStatus {
+    let mut command = Command::new(QUIRE);
+    command.args(arguments).stdout(Stdio::null());
+    if reserved_exit {
+        command.env("TC018_CASE", "reserved-exit");
+    }
+    if let Ok(full) = std::fs::OpenOptions::new().write(true).open("/dev/full") {
+        return command
+            .stderr(Stdio::from(full))
+            .status()
+            .expect("run quire with /dev/full as stderr");
+    }
+
+    let mut child = command
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run quire with a pipe for stderr");
+    drop(child.stderr.take());
+    child.wait().expect("wait for quire after closing stderr")
+}
 
 fn expected_document_bytes(code: Code, message: &str) -> Vec<u8> {
     let document =
@@ -251,6 +275,14 @@ fn malformed_limit_is_named_and_refused_before_source_read() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("s1.input_bytes=invalid"));
 }
 
+/// Trace: FR-002-AC-8; a full stderr device does not replace a refusal exit with a panic.
+#[cfg(unix)]
+#[test]
+fn refusal_keeps_its_exit_code_when_stderr_is_unwritable() {
+    let status = status_with_unwritable_stderr(&["run", SOURCE, "yes", "--format", "dot"], false);
+    assert_eq!(status.code(), Some(20));
+}
+
 /// Trace: FR-002-AC-6, the reserved QSL result falls back without stdout output.
 #[cfg(feature = "tc018-test-adapter")]
 #[test]
@@ -271,6 +303,13 @@ fn reserved_exit_code_uses_internal_failure_fallback() {
             "driver exit mapping rejected result 5 (reserved code 5); using fallback code 30.\n",
             "{format}"
         );
+    }
+
+    #[cfg(unix)]
+    {
+        let status =
+            status_with_unwritable_stderr(&["run", SOURCE, "yes", "--format", "json"], true);
+        assert_eq!(status.code(), Some(30));
     }
 }
 
