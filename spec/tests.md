@@ -26,7 +26,7 @@ upstream APIs.
 | FR-001 / TC-001..TC-008 | Driver orchestration tests in `tests/drive.rs`, `tests/dependency_edges.rs` and `src/refusal.rs`, as named by the TC artifacts; upstream API adaptation is IR-606. |
 | FR-001-AC-9..10, FR-011 / TC-019 | Driver library cancellation matrix and source-provision lifetime tests; API/lifetime review. |
 | FR-002..FR-009 / TC-009..TC-016, TC-018 | QSL-backed execute and available proof-terminal serializers have unit coverage; `quire-cli` process tests cover selected-engine and limit exit behavior; full outcome-contract and prove/replay composition tests remain planned. |
-| Plugin wire, cache policy, execution semantics and AOT/interpreter parity | QSL ADR-029 owns the protocol and policy. Driver `quire-plugin-host` conformance is verified by TC-023..TC-026 under FR-013; TC-013, TC-014 and TC-015 check composition boundaries; `quire-cache` behavior is verified by TC-020..TC-022 under FR-012. |
+| Plugin wire, cache policy, execution semantics and AOT/interpreter parity | QSL ADR-029 owns the protocol and policy. Driver `quire-plugin-host` conformance is specified by TC-023..TC-026 under FR-013; implementation tests cover the listed session, typed-failure, cancellation/deadline and budget cases, with remaining cases identified in the matrix rows. TC-013, TC-014 and TC-015 specify composition boundaries; `quire-cache` behavior is verified by TC-020..TC-022 under FR-012. |
 | FR-010 / TC-017 | Planned QSL-owned cross-repository test in `quire-integration`, QSL-514; QSL AR2 is the prerequisite. |
 | G5b acceptance evidence / IR-528 | `quire-integration` only: CLI/library parity across the eight outcome kinds with identical outcome bytes and exit codes; provider/plugin installation; cache hit/miss/never-store; AOT/interpreter parity; absence of a QSL user binary; and prove execution, replay and FR-331 records. |
 
@@ -43,11 +43,11 @@ verification; they do not substitute for IR-528 acceptance evidence.
 
 | Functional Req | Acceptance Criteria | Test Cases | Status |
 |---|---|---|---|
-| FR-001 | FR-001-AC-1..FR-001-AC-11 | TC-001, TC-002, TC-003, TC-004, TC-005, TC-006, TC-007, TC-008, TC-019 | 🚧 Planned: existing test sources are present; the TC-005 transitive cache-boundary assertion and trace-tagged evidence for FR-001-AC-9/AC-10 remain planned. |
+| FR-001 | FR-001-AC-1..FR-001-AC-11 | TC-001, TC-002, TC-003, TC-004, TC-005, TC-006, TC-007, TC-008, TC-019 | 🚧 Partial: `tests/dependency_edges.rs` checks the driver/cache/host graph boundaries and `tests/drive.rs` carries explicit FR-001-AC-9/AC-10 Trace IDs; full cross-repository lifecycle evidence remains planned. |
 | FR-002 | FR-002-AC-1, FR-002-AC-2, FR-002-AC-3, FR-002-AC-4, FR-002-AC-5 | TC-009, TC-018 | 🚧 QSL-backed execute result serialization is unit-tested in `src/execute.rs`; machine CLI dispatch/writing and process exit integration remain planned. |
 | FR-003 | FR-003-AC-1, FR-003-AC-2, FR-003-AC-3 | TC-010 | ✅ `src/limits.rs` covers override/default and invalid-setting rules; `src/execute.rs` verifies typed stage-limit configured bound and `limits_field()` through the driver wrapper; `quire-cli/tests/binary_process.rs` covers exit category and raised-limit completion. |
 | FR-004 | FR-004-AC-1, FR-004-AC-2, FR-004-AC-3, FR-004-AC-4 | TC-011 | 🚧 Planned: current tests compare the linked interpreter's typed preparation refusal with direct QSL output, but cross-engine no-substitution for a selected-engine failure awaits a second engine or injectable seam. CLI parser and binary-process tests cover engine selection and unavailable-engine refusal. |
-| FR-005 | FR-005-AC-1..FR-005-AC-5 | TC-012 | 🚧 The Linked Kani Provider slice covers QSL manifest admission/lookup, including the Linked-origin half of FR-005-AC-1 in `src/registry.rs`, Kani preflight refusals, explicit `ProofCeilings` propagation and mismatch refusal, typed CG evidence fields, and CG terminal mapping. The QSL-to-CG origin projection is tested in `src/drive.rs`. Provider limits/results are Kani-only here; cancellation is checked between items, while an active CG harness runs to its identity's wall-clock ceiling. Full routed invocation and actual execution-result forwarding remain planned. Process-origin plugin registration and process backend-kind mapping remain planned under plugin-host work. |
+| FR-005 | FR-005-AC-1..FR-005-AC-5 | TC-012 | 🚧 The Linked Kani Provider slice covers QSL manifest admission/lookup, including the Linked-origin half of FR-005-AC-1 in `src/registry.rs`, Kani preflight refusals, explicit `ProofCeilings` propagation and mismatch refusal, typed CG evidence fields, and CG terminal mapping. The QSL-to-CG origin projection is tested in `src/drive.rs`. Provider limits/results are Kani-only here; cancellation is checked between items, while an active CG harness runs to its identity's wall-clock ceiling. Full routed invocation and actual execution-result forwarding remain planned. Process-origin registration and backend-kind mapping are reserved for the separate adapter spec slice. |
 | FR-006 | FR-006-AC-1, FR-006-AC-2 | TC-013, TC-028 | 🚧 Driver seam and CLI host composition tests planned |
 | FR-007 | FR-007-AC-1..FR-007-AC-6 | TC-014 | 🚧 AC-1, AC-2 and AC-6 remain planned until provider dispatch is integrated; the helper tests cover cache-call semantics AC-3..AC-5 |
 | FR-008 | FR-008-AC-1, FR-008-AC-2 | TC-015 | 🚧 Planned |
@@ -58,16 +58,16 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | FR-012 | FR-012-AC-6..FR-012-AC-8 | TC-021 | ✅ Matrix binds AC-6, AC-7, and AC-8 to the typed hit/miss, excluded-value, and deterministic incomplete-value test at `quire-cache/src/lib.rs:942` |
 | FR-012 | FR-012-AC-9..FR-012-AC-12 | TC-022 | ✅ Entry bounds, temp cleanup, rename errors, ownership-filtered eviction, concurrent writes and eviction-callsite NotFound are tested with `Trace:` tags |
 | FR-012 | FR-012-AC-13 | TC-005 | ✅ `tests/dependency_edges.rs::tc_005_driver_edges_match_the_adr_011_allow_list` carries a `Trace:` tag |
-| FR-013 | FR-013-AC-1..FR-013-AC-3 | TC-023 | 🚧 Planned in `quire-plugin-host` |
-| FR-013 | FR-013-AC-4, FR-013-AC-7 | TC-024 | 🚧 Planned in `quire-plugin-host` |
-| FR-013 | FR-013-AC-5..FR-013-AC-6 | TC-025 | 🚧 Planned in `quire-plugin-host` |
-| FR-013 | FR-013-AC-8..FR-013-AC-10 | TC-026 | 🚧 Planned in `quire-plugin-host` |
-| FR-013 | FR-013-AC-11 | TC-005, TC-028 | 🚧 Driver closure excludes host; `quire-cli` composes the separate host with the driver seam |
+| FR-013 | FR-013-AC-1..FR-013-AC-3 | TC-023 | 🚧 Partial: tests refuse bare names and cover hello admission, rejected protocol, and zero, one and multiple requests; the explicit no-request-frame assertion remains planned. |
+| FR-013 | FR-013-AC-4, FR-013-AC-7 | TC-024 | 🚧 Partial: tests cover invalid typed result, wrong request id, fault, non-zero exit, truncated hello, non-canonical/oversized frames and unexpected extra frame; malformed JSON and truncated-body cases remain planned. |
+| FR-013 | FR-013-AC-5..FR-013-AC-6 | TC-025 | 🚧 Partial: valid settlement and fault during cancellation grace, grace-expiry descendant cleanup within one second, and blocked-write deadline are tested. |
+| FR-013 | FR-013-AC-8..FR-013-AC-10 | TC-026 | 🚧 Partial: Linux CPU and memory aggregation across sampled process-group members, multithreaded process accounting, stderr truncation, EOF exit-status preservation, descendant cleanup and bounded reader joins are tested. A fork/exit smoke test exercises concurrent churn while sampling but does not force a particular stat-read interleaving. macOS and Windows budget enforcement remains planned in IR-671; requests with those budgets currently fail closed as Unavailable. CPU usage by members that exit between samples remains a measured limitation under IR-668. Windows Job Object cleanup is not yet gated. |
+| FR-013 | FR-013-AC-11 | TC-005, TC-028 | 🚧 Driver closure excludes host; CLI host dependency and runtime adapter/seam composition remain planned in IR-672. |
 | FR-013 | FR-013-AC-12 | TC-027 | 🚧 Makefile `test` already runs `cargo fetch --locked`; clean-cache fetch, offline metadata and full-test evidence remain planned |
-| FR-013 | FR-013-AC-13 | TC-027 | 🚧 Actionable missing-fixture-runtime diagnostic specified |
+| FR-013 | FR-013-AC-13 | TC-027 | ✅ Python 3 prerequisite test emits an actionable installation message |
 | FR-014 | FR-014-AC-1 | TC-028 | 🚧 Sole `quire-cli` ownership of the Cargo `quire` binary target; package-graph test planned |
-| FR-014 | FR-014-AC-2 | TC-005, TC-028 | 🚧 Direct `quire-driver`, `quire-cache` and `quire-plugin-host` dependencies; package-graph test planned |
-| FR-014 | FR-014-AC-3 | TC-005 | 🚧 `quire-cli` workspace default-member status; metadata assertion planned |
+| FR-014 | FR-014-AC-2 | TC-005, TC-028 | 🚧 TC-005 asserts the driver/cache dependencies; the direct host edge is planned for the adapter slice in IR-672. |
+| FR-014 | FR-014-AC-3 | TC-005 | ✅ TC-005 asserts `quire-cli` workspace default-member status |
 | FR-014 | FR-014-AC-4 | TC-009, TC-018, TC-028 | 🚧 CLI contract and process-boundary tests and fixtures owned by `quire-cli`; test-location assertions planned |
 | FR-014 | FR-014-AC-5 | TC-028 | 🚧 Parser and binary entry point locations in `quire-cli`; layout assertion planned |
 
@@ -79,7 +79,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-002 | An unknown BackendId refuses the run before negotiation | Integration | FR-001-AC-2 | ✅ Tests present |
 | TC-003 | route runs after negotiation, for supported items only | Integration | FR-001-AC-3 | ✅ Tests present |
 | TC-004 | Command-level refusals are typed | Integration | FR-001-AC-5 | ✅ Tests present |
-| TC-005 | The dependency edges match ADR-011 §6.1 and §7.1 | Integration | FR-001-AC-1, FR-001-AC-11, FR-012-AC-13, FR-013-AC-11, FR-014-AC-2, FR-014-AC-3 | 🚧 Planned: driver closure assertion exists; transitive cache edge, host exclusion, CLI host edge and default-member assertion remain planned. |
+| TC-005 | The dependency edges match ADR-011 §6.1 and §7.1 | Integration | FR-001-AC-1, FR-001-AC-11, FR-012-AC-13, FR-014-AC-3 | 🚧 Driver closure, cache boundary, host exclusion and CLI default-member membership are asserted; the planned FR-013-AC-11 and FR-014-AC-2 host-edge assertions belong to the IR-672 adapter slice. |
 | TC-006 | E5 admits the emitted package and CG generates for the routed items | Integration | FR-001-AC-6, FR-001-AC-7, FR-001-AC-8 | ✅ Tests present |
 | TC-007 | Generation refusals are typed | Integration | FR-001-AC-5, FR-001-AC-6 | ✅ Tests present |
 | TC-008 | A missing import or an unknown header profile refuses at compile | Integration | FR-001-AC-5 | ✅ Tests present |
@@ -93,15 +93,15 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-016 | Settle one terminal record per item after replay | Integration | FR-009-AC-1, FR-009-AC-2, FR-009-AC-3, FR-009-AC-4, FR-009-AC-5 | 🚧 Execute and available proved-provider outputs use QSL's canonical serializer; falsified scalar mapping remains unguessed. Scalar replay and full per-item accounting remain planned. |
 | TC-017 | Send only abstraction-relation-bound items to code generation | Integration | FR-010-AC-1, FR-010-AC-2, FR-010-AC-3 | 🚧 Planned in quire-integration; QSL AR2 prerequisite |
 | TC-018 | Preserve the QSL outcome at the binary process boundary | Integration | FR-002-AC-2, FR-002-AC-3, FR-002-AC-4, FR-014-AC-4 | 🚧 Planned: `quire-cli/tests/binary_process.rs` checks selected-engine and limit process statuses; full outcome document bytes and remaining CLI contract cases remain planned. Fixtures belong to `quire-cli`. |
-| TC-019 | Propagate library cancellation and retain bounded checked-unit source | Integration | FR-001-AC-9, FR-001-AC-10, FR-011-AC-1..FR-011-AC-5 | 🚧 Planned: the named cancellation/source-lifetime tests exist, but trace-tagged evidence for FR-001-AC-9/AC-10 remains planned. |
+| TC-019 | Propagate library cancellation and retain bounded checked-unit source | Integration | FR-001-AC-9, FR-001-AC-10, FR-011-AC-1..FR-011-AC-5 | ✅ Cancellation/source-lifetime tests are present with explicit comma-separated Trace IDs for FR-001-AC-9, FR-001-AC-10, and FR-011-AC-1..FR-011-AC-4. |
 | TC-020 | Derive cache identity from meaning inputs and manifest content | Unit | FR-012-AC-1..FR-012-AC-5 | 🚧 Key, target, and excluded-field projection tests are present; `Trace:` tags identify covered criteria |
 | TC-021 | Reject invalid cache entries and excluded values | Unit | FR-012-AC-6..FR-012-AC-8 | ✅ Quire matrix binds AC-6, AC-7, and AC-8 to `quire-cache/src/lib.rs:942`; typed invalid-entry readers also bind AC-6 |
 | TC-022 | Keep cache writes atomic and within the caller's size limit | Unit | FR-012-AC-9..FR-012-AC-12 | ✅ Size, rename boundary and rename NotFound, temp cleanup, ownership-filtered eviction, concurrency and removal-race tests carry `Trace:` tags |
-| TC-023 | Start a plugin session and admit hello before requests | Integration | FR-013-AC-1..FR-013-AC-3 | 🚧 Planned in `quire-plugin-host` |
-| TC-024 | Enforce plugin framing and preserve typed failures | Integration | FR-013-AC-4, FR-013-AC-7 | 🚧 Planned in `quire-plugin-host` |
-| TC-025 | Preserve plugin settlement during cancellation and bound deadlines | Integration | FR-013-AC-5..FR-013-AC-6 | 🚧 Planned in `quire-plugin-host` |
-| TC-026 | Enforce plugin process-tree budgets and bounded cleanup | Integration | FR-013-AC-8..FR-013-AC-10 | 🚧 Planned in `quire-plugin-host` |
-| TC-027 | Run plugin-host tests and dependency checks from a clean cache | Integration | FR-013-AC-12, FR-013-AC-13 | 🚧 Planned clean-cache gate and missing-runtime prerequisite test |
+| TC-023 | Start a plugin session and admit hello before requests | Integration | FR-013-AC-1..FR-013-AC-3 | 🚧 Partial: executable-name refusal, hello admission, rejected protocol, and zero/one/two requests are tested; the explicit no-request-frame assertion remains planned. |
+| TC-024 | Enforce plugin framing and preserve typed failures | Integration | FR-013-AC-4, FR-013-AC-7 | 🚧 Partial: invalid result, wrong request id, plugin fault, non-zero exit, truncated hello, non-canonical/oversized frames, and unexpected extra frame are tested; malformed JSON and truncated-body cases remain planned. |
+| TC-025 | Preserve plugin settlement during cancellation and bound deadlines | Integration | FR-013-AC-5..FR-013-AC-6 | 🚧 Partial: cancellation settlement/fault, grace-expiry descendant cleanup within one second, and blocked-write deadline tests exist. |
+| TC-026 | Enforce plugin process-tree budgets and bounded cleanup | Integration | FR-013-AC-8..FR-013-AC-10 | 🚧 Partial: Linux CPU/memory aggregation across sampled group members, a fork/exit churn smoke test, unavailable measurement, multithreaded accounting, stderr truncation, EOF status, descendant cleanup, and bounded joins are tested; the smoke test does not force a particular stat-read interleaving. macOS and Windows budget enforcement is planned in IR-671 and currently fails closed as Unavailable. CPU between-sample accounting is measured as partial under IR-668; Windows Job Object cleanup remains ungated. |
+| TC-027 | Run plugin-host tests and dependency checks from a clean cache | Integration | FR-013-AC-12, FR-013-AC-13 | 🚧 Python prerequisite message is tested; clean-cache fetch, offline metadata, and full gate evidence remain planned. |
 | TC-028 | Keep the CLI package separate from the driver and compose cache and process host | Integration | FR-006-AC-1, FR-013-AC-11, FR-014-AC-1, FR-014-AC-2, FR-014-AC-4, FR-014-AC-5 | 🚧 Planned package metadata and CLI ownership test |
 
 ## Integration Test Matrix

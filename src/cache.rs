@@ -531,7 +531,7 @@ mod tests {
         assert_eq!(cache.records.get(), 0);
     }
 
-    /// Trace: FR-007-AC-3 and FR-007-AC-5, a miss records and returns the provider value.
+    /// Trace: FR-007-AC-3, FR-007-AC-5; a miss records and returns the provider value.
     #[test]
     fn miss_calls_provider_once_and_records_its_result() {
         let (registry, backend) = registry("kani", [0; 32]);

@@ -223,7 +223,7 @@ mod tests {
         }
     }
 
-    /// Trace: FR-011-AC-2, FR-011-AC-3 and FR-011-AC-4.
+    /// Trace: FR-011-AC-2, FR-011-AC-3, FR-011-AC-4.
     #[test]
     fn lifecycle_cancellation_is_incomplete_and_preserves_stage_and_cause() {
         for (operation, expected_stage) in OPERATIONS {

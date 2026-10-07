@@ -1,0 +1,27 @@
+[package]
+name = "quire-plugin-host"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.1"
+description = "Canonical framing and process boundary for quire driver plugins."
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/agent-ix/quire-driver"
+publish = false
+
+[dependencies]
+quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main", features = ["serde_json"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.151"
+thiserror = "=2.0.20"
+quire-exact = { git = "https://github.com/agent-ix/quire-exact", branch = "main" }
+process-wrap = { version = "=10.0.1", default-features = false, features = ["std", "process-group", "job-object"] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "=0.31.3", features = ["feature"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = "deny"
