@@ -17,13 +17,14 @@ process-provider seam and returns typed provider results through its proof
 path; TC-028 verifies that `quire-cli` composes this seam with
 `quire-plugin-host`.
 
-Scope: FR-005-AC-6 through FR-005-AC-11, FR-006-AC-1 through FR-006-AC-7.
+Scope: FR-005-AC-5 through FR-005-AC-11, FR-006-AC-1 through FR-006-AC-2,
+and FR-006-AC-5 through FR-006-AC-17.
 
 ## Test Procedure
 
 1. Build an emitted package and a registry snapshot from the original
-   losslessly retained FR-331 manifest DTOs. Supply the caller's deadline
-   through the CG routed request. Use CG's routed output/routing seam for each
+   losslessly retained FR-331 manifest DTOs. Supply the deadline in the
+   caller's process-provider request. Use CG's routed output/routing seam for each
    request index, claim locus and kind, extent/bounds, selected backend,
    candidates and any temporal subject proof bounds.
 2. Serialize the request through the typed FR-331 adapter. Verify `package`
@@ -47,15 +48,17 @@ Scope: FR-005-AC-6 through FR-005-AC-11, FR-006-AC-1 through FR-006-AC-7.
    Do not create a terminal for that candidate before replay. Keep plugin
    `proved` results unmapped until QSL-490 and QSL-655 supply the trusted
    proof-basis terminal.
-5. Have the plugin claim `replay-parity`, `replay-refused` or
-   `kani-vacuous-proof` as a result cause. Verify the driver rejects each as a
-   tool failure and records the affected item as failed; the plugin cannot
-   supply QSL's replay disagreement payload or replay result.
+5. Once QSL-655 amends ADR-029 PL-7 to define plugin claims of
+   `replay-parity`, `replay-refused` or `kani_vacuous_proof` as invalid, have
+   the plugin make each claim. Verify the driver rejects each as a tool failure
+   and records the affected item as failed; the plugin cannot supply QSL's
+   replay disagreement payload or replay result. Until that PL-7 amendment
+   lands, this case remains planned and defines no driver behavior.
 6. Send a request with a `package_id` that does not match the decoded package.
    Verify the plugin responds with one FR-331 result that marks every routed
    item failed and carries FR-272 `stale_dependency/content-mismatch`. Repeat
-   with a rejected item value; verify the plugin responds with one FR-331
-   result marking every routed item failed with
+   with a non-canonical spelling of the package; verify the plugin responds
+   with one FR-331 result marking every routed item failed with
    `invalid_runtime_input/invalid-value`.
    Verify the driver decodes the typed FR-331 result and FR-272 diagnostic,
    maps each failed result to QSL `TerminalValue::Failed`, and carries the
@@ -76,25 +79,27 @@ request deadline. Bounds `kind` additionally waits on QSL-654. These missing
 source fields are tracked integration gaps; the test must not synthesize them
 from unrelated provider evidence.
 
-Test location: planned `quire-cli` FR-331 adapter tests and driver/provider
-composition tests. Until CG IR-629 adds the process backend kind, request
-serialization and result conversion use explicit typed input fixtures;
-end-to-end negotiation and settlement remain gated on that CG API.
+Test location: planned `quire-cli` FR-331 hello/request adapter tests and
+driver/provider composition tests. IR-672 PR3 covers the hello/admission and
+request DTO stages. Result conversion and settlement use explicit typed input
+fixtures and remain held for the IR-677 carrier and QSL result-mapping APIs;
+end-to-end negotiation and settlement also require CG IR-629.
 
 ## Expected Results
 
 - Request fields come from their named owners: `package` and `package_id` from
   the same `EmittedPackage`; `manifest` from retained FR-331 manifest DTOs;
-  `deadline_ms` from the caller as carried by the CG routed request; and item
+  `deadline_ms` from the caller's process-provider request; and item
   request index, claim locus, kind, extent/bounds, selected backend and
   candidates from CG's routed output/routing seam.
-- The plugin itself returns all-items-failed results for package mismatch or
-  invalid-value rejection. The driver maps those to QSL `Failed` terminals and
-  attaches the typed FR-272 diagnostics separately; it does not claim QSL read
-  the request body.
+- The test fixture supplies all-items-failed responses for package mismatch or
+  non-canonical package spelling. The driver maps those to QSL `Failed`
+  terminals and attaches typed FR-272 diagnostics separately; it does not
+  claim QSL read the request body.
 - The planned conversion matrix enumerates the 13 Kani rows in QSpec
   FR-331-AC-20's Kani result table, not the larger vectors file. Replay-only
-  claims from a plugin are tool failures recorded as failed items;
+  plugin claims become tool failures recorded as failed items only after the
+  QSL-655 PL-7 amendment;
   counterexamples remain non-terminal candidates until replay, and plugin
   `proved` remains unmapped without fabricated Kani `success_checks` pending
   QSL-490 and QSL-655. Kani terminal mapping remains CG-owned.
