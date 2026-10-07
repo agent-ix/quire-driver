@@ -1069,7 +1069,7 @@ struct ProcessMonitor {
     #[cfg(target_os = "linux")]
     request_cpu_ticks: u64,
     request_active: bool,
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     force_unavailable: bool,
 }
 
@@ -1089,7 +1089,7 @@ impl ProcessMonitor {
             #[cfg(target_os = "linux")]
             request_cpu_ticks: 0,
             request_active: false,
-            #[cfg(test)]
+            #[cfg(all(test, target_os = "linux"))]
             force_unavailable: false,
         }
     }
@@ -1256,14 +1256,18 @@ fn linux_process_group_samples(group_id: u32) -> Option<Vec<LinuxProcessSample>>
     }
     let mut members = Vec::new();
     for entry in std::fs::read_dir("/proc").ok()? {
-        let Ok(entry) = entry else { continue };
-        let pid = match entry.file_name().to_str()?.parse::<u32>() {
+        let entry = entry.ok()?;
+        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let pid = match file_name.parse::<u32>() {
             Ok(pid) => pid,
             Err(_) => continue,
         };
         let stat = match std::fs::read_to_string(entry.path().join("stat")) {
             Ok(stat) => stat,
-            Err(_) => continue,
+            Err(error) if proc_entry_vanished(&error) => continue,
+            Err(_) => return None,
         };
         let Some(close) = stat.rfind(')') else {
             continue;
@@ -1281,8 +1285,10 @@ fn linux_process_group_samples(group_id: u32) -> Option<Vec<LinuxProcessSample>>
             continue;
         };
         if process_group == group_id {
-            let Ok(statm) = std::fs::read_to_string(entry.path().join("statm")) else {
-                continue;
+            let statm = match std::fs::read_to_string(entry.path().join("statm")) {
+                Ok(statm) => statm,
+                Err(error) if proc_entry_vanished(&error) => continue,
+                Err(_) => return None,
             };
             let statm_fields: Vec<&str> = statm.split_ascii_whitespace().collect();
             let Some(resident_pages) = statm_fields
@@ -1313,6 +1319,27 @@ fn linux_process_group_samples(group_id: u32) -> Option<Vec<LinuxProcessSample>>
         }
     }
     Some(members)
+}
+
+#[cfg(target_os = "linux")]
+fn proc_entry_vanished(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::NotFound
+        || error.raw_os_error() == Some(nix::errno::Errno::ESRCH as i32)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+/// Trace: FR-013-AC-8, TC-026; only disappeared /proc members are skipped.
+#[test]
+fn proc_scan_skips_only_disappeared_entries() {
+    assert!(proc_entry_vanished(&io::Error::from(
+        io::ErrorKind::NotFound
+    )));
+    assert!(proc_entry_vanished(&io::Error::from_raw_os_error(
+        nix::errno::Errno::ESRCH as i32
+    )));
+    assert!(!proc_entry_vanished(&io::Error::from(
+        io::ErrorKind::PermissionDenied
+    )));
 }
 
 #[cfg(target_os = "linux")]
@@ -2353,7 +2380,10 @@ mod tests {
             thread::sleep(Duration::from_millis(2));
         }
         assert!(ready.exists(), "fixture is waiting for its first request");
-        session.monitor.force_unavailable = true;
+        #[cfg(target_os = "linux")]
+        {
+            session.monitor.force_unavailable = true;
+        }
         let error = session
             .request(
                 &test_request(),
@@ -2394,7 +2424,7 @@ mod tests {
             ready.as_os_str().to_owned(),
         ];
         let mut limits = session_limits();
-        limits.max_process_memory_bytes = Some(48 * 1024 * 1024);
+        limits.max_process_memory_bytes = Some(96 * 1024 * 1024);
         let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
             SessionStart {
                 executable: &executable,
@@ -2414,7 +2444,7 @@ mod tests {
             .refresh_tree()
             .expect("group members are measured");
         let member_memory: Vec<u64> = members.iter().map(|sample| sample.memory_bytes).collect();
-        assert!(member_memory.iter().all(|bytes| *bytes < 48 * 1024 * 1024));
+        assert!(member_memory.iter().all(|bytes| *bytes < 96 * 1024 * 1024));
         assert!(
             members
                 .iter()
@@ -2422,7 +2452,7 @@ mod tests {
                 .count()
                 >= 3
         );
-        assert!(member_memory.iter().sum::<u64>() > 48 * 1024 * 1024);
+        assert!(member_memory.iter().sum::<u64>() > 96 * 1024 * 1024);
         let error = session
             .request(
                 &test_request(),
@@ -2440,10 +2470,10 @@ mod tests {
         }
     }
 
-    /// Trace: FR-013-AC-8, TC-026; fork and exit races remain best-effort samples.
+    /// Trace: FR-013-AC-8, TC-026; smoke test concurrent fork/exit tolerance while sampling.
     #[cfg(target_os = "linux")]
     #[test]
-    fn forking_plugin_does_not_turn_process_sample_races_into_unavailable() {
+    fn forking_plugin_sampling_smoke_does_not_return_unavailable() {
         let cancel = Cancel::new();
         let executable = failure_fixture();
         let arguments = [OsString::from("fork-during-request")];
