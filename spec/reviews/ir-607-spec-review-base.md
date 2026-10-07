@@ -48,3 +48,4 @@ Round 1, PR #42 fix round (the fix commit id is recorded on the Linear dispositi
 | FND-002 | still-open | spec/tests.md TC-018 row still says quire-cli/tests/binary_process.rs 'checks ... machine-output bytes, and the feature-gated code-5 invariant fallback'. At this head binary_process.rs has six FR-003/FR-004 tests, asserts nothing on stdout, and the repo has no code-5 feature or ix-cli-kit dependency. The fix added a second unbacked present-tense claim (machine-output bytes). |
 | FND-003 | fixed | PR #42 fix round 1 |
 | FND-004 | fixed | PR #42 fix round 1 |
+| FND-002 | fixed | PR #42 fix round 2 |
