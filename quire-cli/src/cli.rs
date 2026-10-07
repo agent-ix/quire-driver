@@ -4,15 +4,17 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::process::ExitCode;
 
 use ix_cli_kit::exit::caller_exit_code;
-use qsl_foundation::diagnostic::Category;
+use ix_cli_kit::streams::{self, Diagnostics};
+use qsl_foundation::diagnostic::{Category, Code};
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     default_accounting, Call, CallArgument, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
+use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use quire_driver::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides};
 
 /// Pass QSL's category result through the kit without converting it to an `Outcome`.
@@ -23,10 +25,13 @@ fn process_exit_code(category: Category) -> ExitCode {
         Ok(exit_code) => exit_code,
         Err(error) => {
             let fallback = Category::InternalFailure.exit_code();
-            let _ = writeln!(
-                std::io::stderr().lock(),
-                "driver exit mapping rejected result {} (reserved code {}); using fallback code {fallback}.",
-                error.rejected_code, error.reserved_code
+            streams::emit_diagnostic(
+                Diagnostics::default(),
+                "ExitMappingFailure",
+                &format!(
+                    "driver exit mapping rejected result {} (reserved code {}); using fallback code {fallback}.",
+                    error.rejected_code, error.reserved_code
+                ),
             );
             ExitCode::from(fallback)
         }
@@ -249,12 +254,56 @@ impl RunOptions {
     }
 }
 
+/// One command's QSL category, optional outcome document, and diagnostic.
+struct CommandResult {
+    category: Category,
+    document: Option<OutcomeDocument>,
+    diagnostic: Option<String>,
+}
+
+impl CommandResult {
+    fn document(document: OutcomeDocument) -> Self {
+        Self {
+            category: document.category(),
+            document: Some(document),
+            diagnostic: None,
+        }
+    }
+
+    fn failure(category: Category, message: impl Into<String>) -> Self {
+        Self {
+            category,
+            document: None,
+            diagnostic: Some(message.into()),
+        }
+    }
+
+    /// An input refusal raised before QSL runs, recorded with QSL's catalog code.
+    fn input_refusal(message: impl Into<String>) -> Self {
+        Self::catalog_failure(Code::InvalidRuntimeInput, message)
+    }
+
+    fn catalog_failure(code: Code, message: impl Into<String>) -> Self {
+        let message = message.into();
+        Self::document(
+            OutcomeDocument::new(Operation::Execute, None, code.category()).with_diagnostics(vec![
+                OutcomeDiagnostic::new(None, code.as_str(), None, message.clone()),
+            ]),
+        )
+        .with_diagnostic(message)
+    }
+
+    fn with_diagnostic(mut self, message: impl Into<String>) -> Self {
+        self.diagnostic = Some(message.into());
+        self
+    }
+}
+
 /// Run one complete-V1 function through QSL's interpreter.
-fn run(options: RunOptions) -> Category {
+fn run(options: RunOptions) -> CommandResult {
     if options.engine != ExecutionEngine::Interpreter {
         let failure = ExecutionFailure::UnsupportedEngine(options.engine);
-        eprintln!("{failure}");
-        return failure.category();
+        return CommandResult::failure(failure.category(), failure.to_string());
     }
     let packages = BTreeMap::new();
     let dependencies = DependencyInput::default();
@@ -265,11 +314,14 @@ fn run(options: RunOptions) -> Category {
         accounting: default_accounting(DEFAULT_WORK_UNITS),
     };
     if let Err(error) = options.limits.apply_to(&mut limits, &mut call) {
-        eprintln!("{error}");
-        return Category::Refusal;
+        return CommandResult::input_refusal(error.to_string());
     }
-    let Ok(bytes) = read_source(&options.path, limits.source.source_bytes) else {
-        return Category::Refusal;
+    let bytes = match read_source(&options.path, limits.source.source_bytes) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let message = format!("could not read source {}: {error}", options.path);
+            return CommandResult::catalog_failure(Code::IoError, message);
+        }
     };
     let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
     match execute(ExecutionRequest {
@@ -282,8 +334,8 @@ fn run(options: RunOptions) -> Category {
         call,
         engine: options.engine,
     }) {
-        Ok(result) => result.outcome.category(),
-        Err(failure) => failure.category(),
+        Ok(result) => CommandResult::document(OutcomeDocument::from_call(&result.outcome)),
+        Err(failure) => CommandResult::failure(failure.category(), failure.to_string()),
     }
 }
 
@@ -305,23 +357,66 @@ fn dispatch(
     _format: OutputFormat,
     raw_arguments: &[OsString],
     _signals: crate::signals::SignalContext,
-) -> Category {
+) -> CommandResult {
     if verb == Verb::Run {
         return match RunOptions::parse(raw_arguments) {
             Ok(options) => run(options),
-            Err(error) => {
-                eprintln!("{error}");
-                Category::Refusal
-            }
+            Err(error) => CommandResult::input_refusal(error),
         };
     }
     if raw_arguments
         .iter()
         .any(|argument| matches!(argument.to_str(), Some("--engine" | "--limit")))
     {
-        return Category::Refusal;
+        return CommandResult {
+            category: Category::Refusal,
+            document: None,
+            diagnostic: None,
+        };
     }
-    Category::Unsupported
+    CommandResult {
+        category: Category::Unsupported,
+        document: None,
+        diagnostic: None,
+    }
+}
+
+/// Emit one result document with the kit's canonical JSON and stream APIs.
+fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
+    if let Some(message) = &result.diagnostic {
+        streams::emit_diagnostic(Diagnostics::default(), "DriverDiagnostic", message);
+    }
+    let Some(document) = &result.document else {
+        return result.category;
+    };
+    if format != OutputFormat::Json {
+        return result.category;
+    }
+    match ix_cli_kit::json::encode_canonical(document, false) {
+        Ok(mut encoded) => {
+            encoded.push('\n');
+            match streams::write_primary_stdout(encoded.as_bytes()) {
+                Ok(()) => result.category,
+                Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => result.category,
+                Err(error) => {
+                    streams::emit_diagnostic(
+                        Diagnostics::default(),
+                        "OutputFailure",
+                        &format!("could not write outcome document: {error}"),
+                    );
+                    Category::InternalFailure
+                }
+            }
+        }
+        Err(error) => {
+            streams::emit_diagnostic(
+                Diagnostics::default(),
+                "OutputFailure",
+                &format!("could not encode outcome document: {error}"),
+            );
+            Category::InternalFailure
+        }
+    }
 }
 
 pub(super) fn entrypoint() -> ExitCode {
@@ -333,15 +428,20 @@ pub(super) fn entrypoint() -> ExitCode {
             format,
             raw_arguments,
         }) => {
-            // Current handlers return categories without writing stdout. Keep
-            // result emission after exit conversion when output support lands,
-            // so a rejected reserved result cannot accompany a result document.
-            process_exit_code(dispatch(
+            // Check the exit invariant before output so a rejected reserved
+            // result cannot accompany an outcome document.
+            let result = dispatch(
                 verb,
                 format,
                 &raw_arguments,
                 crate::signals::SignalContext::default(),
-            ))
+            );
+            let exit_result = category_exit_result(result.category);
+            if exit_result == 5 {
+                process_exit_code(result.category)
+            } else {
+                process_exit_code(emit_result(&result, format))
+            }
         }
         Err(_) => process_exit_code(Category::Refusal),
     }

@@ -4,6 +4,12 @@
 use std::process::Command;
 
 use qsl_foundation::diagnostic::Category;
+use qsl_foundation::SourceIdentity;
+use qsl_replay::spine::{
+    default_accounting, Call, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
+};
+use qsl_replay::OutcomeDocument;
+use quire_driver::{execute, ExecutionEngine, ExecutionRequest};
 
 const QUIRE: &str = env!("CARGO_BIN_EXE_quire");
 const SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ir608-run.qsl");
@@ -19,6 +25,72 @@ fn run_without_engine_executes_with_the_interpreter() {
         output.status.code(),
         Some(i32::from(Category::Success.exit_code()))
     );
+}
+
+/// Trace: FR-002-AC-3, FR-002-AC-9; JSON is the unchanged QSL outcome encoded by the kit.
+#[test]
+fn machine_run_writes_the_canonical_qsl_outcome() {
+    let output = Command::new(QUIRE)
+        .args(["run", SOURCE, "yes", "--format", "json"])
+        .output()
+        .expect("run quire in machine mode");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+
+    let packages = std::collections::BTreeMap::new();
+    let dependencies = DependencyInput::default();
+    let source_bytes = std::fs::read(SOURCE).expect("read source fixture");
+    let request = ExecutionRequest {
+        source: SourceIdentity::new("quire", SOURCE, "filesystem", "current"),
+        path: SOURCE,
+        bytes: &source_bytes,
+        packages: &packages,
+        dependencies: &dependencies,
+        limits: SpineLimits::default(),
+        call: Call {
+            function: "yes".to_owned(),
+            arguments: Vec::new(),
+            accounting: default_accounting(DEFAULT_WORK_UNITS),
+        },
+        engine: ExecutionEngine::Interpreter,
+    };
+    let result = execute(request).expect("obtain typed QSL result");
+    let expected =
+        ix_cli_kit::json::encode_canonical(&OutcomeDocument::from_call(&result.outcome), false)
+            .expect("encode typed outcome through kit");
+    assert_eq!(output.stdout, format!("{expected}\n").as_bytes());
+    let qsl_bytes = result
+        .outcome_bytes()
+        .expect("encode typed outcome through QSL");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("parse child outcome"),
+        serde_json::from_slice::<serde_json::Value>(&qsl_bytes).expect("parse QSL outcome bytes")
+    );
+}
+
+/// Trace: FR-002-AC-3, FR-002-AC-8, FR-002-AC-9; pre-QSL request refusals use QSL's catalog code.
+#[test]
+fn malformed_run_limit_emits_one_qsl_outcome_and_streams_diagnostic() {
+    let output = Command::new(QUIRE)
+        .args([
+            "run",
+            "missing-source.qsl",
+            "yes",
+            "--limit",
+            "s1.input_bytes=invalid",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("run quire with malformed limit");
+    assert_eq!(output.status.code(), Some(20));
+    let document = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        .expect("one JSON outcome document");
+    assert_eq!(document["format"], "quire-outcome/1");
+    assert_eq!(document["operation"], "execute");
+    assert_eq!(document["category"], "refusal");
+    assert_eq!(document["diagnostics"][0]["code"], "invalid_runtime_input");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("s1.input_bytes=invalid"));
 }
 
 /// Trace: FR-004-AC-3, unavailable engines refuse before reading a source.
