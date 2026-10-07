@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Linux and macOS signal forwarding for explicitly routed plugin sessions.
 //!
-//! Ordinary CLI commands do not install handlers. During an active plugin
-//! session an inherited `SIG_IGN` disposition is necessarily overridden by
-//! `signal-hook`; cleanup on plugin-session signals takes precedence there.
+//! Ordinary CLI commands do not install handlers. During a routed plugin
+//! session an inherited `SIG_IGN` disposition is overridden by `signal-hook`
+//! for the process lifetime; cleanup on plugin-session signals takes precedence.
 
 use std::collections::BTreeMap;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -11,7 +11,9 @@ use std::sync::atomic::AtomicI32;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use quire_exact::{Cancel, CancelCause};
+use quire_exact::Cancel;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use quire_exact::CancelCause;
 
 /// Shared cancellation state used by the CLI operation and process adapter.
 #[derive(Clone, Default)]
@@ -32,6 +34,14 @@ fn lock_active(shared: &Shared) -> MutexGuard<'_, BTreeMap<u64, Cancel>> {
         .active
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn emulate_default_handler(signal: i32) {
+    if let Err(error) = signal_hook::low_level::emulate_default_handler(signal) {
+        eprintln!("failed to restore default signal action for {signal}: {error}");
+        std::process::abort();
+    }
 }
 
 pub(crate) struct ActiveSession {
@@ -56,15 +66,17 @@ impl SignalContext {
             for cancel in active.values() {
                 cancel.cancel(CancelCause::Requested);
             }
-            let _ = self.shared.received.compare_exchange(
-                0,
-                signal,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            );
+            if self
+                .shared
+                .received
+                .compare_exchange(0, signal, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
+                // Keep the first signal so cleanup settles against one cause.
+            }
         } else {
             drop(active);
-            let _ = signal_hook::low_level::emulate_default_handler(signal);
+            emulate_default_handler(signal);
         }
     }
 
@@ -72,7 +84,7 @@ impl SignalContext {
     fn reraise_received(&self) {
         let signal = self.shared.received.swap(0, Ordering::AcqRel);
         if signal != 0 {
-            let _ = signal_hook::low_level::emulate_default_handler(signal);
+            emulate_default_handler(signal);
         }
     }
 }
@@ -81,12 +93,19 @@ impl Drop for ActiveSession {
     fn drop(&mut self) {
         let mut active = lock_active(&self.context.shared);
         active.remove(&self.token);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let became_empty = active.is_empty();
+        drop(active);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        if became_empty {
+            self.context.reraise_received();
+        }
     }
 }
 
 /// Run an operation that routes a plugin session with a Linux/macOS signal
 /// listener. Signals cancel every registered QSL handle; the original signal
-/// is re-raised after the operation completes bounded plugin cleanup. With no
+/// is re-raised when the final active session completes bounded cleanup. With no
 /// active session, the listener emulates the default action. The listener
 /// remains until process exit so a signal after session drop is not swallowed.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -106,17 +125,30 @@ pub(crate) fn run<T: Send + 'static>(
     static LISTENER: OnceLock<Result<SignalContext, String>> = OnceLock::new();
     let context = LISTENER
         .get_or_init(|| {
-            let mut signals = Signals::new([SIGINT, SIGTERM]).map_err(|error| error.to_string())?;
             let context = SignalContext::default();
             let listener_context = context.clone();
+            let (ready_tx, ready_rx) = mpsc::sync_channel(1);
             std::thread::Builder::new()
                 .name("quire-cli-signal-listener".to_owned())
                 .spawn(move || {
+                    let mut signals = match Signals::new([SIGINT, SIGTERM]) {
+                        Ok(signals) => {
+                            ready_tx
+                                .send(Ok(()))
+                                .expect("listener initializer is waiting");
+                            signals
+                        }
+                        Err(error) => {
+                            let _ = ready_tx.send(Err(error.to_string()));
+                            return;
+                        }
+                    };
                     for signal in signals.forever() {
                         listener_context.observe(signal);
                     }
                 })
                 .map_err(|error| error.to_string())?;
+            ready_rx.recv().map_err(|error| error.to_string())??;
             Ok(context)
         })
         .clone()
@@ -134,7 +166,6 @@ pub(crate) fn run<T: Send + 'static>(
     let result = receiver
         .recv()
         .map_err(|_| std::io::Error::other("CLI operation thread stopped"))?;
-    context.reraise_received();
     match result {
         Ok(value) => Ok(value),
         Err(payload) => resume_unwind(payload),
@@ -172,6 +203,7 @@ mod tests {
 
     #[test]
     fn dropping_one_session_keeps_other_sessions_active() {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         use quire_exact::CancelCause;
 
         let context = SignalContext::default();
@@ -182,8 +214,15 @@ mod tests {
         drop(second_guard);
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         context.observe(signal_hook::consts::signal::SIGTERM);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert_eq!(first.cause(), Some(CancelCause::Requested));
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert_eq!(second.cause(), None);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        context
+            .shared
+            .received
+            .store(0, std::sync::atomic::Ordering::Release);
         drop(first_guard);
     }
 
@@ -214,6 +253,10 @@ mod tests {
                 .load(std::sync::atomic::Ordering::Acquire),
             SIGTERM
         );
+        context
+            .shared
+            .received
+            .store(0, std::sync::atomic::Ordering::Release);
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -241,6 +284,7 @@ mod tests {
                 .expect("signal wrapper starts");
                 std::fs::write(&marker, b"session-ended").expect("write post-session marker");
                 signal_hook::low_level::raise(SIGTERM).expect("raise post-session SIGTERM");
+                thread::sleep(Duration::from_secs(10));
                 return;
             }
             super::run(move |context| {
@@ -262,6 +306,9 @@ mod tests {
                     thread::sleep(Duration::from_millis(30));
                     std::fs::write(marker.with_extension("cleaned"), b"cleaned")
                         .expect("record completed cancellation cleanup");
+                    drop(_active);
+                    std::fs::write(marker.with_extension("outcome"), b"outcome")
+                        .expect("signal must be re-raised before outcome");
                 } else {
                     std::fs::write(&marker, b"idle").expect("write idle marker");
                     let deadline = std::time::Instant::now() + Duration::from_secs(3);
@@ -271,10 +318,12 @@ mod tests {
                         thread::sleep(Duration::from_millis(2));
                     }
                     signal_hook::low_level::raise(SIGINT).expect("raise test SIGINT");
+                    thread::sleep(Duration::from_secs(10));
                 }
                 17
             })
             .expect("signal wrapper starts");
+            println!("QUIRE_OUTCOME_SENTINEL");
             return;
         }
 
@@ -283,9 +332,11 @@ mod tests {
                 .join(format!("quire-cli-signal-{}-{mode}", std::process::id()));
             let trigger = marker.with_extension("trigger");
             let cleaned = marker.with_extension("cleaned");
+            let outcome = marker.with_extension("outcome");
             let _ = std::fs::remove_file(&marker);
             let _ = std::fs::remove_file(&trigger);
             let _ = std::fs::remove_file(&cleaned);
+            let _ = std::fs::remove_file(&outcome);
             let mut child = Command::new(std::env::current_exe().expect("test executable"))
                 .args([
                     "--quiet",
@@ -335,20 +386,20 @@ mod tests {
                 .expect("captured signal child stdout")
                 .read_to_end(&mut stdout)
                 .expect("read signal child stdout");
-            let non_harness_output = stdout
-                .split(|byte| *byte == b'\n')
-                .filter(|line| !line.is_empty() && *line != b"running 1 test");
-            assert_eq!(
-                non_harness_output.count(),
-                0,
-                "signal path emitted outcome bytes"
+            assert!(
+                !stdout
+                    .windows(b"QUIRE_OUTCOME_SENTINEL".len())
+                    .any(|window| window == b"QUIRE_OUTCOME_SENTINEL"),
+                "signal path emitted outcome bytes: {stdout:?}"
             );
+            assert!(!outcome.exists(), "signal path wrote outcome document");
             if mode == "active" {
                 assert!(cleaned.is_file(), "cleanup finishes before re-raise");
             }
             let _ = std::fs::remove_file(marker);
             let _ = std::fs::remove_file(trigger);
             let _ = std::fs::remove_file(cleaned);
+            let _ = std::fs::remove_file(outcome);
         }
     }
 
@@ -360,8 +411,12 @@ mod tests {
         use std::thread;
         use std::time::{Duration, Instant};
 
+        use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
+        use quire_driver::{
+            ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
+            ProviderRequest, ProviderResults,
+        };
         use quire_exact::Cancel;
-        use quire_plugin_host::{FrameLimits, PluginSession, RunLimits, SessionStart};
         use serde_json::Value;
 
         struct RemoveMarkers(Vec<std::path::PathBuf>);
@@ -373,11 +428,12 @@ mod tests {
             }
         }
 
-        if let (Ok(stage), Ok(ready), Ok(descendant), Ok(plugin_marker)) = (
+        if let (Ok(stage), Ok(ready), Ok(descendant), Ok(plugin_marker), Ok(outcome)) = (
             std::env::var("QUIRE_PLUGIN_SIGNAL_STAGE"),
             std::env::var("QUIRE_PLUGIN_SIGNAL_READY"),
             std::env::var("QUIRE_PLUGIN_SIGNAL_DESCENDANT"),
             std::env::var("QUIRE_PLUGIN_SIGNAL_PLUGIN_MARKER"),
+            std::env::var("QUIRE_PLUGIN_SIGNAL_OUTCOME"),
         ) {
             super::run(move |context| {
                 let python = std::env::split_paths(&std::env::var_os("PATH").expect("PATH"))
@@ -387,80 +443,108 @@ mod tests {
                 let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                     .join("tests/fixtures/signal-plugin.py");
                 let arguments = [
-                    std::ffi::OsString::from(&stage),
-                    std::ffi::OsString::from(&ready),
-                    std::ffi::OsString::from(&descendant),
-                    std::ffi::OsString::from(&plugin_marker),
+                    fixture.into_os_string(),
+                    stage.clone().into(),
+                    ready.clone().into(),
+                    descendant.clone().into(),
+                    plugin_marker.clone().into(),
                 ];
-                let cancel = Cancel::new();
-                let _active = context.activate(cancel.clone());
-                let session = PluginSession::<Value, Value, std::convert::Infallible>::start(
-                    SessionStart {
-                        executable: &python,
-                        arguments: &[
-                            fixture.into_os_string(),
-                            arguments[0].clone(),
-                            arguments[1].clone(),
-                            arguments[2].clone(),
-                            arguments[3].clone(),
-                        ],
-                        limits: RunLimits {
-                            frames: FrameLimits {
-                                max_frame_bytes: 4096,
-                                max_total_bytes: 16_384,
-                            },
-                            max_stderr_bytes: 1024,
-                            cancellation_grace: Duration::from_millis(100),
-                            max_process_memory_bytes: None,
-                            max_process_cpu_time: None,
-                        },
-                        cancel: &cancel,
+                let provider = crate::process_provider::HostProcessProvider::<
+                    Value,
+                    Value,
+                    Value,
+                    Value,
+                    String,
+                    String,
+                    _,
+                    _,
+                    _,
+                    _,
+                >::new(
+                    context,
+                    |manifest: &Value| {
+                        let identity = manifest["identity"].as_str().ok_or("missing identity")?;
+                        BackendDescriptor::admit(
+                            Candidate::new(
+                                BackendId::from_wire(identity).map_err(|e| e.to_string())?,
+                            ),
+                            ProviderOrigin::Process,
+                            ManifestDigest::from_digest([4; 32]),
+                            Vec::<(Option<&str>, Option<&str>)>::new(),
+                        )
+                        .map_err(|e| format!("{e:?}"))
                     },
-                    |_| Ok::<(), std::convert::Infallible>(()),
+                    |_: ProcessProviderRequest<'_>| serde_json::json!({"items": []}),
+                    |_: &Value, _: &Value| Ok::<(), String>(()),
+                    |_: Value| ProviderResults::default(),
                 );
-                if stage == "hello" {
-                    if let Err(error) = session {
-                        let _ = std::fs::write(
-                            std::path::PathBuf::from(&ready).with_extension("error"),
-                            format!("{error:?}"),
-                        );
-                    } else {
-                        panic!("hello-stage signal did not cancel the pending hello");
-                    }
-                    return;
-                }
-                let mut session = session.expect("plugin hello is admitted");
+                let limits = ProcessProviderLimits {
+                    max_frame_bytes: 4096,
+                    max_total_bytes: 16_384,
+                    max_stderr_bytes: 1024,
+                    cancellation_grace: Duration::from_millis(100),
+                    max_process_memory_bytes: None,
+                    max_process_cpu_time: None,
+                };
+                let start_cancel = Cancel::new();
+                let mut session = match provider.start(&python, &arguments, limits, &start_cancel) {
+                    Ok(session) => session,
+                    Err(_) if stage.starts_with("hello") => return,
+                    Err(error) => panic!("adapter start failed unexpectedly: {error:?}"),
+                };
                 if stage.starts_with("request") {
                     let request_cancel = Cancel::new();
-                    let _request_active = context.activate(request_cancel.clone());
-                    let _ = session.request::<Value, Value, _>(
-                        &serde_json::json!({"items": []}),
-                        &request_cancel,
-                        |_, _| Ok::<(), std::convert::Infallible>(()),
-                    );
-                } else {
-                    let _ = session.shutdown();
+                    let request = ProcessProviderRequest {
+                        emitted_package: b"signal test package",
+                        provider_request: ProviderRequest::new(&[]),
+                        cancel: &request_cancel,
+                    };
+                    let _ = session.invoke(request);
+                    if request_cancel.cause().is_some() {
+                        std::fs::write(
+                            std::path::PathBuf::from(&ready).with_extension("request-cancelled"),
+                            b"yes",
+                        )
+                        .expect("record request handle cancellation");
+                    }
                 }
+                let _ = session.shutdown();
+                std::fs::write(outcome, b"QUIRE_OUTCOME_SENTINEL")
+                    .expect("a signal must be re-raised before outcome settlement");
             })
             .expect("signal wrapper starts");
-            panic!("plugin-session signal was not re-raised");
+            println!("QUIRE_OUTCOME_SENTINEL");
+            panic!("adapter signal was not re-raised");
         }
 
         use std::os::unix::process::ExitStatusExt;
         let root = std::env::temp_dir().join(format!("quire-host-signal-{}", std::process::id()));
-        for stage in ["hello", "request", "request-int", "shutdown"] {
+        for stage in [
+            "hello",
+            "hello-int",
+            "request",
+            "request-int",
+            "shutdown",
+            "shutdown-int",
+        ] {
             let ready = root.with_extension(format!("{stage}.ready"));
             let descendant = root.with_extension(format!("{stage}.descendant"));
             let plugin_marker = root.with_extension(format!("{stage}.plugin"));
+            let outcome = root.with_extension(format!("{stage}.outcome"));
+            let request_cancelled = ready.with_extension("request-cancelled");
             let _cleanup = RemoveMarkers(vec![
                 ready.clone(),
                 descendant.clone(),
                 plugin_marker.clone(),
+                outcome.clone(),
+                request_cancelled.clone(),
                 ready.with_extension("error"),
             ]);
             let _ = std::fs::remove_file(&ready);
             let _ = std::fs::remove_file(&descendant);
             let _ = std::fs::remove_file(&plugin_marker);
+            let _ = std::fs::remove_file(&outcome);
+            let _ = std::fs::remove_file(&request_cancelled);
             let mut child = Command::new(std::env::current_exe().expect("test executable"))
                 .args([
                     "--quiet",
@@ -470,7 +554,8 @@ mod tests {
                 .env("QUIRE_PLUGIN_SIGNAL_STAGE", stage)
                 .env("QUIRE_PLUGIN_SIGNAL_READY", &ready)
                 .env("QUIRE_PLUGIN_SIGNAL_DESCENDANT", &descendant)
-                .env("QUIRE_PLUGIN_SIGNAL_PLUGIN_MARKER", &plugin_marker)
+                    .env("QUIRE_PLUGIN_SIGNAL_PLUGIN_MARKER", &plugin_marker)
+                    .env("QUIRE_PLUGIN_SIGNAL_OUTCOME", &outcome)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
@@ -516,7 +601,7 @@ mod tests {
                 }
                 thread::sleep(Duration::from_millis(5));
             };
-            let expected = if stage == "request-int" {
+            let expected = if stage.ends_with("-int") {
                 signal_hook::consts::signal::SIGINT
             } else {
                 signal_hook::consts::signal::SIGTERM
@@ -533,11 +618,19 @@ mod tests {
                 .expect("captured child stdout")
                 .read_to_end(&mut stdout)
                 .expect("read child stdout");
-            let unexpected: Vec<_> = stdout
-                .split(|byte| *byte == b'\n')
-                .filter(|line| !line.is_empty() && *line != b"running 1 test")
-                .collect();
-            assert!(unexpected.is_empty(), "signal wrote outcome bytes");
+            assert!(
+                !stdout
+                    .windows(b"QUIRE_OUTCOME_SENTINEL".len())
+                    .any(|window| window == b"QUIRE_OUTCOME_SENTINEL"),
+                "signal wrote outcome bytes: {stdout:?}"
+            );
+            assert!(!outcome.exists(), "signal wrote outcome document");
+            if stage.starts_with("request") {
+                assert!(
+                    request_cancelled.exists(),
+                    "invoke request handle was registered"
+                );
+            }
             thread::sleep(Duration::from_millis(2200));
             assert!(!descendant.exists(), "{stage} descendant was reaped");
             assert!(!plugin_marker.exists(), "{stage} plugin was reaped");

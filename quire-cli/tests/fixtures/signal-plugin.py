@@ -32,9 +32,9 @@ def write_frame(value):
 mode, ready_path, descendant_path, plugin_path = sys.argv[1:]
 protocol = "quire.plugin-wire/v1"
 
-if mode == "hello":
+if mode.startswith("hello"):
     open(ready_path, "wb").close()
-    os.kill(os.getppid(), signal.SIGTERM)
+    os.kill(os.getppid(), signal.SIGINT if mode.endswith("-int") else signal.SIGTERM)
     time.sleep(2)
     open(plugin_path, "wb").close()
 
@@ -50,7 +50,7 @@ write_frame(
 while True:
     request = read_frame()
     if request["kind"] == "shutdown":
-        if mode == "shutdown":
+        if mode.startswith("shutdown"):
             subprocess.Popen(
                 [
                     sys.executable,
@@ -60,7 +60,7 @@ while True:
                 ]
             )
             open(ready_path, "wb").close()
-            os.kill(os.getppid(), signal.SIGTERM)
+            os.kill(os.getppid(), signal.SIGINT if mode.endswith("-int") else signal.SIGTERM)
             time.sleep(2)
             open(plugin_path, "wb").close()
         break
