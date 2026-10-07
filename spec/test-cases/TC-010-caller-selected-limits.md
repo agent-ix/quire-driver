@@ -32,9 +32,9 @@ Scope: FR-003-AC-1 through FR-003-AC-10.
    operation boundary. Confirm a recognized setting absent from `bounds()` is
    refused with `invalid-request` and an operation-unavailable diagnostic,
    distinct from an unknown-name refusal.
-3. Pass `normalization.work_units`, a name accepted by the current driver
-   parser but not resolved by QSL, a malformed operand, a duplicate setting
-   and a former bare accounting name such as `work_units`. Observe each
+3. Pass the former driver-only name `normalization.work_units`, a malformed
+   operand, a duplicate setting and a former bare accounting name such as
+   `work_units`. Observe each
    refusal before any stage with code `invalid-request`; unknown-name,
    malformed and duplicate refusals identify their respective causes. A former
    bare accounting name is an ordinary unknown setting. After QSL-656 lands,

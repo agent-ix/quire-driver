@@ -61,10 +61,6 @@ limit outcome and report no success.
   then the CLI SHALL refuse it before any stage with code `invalid-request`
   and a diagnostic that distinguishes an operation-unavailable setting from
   an unknown name.
-- The driver SHALL construct `CallerLimits` for refusal reporting with
-  `CallerLimits::from_operands` only when QSL's operation-specific bound
-  application path is unavailable; this constructor does not replace the
-  parse, bounds-check, then `set_bound` sequence above.
 - The driver SHALL pass the computed limits values to the selected operation.
 - The driver SHALL preserve each explicit caller value when building the
   computed limits values.
