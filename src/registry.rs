@@ -30,8 +30,7 @@ pub struct ProviderManifest {
     pub advertises: Vec<(Option<String>, Option<String>)>,
     /// FR-331 domains retained for linked projection or process admission.
     pub domains: Option<Vec<String>>,
-    /// RFC 8785 bytes of the complete process hello descriptor. Linked
-    /// providers project their typed fields in quire-cli instead.
+    /// RFC 8785 bytes of the complete retained FR-331 descriptor.
     pub wire: Option<Arc<[u8]>>,
 }
 
@@ -81,12 +80,6 @@ impl LinkedProviders<'_> {
             .collect::<Vec<_>>();
         manifests.sort_by(|left, right| left.identity.cmp(&right.identity));
         manifests
-    }
-
-    /// The retained typed manifest records backing [`Self::manifest_snapshot`].
-    #[must_use]
-    pub fn manifest_records(&self) -> &[ProviderManifest] {
-        &self.admitted.manifests
     }
 
     /// Register caller-admitted descriptors and their lossless FR-331 DTOs in
@@ -276,6 +269,24 @@ mod tests {
             domains: None,
             wire: None,
         })
+    }
+
+    /// Trace: FR-006-AC-5.
+    #[test]
+    fn linked_manifest_snapshot_is_independent_of_registration_order() {
+        let first = provider("agent-ix/provider/first", 1);
+        let second = provider("agent-ix/provider/second", 2);
+        let forward = build_linked_providers(&[&first, &second])
+            .expect("both providers admit")
+            .manifest_snapshot();
+        let reverse = build_linked_providers(&[&second, &first])
+            .expect("both providers admit")
+            .manifest_snapshot();
+
+        assert_eq!(forward, reverse);
+        assert!(forward
+            .windows(2)
+            .all(|pair| pair[0].identity < pair[1].identity));
     }
 
     /// Trace: FR-005-AC-5.

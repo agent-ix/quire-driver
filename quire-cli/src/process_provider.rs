@@ -229,6 +229,7 @@ mod tests {
     };
     use quire_exact::Cancel;
     use serde::Deserialize;
+    use sha2::Digest as _;
 
     use super::HostProcessProvider;
 
@@ -374,10 +375,12 @@ mod tests {
         // An empty request is intentional while CG IR-629 has no process
         // BackendKind; this adapter test cannot claim routed Process items.
         let package = crate::test_support::emitted_package();
+        let manifest = crate::manifest_snapshot::retain_wire_bytes(linked.manifest_snapshot())
+            .expect("linked manifest snapshot retains canonical bytes");
         let request = ProcessProviderRequest {
             emitted_package: &package,
             deadline_ms: 4096,
-            manifest: linked.manifest_records(),
+            manifest: &manifest,
             provider_request: ProviderRequest::new(&[]),
             cancel: &cancel,
         };
@@ -389,7 +392,7 @@ mod tests {
         assert!(!finished.stderr_truncated);
     }
 
-    /// Trace: FR-005-AC-5.
+    /// Trace: FR-005-AC-5, FR-005-AC-12, FR-005-AC-13, FR-005-AC-14, FR-005-AC-15.
     #[test]
     fn fr331_hello_is_admitted_once_and_retained_for_registry_snapshot() {
         use crate::backend_provider::{ManifestAdmissionError, ManifestStage};
@@ -456,12 +459,34 @@ mod tests {
                 .origin(),
             ProviderOrigin::Process
         );
+        let manifest = crate::manifest_snapshot::retain_wire_bytes(linked.manifest_snapshot())
+            .expect("linked manifest snapshot retains canonical bytes");
+        assert_eq!(manifest.len(), 1);
+        let retained_wire = manifest[0]
+            .wire
+            .as_deref()
+            .expect("retained hello descriptor has canonical bytes");
+        let retained_digest: [u8; 32] = sha2::Sha256::digest(retained_wire).into();
+        assert_eq!(
+            retained_digest,
+            *session.manifest().manifest_digest.record().as_bytes()
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(retained_wire)
+                .expect("retained bytes are valid JSON"),
+            serde_json::json!({
+                "backend": "agent-ix/provider/fr331-fixture",
+                "advertises": [{"kind": "operation-contract", "mode": "bounded"}],
+                "domains": ["integer"],
+                "bounds": {"max_states": 8}
+            })
+        );
 
         let package = crate::test_support::emitted_package();
         let request = ProcessProviderRequest {
             emitted_package: &package,
             deadline_ms: 4096,
-            manifest: linked.manifest_records(),
+            manifest: &manifest,
             provider_request: ProviderRequest::new(&[]),
             cancel: &cancel,
         };

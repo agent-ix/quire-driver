@@ -2,9 +2,9 @@
 //! Typed driver inputs for QSpec's backend-provider/v1 envelope.
 //!
 //! This module projects the path-addressed FR-331 contract into driver types;
-//! it does not carry a copy of the schema or its vectors. The decoded manifest
-//! JSON is retained so optional manifest members survive admission and can be
-//! included in a later request's registry snapshot.
+//! it does not carry a copy of the schema or its vectors. Canonical descriptor
+//! bytes are retained so optional manifest members survive admission and can
+//! be included unchanged in a later request's registry snapshot.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -17,6 +17,7 @@ use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, Provide
 use quire_driver::ProviderManifest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest as _, Sha256};
 
 const CONTRACT_VERSION: &str = "quire.backend-provider/v1";
 const CAPABILITY_VOCABULARY: &str = "quire.capability-kind/v1";
@@ -181,7 +182,8 @@ impl AdmittedManifest {
     }
 
     /// The single driver-owned manifest carrier, including all optional
-    /// FR-331 members. Its wire value shares storage with the admitted hello.
+    /// FR-331 members. Its canonical wire bytes are a fresh retained encoding
+    /// of the admitted hello value.
     #[must_use]
     pub fn manifest(&self) -> &ProviderManifest {
         &self.manifest
@@ -249,15 +251,17 @@ impl ManifestStage {
             })?;
         validate_manifest(&shape)?;
         let limits = quire_canonical::Limits::new(max_frame_bytes);
-        let canonical_wire = quire_canonical::to_vec(&**wire, limits)?;
-        let digest = quire_canonical::sha256(&**wire, limits)?;
+        let mut sink = (Vec::new(), Sha256::new());
+        quire_canonical::encode(&mut sink, &**wire, limits)?;
+        let (canonical_wire, hasher) = sink;
+        let digest: [u8; 32] = hasher.finalize().into();
         // The checked-in QSL API does not yet accept domains/evidence kinds.
         // Preserve them in the DTO; pass them to admission when QSL-654 adds
         // its domain- and evidence-aware signature.
         let descriptor = BackendDescriptor::admit(
             Candidate::new(BackendId::from_wire(&shape.backend)?),
             ProviderOrigin::Process,
-            ManifestDigest::from_digest(*digest.as_bytes()),
+            ManifestDigest::from_digest(digest),
             shape
                 .advertises
                 .iter()
@@ -267,7 +271,7 @@ impl ManifestStage {
             descriptor,
             manifest: ProviderManifest {
                 identity: shape.backend,
-                manifest_digest: ManifestDigest::from_digest(*digest.as_bytes()),
+                manifest_digest: ManifestDigest::from_digest(digest),
                 advertises: shape
                     .advertises
                     .iter()
@@ -379,23 +383,7 @@ fn manifest_descriptor(manifest: &ProviderManifest) -> Result<Value, RequestStag
         }
         return Ok(value);
     }
-    let mut descriptor = serde_json::Map::new();
-    descriptor.insert(
-        "backend".to_owned(),
-        Value::String(manifest.identity.clone()),
-    );
-    descriptor.insert(
-        "advertises".to_owned(),
-        serde_json::json!(manifest
-            .advertises
-            .iter()
-            .map(|(kind, mode)| serde_json::json!({"kind": kind, "mode": mode}))
-            .collect::<Vec<_>>()),
-    );
-    if let Some(domains) = &manifest.domains {
-        descriptor.insert("domains".to_owned(), serde_json::json!(domains));
-    }
-    Ok(Value::Object(descriptor))
+    Err(RequestStageError::ManifestDescriptor)
 }
 
 fn item_has_safe_bounds(item: &RequestItem) -> bool {
@@ -671,6 +659,7 @@ mod tests {
         }
     }
 
+    /// Trace: FR-005-AC-12, FR-005-AC-14, FR-005-AC-15.
     #[test]
     fn hello_admits_process_descriptor_and_retains_full_manifest() {
         let stage = hello(
@@ -800,7 +789,7 @@ mod tests {
         }
     }
 
-    /// Trace: FR-006-AC-1.
+    /// Trace: FR-006-AC-6.
     #[test]
     fn package_encoding_uses_unpadded_base64url_for_special_bytes() {
         let bytes = [0xfb, 0xff];
@@ -812,6 +801,7 @@ mod tests {
         assert_eq!(encode_package_bytes(&bytes), "-_8");
     }
 
+    /// Trace: FR-006-AC-5, FR-006-AC-7, FR-006-AC-8, FR-006-AC-13.
     #[test]
     fn request_wire_keeps_package_bounds_and_temporal_proof_bounds_at_contract_paths() {
         let item = RequestItem {
@@ -880,6 +870,8 @@ mod tests {
                 wire: None,
             },
         ];
+        let manifests = crate::manifest_snapshot::retain_wire_bytes(manifests.to_vec())
+            .expect("linked manifest canonicalizes before adapter serialization");
         let request_stage =
             RequestStage::from_emitted(&package, &manifests, 100, vec![item.clone()])
                 .expect("the real emitted identity and safe request values serialize");
@@ -896,6 +888,7 @@ mod tests {
         );
         assert_eq!(request["request"]["package_id"]["algorithm"], "sha256");
         assert_eq!(request["request"]["package_id"]["digest"], package_id.hex());
+        assert_eq!(request["request"]["deadline_ms"], 100);
         assert_eq!(request["manifest"][0], retained_value);
         assert_eq!(
             request["manifest"][1]["backend"],
@@ -905,6 +898,11 @@ mod tests {
             request["manifest"][1]["domains"],
             serde_json::json!(["recursive"])
         );
+        assert_eq!(
+            request["manifest"][1]["advertises"][0]["kind"],
+            "operation-contract"
+        );
+        assert!(request["manifest"][1].get("options").is_none());
 
         assert_eq!(
             request["request"]["items"][0]["extent"]["bounds"][0]["bound"]["maximum"],

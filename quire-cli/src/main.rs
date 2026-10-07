@@ -7,6 +7,8 @@
 )]
 mod backend_provider;
 mod cli;
+#[cfg(test)]
+mod manifest_snapshot;
 #[allow(
     dead_code,
     reason = "process routing awaits the CG IR-629 process BackendKind mapping"
