@@ -64,10 +64,9 @@ is specified in Behavior.
   observed ceilings, memory observation and symbolic-argument bounds in the
   typed execution evidence. CG FR-028 defines the wall-clock ceiling as the
   execution timeout; the driver SHALL NOT supply a second timeout.
-- The `quire-cli` process-provider adapter SHALL supply plugin hello manifest
-  fields to the driver. The driver SHALL submit those fields and its linked
-  provider manifests through the same `qsl_route::Registry` builder; that QSL
-  boundary performs admission and assigns origin
+- The driver SHALL obtain admitted plugin hello manifests from `quire-cli` and
+  register them with linked providers through the single `qsl_route::Registry`
+  it builds. The QSL registry builder assigns origin
   `Linked` to compile-time providers and `Process` to plugin hello descriptors;
   the driver passes resulting descriptors to CG without constructing CG
   backend kinds. It SHALL preserve the registry's typed duplicate-backend

@@ -6,7 +6,7 @@
 //! provider schema or settlement vocabulary.
 
 use process_wrap::std::{ChildWrapper, CommandWrap};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
@@ -15,7 +15,11 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::Pid;
+#[cfg(unix)]
+use sysinfo::System;
+#[cfg(target_os = "linux")]
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
 
 use quire_canonical::{to_vec, Limits};
 use quire_exact::{Cancel, CancelCause};
@@ -625,6 +629,18 @@ where
             let typed = frame.decode_body::<R>()?;
             let manifest = self.manifest.as_ref().ok_or(PluginError::MissingManifest)?;
             validate_result(manifest, &typed).map_err(PluginError::ResultValidation)?;
+            let child = self
+                .child
+                .as_mut()
+                .map(Box::as_mut)
+                .ok_or(PluginError::MissingPipe("child"))?;
+            if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
+                if !status.success() {
+                    return Err(PluginError::Exited(status));
+                }
+            } else {
+                self.monitor.check().map_err(PluginError::ProcessBudget)?;
+            }
             Ok(typed)
         })();
         match result {
@@ -671,6 +687,11 @@ where
                 self.reader_thread.take().ok_or(PluginError::ReaderThread)?,
                 self.limits.cancellation_grace,
             )?;
+            if let Some(child) = self.child.as_mut() {
+                if !self.monitor.terminate_tree(child.as_mut()) {
+                    return Err(PluginError::ProcessTreeCleanupTimeout);
+                }
+            }
             self.child.take();
             Ok(SessionFinished {
                 manifest: self.manifest.take().ok_or(PluginError::MissingManifest)?,
@@ -688,9 +709,11 @@ where
         let cleanup_until = Instant::now()
             .checked_add(WORKER_CLEANUP_LIMIT)
             .unwrap_or_else(Instant::now);
-        if let Some(child) = self.child.as_mut() {
-            self.monitor.terminate_tree(child.as_mut());
-        }
+        let process_tree_cleanup_failed = self
+            .child
+            .as_mut()
+            .is_some_and(|child| !self.monitor.terminate_tree(child.as_mut()));
+        self.child.take();
         self.writer.take();
         let (stderr, stderr_truncated, capture_error) = match self.stderr_thread.take() {
             Some(handle) if join_thread_until(&handle, cleanup_until) => match handle.join() {
@@ -701,7 +724,7 @@ where
             Some(_) => (
                 Vec::new(),
                 false,
-                Some("stderr worker did not stop within cancellation grace".to_owned()),
+                Some("stderr worker did not stop within the one-second cleanup limit".to_owned()),
             ),
             None => (Vec::new(), false, None),
         };
@@ -716,6 +739,7 @@ where
             stderr,
             stderr_truncated,
             capture_error,
+            process_tree_cleanup_failed,
             reader_join_failed,
             writer_join_failed,
         }
@@ -728,7 +752,7 @@ impl<M, F, A> Drop for PluginSession<M, F, A> {
             .checked_add(WORKER_CLEANUP_LIMIT)
             .unwrap_or_else(Instant::now);
         if let Some(child) = self.child.as_mut() {
-            self.monitor.terminate_tree(child.as_mut());
+            let _ = self.monitor.terminate_tree(child.as_mut());
         }
         self.writer.take();
         if let Some(handle) = self.writer_thread.take() {
@@ -761,8 +785,10 @@ fn next_frame<A, V, F>(
         }
         match receiver.recv_timeout(Duration::from_millis(20)) {
             Ok(Ok(Some(frame))) => {
-                monitor.check().map_err(PluginError::ProcessBudget)?;
                 frame.validate_protocol()?;
+                if frame.kind != Kind::Result {
+                    monitor.check().map_err(PluginError::ProcessBudget)?;
+                }
                 return Ok(frame);
             }
             Ok(Ok(None)) => return Err(eof_error(child)?),
@@ -793,8 +819,10 @@ fn next_frame_with_grace<A, V, F>(
         };
         match receiver.recv_timeout(remaining.min(Duration::from_millis(20))) {
             Ok(Ok(Some(frame))) => {
-                monitor.check().map_err(PluginError::ProcessBudget)?;
                 frame.validate_protocol()?;
+                if frame.kind != Kind::Result {
+                    monitor.check().map_err(PluginError::ProcessBudget)?;
+                }
                 return Ok(frame);
             }
             Ok(Ok(None)) | Err(RecvTimeoutError::Disconnected) => {
@@ -823,14 +851,14 @@ fn write_frame_cancellable<A, V, F>(
         .send(WriterMessage { frame, completion })
         .map_err(|_| PluginError::WriterThread)?;
     loop {
-        if let Some(cause) = cancel.cause() {
-            return Err(cancel_error(cause));
-        }
         match receiver.recv_timeout(Duration::from_millis(20)) {
             Ok(Ok(())) => return Ok(()),
             Ok(Err(error)) => return Err(PluginError::Frame(error)),
             Err(RecvTimeoutError::Disconnected) => return Err(PluginError::WriterThread),
             Err(RecvTimeoutError::Timeout) => {
+                if let Some(cause) = cancel.cause() {
+                    return Err(cancel_error(cause));
+                }
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
                     return Err(PluginError::Exited(status));
                 }
@@ -1007,7 +1035,8 @@ fn eof_error<A, V, F>(
 
 struct ProcessMonitor {
     system: System,
-    pid: Pid,
+    #[cfg(unix)]
+    group_id: Option<u32>,
     memory_limit: Option<u64>,
     cpu_time_limit: Option<Duration>,
     last_cpu_ms: HashMap<(Pid, u64), u64>,
@@ -1025,7 +1054,8 @@ impl ProcessMonitor {
     ) -> Self {
         Self {
             system: System::new(),
-            pid: Pid::from_u32(child.id()),
+            #[cfg(unix)]
+            group_id: Some(child.id()),
             memory_limit,
             cpu_time_limit,
             last_cpu_ms: HashMap::new(),
@@ -1088,24 +1118,35 @@ impl ProcessMonitor {
     }
 
     fn refresh_tree(&mut self) -> Result<Vec<Pid>, ProcessBudgetError> {
-        if !cfg!(any(
-            target_os = "linux",
-            target_os = "macos",
-            target_os = "windows"
-        )) || !sysinfo::IS_SUPPORTED_SYSTEM
-            || {
-                #[cfg(test)]
-                {
-                    self.force_unavailable
-                }
-                #[cfg(not(test))]
-                {
-                    false
-                }
+        if !cfg!(target_os = "linux") || !sysinfo::IS_SUPPORTED_SYSTEM || {
+            #[cfg(test)]
+            {
+                self.force_unavailable
             }
-        {
+            #[cfg(not(test))]
+            {
+                false
+            }
+        } {
             return Err(ProcessBudgetError::Unavailable);
         }
+        #[cfg(target_os = "linux")]
+        {
+            let group_id = self.group_id.ok_or(ProcessBudgetError::Unavailable)?;
+            self.refresh_processes();
+            let members =
+                linux_process_group_members(group_id).ok_or(ProcessBudgetError::Unavailable)?;
+            if members.is_empty() {
+                return Err(ProcessBudgetError::Unavailable);
+            }
+            Ok(members)
+        }
+        #[cfg(not(target_os = "linux"))]
+        Err(ProcessBudgetError::Unavailable)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn refresh_processes(&mut self) {
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
@@ -1114,39 +1155,80 @@ impl ProcessMonitor {
                 .with_cpu()
                 .without_tasks(),
         );
-        if self.system.process(self.pid).is_none() {
-            return Err(ProcessBudgetError::Unavailable);
-        }
-        let mut tree = vec![self.pid];
-        let mut members = HashSet::from([self.pid]);
-        loop {
-            let mut changed = false;
-            for (pid, process) in self.system.processes() {
-                if members.contains(pid) {
-                    continue;
-                }
-                if process
-                    .parent()
-                    .is_some_and(|parent| members.contains(&parent))
-                {
-                    members.insert(*pid);
-                    tree.push(*pid);
-                    changed = true;
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
-        Ok(tree)
     }
 
-    fn terminate_tree(&mut self, child: &mut dyn ChildWrapper) {
-        // `process-wrap` attaches descendants to one Unix process group or
-        // Windows Job Object before returning from spawn. Its kill operation
-        // therefore includes orphaned descendants whose parent exited.
-        let _ = child.kill();
+    #[cfg(unix)]
+    fn terminate_tree(&mut self, child: &mut dyn ChildWrapper) -> bool {
+        // Unix descendants that deliberately leave this process group (for
+        // example with setsid) are outside this host's cleanup boundary.
+        let Some(until) = Instant::now().checked_add(WORKER_CLEANUP_LIMIT) else {
+            return false;
+        };
+        #[cfg(unix)]
+        {
+            if self.group_id.is_none() {
+                let _ = child.try_wait();
+                return false;
+            }
+            loop {
+                let _ = child.try_wait();
+                match child.start_kill() {
+                    Ok(()) => {}
+                    Err(_) => return true,
+                }
+                if Instant::now() >= until {
+                    return false;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        #[cfg(windows)]
+        {
+            if child.start_kill().is_err() {
+                return false;
+            }
+            loop {
+                if child.try_wait().is_ok_and(|status| status.is_some()) {
+                    return true;
+                }
+                if Instant::now() >= until {
+                    return false;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = child;
+            false
+        }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_group_members(group_id: u32) -> Option<Vec<Pid>> {
+    let mut members = Vec::new();
+    for entry in std::fs::read_dir("/proc").ok()? {
+        let entry = entry.ok()?;
+        let pid = match entry.file_name().to_str()?.parse::<u32>() {
+            Ok(pid) => pid,
+            Err(_) => continue,
+        };
+        let stat = match std::fs::read_to_string(entry.path().join("stat")) {
+            Ok(stat) => stat,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(_) => return None,
+        };
+        let close = stat.rfind(')')?;
+        let fields: Vec<&str> = stat.get(close + 1..)?.split_ascii_whitespace().collect();
+        // After the parenthesized command name, stat fields start at state:
+        // state, ppid, pgrp.
+        let process_group = fields.get(2)?.parse::<u32>().ok()?;
+        if process_group == group_id {
+            members.push(Pid::from_u32(pid));
+        }
+    }
+    Some(members)
 }
 
 /// Why the host could not continue enforcing the requested process budget.
@@ -1234,6 +1316,8 @@ pub enum PluginError<A, V, F> {
         stderr_truncated: bool,
         /// A stderr capture failure, if one occurred while preserving the cause.
         capture_error: Option<String>,
+        /// Whether a process-group or Job Object member missed the cleanup bound.
+        process_tree_cleanup_failed: bool,
         /// Whether the stdout reader worker failed to join.
         reader_join_failed: bool,
         /// Whether the stdin writer worker failed to join.
@@ -1301,6 +1385,9 @@ pub enum PluginError<A, V, F> {
     /// The child did not exit after receiving the shutdown frame.
     #[error("plugin did not exit within the shutdown grace period")]
     ShutdownTimeout,
+    /// The plugin process group or Job Object remained alive after termination.
+    #[error("plugin process group did not stop within the one-second cleanup limit")]
+    ProcessTreeCleanupTimeout,
     /// The caller cancelled the plugin run.
     #[error("plugin run was cancelled")]
     Cancelled,
@@ -1545,6 +1632,11 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/failure-plugin.py")
     }
 
+    fn echo_fixture() -> std::path::PathBuf {
+        ensure_fixture_runtime("python3").unwrap_or_else(|message| panic!("{message}"));
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/echo-plugin.py")
+    }
+
     fn ensure_fixture_runtime(executable: &str) -> Result<(), String> {
         let available = Command::new(executable)
             .arg("--version")
@@ -1608,8 +1700,7 @@ mod tests {
     #[test]
     fn session_admits_hello_then_accepts_zero_or_multiple_requests() {
         let cancel = Cancel::new();
-        let executable =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/echo-plugin.py");
+        let executable = echo_fixture();
         for request_count in 0..=2 {
             let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
                 SessionStart {
@@ -1661,8 +1752,7 @@ mod tests {
         let notifier = cancel.clone();
         let ready = ready_fixture_path();
         let cancellation = cancel_after_fixture_ready(ready.clone(), notifier);
-        let executable =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/echo-plugin.py");
+        let executable = echo_fixture();
         let arguments = [OsString::from("wait-cancel"), ready.as_os_str().to_owned()];
         let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
             SessionStart {
@@ -1685,6 +1775,81 @@ mod tests {
         assert_eq!(result.items, request.items);
         cancellation.join().expect("cancellation sender exits");
         session.shutdown().expect("settled session shuts down");
+        let _ = std::fs::remove_file(ready);
+    }
+
+    #[cfg(unix)]
+    /// Trace: FR-013-AC-5, TC-025; a completed request write still enters cancel grace.
+    #[test]
+    fn completed_request_write_enters_cancellation_grace() {
+        let cancel = Cancel::new();
+        let executable = echo_fixture();
+        let ready = ready_fixture_path();
+        let arguments = [OsString::from("wait-cancel"), ready.as_os_str().to_owned()];
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits: session_limits(),
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        cancel.cancel(CancelCause::Requested);
+        let request_id = session.next_id;
+        let envelope = Envelope {
+            protocol: PROTOCOL.to_owned(),
+            id: request_id,
+            kind: Kind::Request,
+            body: serde_json::to_value(test_request()).expect("request serializes"),
+        };
+        let writer = session.writer.as_ref().expect("writer");
+        let child = session.child.as_mut().expect("child");
+        super::write_frame_cancellable::<String, String, serde_json::Value>(
+            writer,
+            envelope,
+            &cancel,
+            child.as_mut(),
+            &mut session.monitor,
+        )
+        .expect("completed write is handed to the grace path");
+        session.next_id += 1;
+        let cancelled = super::next_frame::<String, String, serde_json::Value>(
+            &session.receiver,
+            session.child.as_mut().expect("child").as_mut(),
+            &cancel,
+            &mut session.monitor,
+        );
+        assert!(matches!(cancelled, Err(PluginError::Cancelled)));
+        super::write_frame_control::<String, String, serde_json::Value>(
+            session.writer.as_ref().expect("writer"),
+            Envelope {
+                protocol: PROTOCOL.to_owned(),
+                id: request_id,
+                kind: Kind::Cancel,
+                body: serde_json::json!({"id": request_id}),
+            },
+            session.limits.cancellation_grace,
+        )
+        .expect("cancel control write is bounded");
+        let frame = super::next_frame_with_grace::<String, String, serde_json::Value>(
+            &session.receiver,
+            session.child.as_mut().expect("child").as_mut(),
+            session.limits.cancellation_grace,
+            &mut session.monitor,
+        )
+        .expect("valid response in cancellation grace is preserved");
+        assert_eq!(frame.id, request_id);
+        assert_eq!(frame.kind, Kind::Result);
+        assert_eq!(
+            frame
+                .decode_body::<TestResult>()
+                .expect("result body is valid")
+                .items,
+            test_request().items
+        );
+        session.shutdown().expect("session shuts down cleanly");
         let _ = std::fs::remove_file(ready);
     }
 
@@ -2052,10 +2217,17 @@ mod tests {
                 Ok::<(), String>(())
             })
             .expect_err("CPU budget stops a spinning plugin");
-        assert!(matches!(
-            error.primary_cause(),
-            PluginError::ProcessBudget(ProcessBudgetError::CpuTimeExceeded)
-        ));
+        if cfg!(target_os = "linux") {
+            assert!(matches!(
+                error.primary_cause(),
+                PluginError::ProcessBudget(ProcessBudgetError::CpuTimeExceeded)
+            ));
+        } else {
+            assert!(matches!(
+                error.primary_cause(),
+                PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
+            ));
+        }
     }
 
     /// Trace: FR-013-AC-2, TC-023; reject protocol identity before manifest admission.
@@ -2122,7 +2294,11 @@ mod tests {
     fn begin_request_returns_unavailable_before_dispatch() {
         let cancel = Cancel::new();
         let executable = failure_fixture();
-        let arguments = [OsString::from("normal")];
+        let marker = ready_fixture_path();
+        let arguments = [
+            OsString::from("request-marker"),
+            marker.as_os_str().to_owned(),
+        ];
         let mut limits = session_limits();
         limits.max_process_memory_bytes = Some(u64::MAX);
         let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
@@ -2147,17 +2323,26 @@ mod tests {
             error.primary_cause(),
             PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
         ));
+        assert!(
+            !marker.exists(),
+            "the request was not written before measurement"
+        );
+        let _ = std::fs::remove_file(marker);
     }
 
-    /// Trace: FR-013-AC-8, TC-026; aggregate resident memory across descendant processes.
-    #[cfg(unix)]
+    /// Trace: FR-013-AC-8, TC-026; sum memory for double-forked process-group members.
+    #[cfg(target_os = "linux")]
     #[test]
     fn process_memory_budget_includes_descendant_usage() {
         let cancel = Cancel::new();
         let executable = failure_fixture();
-        let arguments = [OsString::from("descendant-memory")];
+        let ready = ready_fixture_path();
+        let arguments = [
+            OsString::from("descendant-memory"),
+            ready.as_os_str().to_owned(),
+        ];
         let mut limits = session_limits();
-        limits.max_process_memory_bytes = Some(40 * 1024 * 1024);
+        limits.max_process_memory_bytes = Some(48 * 1024 * 1024);
         let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
             SessionStart {
                 executable: &executable,
@@ -2168,6 +2353,24 @@ mod tests {
             |_manifest| Ok::<(), String>(()),
         )
         .expect("hello is admitted");
+        assert!(ready.exists(), "double-fork descendant signaled readiness");
+        let members = session
+            .monitor
+            .refresh_tree()
+            .expect("group members are measured");
+        let member_memory: Vec<u64> = members
+            .iter()
+            .map(|pid| {
+                session
+                    .monitor
+                    .system
+                    .process(*pid)
+                    .expect("sampled member")
+                    .memory()
+            })
+            .collect();
+        assert!(member_memory.iter().all(|bytes| *bytes < 48 * 1024 * 1024));
+        assert!(member_memory.iter().sum::<u64>() > 48 * 1024 * 1024);
         let error = session
             .request(
                 &test_request(),
@@ -2179,10 +2382,11 @@ mod tests {
             error.primary_cause(),
             PluginError::ProcessBudget(ProcessBudgetError::MemoryExceeded)
         ));
+        let _ = std::fs::remove_file(ready);
     }
 
     /// Trace: FR-013-AC-8, TC-026; accumulate CPU deltas for a short-lived descendant.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn process_cpu_budget_includes_short_lived_descendant() {
         let cancel = Cancel::new();
@@ -2259,7 +2463,7 @@ mod tests {
     }
 
     /// Trace: FR-013-AC-8, TC-026; sysinfo thread tasks do not inflate process-tree membership.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn multithreaded_plugin_counts_as_one_process() {
         let cancel = Cancel::new();
@@ -2276,7 +2480,7 @@ mod tests {
         )
         .expect("hello is admitted");
         let members = session.monitor.refresh_tree().expect("tree sampling works");
-        assert_eq!(members, vec![session.monitor.pid]);
+        assert_eq!(members.len(), 1);
         drop(session);
     }
     /// Trace: FR-013-AC-7, TC-024; charge hello, requests and results to one session budget.
@@ -2343,5 +2547,35 @@ mod tests {
             error.primary_cause(),
             PluginError::UnexpectedFrame
         ));
+    }
+    /// Trace: FR-013-AC-9, FR-013-AC-10, TC-026; clean shutdown kills descendants with detached standard streams.
+    #[cfg(unix)]
+    #[test]
+    fn clean_shutdown_terminates_detached_stdio_descendant() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let arguments = [OsString::from("detached-stdio")];
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits: session_limits(),
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect("plugin returns a valid result");
+        let started = Instant::now();
+        session
+            .shutdown()
+            .expect("shutdown reaps detached descendants");
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 }

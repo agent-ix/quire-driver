@@ -2,6 +2,7 @@
 """Deterministic PL-4 failure and resource-bound fixture."""
 
 import json
+import os
 import struct
 import subprocess
 import sys
@@ -34,6 +35,28 @@ if mode == "wrong-protocol":
 if mode == "thread-tasks":
     for _ in range(4):
         threading.Thread(target=lambda: time.sleep(60), daemon=True).start()
+if mode == "descendant-memory":
+    ready = sys.argv[2]
+    helper = """import os, sys, time
+first = os.fork()
+if first:
+    os.waitpid(first, 0)
+    sys.exit(0)
+second = os.fork()
+if second:
+    os._exit(0)
+retained = bytearray(32 * 1024 * 1024)
+retained[0] = 1
+with open(sys.argv[1], 'wb') as marker:
+    marker.write(b'ready')
+time.sleep(60)
+"""
+    subprocess.Popen([sys.executable, "-c", helper, ready], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + 3
+    while not os.path.exists(ready) and time.monotonic() < deadline:
+        time.sleep(0.005)
+    if not os.path.exists(ready):
+        raise SystemExit(5)
 if mode == "eof-before-hello":
     raise SystemExit(17)
 if mode == "truncated-hello":
@@ -61,18 +84,17 @@ if mode == "stderr":
     sys.stderr.flush()
 
 request = read_frame()
-if mode == "descendant-hang":
-    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+if mode in ("descendant-hang", "detached-stdio"):
+    streams = {} if mode == "descendant-hang" else {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], **streams)
     write_frame({"protocol": protocol, "id": request["id"], "kind": "result", "body": {"identity": "agent-ix/provider/test", "items": request["body"]["items"]}})
     shutdown = read_frame()
     if shutdown["kind"] != "shutdown":
         raise SystemExit(3)
     raise SystemExit(0)
-if mode == "descendant-memory":
-    subprocess.Popen([sys.executable, "-c", "import time; data=bytearray(67108864); data[0]=1; time.sleep(60)"])
-    time.sleep(0.1)
-    write_frame({"protocol": protocol, "id": request["id"], "kind": "result", "body": {"identity": "agent-ix/provider/test", "items": request["body"]["items"]}})
-    raise SystemExit(0)
+if mode == "request-marker":
+    with open(sys.argv[2], "wb") as marker:
+        marker.write(b"request")
 if mode == "descendant-cpu":
     subprocess.Popen([sys.executable, "-c", "import time; end=time.process_time()+0.2\nwhile time.process_time()<end: pass"])
     time.sleep(0.3)
