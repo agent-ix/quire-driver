@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Entry point for the user-facing `quire` executable.
 
+#[allow(
+    dead_code,
+    reason = "FR-331 request construction awaits routed Process items"
+)]
+mod backend_provider;
 mod cli;
 #[allow(
     dead_code,
