@@ -11,9 +11,9 @@ review_set: subset
 
 Ticket: IR-607. The allocation is sound. The kit owns the reserved value and
 the conversion. QSL owns the category table: `Category::exit_code` yields only
-0, 10, 20, 21, 22 and 30, so `5` is unreachable unless QSL changes. `quire-cli`
+0, 10, 20, 21, 22 and 30, so `5` is unreachable unless QSL changes. quire-cli
 owns argv parsing (kit FR-013 ships no parser) and the code-5 policy, which
-uses `Category::InternalFailure` (`30`) rather than a second numeric mapping.
+uses `Category::InternalFailure` (30) rather than a second numeric mapping.
 Kit FR-017 explicitly leaves process-status choice to the caller. Findings
 concern where the test obligations land.
 
@@ -28,3 +28,12 @@ concern where the test obligations land.
 
 Boundary allocation matches kit FR-013 and FR-017 and QSL FR-285 / ADR-029
 CB-4. The binary seam needs a stated gating mechanism.
+
+## Dispositions
+
+Round 1, PR #42 fix round (the fix commit id is recorded on the Linear dispositions comment, not in this file).
+
+| FND | Outcome | Sha/Reason |
+| --- | --- | --- |
+| FND-001 | fixed | PR #42 fix round 1 |
+| FND-002 | fixed | PR #42 fix round 1 |

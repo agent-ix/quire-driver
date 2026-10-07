@@ -42,6 +42,11 @@ plus FR-014-AC-4.
    that the CLI does not read it.
 7. Invoke `--version` and verify the displayed version agrees with the
    build-time provenance and version check provided by ix-cli-kit.
+8. Inspect the CLI output paths and verify results and diagnostics are written
+   through ix-cli-kit's `streams` module. Exercise its stdout/stderr selection,
+   write-failure and broken-pipe behavior through the CLI.
+9. Inspect machine-mode serialization and verify the CLI calls ix-cli-kit's
+   `json` module to encode the unchanged QSL `quire-outcome/1` value.
 
 Test location: `quire-cli/tests/cli_contract.rs`; CLI-specific test fixtures
 reside under `quire-cli/tests/fixtures/`. The parser and command construction
@@ -61,7 +66,8 @@ under test are owned by `quire-cli/src/cli.rs`.
   only the QSL category outputs, not the kit's entire `u8` surface. The code-5
   behavior is specified by AC-6 and checked at the process boundary.
 - The parser remains owned by `quire-cli`. Stream, JSON, conditional config,
-  and version adoption have separate criteria and remain open under IR-607.
+  and version adoption have separate criteria under IR-607; this case verifies
+  the stream and JSON module call sites and behavior.
 - JSON mode emits one QSL-defined `quire-outcome/1` value equal to the typed
   library outcome. A stream write failure returns the internal-failure
   category through QSL's exit function; a broken pipe ends quietly with the

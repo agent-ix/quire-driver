@@ -30,3 +30,14 @@ Behavior bullet carries status prose rather than a requirement.
 
 FR-014's changed statements conform. FR-002 needs the exception stated
 consistently and its diagnostic made specific.
+
+## Dispositions
+
+Round 1, PR #42 fix round (the fix commit id is recorded on the Linear dispositions comment, not in this file).
+
+| FND | Outcome | Sha/Reason |
+| --- | --- | --- |
+| FND-001 | fixed | PR #42 fix round 1 |
+| FND-002 | fixed | PR #42 fix round 1 |
+| FND-003 | fixed | PR #42 fix round 1 |
+| FND-004 | fixed | PR #42 fix round 1 |

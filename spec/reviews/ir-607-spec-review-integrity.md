@@ -10,7 +10,7 @@ review_set: subset
 ## Summary
 
 Ticket: IR-607. Consistency of the changed criteria with the existing tagged
-tests and with each other. The computed matrix (quire matrix) is identical
+tests and with each other. The computed matrix (`quire matrix`) is identical
 before and after the PR: no criterion id is added or removed. However, an
 existing test bound to FR-014-AC-2 asserts the negation of the edge that the
 amended AC now requires. The AC-4 binding is overbroad. FR-002 and AD-001
@@ -28,3 +28,13 @@ disagree on whether config adoption is conditional.
 
 Not merge-ready: FND-001 leaves the spec and the tagged test in direct
 contradiction, with tests.md misdescribing the state.
+
+## Dispositions
+
+Round 1, PR #42 fix round (the fix commit id is recorded on the Linear dispositions comment, not in this file).
+
+| FND | Outcome | Sha/Reason |
+| --- | --- | --- |
+| FND-001 | fixed | PR #42 fix round 1 |
+| FND-002 | fixed | PR #42 fix round 1 |
+| FND-003 | fixed | PR #42 fix round 1 |

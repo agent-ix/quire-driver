@@ -37,3 +37,14 @@ rewrote. Each changed document validates with exit 0 under quire 0.36.1
 
 Not merge-ready on this lens alone: the medium rows misreport test status in
 the rows this slice rewrote.
+
+## Dispositions
+
+Round 1, PR #42 fix round (the fix commit id is recorded on the Linear dispositions comment, not in this file).
+
+| FND | Outcome | Sha/Reason |
+| --- | --- | --- |
+| FND-001 | fixed | PR #42 fix round 1 |
+| FND-002 | still-open | spec/tests.md TC-018 row still says quire-cli/tests/binary_process.rs 'checks ... machine-output bytes, and the feature-gated code-5 invariant fallback'. At this head binary_process.rs has six FR-003/FR-004 tests, asserts nothing on stdout, and the repo has no code-5 feature or ix-cli-kit dependency. The fix added a second unbacked present-tense claim (machine-output bytes). |
+| FND-003 | fixed | PR #42 fix round 1 |
+| FND-004 | fixed | PR #42 fix round 1 |
