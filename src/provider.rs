@@ -459,6 +459,7 @@ mod tests {
             identity: "agent-ix/provider/kani".to_owned(),
             manifest_digest: ManifestDigest::from_digest([1; 32]),
             advertises: Vec::new(),
+            wire: None,
         })
     }
 

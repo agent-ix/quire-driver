@@ -7,46 +7,194 @@
 //! included in a later request's registry snapshot.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
+use qsl_foundation::diagnostic::{category_of, CatalogCode, Category};
 use qsl_package::EmittedPackage;
 use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
+use quire_driver::ProviderManifest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const CONTRACT_VERSION: &str = "quire.backend-provider/v1";
 const CAPABILITY_VOCABULARY: &str = "quire.capability-kind/v1";
-const MANIFEST_DIGEST_LIMIT: u64 = u64::MAX;
+const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProviderDescriptorShape {
     backend: String,
     advertises: Vec<AdvertisedPair>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     domains: Option<Vec<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     options: Option<BTreeMap<String, String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     bounds: Option<BTreeMap<String, u64>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     obligation_forms: Option<Vec<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     reductions: Option<Vec<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     evidence_kinds: Option<Vec<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     fairness_kinds: Option<Vec<String>>,
+}
+
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AdvertisedPair {
-    #[serde(default)]
     kind: Option<String>,
-    #[serde(default)]
     mode: Option<String>,
+}
+
+fn invalid_member(field: &'static str, detail: impl Into<String>) -> ManifestAdmissionError {
+    ManifestAdmissionError::InvalidMember {
+        field: field.to_owned(),
+        detail: detail.into(),
+    }
+}
+
+fn validate_set(
+    field: &'static str,
+    values: Option<&[String]>,
+    allowed: &[&str],
+    required: bool,
+) -> Result<(), ManifestAdmissionError> {
+    let Some(values) = values else {
+        return if required {
+            Err(invalid_member(
+                field,
+                "required for the advertised capability",
+            ))
+        } else {
+            Ok(())
+        };
+    };
+    if values.is_empty() {
+        return Err(invalid_member(field, "must contain at least one value"));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    if values
+        .iter()
+        .any(|value| !allowed.contains(&value.as_str()) || !seen.insert(value))
+    {
+        return Err(invalid_member(
+            field,
+            "contains an unknown or duplicate value",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_manifest(shape: &ProviderDescriptorShape) -> Result<(), ManifestAdmissionError> {
+    if shape.advertises.is_empty() {
+        return Err(invalid_member("advertises", "must not be empty"));
+    }
+    let mut advertised = std::collections::BTreeSet::new();
+    if shape
+        .advertises
+        .iter()
+        .any(|pair| !advertised.insert((&pair.kind, &pair.mode)))
+    {
+        return Err(invalid_member("advertises", "contains a duplicate pair"));
+    }
+    if let Some(domains) = &shape.domains {
+        let mut seen = std::collections::BTreeSet::new();
+        if domains.is_empty()
+            || domains.iter().any(|value| {
+                !["collection", "population", "integer", "recursive"].contains(&value.as_str())
+                    || !seen.insert(value)
+            })
+        {
+            return Err(invalid_member(
+                "domains",
+                "contains an empty, unknown, or duplicate value",
+            ));
+        }
+    }
+    if shape.options.as_ref().is_some_and(BTreeMap::is_empty) {
+        return Err(invalid_member("options", "must not be empty when present"));
+    }
+    if let Some(bounds) = &shape.bounds {
+        if bounds.is_empty()
+            || bounds.iter().any(|(name, value)| {
+                !name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+                    || !name
+                        .bytes()
+                        .skip(1)
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_')
+                    || *value > MAX_SAFE_INTEGER
+            })
+        {
+            return Err(invalid_member(
+                "bounds",
+                "contains an invalid setting name or unsafe integer",
+            ));
+        }
+    }
+    for (field, values, allowed) in [
+        (
+            "obligation_forms",
+            shape.obligation_forms.as_deref(),
+            &[
+                "unbounded-quantification",
+                "induction",
+                "compositional-discharge",
+                "mathematical-integers",
+            ][..],
+        ),
+        (
+            "reductions",
+            shape.reductions.as_deref(),
+            &["symmetry", "partial-order", "constraint"][..],
+        ),
+    ] {
+        validate_set(field, values, allowed, false)?;
+    }
+    let probabilistic = shape
+        .advertises
+        .iter()
+        .any(|pair| pair.kind.as_deref() == Some("probabilistic-satisfaction"));
+    let temporal = shape
+        .advertises
+        .iter()
+        .any(|pair| pair.kind.as_deref() == Some("temporal-satisfaction"));
+    validate_set(
+        "evidence_kinds",
+        shape.evidence_kinds.as_deref(),
+        &["statistical", "exact"],
+        probabilistic,
+    )?;
+    validate_set(
+        "fairness_kinds",
+        shape.fairness_kinds.as_deref(),
+        &["weak", "strong"],
+        temporal,
+    )?;
+    if shape.evidence_kinds.is_some() != probabilistic {
+        return Err(invalid_member(
+            "evidence_kinds",
+            "must be present exactly for probabilistic-satisfaction",
+        ));
+    }
+    if shape.fairness_kinds.is_some() != temporal {
+        return Err(invalid_member(
+            "fairness_kinds",
+            "must be present exactly for temporal-satisfaction",
+        ));
+    }
+    Ok(())
 }
 
 /// The FR-331 manifest-stage body received in the plugin's hello.
@@ -56,9 +204,10 @@ pub struct ManifestStage {
     /// FR-331 contract identity.
     pub contract_version: String,
     /// FR-290 capability-vocabulary identity.
-    pub capability_vocabulary: String,
+    #[serde(default)]
+    pub capability_vocabulary: Option<String>,
     /// The plugin's losslessly retained provider-manifest descriptor.
-    pub manifest: Vec<Value>,
+    pub manifest: Vec<Arc<Value>>,
 }
 
 /// One successfully admitted process manifest and the exact wire snapshot
@@ -66,7 +215,7 @@ pub struct ManifestStage {
 #[derive(Clone, Debug)]
 pub struct AdmittedManifest {
     descriptor: BackendDescriptor,
-    wire: Value,
+    manifest: ProviderManifest,
 }
 
 impl AdmittedManifest {
@@ -76,10 +225,11 @@ impl AdmittedManifest {
         &self.descriptor
     }
 
-    /// The original FR-331 descriptor, including optional manifest members.
+    /// The single driver-owned manifest carrier, including all optional
+    /// FR-331 members. Its wire value shares storage with the admitted hello.
     #[must_use]
-    pub fn wire(&self) -> &Value {
-        &self.wire
+    pub fn manifest(&self) -> &ProviderManifest {
+        &self.manifest
     }
 }
 
@@ -87,16 +237,21 @@ impl AdmittedManifest {
 #[derive(Debug, thiserror::Error)]
 pub enum ManifestAdmissionError {
     /// The manifest-stage envelope identity did not match FR-331.
-    #[error("plugin hello has an unsupported FR-331 envelope identity")]
-    EnvelopeIdentity,
+    #[error("plugin hello has an unsupported FR-331 contract identity")]
+    ContractIdentity,
+    /// The manifest-stage capability vocabulary is not recognized by QSL.
+    #[error("{0}")]
+    CapabilityVocabulary(CatalogCode),
     /// A provider hello did not carry exactly one descriptor.
     #[error("plugin hello must carry exactly one provider descriptor")]
     DescriptorCount,
     /// A descriptor member had the wrong JSON shape or type.
-    #[error("plugin hello manifest has an invalid {field} member")]
+    #[error("plugin hello manifest has an invalid {field} member: {detail}")]
     InvalidMember {
         /// The member whose type or shape did not satisfy FR-331.
-        field: &'static str,
+        field: String,
+        /// Parser or semantic-validation detail for the rejected member.
+        detail: String,
     },
     /// QSL refused the descriptor's backend identity.
     #[error(transparent)]
@@ -115,37 +270,29 @@ impl ManifestStage {
     /// The digest is computed from the exact decoded FR-331 descriptor using
     /// JCS. QSL owns identity, capability, mode and duplicate admission; this
     /// method neither normalizes labels nor assigns an origin from wire data.
-    pub fn admit_process(self) -> Result<AdmittedManifest, ManifestAdmissionError> {
-        if self.contract_version != CONTRACT_VERSION
-            || self.capability_vocabulary != CAPABILITY_VOCABULARY
-        {
-            return Err(ManifestAdmissionError::EnvelopeIdentity);
+    pub fn admit_process(
+        &self,
+        max_frame_bytes: u64,
+    ) -> Result<AdmittedManifest, ManifestAdmissionError> {
+        if self.contract_version != CONTRACT_VERSION {
+            return Err(ManifestAdmissionError::ContractIdentity);
+        }
+        if self.capability_vocabulary.as_deref() != Some(CAPABILITY_VOCABULARY) {
+            let code = CatalogCode::new("invalid_capability", "unknown-vocabulary");
+            debug_assert_eq!(category_of(&code), Some(Category::Refusal));
+            return Err(ManifestAdmissionError::CapabilityVocabulary(code));
         }
         let [wire] = self.manifest.as_slice() else {
             return Err(ManifestAdmissionError::DescriptorCount);
         };
-        let shape: ProviderDescriptorShape =
-            serde_json::from_value(wire.clone()).map_err(|_| {
-                ManifestAdmissionError::InvalidMember {
-                    field: "manifest descriptor",
-                }
+        let shape: ProviderDescriptorShape = serde_path_to_error::deserialize((**wire).clone())
+            .map_err(|source| ManifestAdmissionError::InvalidMember {
+                field: source.path().to_string(),
+                detail: source.inner().to_string(),
             })?;
-        if shape.advertises.is_empty() {
-            return Err(ManifestAdmissionError::InvalidMember {
-                field: "advertises",
-            });
-        }
-        let _preserved_optional_fields = (
-            &shape.domains,
-            &shape.options,
-            &shape.bounds,
-            &shape.obligation_forms,
-            &shape.reductions,
-            &shape.evidence_kinds,
-            &shape.fairness_kinds,
-        );
+        validate_manifest(&shape)?;
         let digest =
-            quire_canonical::sha256(wire, quire_canonical::Limits::new(MANIFEST_DIGEST_LIMIT))?;
+            quire_canonical::sha256(&**wire, quire_canonical::Limits::new(max_frame_bytes))?;
         let descriptor = BackendDescriptor::admit(
             Candidate::new(BackendId::from_wire(&shape.backend)?),
             ProviderOrigin::Process,
@@ -157,7 +304,16 @@ impl ManifestStage {
         )?;
         Ok(AdmittedManifest {
             descriptor,
-            wire: wire.clone(),
+            manifest: ProviderManifest {
+                identity: shape.backend,
+                manifest_digest: ManifestDigest::from_digest(*digest.as_bytes()),
+                advertises: shape
+                    .advertises
+                    .iter()
+                    .map(|pair| (pair.kind.clone(), pair.mode.clone()))
+                    .collect(),
+                wire: Some(Arc::clone(wire)),
+            },
         })
     }
 }
@@ -175,6 +331,20 @@ pub struct RequestStage {
     pub request: RequestBody,
 }
 
+/// A caller value cannot be represented exactly by the FR-331 JSON integer contract.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum RequestStageError {
+    /// FR-331 PositiveCount requires a nonzero safe integer deadline.
+    #[error("deadline_ms must be in 1..=9007199254740991")]
+    Deadline,
+    /// FR-331 Count requires a safe non-negative request index.
+    #[error("request_index must be in 0..=9007199254740991")]
+    RequestIndex,
+    /// A nested bound is outside FR-331's safe JSON integer range.
+    #[error("request bounds must use safe FR-331 JSON integers")]
+    Bound,
+}
+
 impl RequestStage {
     /// Build the wire request from an emitted package and typed routed inputs.
     ///
@@ -182,18 +352,32 @@ impl RequestStage {
     /// never recomputes package identity from the bytes. `manifest` comes from
     /// retained decoded provider-manifest DTOs, not from QSL registry
     /// descriptors, which intentionally omit optional FR-331 members.
-    #[must_use]
     pub fn from_emitted(
         package: &EmittedPackage,
-        manifest: Vec<Value>,
+        manifest: &[ProviderManifest],
         deadline_ms: u64,
         items: Vec<RequestItem>,
-    ) -> Self {
+    ) -> Result<Self, RequestStageError> {
+        if deadline_ms == 0 || deadline_ms > MAX_SAFE_INTEGER {
+            return Err(RequestStageError::Deadline);
+        }
+        if items
+            .iter()
+            .any(|item| item.request_index > MAX_SAFE_INTEGER)
+        {
+            return Err(RequestStageError::RequestIndex);
+        }
+        if items.iter().any(|item| !item_has_safe_bounds(item)) {
+            return Err(RequestStageError::Bound);
+        }
         let package_id = package.package_id().record();
-        Self {
+        Ok(Self {
             contract_version: CONTRACT_VERSION,
             capability_vocabulary: CAPABILITY_VOCABULARY,
-            manifest,
+            manifest: manifest
+                .iter()
+                .map(ProviderManifest::wire_descriptor)
+                .collect(),
             request: RequestBody {
                 package: URL_SAFE_NO_PAD.encode(package.bytes()),
                 package_id: PackageIdWire {
@@ -207,8 +391,44 @@ impl RequestStage {
                 provision: None,
                 memory: None,
             },
-        }
+        })
     }
+}
+
+fn item_has_safe_bounds(item: &RequestItem) -> bool {
+    let safe = |bounds: &[ProofBound]| {
+        bounds.iter().all(|bound| match &bound.bound {
+            FiniteBound::Cardinality { maximum } | FiniteBound::Depth { maximum } => {
+                *maximum <= MAX_SAFE_INTEGER
+            }
+            FiniteBound::IntegerRange { .. } => true,
+        })
+    };
+    let extent_safe = match &item.extent {
+        Some(Extent::Bounded { bounds }) => safe(bounds),
+        Some(Extent::Unbounded { .. }) | None => true,
+    };
+    extent_safe
+        && item.temporal.as_ref().is_none_or(|temporal| {
+            safe(&temporal.subject.proof_bounds)
+                && temporal
+                    .subject
+                    .initial_states
+                    .iter()
+                    .all(|r| valid_hex_digest(&r.digest))
+                && temporal
+                    .subject
+                    .universes
+                    .iter()
+                    .all(|r| valid_hex_digest(&r.digest))
+        })
+}
+
+fn valid_hex_digest(digest: &str) -> bool {
+    digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 /// FR-331 request members supplied for one provider call.
@@ -288,22 +508,71 @@ pub enum Extent {
     /// Unbounded extent and its request-owned domain declarations.
     Unbounded {
         /// Domain descriptions supplied by CG's routed request.
-        domains: Vec<Value>,
+        domains: Vec<ExtentDomain>,
         /// Whether a finite bound is available for these domains.
         finite_bound_available: bool,
     },
+}
+
+/// One FR-331 unbounded domain selector.
+#[derive(Clone, Debug, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExtentDomain {
+    /// The checked-package domain key.
+    pub domain: DomainKey,
+    /// The domain's closed classification.
+    pub kind: ExtentDomainKind,
+}
+
+/// FR-331 extent-domain kind vocabulary.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExtentDomainKind {
+    /// Collection domain.
+    Collection,
+    /// Population domain.
+    Population,
+    /// Integer domain.
+    Integer,
+    /// Recursive domain.
+    Recursive,
+    /// Quantity domain.
+    Quantity,
+    /// Loop domain.
+    Loop,
+    /// Infinite trace domain.
+    InfiniteTrace,
 }
 
 /// One FR-331 ADR-014 domain substitution.
 #[derive(Clone, Debug, Serialize)]
 pub struct ProofBound {
     /// The bounded QSpec domain key.
-    pub domain: Value,
+    pub domain: DomainKey,
     /// The finite bound supplied by the request.
-    pub bound: Value,
-    /// Future QSpec additions such as QSL-654's `kind`, retained as data.
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, Value>,
+    pub bound: FiniteBound,
+}
+
+/// QSpec FR-331 domain key.
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum DomainKey {
+    /// A node domain with a projection path.
+    Node { node: String, path: Vec<u32> },
+    /// Finite population domain.
+    Population { member_type: String, ordinal: u32 },
+}
+
+/// QSpec finite proof-bound shape.
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum FiniteBound {
+    /// Cardinality bound.
+    Cardinality { maximum: u64 },
+    /// Integer range bound represented by canonical integer strings.
+    IntegerRange { lower: String, upper: String },
+    /// Structural depth bound.
+    Depth { maximum: u64 },
 }
 
 /// Temporal FR-331 request members.
@@ -311,20 +580,74 @@ pub struct ProofBound {
 pub struct TemporalRequest {
     /// Temporal subject and its proof bounds.
     pub subject: TemporalSubject,
-    /// Other temporal members supplied by the owning request layer.
-    #[serde(flatten)]
-    pub additional: BTreeMap<String, Value>,
+    /// Formula or deadlock-freedom request kind.
+    pub item_kind: TemporalItemKind,
+    /// Required fairness constraints (empty for deadlock-freedom).
+    pub fairness: Vec<Fairness>,
 }
 
 /// Temporal request subject with proof bounds at the FR-331 path.
 #[derive(Clone, Debug, Serialize)]
 pub struct TemporalSubject {
-    /// Temporal subject's QSpec-defined identity and data.
-    #[serde(flatten)]
-    pub fields: BTreeMap<String, Value>,
+    /// Initial state document references.
+    pub initial_states: Vec<ProvisionRef>,
+    /// Universe document references.
+    pub universes: Vec<ProvisionRef>,
     /// Proof bounds at `temporal.subject.proof_bounds`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub proof_bounds: Option<Vec<ProofBound>>,
+    pub proof_bounds: Vec<ProofBound>,
+}
+
+/// QSpec temporal item kind.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TemporalItemKind {
+    Formula,
+    DeadlockFreedom,
+}
+
+/// QSpec temporal fairness constraint.
+#[derive(Clone, Debug, Serialize)]
+pub struct Fairness {
+    /// Weak or strong fairness.
+    pub kind: FairnessKind,
+    /// The operation subject to fairness.
+    pub operation: String,
+    /// Whole-operation or per-operation granularity.
+    pub granularity: FairnessGranularity,
+}
+
+/// QSpec fairness kind.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FairnessKind {
+    Weak,
+    Strong,
+}
+
+/// QSpec fairness granularity.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FairnessGranularity {
+    Whole,
+    Each,
+}
+
+/// FR-331 byte-provision reference.
+#[derive(Clone, Debug, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProvisionRef {
+    /// FR-364's supported digest domain.
+    pub digest_domain: ProvisionDigestDomain,
+    /// Lowercase digest of the canonical document.
+    pub digest: String,
+}
+
+/// QSpec provision digest-domain vocabulary.
+#[derive(Clone, Debug, Serialize)]
+pub enum ProvisionDigestDomain {
+    /// RFC 8785 SHA-256 digest.
+    #[serde(rename = "sha256-jcs")]
+    Sha256Jcs,
 }
 
 #[cfg(test)]
@@ -334,32 +657,130 @@ mod tests {
     fn hello(kind: Value, mode: Value) -> ManifestStage {
         ManifestStage {
             contract_version: CONTRACT_VERSION.to_owned(),
-            capability_vocabulary: CAPABILITY_VOCABULARY.to_owned(),
+            capability_vocabulary: Some(CAPABILITY_VOCABULARY.to_owned()),
             manifest: vec![serde_json::json!({
                 "backend": "agent-ix/provider/test",
                 "advertises": [{ "kind": kind, "mode": mode }],
                 "domains": ["integer"],
                 "bounds": { "max_states": 8 }
-            })],
+            })
+            .into()],
         }
     }
 
     #[test]
     fn hello_admits_process_descriptor_and_retains_full_manifest() {
-        let admitted = hello(
+        let stage = hello(
             Value::String("operation-contract".to_owned()),
             Value::String("bounded".to_owned()),
-        )
-        .admit_process()
-        .expect("known labels are admitted");
+        );
+        let source_wire = Arc::clone(&stage.manifest[0]);
+        let admitted = stage
+            .admit_process(1024 * 1024)
+            .expect("known labels are admitted");
 
         assert_eq!(admitted.descriptor().origin(), ProviderOrigin::Process);
         assert_eq!(
             admitted.descriptor().id().as_str(),
             "agent-ix/provider/test"
         );
-        assert_eq!(admitted.wire()["domains"], serde_json::json!(["integer"]));
-        assert_eq!(admitted.wire()["bounds"]["max_states"], Value::from(8));
+        assert_eq!(
+            admitted.manifest().wire_descriptor()["domains"],
+            serde_json::json!(["integer"])
+        );
+        assert_eq!(
+            admitted.manifest().wire_descriptor()["bounds"]["max_states"],
+            Value::from(8)
+        );
+        assert!(Arc::ptr_eq(
+            &source_wire,
+            admitted
+                .manifest()
+                .wire
+                .as_ref()
+                .expect("wire DTO retained")
+        ));
+    }
+
+    #[test]
+    fn unsupported_capability_vocabulary_uses_qsl_typed_refusal() {
+        for capability_vocabulary in [None, Some("quire.capability-kind/v0".to_owned())] {
+            let mut stage = hello(
+                Value::String("operation-contract".to_owned()),
+                Value::String("bounded".to_owned()),
+            );
+            stage.capability_vocabulary = capability_vocabulary;
+            let error = stage
+                .admit_process(1024)
+                .expect_err("unknown vocabulary refuses");
+            let ManifestAdmissionError::CapabilityVocabulary(code) = error else {
+                panic!("vocabulary mismatch must retain QSL's typed refusal: {error:?}");
+            };
+            assert_eq!(code.code(), "invalid_capability");
+            assert_eq!(code.cause(), "unknown-vocabulary");
+            assert_eq!(category_of(&code), Some(Category::Refusal));
+        }
+    }
+
+    #[test]
+    fn manifest_descriptor_checks_closed_schema_constraints() {
+        let base = || {
+            serde_json::json!({
+                "backend": "agent-ix/provider/test",
+                "advertises": [{"kind":"operation-contract", "mode":"bounded"}]
+            })
+        };
+        let mut cases = Vec::new();
+        let mut invalid = base();
+        invalid["domains"] = serde_json::json!([]);
+        cases.push((invalid, "domains"));
+        let mut invalid = base();
+        invalid["options"] = serde_json::json!({});
+        cases.push((invalid, "options"));
+        let mut invalid = base();
+        invalid["options"] = Value::Null;
+        cases.push((invalid, "options"));
+        let mut invalid = base();
+        invalid["bounds"] = serde_json::json!({"Max_states": 2});
+        cases.push((invalid, "bounds"));
+        let mut invalid = base();
+        invalid["bounds"] = serde_json::json!({"max_states": MAX_SAFE_INTEGER + 1});
+        cases.push((invalid, "bounds"));
+        let mut invalid = base();
+        invalid["unknown_member"] = Value::Bool(true);
+        cases.push((invalid, "unknown_member"));
+        let mut invalid = base();
+        invalid["advertises"] = serde_json::json!([]);
+        cases.push((invalid, "advertises"));
+        for (wire, field) in cases {
+            let stage = ManifestStage {
+                contract_version: CONTRACT_VERSION.to_owned(),
+                capability_vocabulary: Some(CAPABILITY_VOCABULARY.to_owned()),
+                manifest: vec![Arc::new(wire)],
+            };
+            let error = stage
+                .admit_process(4096)
+                .expect_err("schema-invalid descriptor refuses");
+            assert!(
+                matches!(error, ManifestAdmissionError::InvalidMember { .. }),
+                "{error:?}"
+            );
+            assert!(error.to_string().contains(field), "{error}");
+        }
+
+        let mut temporal = base();
+        temporal["advertises"] =
+            serde_json::json!([{"kind":"temporal-satisfaction", "mode":"bounded"}]);
+        let stage = ManifestStage {
+            contract_version: CONTRACT_VERSION.to_owned(),
+            capability_vocabulary: Some(CAPABILITY_VOCABULARY.to_owned()),
+            manifest: vec![Arc::new(temporal)],
+        };
+        assert!(stage
+            .admit_process(4096)
+            .unwrap_err()
+            .to_string()
+            .contains("fairness_kinds"));
     }
 
     #[test]
@@ -387,7 +808,7 @@ mod tests {
             ),
         ] {
             let error = hello(invalid.0, invalid.1)
-                .admit_process()
+                .admit_process(1024 * 1024)
                 .expect_err("QSL refuses malformed capability labels");
             let ManifestAdmissionError::Registration(refusal) = error else {
                 panic!("malformed labels must be classified by QSL: {error:?}");
@@ -396,6 +817,7 @@ mod tests {
         }
     }
 
+    /// Trace: FR-006-AC-1.
     #[test]
     fn request_wire_keeps_package_bounds_and_temporal_proof_bounds_at_contract_paths() {
         let item = RequestItem {
@@ -404,9 +826,11 @@ mod tests {
             claim: serde_json::json!({"node": {}, "occurrence": {}}),
             extent: Some(Extent::Bounded {
                 bounds: vec![ProofBound {
-                    domain: serde_json::json!({"type": "population"}),
-                    bound: serde_json::json!({"type": "cardinality", "maximum": 4}),
-                    additional: BTreeMap::new(),
+                    domain: DomainKey::Population {
+                        member_type: "member-node".to_owned(),
+                        ordinal: 0,
+                    },
+                    bound: FiniteBound::Cardinality { maximum: 4 },
                 }],
             }),
             backend: Some("agent-ix/provider/test".to_owned()),
@@ -415,41 +839,67 @@ mod tests {
             reductions: None,
             temporal: Some(TemporalRequest {
                 subject: TemporalSubject {
-                    fields: BTreeMap::new(),
-                    proof_bounds: Some(vec![ProofBound {
-                        domain: serde_json::json!({"type": "population"}),
-                        bound: serde_json::json!({"type": "cardinality", "maximum": 4}),
-                        additional: BTreeMap::new(),
-                    }]),
+                    initial_states: Vec::new(),
+                    universes: Vec::new(),
+                    proof_bounds: vec![ProofBound {
+                        domain: DomainKey::Population {
+                            member_type: "member-node".to_owned(),
+                            ordinal: 0,
+                        },
+                        bound: FiniteBound::Cardinality { maximum: 4 },
+                    }],
                 },
-                additional: BTreeMap::new(),
+                item_kind: TemporalItemKind::Formula,
+                fairness: Vec::new(),
             }),
             probabilistic: None,
         };
-        let request = serde_json::to_value(RequestBody {
-            package: "YWJj".to_owned(),
-            package_id: PackageIdWire {
-                domain: "quire.package.semantic/v2",
-                algorithm: "sha256",
-                digest: "0".repeat(64),
-            },
-            deadline_ms: 100,
-            items: vec![item],
-            dependencies: None,
-            provision: None,
-            memory: None,
-        })
-        .expect("typed request serializes");
+        let package = crate::test_support::emitted_package();
+        let retained_wire = Arc::new(serde_json::json!({
+            "backend":"agent-ix/provider/test",
+            "advertises":[{"kind":"operation-contract", "mode":"bounded"}],
+            "domains":["integer"]
+        }));
+        let manifests = [ProviderManifest {
+            identity: "agent-ix/provider/test".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([5; 32]),
+            advertises: vec![(
+                Some("operation-contract".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            wire: Some(Arc::clone(&retained_wire)),
+        }];
+        let request_stage = RequestStage::from_emitted(&package, &manifests, 100, vec![item])
+            .expect("the real emitted identity and safe request values serialize");
+        let package_id = package.package_id().record();
+        let request = serde_json::to_value(request_stage).expect("typed request serializes");
 
         assert_eq!(
-            request["items"][0]["extent"]["bounds"][0]["bound"]["maximum"],
+            request["request"]["package"],
+            URL_SAFE_NO_PAD.encode(package.bytes())
+        );
+        assert_eq!(
+            request["request"]["package_id"]["domain"],
+            package_id.domain().as_str()
+        );
+        assert_eq!(request["request"]["package_id"]["algorithm"], "sha256");
+        assert_eq!(request["request"]["package_id"]["digest"], package_id.hex());
+        assert_eq!(request["manifest"][0], *retained_wire);
+
+        assert_eq!(
+            request["request"]["items"][0]["extent"]["bounds"][0]["bound"]["maximum"],
             4
         );
         assert_eq!(
-            request["items"][0]["temporal"]["subject"]["proof_bounds"][0]["bound"]["maximum"],
+            request["request"]["items"][0]["temporal"]["subject"]["proof_bounds"][0]["bound"]
+                ["maximum"],
             4
         );
-        assert!(request.get("domains").is_none());
-        assert!(request.get("limits").is_none());
+        assert!(request["request"].get("domains").is_none());
+        assert!(request["request"].get("limits").is_none());
+        assert!(RequestStage::from_emitted(&package, &[], 0, Vec::new()).is_err());
+        assert!(
+            RequestStage::from_emitted(&package, &[], MAX_SAFE_INTEGER + 1, Vec::new()).is_err()
+        );
     }
 }

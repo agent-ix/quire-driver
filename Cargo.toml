@@ -38,10 +38,10 @@ quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", 
 # QSL's caller-owned cancellation handle is a public driver API type.
 quire-exact = { git = "https://github.com/agent-ix/quire-exact", branch = "main" }
 thiserror = "=2.0.20"
+serde_json = "=1.0.151"
 
 [dev-dependencies]
 serde = "=1.0.228"
-serde_json = "=1.0.151"
 
 [profile.release]
 lto = "thin"

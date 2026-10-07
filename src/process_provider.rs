@@ -11,10 +11,11 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
 
+use qsl_package::EmittedPackage;
 use qsl_route::BackendDescriptor;
 use quire_exact::Cancel;
 
-use crate::{ProviderRequest, ProviderResults};
+use crate::{ProviderManifest, ProviderRequest, ProviderResults};
 
 /// Caller-owned process and framing budgets, independent of the host crate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,7 +39,12 @@ pub struct ProcessProviderLimits {
 pub struct ProcessProviderRequest<'a> {
     /// Exact emitted checked-package bytes, intentionally forwarded under
     /// FR-006 without decoding or rewriting them in the driver seam.
-    pub emitted_package: &'a [u8],
+    pub emitted_package: &'a EmittedPackage,
+    /// Caller-supplied deadline for this request in milliseconds.
+    pub deadline_ms: u64,
+    /// Snapshot of all registered candidate manifests, from the one driver
+    /// registry that admitted linked and process providers.
+    pub manifest: &'a [ProviderManifest],
     /// Driver-owned typed request for this provider's negotiated items.
     pub provider_request: ProviderRequest<'a>,
     /// Caller-owned cancellation handle for this request.
@@ -59,6 +65,9 @@ pub trait ProcessProviderSession {
 
     /// The descriptor returned by the one QSL admission of the hello manifest.
     fn descriptor(&self) -> &BackendDescriptor;
+
+    /// The lossless driver-owned FR-331 manifest retained at admission.
+    fn manifest(&self) -> &ProviderManifest;
 
     /// Send one routed request and return driver-owned typed provider results.
     /// Current results carry Kani-specific evidence and failures; generalizing
@@ -94,15 +103,23 @@ pub trait ProcessProvider {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::convert::Infallible;
     use std::ffi::OsString;
     use std::path::Path;
     use std::time::Duration;
 
-    use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
+    use qsl_foundation::SourceIdentity;
+    use qsl_replay::spine::SpineLimits;
+    use qsl_route::{
+        BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin, Registry,
+    };
+    use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_exact::Cancel;
 
-    use crate::{ProviderRequest, ProviderResults};
+    use crate::{
+        CompileInput, GenerationInput, ProviderManifest, ProviderRequest, ProviderResults, QslCg,
+    };
 
     use super::{
         ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
@@ -112,6 +129,7 @@ mod tests {
 
     struct FakeSession {
         descriptor: BackendDescriptor,
+        manifest: ProviderManifest,
     }
 
     impl ProcessProvider for FakeProvider {
@@ -129,6 +147,15 @@ mod tests {
             assert_eq!(arguments, [OsString::from("--fixture")]);
             assert_eq!(limits.max_total_bytes, 1024);
             assert_eq!(cancel.cause(), None);
+            let manifest = ProviderManifest {
+                identity: "agent-ix/provider/process".to_owned(),
+                manifest_digest: ManifestDigest::from_digest([9; 32]),
+                advertises: vec![(
+                    Some("operation-contract".to_owned()),
+                    Some("bounded".to_owned()),
+                )],
+                wire: None,
+            };
             Ok(FakeSession {
                 descriptor: BackendDescriptor::admit(
                     Candidate::new(
@@ -139,6 +166,7 @@ mod tests {
                     [(Some("operation-contract"), Some("bounded"))],
                 )
                 .expect("the hello admitter accepts the fixture manifest"),
+                manifest,
             })
         }
     }
@@ -151,11 +179,18 @@ mod tests {
             &self.descriptor
         }
 
+        fn manifest(&self) -> &ProviderManifest {
+            &self.manifest
+        }
+
         fn invoke(
             &mut self,
             request: ProcessProviderRequest<'_>,
         ) -> Result<ProviderResults, Self::Error> {
-            assert_eq!(request.emitted_package, b"package");
+            assert!(!request.emitted_package.bytes().is_empty());
+            assert_ne!(request.emitted_package.package_id().hex(), "");
+            assert_eq!(request.deadline_ms, 10);
+            assert!(request.manifest.is_empty());
             assert!(request.provider_request.items().is_empty());
             assert_eq!(request.cancel.cause(), None);
             Ok(ProviderResults::default())
@@ -195,14 +230,43 @@ mod tests {
             "agent-ix/provider/process"
         );
 
-        let package = b"package";
+        let package = emitted_package();
         let provider_request = ProviderRequest::new(&[]);
         let request = ProcessProviderRequest {
-            emitted_package: package,
+            emitted_package: &package,
+            deadline_ms: 10,
+            manifest: &[],
             provider_request,
             cancel: &cancel,
         };
         let _ = session.invoke(request).expect("provider request succeeds");
         session.shutdown().expect("provider shuts down");
+    }
+
+    fn emitted_package() -> qsl_package::EmittedPackage {
+        let lock = DefinitionLock::pinned();
+        let root = lock.entry(CatalogRole::Root);
+        let source = format!(
+            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\nfunction f using v(): Boolean pure {{ true }}\n",
+            root.identity
+        );
+        let packages = BTreeMap::new();
+        let input = CompileInput {
+            source: SourceIdentity::new("agent-ix", "process-provider-test", "git", "1"),
+            path: "unit.native",
+            bytes: source.as_bytes(),
+            packages: &packages,
+            limits: SpineLimits::default(),
+            cancel: Cancel::new(),
+        };
+        crate::drive(
+            &QslCg,
+            input,
+            &Registry::new(),
+            None,
+            GenerationInput::default(),
+        )
+        .expect("fixture compiles and emits a real package")
+        .emitted
     }
 }
