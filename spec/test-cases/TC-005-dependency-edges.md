@@ -33,9 +33,11 @@ FR-014-AC-2 and FR-014-AC-3.
    host-free driver closure.
 3. Inspect the direct normal dependency edges from `quire-cli` and confirm it
    depends on `quire-plugin-host` and `ix-cli-kit`; confirm the driver closure
-   remains host-free. The direct CLI-to-host assertion is missing from the
-   current test and is planned for the IR-672 code slice. The kit edge
-   assertion is planned for the IR-607 kit-adoption slice.
+   remains host-free and kit-free. The CLI-to-host edge is already asserted by
+   `tests/dependency_edges.rs` and `quire-cli/tests/package_boundary.rs`. The
+   package-boundary test currently asserts the absence of `ix-cli-kit`; the
+   IR-607 code slice must invert that assertion and verify the positive kit
+   edge plus the driver's kit-free closure.
 
 Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_list`.
 
@@ -58,10 +60,11 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
 - The `workspace_default_members` array includes `quire-cli`.
 - When the workspace contains `quire-cli`, the graph includes its driver
   interface and cache edges, plus direct normal edges to `quire-plugin-host`
-  and `ix-cli-kit`. The direct CLI-to-host edge assertion remains planned for
-  the IR-672 code slice; the CLI-to-kit assertion remains planned for the
-  IR-607 kit-adoption slice. The driver's closure remains cache-free and
-  host-free and does not include `ix-cli-kit`.
+  and `ix-cli-kit`. The direct CLI-to-host edge is already asserted by the
+  current tests. The package-boundary test's CLI-to-kit assertion is inverted
+  until the IR-607 code slice changes it to a positive assertion and verifies
+  that `ix-cli-kit` remains outside the driver's closure. The driver's closure
+  remains cache-free and host-free.
 - CG's one normal or build edge into QSL is `qsl-replay`.
 - The graph holds one copy of `quire-contract-model`: the driver's own
   direct dependency, CG's `quire-contract-ir` and QSL's `qsl-package` all

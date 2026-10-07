@@ -205,14 +205,16 @@ add library-source intake or expand that baseline contract.
   the exit module's `caller_exit_code` to preserve QSL's numeric category
   result at the process boundary, without mapping it through the kit's
   `Outcome`; reserved code `5` is a QSL mapping invariant failure handled by
-  the CLI. The four other shared
-  modules remain required and open: `streams` for result, diagnostic and
-  colour handling; `json` for canonical machine-output encoding;
-  `config` for shared configuration precedence and search-path mechanics if
-  the CLI introduces configuration; and `version` for shared build provenance
-  and version agreement. The current CLI has no config reader and its
-  `--version` path does not yet render version provenance. The argument parser
-  remains in `quire-cli`; the kit defines no argv parser.
+  the CLI. Four other shared CLI modules remain open: `streams` for result,
+  diagnostic and colour handling; `json` for canonical machine-output
+  encoding; `config` if the CLI introduces configuration; and `version` for
+  shared build provenance and version agreement. The current CLI has no config
+  reader and its `--version` path does not yet render version provenance. The
+  kit's feature-gated `secrets` module is outside the driver's adoption scope.
+  The argument parser remains in `quire-cli`; the kit defines no argv parser.
+- First-party Git dependencies are declared with `branch = "main"`; each
+  consumer's `Cargo.lock` records the resolved commit. Dependency manifests
+  do not carry a `rev` field or commit identifier.
 - Dependency declarations and lockfiles are the package dependency source;
   this architecture creates no separate revision ledger or tool catalog.
 
@@ -273,6 +275,7 @@ The merged FR-002..FR-010 and TC-009..TC-018 specify the planned extension.
 | CLI, caller limits/cancellation/engine selection and provider/plugin/cache composition remain planned | IR-607, IR-608, IR-609, IR-616 | Implement and run TC-009..TC-014, TC-018..TC-022 against their owning contracts. TC-014 verifies the injected interface; TC-020..TC-022 verify the separate cache package. CLI signal/deadline integration is not claimed by FR-011. |
 | AOT and execute/replay/terminal-record chain remain planned | IR-610, with CG's terminal-map owner | Run TC-015..TC-016 with paired provider/replay inputs and complete per-item accounting. CG AD-003 is merged (CG PR #214); its merge does not establish terminal-map implementation. |
 | Relation-bound CG input depends on QSL AR2 | QSL-514 / [QSL FR-307](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-307-export-the-bindings-each-item-references.md) (bound-item export and per-item refusals) | Run TC-017 in the QSL-owned `quire-integration` test once AR2 is available. |
+| ix-cli-kit serde minimum conflicts with quire-driver's exact serde requirement | PLAT-1154 | Lower the kit's serde minimum before adding the CLI dependency; no driver or upstream serde requirements move in this slice. The IR-607 code slice is blocked until PLAT-1154 merges. |
 | ix-cli-kit adoption is staged; only exit pass-through is specified for the current IR-607 slice | IR-607 / driver FR-002 | Adopt `exit::caller_exit_code` with no second outcome mapping; keep streams, canonical JSON, configuration and version mechanics open until their corresponding CLI work is implemented and verified. |
 | The npm package `@agent-ix/quire-cli` also ships a `quire` executable; its relationship to the Cargo CLI is unresolved | IR-607 / QSL ADR-029 and FR-002 question | Clarify whether npm and Cargo distribution are the same supported user-facing CLI; FR-014 scopes Cargo workspace ownership only. |
 | Cross-repository parity can differ despite local tests | IR-528 in `quire-integration` | Collect CLI/library outcome and exit parity, provider/plugin install, cache behavior, AOT parity, QSL binary deletion and the full proof-chain evidence. No G5b pass is claimed here. |

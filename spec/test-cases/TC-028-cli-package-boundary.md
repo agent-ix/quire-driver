@@ -24,7 +24,7 @@ Only end-to-end process-provider routing requires the process backend mapping
 from CG IR-629. Package-graph, adapter-fixture lifecycle, and cleanup checks do
 not require that mapping and can run independently of it.
 
-Scope: FR-002-AC-3..FR-002-AC-4, FR-006-AC-1, FR-006-AC-3..FR-006-AC-4, FR-013-AC-11,
+Scope: FR-002-AC-3, FR-002-AC-7, FR-006-AC-1, FR-006-AC-3..FR-006-AC-4, FR-013-AC-11,
 FR-013-AC-14..FR-013-AC-15,
 FR-014-AC-1, FR-014-AC-2, FR-014-AC-4 and FR-014-AC-5.
 
@@ -87,10 +87,13 @@ The signal guarantee covers Linux/macOS handled SIGINT/SIGTERM only; it does
 not cover Windows console control events, an uncatchable host kill on Unix, or
 a plugin descendant that deliberately leaves the host's process group.
 
-Test locations: existing `quire-cli/tests/package_boundary.rs` covers package
-ownership and layout; its FR-014-AC-2 Trace tag currently overstates coverage
-because it checks driver/cache but not the CLI-to-host edge. Remove that tag and
-add the missing edge assertion in the IR-672 code slice. The planned
+Test locations: `tests/dependency_edges.rs` and
+`quire-cli/tests/package_boundary.rs` already assert the CLI-to-host edge.
+The package-boundary test currently asserts
+`!dependencies.contains("ix-cli-kit")`, the opposite of the new CLI-to-kit
+requirement, so its FR-014-AC-2 Trace tag is removed until the IR-607 code slice
+inverts that assertion, verifies the positive CLI-to-kit edge, and asserts the
+driver closure excludes the kit. The planned
 `quire-cli/tests/plugin_lifecycle.rs` will cover adapter session cleanup and
 signals. Windows-specific evidence is planned for a native Windows runner; no
 Windows runtime coverage is claimed from the current Ubuntu-only CI. Native
@@ -101,7 +104,9 @@ Linux/macOS runners provide the signal evidence in step 8.
 - `quire-cli` and `quire-driver` are distinct workspace packages.
 - Only `quire-cli` provides the `quire` binary target.
 - `quire-cli` directly depends on `quire-driver`, `quire-cache`,
-  `quire-plugin-host` and `ix-cli-kit`; `quire-driver` has no normal or build
+  `quire-plugin-host` and `ix-cli-kit`; the existing tests assert the
+  CLI-to-host edge. The IR-607 code slice inverts the existing negative kit
+  assertion and verifies that the driver closure has no normal or build
   dependency on the host or ix-cli-kit.
 - The CLI tests and their fixtures have the specified `quire-cli` ownership.
 - The parser definitions and binary entry point have the specified

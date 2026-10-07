@@ -36,9 +36,10 @@ cache, and process-provider adapter using `quire-plugin-host`.
 
 - A workspace package named `quire-cli` that provides the `quire` executable.
 - The binary argument parser and CLI tests/fixtures owned by `quire-cli`.
-- A Cargo dependency graph in which the CLI composes the driver and cache.
+- A Cargo dependency graph in which the CLI composes the driver, cache and
+  ix-cli-kit.
 - A Cargo dependency graph in which `quire-cli` composes the plugin host while
-  the `quire-driver` dependency closure excludes it.
+  the `quire-driver` dependency closure excludes both the host and ix-cli-kit.
 
 ## Behavior
 
@@ -48,6 +49,9 @@ cache, and process-provider adapter using `quire-plugin-host`.
   target.
 - `quire-cli` SHALL have direct normal dependencies on `quire-driver`,
   `quire-cache`, `quire-plugin-host` and `ix-cli-kit`.
+- The `ix-cli-kit` Git dependency in `quire-cli/Cargo.toml` SHALL specify
+  `branch = "main"`; the consumer's `Cargo.lock` SHALL record the resolved
+  commit, with no `rev` field in the dependency declaration.
 - The workspace root SHALL list `quire-cli` in `default-members`.
 - The `quire-cli` package SHALL own the argument parser in
   `quire-cli/src/cli.rs`, with the binary entry point in

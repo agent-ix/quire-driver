@@ -75,7 +75,7 @@ fn direct_normal_dependencies(package: &Value) -> BTreeSet<&str> {
         .collect()
 }
 
-/// Trace: FR-014-AC-1, FR-014-AC-2, Cargo owns one quire target in quire-cli.
+/// Trace: FR-014-AC-1
 #[test]
 fn cargo_target_and_dependencies_belong_to_quire_cli() {
     let metadata = metadata();

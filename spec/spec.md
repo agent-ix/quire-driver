@@ -127,8 +127,10 @@ QSL's `Category::exit_code` as the sole category-to-process exit mapping.
 FR-002 routes that numeric result through `ix_cli_kit::exit::caller_exit_code`,
 which preserves every value except reserved code `5`; the CLI handles that
 error as a QSL category-mapping invariant failure. The CLI continues to own
-argv parsing. Adoption of ix-cli-kit's `streams`, `json`, `config` and
-`version` modules is also required by FR-002 and remains open under IR-607.
+argv parsing. Adoption of ix-cli-kit's `streams`, `json` and `version` modules
+is required by FR-002 and remains open under IR-607; if the CLI adds
+configuration resolution, it will use the kit's `config` module. The kit's
+feature-gated `secrets` module is outside the driver's adoption scope.
 
 ### 2.2 Out of Scope
 

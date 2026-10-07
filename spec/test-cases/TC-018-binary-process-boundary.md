@@ -12,9 +12,10 @@ relationships:
 
 ## Description
 
-Verify FR-002-AC-2 through FR-002-AC-4 at the driver's root argv and process
-boundary. QSL ADR-029 supplies the outcome value and exit semantics; this case
-checks that the binary preserves them while using ix-cli-kit's exit pass-through.
+Verify FR-002-AC-2 through FR-002-AC-4 and FR-002-AC-6 at the driver's root
+argv and process boundary. QSL ADR-029 supplies the outcome value and exit
+semantics; this case checks that the binary preserves them while using
+ix-cli-kit's exit pass-through.
 
 ## Test Procedure
 
@@ -22,9 +23,10 @@ checks that the binary preserves them while using ix-cli-kit's exit pass-through
    the selected typed operation and passes QSL's `Category::exit_code` result
    through `ix_cli_kit::exit::caller_exit_code` to
    `std::process::ExitCode`. Check that no path converts the category through
-   ix-cli-kit's `Outcome` or a second numeric category mapping. The `streams`,
-   `json`, `config` and `version` kit modules remain required work under IR-607;
-   this case does not claim they are adopted.
+   ix-cli-kit's `Outcome` or a second numeric category mapping. Adoption of
+   `streams`, `json` and `version` remains open under IR-607; `config` is used
+   if CLI configuration is introduced. This case does not claim those modules
+   are adopted, and the optional `secrets` module is outside the driver scope.
 2. Build the `quire` child process with a test-only adapter at the typed `check`
    operation call. Select its case through the child environment variable
    `TC018_CASE`, with the four values in the table below. The adapter receives
@@ -79,10 +81,14 @@ checks that the binary preserves them while using ix-cli-kit's exit pass-through
    equal to the parent's value; the absent stdout content is the rendered
    diagnostic line, not those required fields.
 
-4. Through a test-only exit-function seam in the binary, supply raw code `5` in
-   place of QSL's `Category::exit_code` result. Confirm the child emits an
-   invariant-failure diagnostic and exits with
-   `Category::InternalFailure.exit_code()` (`30`), never `5`.
+4. Build the child with a dedicated test-only Cargo feature that enables an
+   exit-function seam to supply raw code `5` in place of QSL's
+   `Category::exit_code` result. The seam SHALL not be enabled in the default
+   or release binary and SHALL not be selectable through production argv or
+   environment variables. Confirm the child exits with
+   `Category::InternalFailure.exit_code()` (`30`), stdout is empty in both
+   text and machine modes, and stderr contains a plain-text diagnostic naming
+   reserved code `5` and fallback code `30`.
 
 Test location: `quire-cli/tests/binary_process.rs` with its test-only
 operation adapter and fixtures under `quire-cli/tests/fixtures/`; entry-point
@@ -94,10 +100,13 @@ review covers `quire-cli/src/main.rs` and `quire-cli/src/cli.rs`.
   `ix_cli_kit::exit::caller_exit_code` while retaining its own root argv
   boundary. Adoption of the kit's other shared modules remains open under
   IR-607.
-- Each child status is exactly the code returned by QSL's exit function,
-  including 20, 21, 22 and 30. There is one pass-through to
-  `std::process::ExitCode` and no ix-cli-kit `Outcome` conversion.
+- For typed-result cases, each child status is exactly the code returned by
+  QSL's exit function, including 20, 21, 22 and 30. The test-only code-5 case
+  instead uses status `30` and has no stdout result. There is one pass-through
+  to `std::process::ExitCode` and no ix-cli-kit `Outcome` conversion.
 - Machine stdout contains exactly the unchanged QSL `quire-outcome/1` value
-  for each run. The known `undefined_expression/unproved-range` diagnostic
+  for each typed-result run. The code-5 fallback case writes no stdout result
+  and emits its specified plain-text diagnostic only on stderr. The known
+  `undefined_expression/unproved-range` diagnostic
   retains its structured fields in that value, and its complete nonempty
   rendered line appears on stderr and is absent from stdout.

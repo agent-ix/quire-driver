@@ -29,10 +29,11 @@ The CLI SHALL not make semantic decisions based on diagnostic text.
 
 In machine mode, each verb SHALL write exactly one QSL-defined
 `quire-outcome/1` JSON value to stdout and preserve the typed library outcome
-without changing its schema or values, except when SIGINT or SIGTERM terminates
-an active plugin session as specified below. The driver SHALL use QSL's single
-total `Category::exit_code` function as the sole category-to-exit mapping,
-except for that signal-terminated invocation.
+without changing its schema or values, except when the CLI reports a reserved
+exit-code mapping invariant failure or SIGINT/SIGTERM terminates an active
+plugin session as specified below. The driver SHALL use QSL's single total
+`Category::exit_code` function as the category-to-exit mapping; AC-6 specifies
+the fallback when that function returns reserved value `5`.
 
 ## Inputs
 
@@ -44,11 +45,13 @@ except for that signal-terminated invocation.
 ## Outputs
 
 - One QSL-defined `quire-outcome/1` JSON value in machine mode, or the
-  selected text rendering, except that a signal-terminated active plugin
-  invocation writes no outcome document.
+  selected text rendering, except that a reserved-code mapping invariant
+  failure or signal-terminated active plugin invocation writes no outcome
+  document or text result.
 - The exit status returned by QSL's category exit function, except that a
+  reserved-code mapping invariant failure returns code `30`, and a
   signal-terminated active plugin invocation re-raises the signal after
-  cleanup and has no invented numeric exit result.
+  cleanup without an invented numeric exit result.
 
 ## Behavior
 
@@ -57,27 +60,35 @@ except for that signal-terminated invocation.
   library SHALL NOT compose the downstream `quire-cache` package. FR-014
   specifies the separate CLI package boundary.
 - The CLI SHALL preserve the library's QSL-defined `quire-outcome/1` value
-  without adding, removing or changing outcome data.
+  without adding, removing or changing outcome data, except in the two
+  invocation cases specified by AC-6 and AC-7.
 - When an invocation on Linux or macOS is terminated by SIGINT or SIGTERM
   during an active plugin session, after the plugin cleanup specified by
   FR-006 the CLI SHALL
   restore the default signal disposition and re-raise the received signal.
   That terminated invocation SHALL write no `quire-outcome/1` document, and
   the CLI SHALL make no QSL cancellation-cause claim.
-- The CLI SHALL use ix-cli-kit for shared command/output, configuration and
-  version mechanics. Its typed `Outcome` mapping SHALL NOT replace or remap
-  QSL's category exit function.
 - The CLI SHALL pass QSL's `Category::exit_code` result to
-  `ix_cli_kit::exit::caller_exit_code` and return the resulting exit value
-  unchanged.
-- If `caller_exit_code` returns `CallerExitCodeError` for a QSL category
-  result of `5`, then the CLI SHALL emit an error diagnostic and return
-  `Category::InternalFailure.exit_code()` (`30`); it SHALL NOT return `5`.
-  This path records a QSL category-mapping invariant failure.
-- The `quire-cli` argument parser SHALL remain in `quire-cli`; ix-cli-kit
-  defines no argument parser. Adoption of its `streams`, `json`, `config` and
-  `version` modules is also required by this requirement and remains planned
-  under IR-607 after the exit pass-through slice.
+  `ix_cli_kit::exit::caller_exit_code`; it SHALL NOT remap accepted values
+  through the kit's typed `Outcome`.
+- If `caller_exit_code` returns `CallerExitCodeError` because QSL returned
+  reserved result `5`, then the CLI SHALL write a plain-text diagnostic to
+  stderr that identifies reserved code `5` and fallback code `30`. In this
+  path, the CLI SHALL write no result or outcome document to stdout.
+- If `caller_exit_code` returns `CallerExitCodeError` because QSL returned
+  reserved result `5`, then the CLI SHALL return
+  `Category::InternalFailure.exit_code()` (`30`).
+- The diagnostic for the reserved result `5` SHALL not attribute a QSL cause
+  to the mapping failure.
+- When the CLI writes results and diagnostics, it SHALL use ix-cli-kit's
+  `streams` module for stream discipline.
+- When the CLI writes machine-mode outcomes, it SHALL use ix-cli-kit's `json`
+  module for canonical JSON encoding.
+- When the CLI resolves configuration values, it SHALL use ix-cli-kit's
+  `config` module.
+- The CLI SHALL use ix-cli-kit's `version` module for build provenance and
+  version agreement.
+- The CLI SHALL keep its argument parser in the `quire-cli` package.
 - The CLI SHALL read only input paths named by its arguments and read no
   unnamed configuration file.
 
@@ -86,10 +97,16 @@ except for that signal-terminated invocation.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-002-AC-1 | The driver binary exposes the command and output surface defined by QSL ADR-029 LC-1, CB-1 and CB-5, and dispatches each command to its typed operation. | Test (TC-009) |
-| FR-002-AC-2 | For each O-16 category, the process status equals the value returned by QSL's `Category::exit_code`; the CLI has no second category-to-exit mapping. | Test (TC-009, TC-018) |
-| FR-002-AC-3 | In machine mode, each command writes one parseable `quire-outcome/1` value equal to the library outcome under QSL's schema; the CLI adds, removes or changes no outcome data. An invocation terminated by SIGINT or SIGTERM during an active plugin session is exempt and writes no outcome document. | Test (TC-009, TC-018, TC-028) |
-| FR-002-AC-4 | The CLI uses ix-cli-kit for shared command/output, configuration and version mechanics; it passes QSL's category exit result through `ix_cli_kit::exit::caller_exit_code` without typed `Outcome` remapping. If QSL returns reserved code `5`, the CLI reports the invariant failure and exits with QSL's `Category::InternalFailure.exit_code()` (`30`), never `5`. An invocation on Linux or macOS terminated by SIGINT or SIGTERM during an active plugin session is exempt; after cleanup the CLI restores the default signal disposition and re-raises the signal, without inventing an exit number or QSL cause. | Test (TC-009, TC-018, TC-028) |
+| FR-002-AC-2 | For each QSL category whose exit result is not reserved code `5`, the process status equals the value returned by QSL's `Category::exit_code`; no second category-to-exit mapping is applied. Reserved result `5` is governed by AC-6. | Test (TC-009, TC-018) |
+| FR-002-AC-3 | In machine mode, each command writes one parseable `quire-outcome/1` value equal to the library outcome under QSL's schema; the CLI adds, removes or changes no outcome data. The mapping-invariant and signal exceptions are specified in AC-6 and AC-7. | Test (TC-009, TC-018, TC-028) |
+| FR-002-AC-4 | The CLI passes QSL's `Category::exit_code` result through `ix_cli_kit::exit::caller_exit_code` and preserves each accepted numeric value without mapping it through the kit's typed `Outcome`. | Test (TC-009, TC-018) |
 | FR-002-AC-5 | The CLI reads only input paths named by its arguments and reads no unnamed configuration file. | Test (TC-009) |
+| FR-002-AC-6 | If QSL's category exit function returns reserved value `5`, the CLI writes a plain-text stderr diagnostic naming reserved code `5` and fallback code `30`, writes no text result or `quire-outcome/1` document to stdout, and returns `Category::InternalFailure.exit_code()` (`30`) without attributing a QSL cause. | Test (TC-009, TC-018) |
+| FR-002-AC-7 | When a Linux or macOS invocation receives SIGINT or SIGTERM during an active plugin session, the CLI cleans up, restores the default disposition, and re-raises that signal without writing a result or outcome document or inventing a numeric exit value or QSL cause. | Test (TC-028) |
+| FR-002-AC-8 | When the CLI writes results and diagnostics, it uses ix-cli-kit's `streams` module for stream discipline. | Test (TC-009, TC-018) |
+| FR-002-AC-9 | When the CLI writes machine-mode outcomes, it uses ix-cli-kit's `json` module for canonical JSON encoding. | Test (TC-009, TC-018) |
+| FR-002-AC-10 | When the CLI resolves configuration values, it uses ix-cli-kit's `config` module. | Test (TC-009) |
+| FR-002-AC-11 | The CLI uses ix-cli-kit's `version` module for build provenance and version agreement. | Test (TC-009) |
 
 ## Dependencies
 
@@ -100,4 +117,4 @@ except for that signal-terminated invocation.
   outcomes and codes. IR-607 adopts the exit module first and retains the
   remaining required kit mechanics as open work.
 - [TC-009](../test-cases/TC-009-cli-outcome-and-exit-contract.md).
-- [TC-018](../test-cases/TC-018-binary-process-boundary.md), adding verification for AC-2 through AC-4.
+- [TC-018](../test-cases/TC-018-binary-process-boundary.md), adding verification for AC-2 through AC-4 and AC-6.

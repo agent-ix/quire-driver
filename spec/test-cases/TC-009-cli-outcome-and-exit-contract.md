@@ -15,7 +15,8 @@ relationships:
 Verify that the driver CLI exposes the specified verbs, preserves typed
 outcomes in `quire-outcome/1` documents and uses QSL's single exit function.
 
-Scope: FR-002-AC-1 through FR-002-AC-5 and FR-014-AC-4.
+Scope: FR-002-AC-1 through FR-002-AC-6 and FR-002-AC-8 through FR-002-AC-11,
+plus FR-014-AC-4.
 
 ## Test Procedure
 
@@ -27,23 +28,20 @@ Scope: FR-002-AC-1 through FR-002-AC-5 and FR-014-AC-4.
    `undefined`, a pending monitor clause, an inconclusive proof and a
    multi-item outcome containing multiple exit codes. Compare each process
    status to QSL's category exit function.
-4. For the exit-only kit slice, verify the exit boundary calls
-   `ix_cli_kit::exit::caller_exit_code` with QSL's `Category::exit_code`
-   result. Exercise the kit function for every `u8`: compare its returned
-   `ExitCode` to `ExitCode::from(code)` with `PartialEq` for every value other
-   than `5`, including `0`, `1` through `4`, `6`, `10`, `20`, `21`, `22`,
-   `30` and `255`. For `5`, assert the error's `rejected_code` and
-   `reserved_code` fields both equal the specified values.
-   Exercise the driver's reserved-code fallback through its test seam: it
-   emits a diagnostic and returns QSL `Category::InternalFailure` code `30`.
-   Adoption of the kit's `streams`, `json`, `config` and `version` modules is
-   required but remains open under IR-607; this step does not claim those
-   modules are adopted.
+4. Inspect the driver boundary and verify it passes QSL's category exit result
+   to `ix_cli_kit::exit::caller_exit_code` without routing through the kit's
+   `Outcome`. Exercise all six current QSL category exit values (`0`, `10`,
+   `20`, `21`, `22`, `30`) through the driver path and compare the process
+   result with QSL's function. Do not repeat the kit's own exhaustive FR-017
+   test over all `u8` values. For the code-5 fallback, verify the diagnostic
+   and stdout behavior specified by FR-002-AC-6 and TC-018.
 5. Run one operation in JSON mode and compare the serialized value with the
    typed library outcome. Repeat with stdout/stderr write failure and a broken
    pipe.
 6. Run from a directory containing an unnamed configuration file and verify
    that the CLI does not read it.
+7. Invoke `--version` and verify the displayed version agrees with the
+   build-time provenance and version check provided by ix-cli-kit.
 
 Test location: `quire-cli/tests/cli_contract.rs`; CLI-specific test fixtures
 reside under `quire-cli/tests/fixtures/`. The parser and command construction
@@ -54,14 +52,16 @@ under test are owned by `quire-cli/src/cli.rs`.
 - Valid verbs and format options reach their corresponding operations.
 - Invalid arguments are refused before any stage with QSL's refusal category
   and name the refused argument.
-- Each category and multi-item result exits with the exact code selected by
-  QSL's single exit function; no second mapping changes the result.
+- Each normal category and multi-item result exits with the exact code selected
+  by QSL's single exit function; no second mapping changes the result. The
+  reserved-code invariant path follows FR-002-AC-6 and does not write the
+  result to stdout.
 - Exit conversion uses `ix_cli_kit::exit::caller_exit_code` without mapping
-  QSL categories through the kit's typed `Outcome` values. Input `5` is
-  rejected with its reserved and rejected values; if the driver receives
-  that mapping result, it reports the invariant failure and exits `30`.
-- The parser remains owned by `quire-cli`. The other shared kit modules remain
-  required under IR-607 and are not claimed as adopted by this exit-only slice.
+  QSL categories through the kit's typed `Outcome` values; the driver tests
+  only the QSL category outputs, not the kit's entire `u8` surface. The code-5
+  behavior is specified by AC-6 and checked at the process boundary.
+- The parser remains owned by `quire-cli`. Stream, JSON, conditional config,
+  and version adoption have separate criteria and remain open under IR-607.
 - JSON mode emits one QSL-defined `quire-outcome/1` value equal to the typed
   library outcome. A stream write failure returns the internal-failure
   category through QSL's exit function; a broken pipe ends quietly with the
