@@ -37,7 +37,14 @@ impl LimitOverrides {
             ..CallerLimits::default()
         };
         for (setting, value) in &self.0 {
-            if !available.contains(setting) || !caller_limits.set_bound(*setting, *value) {
+            if !available.contains(setting) {
+                return Err(LimitError::OperationUnavailable { setting: *setting });
+            }
+            // `bounds()` and `set_bound()` are the paired QSL API for the
+            // selected operation; an exposed setting must be writable.
+            let updated = caller_limits.set_bound(*setting, *value);
+            debug_assert!(updated, "QSL bound listed by bounds() must be settable");
+            if !updated {
                 return Err(LimitError::OperationUnavailable { setting: *setting });
             }
         }
@@ -66,7 +73,13 @@ mod tests {
     /// Trace: FR-003-AC-1, FR-003-AC-4, FR-003-AC-6.
     #[test]
     fn one_limit_override_preserves_other_defaults() {
-        let before = SpineLimits::default();
+        let mut before = SpineLimits::default();
+        let prior_tokens = 17_u64;
+        assert!(SettingLimits::set_bound(
+            &mut before,
+            Setting::S1Tokens,
+            prior_tokens
+        ));
         let mut limits = before;
         let override_ = LimitOverrides::parse(&["s1.input_bytes=5".to_owned()])
             .expect("QSL parses its setting operand");
@@ -76,6 +89,26 @@ mod tests {
         assert_eq!(limits.source.tokens, before.source.tokens);
         assert_eq!(limits.checking, before.checking);
         assert_eq!(limits.model, before.model);
+    }
+
+    /// Trace: FR-003-AC-5, applying a later unavailable setting is atomic.
+    #[test]
+    fn unavailable_setting_leaves_all_prior_bounds_unchanged() {
+        let before = SpineLimits::default();
+        let mut limits = before;
+        let overrides = LimitOverrides::parse(&[
+            "s1.input_bytes=5".to_owned(),
+            "explore.states=11".to_owned(),
+        ])
+        .expect("both setting names are recognized by QSL");
+
+        assert_eq!(
+            overrides.apply_to(&mut limits),
+            Err(LimitError::OperationUnavailable {
+                setting: Setting::ExploreStates,
+            })
+        );
+        assert_eq!(limits, before);
     }
 
     /// Trace: FR-003-AC-1, FR-003-AC-4, FR-003-AC-6.
@@ -119,6 +152,13 @@ mod tests {
     fn qsl_parser_refuses_unknown_malformed_and_duplicate_operands() {
         assert!(matches!(
             LimitOverrides::parse(&["normalization.work_units=1".to_owned()]),
+            Err(UsageRefusal {
+                cause: UsageCause::UnknownSetting,
+                ..
+            })
+        ));
+        assert!(matches!(
+            LimitOverrides::parse(&["work_units=1".to_owned()]),
             Err(UsageRefusal {
                 cause: UsageCause::UnknownSetting,
                 ..

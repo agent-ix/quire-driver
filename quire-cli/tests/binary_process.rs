@@ -259,6 +259,7 @@ fn lifecycle_stage_limit_uses_incomplete_exit_code() {
 fn qsl_rejects_unknown_malformed_and_duplicate_limits_before_source_read() {
     for operand in [
         "normalization.work_units=1",
+        "work_units=1",
         "s1.input_bytes=invalid",
         "s1.input_bytes=1", // duplicated below using the same option twice
     ] {
@@ -293,6 +294,8 @@ fn recognized_setting_unavailable_for_run_is_named_before_source_read() {
             "yes",
             "--limit",
             "explore.states=2",
+            "--format",
+            "json",
         ])
         .output()
         .expect("run with a setting unavailable to run");
@@ -300,11 +303,40 @@ fn recognized_setting_unavailable_for_run_is_named_before_source_read() {
         output.status.code(),
         Some(i32::from(Category::Refusal.exit_code()))
     );
-    assert!(output.stdout.is_empty());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("explore.states"), "{stderr}");
     assert!(
         stderr.contains("unavailable for the `run` operation"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("could not read source"), "{stderr}");
+    assert_eq!(
+        output.stdout,
+        expected_document_bytes(Code::InvalidRequest, stderr.trim_end())
+    );
+}
+
+/// Trace: FR-003-AC-2, parser refusals take precedence over operation bounds.
+#[test]
+fn invalid_operand_precedes_recognized_but_unavailable_setting() {
+    let output = Command::new(QUIRE)
+        .args([
+            "run",
+            "missing-source.qsl",
+            "yes",
+            "--limit",
+            "explore.states=2",
+            "--limit",
+            "work_units=1",
+        ])
+        .output()
+        .expect("run with an unknown operand and unavailable setting");
+    assert_eq!(output.status.code(), Some(20));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("work_units"), "{stderr}");
+    assert!(
+        !stderr.contains("unavailable for the `run` operation"),
         "{stderr}"
     );
     assert!(!stderr.contains("could not read source"), "{stderr}");

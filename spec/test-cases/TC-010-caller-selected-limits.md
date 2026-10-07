@@ -37,7 +37,9 @@ Scope: FR-003-AC-1 through FR-003-AC-10.
    `work_units`. Observe each
    refusal before any stage with code `invalid-request`; unknown-name,
    malformed and duplicate refusals identify their respective causes. A former
-   bare accounting name is an ordinary unknown setting. After QSL-656 lands,
+   bare accounting name is an ordinary unknown setting. When multiple operands
+   are invalid, confirm QSL parser refusals are reported before checking whether
+   recognized settings are available to the operation. After QSL-656 lands,
    pass the accounting names defined by QSL FR-255 under
    `accounting.<counter>` and verify the driver accepts them through QSL's
    operand parser and applies them through `CallerLimits::set_bound`.
