@@ -11,6 +11,10 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-075
     type: depends_on
+  - target: ix://agent-ix/quire-specification/FR-331
+    type: depends_on
+  - target: ix://agent-ix/quire-spec-language/FR-069
+    type: depends_on
   - target: ix://agent-ix/quire-driver/FR-002
     type: depends_on
 ---
@@ -52,7 +56,16 @@ is specified in Behavior.
 - The driver SHALL pass the request's emitted package, routed items, limits
   and cancellation handle to the selected provider without altering them.
 - The driver SHALL preserve provider results as typed values without
-  inferring them from provider diagnostic text.
+  inferring their terminal meaning from provider diagnostic text or
+  provider-specific evidence.
+- The shared provider-result carrier SHALL represent each routed item with a
+  QSL-owned typed terminal value or typed failure, preserving its request index
+  and backend identity; provider-specific execution evidence MAY accompany the
+  terminal value.
+- The shared provider-result carrier SHALL represent results from providers
+  other than Kani without requiring a Kani-specific evidence or failure type.
+  QSL owns terminal values and their categories; the driver SHALL NOT define a
+  parallel terminal vocabulary or remap a QSL terminal from diagnostic text.
 - When a caller requests Kani generation, the caller SHALL supply CG
   `ProofCeilings` containing explicit memory-byte and wall-clock bounds.
 - The driver SHALL pass the caller's `ProofCeilings` unchanged to
@@ -87,10 +100,12 @@ is specified in Behavior.
 | FR-005-AC-3 | Two providers with distinct manifest identities are registered as distinct backends; a run invokes only the provider selected for its routed items. | Test (TC-012) |
 | FR-005-AC-4 | The driver preserves QSL registry results: an equal descriptor repeat is idempotent; an unequal descriptor for an existing `BackendId`, including one with a different origin, returns the typed duplicate-backend refusal, withdraws that identity, and invokes neither provider. | Partial (TC-012 checks equal linked-manifest idempotence; process-origin registration remains with plugin-host work) |
 | FR-005-AC-5 | The `quire-cli` host hello admitter calls QSL descriptor admission once with caller-supplied origin `Process` and returns the admitted descriptor; the driver registers it in its single QSL registry without re-admission. The driver projects each resulting descriptor's identity, advertised pairs and supplied origin into CG's descriptor without changing their meaning, and CG maps that origin to its process backend kind. | Partial (TC-012 covers projection; CLI/host composition remains planned. CG IR-629 process backend-kind code is pending.) |
+| FR-005-AC-6 | Each routed item has a typed provider result that preserves its request index and backend identity and carries a QSL-owned terminal value or typed failure. Provider-specific evidence may accompany the terminal value, but neither it nor diagnostic text changes the QSL terminal category; representing a non-Kani result does not require a Kani-specific carrier. | Test (TC-012, TC-013) |
 
-The current linked Kani adapter is the only Provider execution adapter. Its
-`ProviderLimits` and result carriers are Kani-specific; they do not yet
-generalize process or other QSL engines. Callers provide `ProofCeilings`
+Current implementation status: the linked Kani adapter is the only Provider
+execution adapter, and its `ProviderLimits` and result carriers are
+Kani-specific. IR-677 generalizes the result carrier; it does not add a second
+terminal vocabulary. Callers provide `ProofCeilings`
 (`memory_bytes` and `wall_clock`) during generation and execution; the driver
 requires equality with the generated harness identity, and CG uses that
 embedded value for bounded execution (CG FR-028). Cancellation is checked
@@ -108,6 +123,8 @@ TC-012 while the execution slice remains Linked-only.
   registration.
 - FR-006 defines the driver-owned process-provider seam; FR-013 defines the
   separate host, and FR-014 defines its `quire-cli` composition.
+- QSL FR-069 defines the typed terminal reader and `quire-outcome/1` remains
+  the serialized outcome contract.
 - [TC-012](../test-cases/TC-012-first-party-provider-interface.md).
 - [FR-002](FR-002-expose-driver-cli-and-outcome-contract.md) defines the
   command entry point that registers and invokes providers.

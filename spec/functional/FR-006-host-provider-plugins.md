@@ -11,6 +11,10 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-driver/FR-014
     type: depends_on
+  - target: ix://agent-ix/quire-specification/FR-331
+    type: depends_on
+  - target: ix://agent-ix/quire-spec-language/FR-069
+    type: depends_on
 ---
 # FR-006: Route negotiated items to process providers
 
@@ -47,7 +51,9 @@ settlement path used for first-party providers.
   `quire-plugin-host`.
 - The `quire-cli` composition SHALL implement the process-provider seam with
   `quire-plugin-host`, using QSL ADR-029 PL-1 through PL-7 as the authoritative
-  contract; it SHALL add no plugin wire format, lifecycle or failure mapping.
+  lifecycle and failure contract. It SHALL use FR-331's provider envelope and
+  QSL-owned typed terminal values; it SHALL NOT define a second wire format or
+  infer terminal categories from provider-specific evidence or diagnostics.
 - The `quire-cli` adapter SHALL start the host session with the caller-named
   executable path, pass the once-admitted descriptor returned by the host hello
   admitter to the driver's existing registry without re-admitting it or
@@ -55,6 +61,11 @@ settlement path used for first-party providers.
   provider.
 - The driver SHALL pass the seam's validated typed results to the same
   settlement path used for first-party provider results.
+- When QSL refuses a process-provider request body, the adapter SHALL return a
+  typed failed result for every item routed to that provider, preserving each
+  request index and backend identity. A `package_id` that does not match the
+  decoded package bytes SHALL retain QSL's typed `content-mismatch` refusal.
+  Results from other providers SHALL remain unchanged.
 - The `quire-cli` adapter SHALL request graceful shutdown of every active
   plugin session before normal command termination. On Linux and macOS, if
   graceful shutdown exceeds `RunLimits.cancellation_grace`, it SHALL terminate
@@ -84,9 +95,10 @@ settlement path used for first-party providers.
 | ID | Criteria | Verification |
 |----|----------|--------------|
 | FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the caller-named executable path, current emitted package bytes and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Test (TC-013, TC-028) |
-| FR-006-AC-2 | Validated typed results returned through the process-provider seam enter the same driver proof settlement path as first-party provider results, while unrelated routed items retain their own provider results. | Test (TC-013) |
+| FR-006-AC-2 | Validated typed results returned through the process-provider seam enter the same driver proof settlement path as first-party provider results, using QSL-owned terminal values, while unrelated routed items retain their own provider results. | Test (TC-013) |
 | FR-006-AC-3 | Before normal CLI command termination, the adapter requests graceful shutdown of every active plugin session; on Linux and macOS, if `RunLimits.cancellation_grace` expires first, the process tree terminates and cleanup completes within one second. The merged Windows host force-terminates the Job Object through `terminate_tree`/`terminate_job`; native Windows evidence remains planned. Kill-on-close is separately planned under IR-674. | Test (TC-028) |
 | FR-006-AC-4 | On Linux or macOS, handled SIGINT or SIGTERM while a plugin session is starting, running or shutting down requests cancellation through the caller-owned QSL handle, waits for settlement or `RunLimits.cancellation_grace` expiry, and cleans up the plugin process tree before the CLI restores the default disposition and re-raises the signal. No QSL cancellation cause is claimed; with no active session, the platform's default signal disposition is retained. | Test (TC-028) |
+| FR-006-AC-5 | If QSL refuses a process-provider request body, the adapter returns a typed failed result for every item routed to that provider, preserving request indices and backend identities. A `package_id` mismatch retains QSL's typed `content-mismatch` refusal; results for unrelated providers are unchanged. | Test (TC-013) |
 
 ## Dependencies
 
@@ -95,6 +107,9 @@ settlement path used for first-party providers.
   provider registration and negotiation. [FR-013](./FR-013-host-process-plugins.md)
   specifies the separate host implementation. FR-014 specifies its
   composition by the `quire-cli` package.
+- [FR-331](ix://agent-ix/quire-specification/FR-331) owns the
+  `quire.backend-provider/v1` envelope; QSL owns typed terminal values and
+  `quire-outcome/1` serialization.
 - FR-005 defines the first-party `Provider` interface and shared manifest
   admission.
 - CG IR-629 supplies the process `BackendKind` mapping required before the

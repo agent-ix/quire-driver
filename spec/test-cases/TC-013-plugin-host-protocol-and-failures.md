@@ -15,7 +15,7 @@ process-provider seam and returns typed provider results through its proof
 path; TC-028 verifies that `quire-cli` composes this seam with
 `quire-plugin-host`.
 
-Scope: FR-006-AC-1 through FR-006-AC-2.
+Scope: FR-006-AC-1, FR-006-AC-2 and FR-006-AC-5.
 
 ## Test Procedure
 
@@ -30,6 +30,10 @@ driver/provider composition only.
 
 Test location: planned driver/provider composition tests.
 
+Until CG IR-629 adds the process backend kind, run the adapter-level result
+conversion checks with an explicit routed-item fixture. End-to-end negotiation
+and settlement remain gated on that CG API.
+
 ## Expected Results
 
 - The driver invokes its seam with the configured executable path, current
@@ -38,3 +42,10 @@ Test location: planned driver/provider composition tests.
   sending the request.
 - The returned typed result enters driver settlement unchanged, and unrelated
   first-party items retain their own results.
+- A request `package_id` mismatch retains QSL's typed `content-mismatch`
+  refusal. If QSL refuses the request body, every item routed to that process
+  provider receives a typed failed result with its original request index and
+  backend identity; unrelated provider results remain unchanged.
+- The adapter's typed conversion covers the 13 Kani result rows in the
+  QSpec vectors. Those terminal meanings are carried by QSL's typed terminal
+  values; they are not inferred from diagnostics or Kani evidence.

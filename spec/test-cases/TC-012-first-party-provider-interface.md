@@ -14,7 +14,7 @@ Verify the linked Kani Provider slice: manifest admission and lookup, Kani
 preflight refusals, and CG-owned terminal mapping. Full routed invocation,
 typed-result forwarding, and process-provider integration remain planned.
 
-Scope: FR-005-AC-1 through FR-005-AC-5.
+Scope: FR-005-AC-1 through FR-005-AC-6.
 
 ## Test Procedure
 
@@ -47,9 +47,14 @@ Scope: FR-005-AC-1 through FR-005-AC-5.
    builder. CG IR-629 is spec-merged but its process backend-kind code is
    pending; the origin projection itself is covered by the driver test.
 
-Test location: `src/registry.rs`, `src/drive.rs`, `src/provider.rs`, and
-`tests/drive.rs`; full routed invocation and process-provider integration
-remain planned.
+8. Return a result from a non-Kani provider through the shared carrier. Verify
+   one typed result per routed item, preservation of request index and backend
+   identity, a QSL-owned terminal value or typed failure, and provider-specific
+   evidence that does not determine the terminal category.
+
+Test location: `src/registry.rs`, `src/drive.rs`, `src/provider.rs`,
+`tests/drive.rs`, and the planned IR-677 non-Kani carrier test; full routed
+invocation and process-provider integration remain planned.
 
 ## Expected Results
 
@@ -69,7 +74,8 @@ remain planned.
   identity as the execution timeout; the driver supplies no second timeout.
 - CG maps cover-unsatisfied to `Proved { success_checks: 0 }` and timeout to
   `Incomplete(TimedOut)`; the driver does not reimplement that mapping.
-- Provider limits and result carriers are Kani-only for this slice.
+- Current provider limits and result carriers are Kani-only; the generalized
+  result-carrier test remains planned under IR-677.
   Cancellation is checked between routed items. The current CG execution API
   accepts no cancellation handle, so an already-running harness continues
   until its identity's `wall_clock` ceiling.
