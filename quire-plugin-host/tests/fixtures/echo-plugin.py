@@ -25,6 +25,7 @@ def write_frame(value):
 
 
 protocol = "quire.plugin-wire/v1"
+mode = sys.argv[1] if len(sys.argv) > 1 else "echo"
 write_frame(
     {
         "protocol": protocol,
@@ -33,19 +34,27 @@ write_frame(
         "body": {"identity": "agent-ix/provider/test", "advertises": []},
     }
 )
-request = read_frame()
-write_frame(
-    {
-        "protocol": protocol,
-        "id": request["id"],
-        "kind": "result",
-        "body": {
-            "identity": "agent-ix/provider/test",
-            "items": request["body"]["items"],
-        },
-    }
-)
-shutdown = read_frame()
-if shutdown["kind"] != "shutdown":
-    raise SystemExit(3)
+while True:
+    request = read_frame()
+    if request["kind"] == "shutdown":
+        break
+    if request["kind"] != "request":
+        raise SystemExit(3)
+    if mode == "wait-cancel":
+        with open(sys.argv[2], "wb") as ready:
+            ready.write(b"ready")
+        cancel = read_frame()
+        if cancel["kind"] != "cancel":
+            raise SystemExit(4)
+    write_frame(
+        {
+            "protocol": protocol,
+            "id": request["id"],
+            "kind": "result",
+            "body": {
+                "identity": "agent-ix/provider/test",
+                "items": request["body"]["items"],
+            },
+        }
+    )
 sys.stderr.write("opaque provider diagnostic\n")

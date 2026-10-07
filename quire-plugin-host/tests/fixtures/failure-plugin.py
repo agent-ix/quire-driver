@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Deterministic PL-4 failure and resource-bound fixture."""
+
+import json
+import struct
+import sys
+import time
+
+
+def read_frame():
+    prefix = sys.stdin.buffer.read(8)
+    if len(prefix) != 8:
+        raise SystemExit(2)
+    length = struct.unpack(">Q", prefix)[0]
+    payload = sys.stdin.buffer.read(length)
+    if len(payload) != length:
+        raise SystemExit(2)
+    return json.loads(payload)
+
+
+def write_frame(value):
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    sys.stdout.buffer.write(struct.pack(">Q", len(payload)))
+    sys.stdout.buffer.write(payload)
+    sys.stdout.buffer.flush()
+
+
+protocol = "quire.plugin-wire/v1"
+mode = sys.argv[1]
+if mode == "eof-before-hello":
+    raise SystemExit(17)
+if mode == "truncated-hello":
+    sys.stdout.buffer.write(b"\x00\x00")
+    sys.stdout.buffer.flush()
+    raise SystemExit(17)
+
+write_frame(
+    {
+        "protocol": protocol,
+        "id": 0,
+        "kind": "hello",
+        "body": {"identity": "agent-ix/provider/test", "advertises": []},
+    }
+)
+
+if mode == "blocked-write":
+    with open(sys.argv[2], "wb") as ready:
+        ready.write(b"ready")
+    time.sleep(60)
+    raise SystemExit(0)
+
+if mode == "stderr":
+    sys.stderr.buffer.write(b"x" * 4096)
+    sys.stderr.flush()
+
+request = read_frame()
+if mode == "nonzero":
+    sys.stderr.buffer.write(b"plugin exited with failure\n")
+    sys.stderr.flush()
+    raise SystemExit(17)
+if mode == "cpu":
+    while True:
+        pass
+if mode == "fault":
+    write_frame(
+        {
+            "protocol": protocol,
+            "id": request["id"],
+            "kind": "fault",
+            "body": {"message": "fixture fault"},
+        }
+    )
+    raise SystemExit(0)
+if mode == "fault-after-cancel":
+    with open(sys.argv[2], "wb") as ready:
+        ready.write(b"ready")
+    cancel = read_frame()
+    if cancel["kind"] != "cancel":
+        raise SystemExit(4)
+    write_frame(
+        {
+            "protocol": protocol,
+            "id": request["id"],
+            "kind": "fault",
+            "body": {"message": "fault during cancellation grace"},
+        }
+    )
+    raise SystemExit(0)
+if mode == "ignore-cancel":
+    with open(sys.argv[2], "wb") as ready:
+        ready.write(b"ready")
+    cancel = read_frame()
+    if cancel["kind"] != "cancel":
+        raise SystemExit(4)
+    time.sleep(60)
+
+result = {
+    "identity": "wrong/provider" if mode == "invalid-result" else "agent-ix/provider/test",
+    "items": request["body"]["items"],
+}
+write_frame(
+    {
+        "protocol": protocol,
+        "id": request["id"],
+        "kind": "result",
+        "body": result,
+    }
+)
+shutdown = read_frame()
+if shutdown["kind"] != "shutdown":
+    raise SystemExit(3)

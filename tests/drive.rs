@@ -544,7 +544,7 @@ fn int_package() -> Driven {
     .expect("the integer unit drives")
 }
 
-/// Trace: FR-011-AC-1 through FR-011-AC-4 (TC-019 steps 2, 3 and 5).
+/// Trace: FR-011-AC-1, FR-011-AC-2, FR-011-AC-3, FR-011-AC-4 (TC-019 steps 2, 3 and 5).
 #[test]
 fn tc_019_cancellation_preserves_every_stage_and_cause() {
     let (source_text, packages) = cancellation_source_and_packages();
@@ -633,7 +633,7 @@ fn tc_019_cancellation_preserves_every_stage_and_cause() {
     assert_eq!(recorder.calls(), [Call::Compile]);
 }
 
-/// Trace: FR-001-AC-9..10 and FR-011-AC-1 (TC-019 step 4).
+/// Trace: FR-001-AC-9, FR-001-AC-10, FR-011-AC-1 (TC-019 step 4).
 #[test]
 fn tc_019_e5_receives_source_provision_and_checked_unit_retains_bounded_root() {
     let (source_text, packages) = cancellation_source_and_packages();
