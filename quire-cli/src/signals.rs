@@ -4,6 +4,9 @@
 //! Ordinary CLI commands do not install handlers. During a routed plugin
 //! session an inherited `SIG_IGN` disposition is overridden by `signal-hook`
 //! for the process lifetime; cleanup on plugin-session signals takes precedence.
+//!
+//! Signal lifecycle tests require an unsandboxed runner with cross-process
+//! signal and process-group support.
 
 use std::collections::BTreeMap;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -186,8 +189,45 @@ pub(crate) fn run<T>(operation: impl FnOnce(SignalContext) -> T) -> Result<T, st
     reason = "signal harness failures are the test failure report"
 )]
 mod tests {
+    //! Signal lifecycle subprocess tests require an unsandboxed runner with
+    //! working cross-process signals and process-group controls.
+
     use super::{lock_active, SignalContext};
     use quire_exact::Cancel;
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn read_child_output(child: &mut std::process::Child) -> (Vec<u8>, Vec<u8>) {
+        use std::io::Read;
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        child
+            .stdout
+            .take()
+            .expect("captured child stdout")
+            .read_to_end(&mut stdout)
+            .expect("read child stdout");
+        child
+            .stderr
+            .take()
+            .expect("captured child stderr")
+            .read_to_end(&mut stderr)
+            .expect("read child stderr");
+        (stdout, stderr)
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn child_failure(status: std::process::ExitStatus, stdout: &[u8], stderr: &[u8]) -> String {
+        use std::os::unix::process::ExitStatusExt;
+
+        format!(
+            "child status={status:?}, code={:?}, signal={:?}, stdout={}, stderr={}",
+            status.code(),
+            status.signal(),
+            String::from_utf8_lossy(stdout),
+            String::from_utf8_lossy(stderr)
+        )
+    }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     struct ClearReceivedOnDrop<'a>(&'a SignalContext);
@@ -269,7 +309,6 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn signal_is_forwarded_after_active_cleanup_and_defaults_without_a_session() {
-        use std::io::Read;
         use std::os::unix::process::ExitStatusExt;
         use std::process::{Command, Stdio};
         use std::thread;
@@ -358,10 +397,24 @@ mod tests {
                 .expect("spawn signal fixture process");
             let deadline = Instant::now() + Duration::from_secs(3);
             while !marker.is_file() && Instant::now() < deadline {
-                assert!(child.try_wait().expect("poll child").is_none());
+                if let Some(status) = child.try_wait().expect("poll child") {
+                    let (stdout, stderr) = read_child_output(&mut child);
+                    panic!(
+                        "{mode} child exited before ready: {}",
+                        child_failure(status, &stdout, &stderr)
+                    );
+                }
                 thread::sleep(Duration::from_millis(5));
             }
-            assert!(marker.is_file(), "{mode} child became ready");
+            if !marker.is_file() {
+                let _ = child.kill();
+                let status = child.wait().expect("wait for child that missed readiness");
+                let (stdout, stderr) = read_child_output(&mut child);
+                panic!(
+                    "{mode} child became ready: {}",
+                    child_failure(status, &stdout, &stderr)
+                );
+            }
             if mode != "post-session" {
                 std::fs::write(&trigger, b"signal").expect("trigger child signal");
             }
@@ -372,11 +425,15 @@ mod tests {
                 }
                 if Instant::now() >= deadline {
                     let _ = child.kill();
-                    let _ = child.wait();
+                    let status = child.wait().expect("wait for timed-out signal child");
+                    let (stdout, stderr) = read_child_output(&mut child);
                     let _ = std::fs::remove_file(&marker);
                     let _ = std::fs::remove_file(&trigger);
                     let _ = std::fs::remove_file(&cleaned);
-                    panic!("{mode} signal child exceeded its bounded wait");
+                    panic!(
+                        "{mode} signal child exceeded its bounded wait: {}",
+                        child_failure(status, &stdout, &stderr)
+                    );
                 }
                 thread::sleep(Duration::from_millis(5));
             };
@@ -385,23 +442,24 @@ mod tests {
             } else {
                 signal_hook::consts::signal::SIGINT
             };
-            assert_eq!(status.signal(), Some(expected), "{mode} child status");
-            let mut stdout = Vec::new();
-            child
-                .stdout
-                .take()
-                .expect("captured signal child stdout")
-                .read_to_end(&mut stdout)
-                .expect("read signal child stdout");
+            let (stdout, stderr) = read_child_output(&mut child);
+            let failure = child_failure(status, &stdout, &stderr);
+            assert_eq!(status.signal(), Some(expected), "{mode}: {failure}");
             assert!(
                 !stdout
                     .windows(b"QUIRE_OUTCOME_SENTINEL".len())
                     .any(|window| window == b"QUIRE_OUTCOME_SENTINEL"),
-                "signal path emitted outcome bytes: {stdout:?}"
+                "signal path emitted outcome bytes: {failure}"
             );
-            assert!(!outcome.exists(), "signal path wrote outcome document");
+            assert!(
+                !outcome.exists(),
+                "signal path wrote outcome document; {failure}"
+            );
             if mode == "active" {
-                assert!(cleaned.is_file(), "cleanup finishes before re-raise");
+                assert!(
+                    cleaned.is_file(),
+                    "cleanup finishes before re-raise; {failure}"
+                );
             }
             let _ = std::fs::remove_file(marker);
             let _ = std::fs::remove_file(trigger);
@@ -413,7 +471,6 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn plugin_session_signals_cancel_and_reap_each_active_lifecycle_stage() {
-        use std::io::Read;
         use std::process::{Command, Stdio};
         use std::thread;
         use std::time::{Duration, Instant};
@@ -571,40 +628,37 @@ mod tests {
             let deadline = Instant::now() + Duration::from_secs(5);
             while !ready.is_file() && Instant::now() < deadline {
                 if let Some(status) = child.try_wait().expect("poll test child") {
-                    let mut stderr = String::new();
-                    let mut stdout = String::new();
                     let error =
                         std::fs::read_to_string(ready.with_extension("error")).unwrap_or_default();
-                    child
-                        .stderr
-                        .take()
-                        .expect("captured child stderr")
-                        .read_to_string(&mut stderr)
-                        .expect("read child stderr");
-                    child
-                        .stdout
-                        .take()
-                        .expect("captured child stdout")
-                        .read_to_string(&mut stdout)
-                        .expect("read child stdout");
+                    let (stdout, stderr) = read_child_output(&mut child);
                     panic!(
-                        "{stage} child exited before ready ({status}): {error}\n{stderr}\n{stdout}"
+                        "{stage} child exited before ready: {error}; {}",
+                        child_failure(status, &stdout, &stderr)
                     );
                 }
                 thread::sleep(Duration::from_millis(5));
             }
-            assert!(
-                ready.is_file(),
-                "{stage} fixture reached its blocking point"
-            );
+            if !ready.is_file() {
+                let _ = child.kill();
+                let status = child.wait().expect("wait for child that missed readiness");
+                let (stdout, stderr) = read_child_output(&mut child);
+                panic!(
+                    "{stage} fixture reached its blocking point; {}",
+                    child_failure(status, &stdout, &stderr)
+                );
+            }
             let status = loop {
                 if let Some(status) = child.try_wait().expect("poll lifecycle child") {
                     break status;
                 }
                 if Instant::now() >= deadline {
                     let _ = child.kill();
-                    let _ = child.wait();
-                    panic!("{stage} lifecycle child did not finish within bounded signal wait");
+                    let status = child.wait().expect("wait for timed-out lifecycle child");
+                    let (stdout, stderr) = read_child_output(&mut child);
+                    panic!(
+                        "{stage} lifecycle child did not finish within bounded signal wait: {}",
+                        child_failure(status, &stdout, &stderr)
+                    );
                 }
                 thread::sleep(Duration::from_millis(5));
             };
@@ -613,35 +667,38 @@ mod tests {
             } else {
                 signal_hook::consts::signal::SIGTERM
             };
-            assert_eq!(status.signal(), Some(expected));
+            let (stdout, stderr) = read_child_output(&mut child);
+            let failure = child_failure(status, &stdout, &stderr);
+            assert_eq!(status.signal(), Some(expected), "{failure}");
             assert!(
                 started.elapsed() < Duration::from_millis(1500),
-                "{stage} signal must cancel and clean the plugin promptly"
+                "{stage} signal must cancel and clean the plugin promptly; {failure}"
             );
-            let mut stdout = Vec::new();
-            child
-                .stdout
-                .take()
-                .expect("captured child stdout")
-                .read_to_end(&mut stdout)
-                .expect("read child stdout");
             assert!(
                 !stdout
                     .windows(b"QUIRE_OUTCOME_SENTINEL".len())
                     .any(|window| window == b"QUIRE_OUTCOME_SENTINEL"),
-                "signal wrote outcome bytes: {}",
-                String::from_utf8_lossy(&stdout)
+                "signal wrote outcome bytes: {failure}"
             );
-            assert!(!outcome.exists(), "signal wrote outcome document");
+            assert!(
+                !outcome.exists(),
+                "signal wrote outcome document; {failure}"
+            );
             if stage.starts_with("request") {
                 assert!(
                     request_cancelled.exists(),
-                    "invoke request handle was registered"
+                    "invoke request handle was registered; {failure}"
                 );
             }
             thread::sleep(Duration::from_millis(2200));
-            assert!(!descendant.exists(), "{stage} descendant was reaped");
-            assert!(!plugin_marker.exists(), "{stage} plugin was reaped");
+            assert!(
+                !descendant.exists(),
+                "{stage} descendant was reaped; {failure}"
+            );
+            assert!(
+                !plugin_marker.exists(),
+                "{stage} plugin was reaped; {failure}"
+            );
             let _ = std::fs::remove_file(ready);
             let _ = std::fs::remove_file(descendant);
         }

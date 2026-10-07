@@ -28,6 +28,9 @@ make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
 make ci             # fmt-check + lint + test + deny + audit-unsafe + docs + spec
 ```
 
+The `quire-cli` signal lifecycle tests require an unsandboxed runner with
+working cross-process signals and process-group controls.
+
 ## Safety scaffolding
 
 - `clippy.toml` caps cognitive complexity / arg count
