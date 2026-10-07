@@ -23,6 +23,7 @@ quire-driver = { path = ".." }
 quire-exact = { git = "https://github.com/agent-ix/quire-exact", branch = "main" }
 quire-plugin-host = { path = "../quire-plugin-host" }
 serde = { version = "=1.0.228", features = ["derive"] }
+thiserror = "=2.0.20"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 signal-hook = "=0.3.18"

@@ -22,25 +22,37 @@ use serde::Serialize;
 type ProviderWireTypes<M, Q, R, F, A, V> = fn() -> (M, Q, R, F, A, V);
 type SessionWireTypes<Q, R, V> = fn() -> (Q, R, V);
 
+fn require_admitted_descriptor<A, V, F>(
+    descriptor: Option<BackendDescriptor>,
+) -> Result<BackendDescriptor, AdapterError<A, V, F>> {
+    descriptor.ok_or(AdapterError::MissingAdmittedDescriptor)
+}
+
 /// Why hello admission did not provide a caller-admitted process descriptor.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AdmissionFailure<E> {
     /// The caller's QSL admission boundary rejected the manifest.
+    #[error("caller rejected plugin hello: {0}")]
     Caller(E),
     /// The returned descriptor did not carry the caller-supplied Process origin.
+    #[error("caller-admitted descriptor does not have Process origin")]
     WrongOrigin,
 }
 
 /// Error returned by the generic host adapter.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AdapterError<A, V, F> {
     /// Starting the explicit-path process or admitting its hello failed.
+    #[error("plugin session start failed: {0}")]
     Start(PluginError<AdmissionFailure<A>, Infallible, F>),
     /// Sending a request, validating its result, or process monitoring failed.
+    #[error("plugin request failed: {0}")]
     Request(PluginError<AdmissionFailure<A>, V, F>),
     /// Graceful shutdown or diagnostic capture failed.
+    #[error("plugin shutdown failed: {0}")]
     Shutdown(PluginError<AdmissionFailure<A>, Infallible, F>),
     /// The host reported successful admission without invoking its admitter.
+    #[error("plugin host completed admission without returning a descriptor")]
     MissingAdmittedDescriptor,
 }
 
@@ -129,10 +141,11 @@ where
             },
         )
         .map_err(AdapterError::Start)?;
-        let descriptor = admitted_descriptor.ok_or(AdapterError::MissingAdmittedDescriptor)?;
+        let descriptor = require_admitted_descriptor(admitted_descriptor)?;
         Ok(HostProcessSession {
-            host: Some(host),
+            host,
             descriptor,
+            signals: self.signals.clone(),
             encode: Arc::clone(&self.encode),
             validate: Arc::clone(&self.validate),
             convert: Arc::clone(&self.convert),
@@ -144,8 +157,9 @@ where
 
 /// An admitted host session implementing the driver-owned process seam.
 pub struct HostProcessSession<M, Q, R, F, A, V, Encode, Validate, Convert> {
-    host: Option<PluginSession<M, F, AdmissionFailure<A>>>,
+    host: PluginSession<M, F, AdmissionFailure<A>>,
     descriptor: BackendDescriptor,
+    signals: crate::signals::SignalContext,
     encode: Arc<Encode>,
     validate: Arc<Validate>,
     convert: Arc<Convert>,
@@ -176,12 +190,10 @@ where
         request: ProcessProviderRequest<'_>,
     ) -> Result<ProviderResults, Self::Error> {
         let cancel = request.cancel;
+        let _request_active = self.signals.activate(cancel.clone());
         let body = (self.encode)(request);
-        let host = self
+        let result = self
             .host
-            .as_mut()
-            .ok_or(AdapterError::Request(PluginError::SessionClosed))?;
-        let result = host
             .request(&body, cancel, |manifest, result| {
                 (self.validate)(manifest, result)
             })
@@ -189,13 +201,10 @@ where
         Ok((self.convert)(result))
     }
 
-    fn shutdown(mut self) -> Result<Self::Diagnostics, Self::Error> {
-        let host = self
-            .host
-            .take()
-            .ok_or(AdapterError::Shutdown(PluginError::SessionClosed))?;
+    fn shutdown(self) -> Result<Self::Diagnostics, Self::Error> {
+        let Self { host, active, .. } = self;
         let diagnostics = host.shutdown().map_err(AdapterError::Shutdown)?;
-        drop(self.active);
+        drop(active);
         Ok(diagnostics)
     }
 }
@@ -208,7 +217,7 @@ where
 )]
 mod tests {
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -242,6 +251,10 @@ mod tests {
             .join("../quire-plugin-host/tests/fixtures/echo-plugin.py")
     }
 
+    fn wrong_result_fixture_path() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wrong-result-plugin.py")
+    }
+
     fn limits() -> ProcessProviderLimits {
         ProcessProviderLimits {
             max_frame_bytes: 4096,
@@ -253,13 +266,12 @@ mod tests {
         }
     }
 
-    /// Trace: FR-005-AC-5, FR-006-AC-1, FR-006-AC-3; the adapter preserves
-    /// host admission, typed callbacks, shutdown diagnostics, and the single
-    /// QSL registry. CG IR-629 still blocks constructing a routed Process item.
     #[test]
     fn host_adapter_returns_admitted_descriptor_and_shutdown_diagnostics() {
         let conversion_called = Arc::new(AtomicBool::new(false));
         let converted = Arc::clone(&conversion_called);
+        let admissions = Arc::new(AtomicUsize::new(0));
+        let admission_count = Arc::clone(&admissions);
         let provider = HostProcessProvider::<
             Hello,
             serde_json::Value,
@@ -273,7 +285,8 @@ mod tests {
             _,
         >::new(
             crate::signals::SignalContext::default(),
-            |manifest: &Hello| {
+            move |manifest: &Hello| {
+                admission_count.fetch_add(1, Ordering::Relaxed);
                 let identity =
                     BackendId::from_wire(&manifest.identity).map_err(|error| error.to_string())?;
                 BackendDescriptor::admit(
@@ -318,6 +331,7 @@ mod tests {
             .expect("host starts and admits hello");
         assert_eq!(session.descriptor().origin(), ProviderOrigin::Process);
         assert_eq!(session.descriptor().id().as_str(), "agent-ix/provider/test");
+        assert_eq!(admissions.load(Ordering::Relaxed), 1);
 
         let mut linked = build_linked_providers(&[]).expect("empty linked registry builds");
         linked
@@ -346,5 +360,138 @@ mod tests {
         assert_eq!(finished.manifest.identity, "agent-ix/provider/test");
         assert_eq!(finished.stderr, b"opaque provider diagnostic\n");
         assert!(!finished.stderr_truncated);
+    }
+
+    #[test]
+    fn adapter_preserves_result_validation_rejection() {
+        use quire_plugin_host::PluginError;
+
+        let provider = HostProcessProvider::<
+            Hello,
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            String,
+            String,
+            _,
+            _,
+            _,
+            _,
+        >::new(
+            crate::signals::SignalContext::default(),
+            |manifest: &Hello| {
+                let identity =
+                    BackendId::from_wire(&manifest.identity).map_err(|error| error.to_string())?;
+                BackendDescriptor::admit(
+                    Candidate::new(identity),
+                    ProviderOrigin::Process,
+                    ManifestDigest::from_digest([9; 32]),
+                    manifest
+                        .advertises
+                        .iter()
+                        .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
+                )
+                .map_err(|error| format!("{error:?}"))
+            },
+            |_: ProcessProviderRequest<'_>| serde_json::json!({"items": []}),
+            |manifest: &Hello, result: &serde_json::Value| {
+                if result["identity"] == manifest.identity {
+                    Ok(())
+                } else {
+                    Err("result identity differs from admitted hello".to_owned())
+                }
+            },
+            |_: serde_json::Value| ProviderResults::default(),
+        );
+        let cancel = Cancel::new();
+        let fixture = wrong_result_fixture_path();
+        let arguments = [fixture.into_os_string()];
+        let mut session = provider
+            .start(&python_path(), &arguments, limits(), &cancel)
+            .expect("fixture hello is admitted");
+        let request = ProcessProviderRequest {
+            emitted_package: b"checked package bytes",
+            provider_request: ProviderRequest::new(&[]),
+            cancel: &cancel,
+        };
+        let error = session.invoke(request);
+        let rejected = match error {
+            Err(super::AdapterError::Request(PluginError::ResultValidation(_))) => true,
+            Err(super::AdapterError::Request(PluginError::WithDiagnostics { cause, .. })) => {
+                matches!(*cause, PluginError::ResultValidation(_))
+            }
+            _ => false,
+        };
+        assert!(
+            rejected,
+            "adapter preserves typed result validation refusal"
+        );
+    }
+
+    #[test]
+    fn caller_admission_rejects_linked_origin_descriptor() {
+        use quire_plugin_host::PluginError;
+
+        let provider = HostProcessProvider::<
+            Hello,
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            String,
+            String,
+            _,
+            _,
+            _,
+            _,
+        >::new(
+            crate::signals::SignalContext::default(),
+            |manifest: &Hello| {
+                BackendDescriptor::admit(
+                    Candidate::new(
+                        BackendId::from_wire(&manifest.identity).map_err(|e| e.to_string())?,
+                    ),
+                    ProviderOrigin::Linked,
+                    ManifestDigest::from_digest([7; 32]),
+                    manifest
+                        .advertises
+                        .iter()
+                        .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
+                )
+                .map_err(|error| format!("{error:?}"))
+            },
+            |_: ProcessProviderRequest<'_>| serde_json::json!({}),
+            |_: &Hello, _: &serde_json::Value| Ok::<(), String>(()),
+            |_: serde_json::Value| ProviderResults::default(),
+        );
+        let fixture = fixture_path();
+        let error = provider.start(
+            &python_path(),
+            &[fixture.into_os_string()],
+            limits(),
+            &Cancel::new(),
+        );
+        let refused_for_origin = match error {
+            Err(super::AdapterError::Start(PluginError::ManifestAdmission(
+                super::AdmissionFailure::WrongOrigin,
+            ))) => true,
+            Err(super::AdapterError::Start(PluginError::WithDiagnostics { cause, .. })) => {
+                matches!(
+                    *cause,
+                    PluginError::ManifestAdmission(super::AdmissionFailure::WrongOrigin)
+                )
+            }
+            _ => false,
+        };
+        assert!(refused_for_origin, "linked-origin hello is rejected");
+    }
+
+    #[test]
+    fn missing_caller_admitted_descriptor_is_a_typed_adapter_error() {
+        let result: Result<BackendDescriptor, super::AdapterError<String, String, String>> =
+            super::require_admitted_descriptor(None);
+        assert!(matches!(
+            result,
+            Err(super::AdapterError::MissingAdmittedDescriptor)
+        ));
     }
 }

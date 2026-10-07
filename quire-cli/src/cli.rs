@@ -300,21 +300,20 @@ fn dispatch(
 
 pub(super) fn entrypoint() -> ExitCode {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
-    // The operation wrapper is used for all commands so a signal arriving
-    // without an active plugin session retains the platform default action.
-    crate::signals::run(move |signal_context| match parse_invocation(&arguments) {
+    match parse_invocation(&arguments) {
         Ok(Invocation::Help | Invocation::Version) => process_exit_code(Category::Success),
         Ok(Invocation::Operation {
             verb,
             format,
             raw_arguments,
-        }) => process_exit_code(dispatch(verb, format, &raw_arguments, signal_context)),
+        }) => process_exit_code(dispatch(
+            verb,
+            format,
+            &raw_arguments,
+            crate::signals::SignalContext::default(),
+        )),
         Err(_) => process_exit_code(Category::Refusal),
-    })
-    .unwrap_or_else(|error| {
-        eprintln!("could not install CLI signal handling: {error}");
-        process_exit_code(Category::Refusal)
-    })
+    }
 }
 
 #[cfg(test)]
