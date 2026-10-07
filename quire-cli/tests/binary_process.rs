@@ -120,3 +120,26 @@ fn malformed_limit_is_named_and_refused_before_source_read() {
     );
     assert!(String::from_utf8_lossy(&output.stderr).contains("s1.input_bytes=invalid"));
 }
+
+/// Trace: FR-002-AC-6, the reserved QSL result falls back without stdout output.
+#[cfg(feature = "tc018-test-adapter")]
+#[test]
+fn reserved_exit_code_uses_internal_failure_fallback() {
+    for format in ["text", "json"] {
+        let output = Command::new(QUIRE)
+            .args(["--format", format, "--version"])
+            .env("TC018_CASE", "reserved-exit")
+            .output()
+            .expect("run the test-built quire binary");
+        assert_eq!(output.status.code(), Some(30), "{format}");
+        assert!(output.stdout.is_empty(), "{format}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("reserved code 5"), "{format}: {stderr}");
+        assert!(stderr.contains("fallback code 30"), "{format}: {stderr}");
+        assert_eq!(
+            stderr.as_ref(),
+            "driver exit mapping rejected result 5 (reserved code 5); using fallback code 30.\n",
+            "{format}"
+        );
+    }
+}

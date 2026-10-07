@@ -36,12 +36,13 @@ fmt-check:
 
 .PHONY: lint
 lint:
-	$(CARGO) clippy --all-targets -- -D warnings
+	$(CARGO) clippy --all-targets --features quire-cli/tc018-test-adapter -- -D warnings
 
 .PHONY: test
 test:
 	$(CARGO) fetch --locked
 	$(CARGO) test
+	$(CARGO) test --features tc018-test-adapter -p quire-cli --test binary_process reserved_exit_code_uses_internal_failure_fallback
 
 .PHONY: build
 build:

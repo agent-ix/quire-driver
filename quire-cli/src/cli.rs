@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::Read;
 use std::process::ExitCode;
 
+use ix_cli_kit::exit::caller_exit_code;
 use qsl_foundation::diagnostic::Category;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
@@ -14,10 +15,34 @@ use qsl_replay::spine::{
 };
 use quire_driver::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides};
 
-/// Convert QSL's total category exit result to the process exit type.
+/// Pass QSL's category result through the kit without converting it to an `Outcome`.
 #[must_use]
 fn process_exit_code(category: Category) -> ExitCode {
-    ExitCode::from(category.exit_code())
+    let result = category_exit_result(category);
+    match caller_exit_code(result) {
+        Ok(exit_code) => exit_code,
+        Err(error) => {
+            let fallback = Category::InternalFailure.exit_code();
+            eprintln!(
+                "driver exit mapping rejected result {} (reserved code {}); using fallback code {fallback}.",
+                error.rejected_code, error.reserved_code
+            );
+            ExitCode::from(fallback)
+        }
+    }
+}
+
+#[cfg(all(feature = "tc018-test-adapter", not(debug_assertions)))]
+compile_error!("the TC-018 test adapter is unavailable in release builds");
+
+/// Return QSL's exit result, with a test-only seam for the reserved-code case.
+fn category_exit_result(category: Category) -> u8 {
+    #[cfg(all(feature = "tc018-test-adapter", debug_assertions))]
+    if std::env::var_os("TC018_CASE").as_deref() == Some(std::ffi::OsStr::new("reserved-exit")) {
+        return 5;
+    }
+
+    category.exit_code()
 }
 
 /// Parser selectors implement the command surface owned by QSL ADR-029.
@@ -329,14 +354,13 @@ mod outcome_tests {
 
     use super::process_exit_code;
 
-    /// Trace: FR-002-AC-2, one QSL category exit function.
+    /// Trace: FR-002-AC-2, FR-002-AC-4; one QSL exit function passes through the kit.
     #[test]
     fn process_code_is_qsl_category_exit_code_without_remapping() {
-        for category in Category::ALL {
-            assert_eq!(
-                process_exit_code(category),
-                ExitCode::from(category.exit_code())
-            );
+        let expected = [0, 10, 10, 20, 21, 22, 22, 30];
+        assert_eq!(Category::ALL.len(), expected.len());
+        for (category, expected_code) in Category::ALL.into_iter().zip(expected) {
+            assert_eq!(process_exit_code(category), ExitCode::from(expected_code));
         }
     }
 }

@@ -13,10 +13,16 @@ publish = false
 name = "quire"
 path = "src/main.rs"
 
+[features]
+# Enables TC-018's test-only exit-function seam. The code itself is excluded
+# from release builds, even when this feature is accidentally selected.
+tc018-test-adapter = []
+
 [dependencies]
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+ix-cli-kit = { git = "https://github.com/agent-ix/ix-cli-kit", branch = "main" }
 # IR-609 composes the user-facing CLI with its separately bounded cache.
 quire-cache = { path = "../quire-cache" }
 quire-driver = { path = ".." }
