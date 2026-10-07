@@ -33,8 +33,9 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4 and FR-014-AC-5.
 1. Run `cargo metadata --locked --offline --format-version 1` and identify the
    workspace members and package targets for `quire-cli` and `quire-driver`.
 2. Inspect normal dependency edges from `quire-cli`; confirm they include
-   `quire-driver`, `quire-cache` and `quire-plugin-host`. Inspect the driver
-   dependency closure and confirm it excludes `quire-plugin-host`.
+   `quire-driver`, `quire-cache`, `quire-plugin-host` and `ix-cli-kit`. Inspect
+   the driver dependency closure and confirm it excludes both
+   `quire-plugin-host` and `ix-cli-kit`.
 3. Confirm exactly one workspace package provides the `quire` binary target
    and that package is `quire-cli`.
 4. Inspect the package test layout. Confirm CLI contract and binary
@@ -99,9 +100,9 @@ Linux/macOS runners provide the signal evidence in step 8.
 
 - `quire-cli` and `quire-driver` are distinct workspace packages.
 - Only `quire-cli` provides the `quire` binary target.
-- `quire-cli` directly depends on `quire-driver`, `quire-cache` and
-  `quire-plugin-host`; `quire-driver` has no normal or build dependency on the
-  host.
+- `quire-cli` directly depends on `quire-driver`, `quire-cache`,
+  `quire-plugin-host` and `ix-cli-kit`; `quire-driver` has no normal or build
+  dependency on the host or ix-cli-kit.
 - The CLI tests and their fixtures have the specified `quire-cli` ownership.
 - The parser definitions and binary entry point have the specified
   `quire-cli` locations, and the `quire-driver` package's `src/lib.rs` does

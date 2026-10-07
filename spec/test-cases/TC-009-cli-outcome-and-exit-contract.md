@@ -27,10 +27,18 @@ Scope: FR-002-AC-1 through FR-002-AC-5 and FR-014-AC-4.
    `undefined`, a pending monitor clause, an inconclusive proof and a
    multi-item outcome containing multiple exit codes. Compare each process
    status to QSL's category exit function.
-4. Verify shared command/output, configuration and version mechanics use
-   ix-cli-kit. Inspect the exit boundary with an outcome category that the
-   kit's typed `Outcome` cannot represent and confirm the QSL-returned code is
-   passed through unchanged.
+4. For the exit-only kit slice, verify the exit boundary calls
+   `ix_cli_kit::exit::caller_exit_code` with QSL's `Category::exit_code`
+   result. Exercise the kit function for every `u8`: compare its returned
+   `ExitCode` to `ExitCode::from(code)` with `PartialEq` for every value other
+   than `5`, including `0`, `1` through `4`, `6`, `10`, `20`, `21`, `22`,
+   `30` and `255`. For `5`, assert the error's `rejected_code` and
+   `reserved_code` fields both equal the specified values.
+   Exercise the driver's reserved-code fallback through its test seam: it
+   emits a diagnostic and returns QSL `Category::InternalFailure` code `30`.
+   Adoption of the kit's `streams`, `json`, `config` and `version` modules is
+   required but remains open under IR-607; this step does not claim those
+   modules are adopted.
 5. Run one operation in JSON mode and compare the serialized value with the
    typed library outcome. Repeat with stdout/stderr write failure and a broken
    pipe.
@@ -48,8 +56,12 @@ under test are owned by `quire-cli/src/cli.rs`.
   and name the refused argument.
 - Each category and multi-item result exits with the exact code selected by
   QSL's single exit function; no second mapping changes the result.
-- Shared CLI mechanics use ix-cli-kit without mapping QSL categories through
-  the kit's typed `Outcome` values.
+- Exit conversion uses `ix_cli_kit::exit::caller_exit_code` without mapping
+  QSL categories through the kit's typed `Outcome` values. Input `5` is
+  rejected with its reserved and rejected values; if the driver receives
+  that mapping result, it reports the invariant failure and exits `30`.
+- The parser remains owned by `quire-cli`. The other shared kit modules remain
+  required under IR-607 and are not claimed as adopted by this exit-only slice.
 - JSON mode emits one QSL-defined `quire-outcome/1` value equal to the typed
   library outcome. A stream write failure returns the internal-failure
   category through QSL's exit function; a broken pipe ends quietly with the

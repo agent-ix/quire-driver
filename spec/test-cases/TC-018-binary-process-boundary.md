@@ -14,16 +14,17 @@ relationships:
 
 Verify FR-002-AC-2 through FR-002-AC-4 at the driver's root argv and process
 boundary. QSL ADR-029 supplies the outcome value and exit semantics; this case
-checks that the binary preserves them while using ix-cli-kit shared mechanics.
+checks that the binary preserves them while using ix-cli-kit's exit pass-through.
 
 ## Test Procedure
 
 1. Inspect the binary entry point and root argv dispatch. Confirm that it invokes
-   the selected typed operation, uses the applicable ix-cli-kit output, config
-   and version helpers, and has one conversion from QSL's
-   `Category::exit_code` result to `std::process::ExitCode`. Check that no path
-   converts the category through ix-cli-kit's `Outcome` or a second numeric
-   category mapping.
+   the selected typed operation and passes QSL's `Category::exit_code` result
+   through `ix_cli_kit::exit::caller_exit_code` to
+   `std::process::ExitCode`. Check that no path converts the category through
+   ix-cli-kit's `Outcome` or a second numeric category mapping. The `streams`,
+   `json`, `config` and `version` kit modules remain required work under IR-607;
+   this case does not claim they are adopted.
 2. Build the `quire` child process with a test-only adapter at the typed `check`
    operation call. Select its case through the child environment variable
    `TC018_CASE`, with the four values in the table below. The adapter receives
@@ -78,14 +79,21 @@ checks that the binary preserves them while using ix-cli-kit shared mechanics.
    equal to the parent's value; the absent stdout content is the rendered
    diagnostic line, not those required fields.
 
+4. Through a test-only exit-function seam in the binary, supply raw code `5` in
+   place of QSL's `Category::exit_code` result. Confirm the child emits an
+   invariant-failure diagnostic and exits with
+   `Category::InternalFailure.exit_code()` (`30`), never `5`.
+
 Test location: `quire-cli/tests/binary_process.rs` with its test-only
 operation adapter and fixtures under `quire-cli/tests/fixtures/`; entry-point
 review covers `quire-cli/src/main.rs` and `quire-cli/src/cli.rs`.
 
 ## Expected Results
 
-- Root argv selects the typed operation. The binary uses ix-cli-kit helpers for
-  their applicable shared mechanics while retaining its own root argv boundary.
+- Root argv selects the typed operation. The exit boundary uses
+  `ix_cli_kit::exit::caller_exit_code` while retaining its own root argv
+  boundary. Adoption of the kit's other shared modules remains open under
+  IR-607.
 - Each child status is exactly the code returned by QSL's exit function,
   including 20, 21, 22 and 30. There is one pass-through to
   `std::process::ExitCode` and no ix-cli-kit `Outcome` conversion.
