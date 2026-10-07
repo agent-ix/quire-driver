@@ -63,6 +63,23 @@ fn emit_diagnostic(kind: &str, message: &str) {
     let _ = write_diagnostic(&mut stderr, kind, message);
 }
 
+fn version_exit_code() -> ExitCode {
+    let version = concat!(env!("CARGO_PKG_VERSION"), "\n");
+    match streams::write_primary_stdout(version.as_bytes()) {
+        Ok(()) => process_exit_code(Category::Success),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {
+            process_exit_code(Category::Success)
+        }
+        Err(error) => {
+            emit_diagnostic(
+                "VersionOutputFailure",
+                &format!("could not write package version: {error}"),
+            );
+            process_exit_code(Category::InternalFailure)
+        }
+    }
+}
+
 /// Parser selectors implement the command surface owned by QSL ADR-029.
 #[cfg(test)]
 const VERBS: &[&str] = &[
@@ -450,7 +467,8 @@ fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
 pub(super) fn entrypoint() -> ExitCode {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
     match parse_invocation(&arguments) {
-        Ok(Invocation::Help | Invocation::Version) => process_exit_code(Category::Success),
+        Ok(Invocation::Help) => process_exit_code(Category::Success),
+        Ok(Invocation::Version) => version_exit_code(),
         Ok(Invocation::Operation {
             verb,
             format,
