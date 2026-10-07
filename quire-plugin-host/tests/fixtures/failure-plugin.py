@@ -46,17 +46,25 @@ second = os.fork()
 if second:
     os._exit(0)
 retained = bytearray(32 * 1024 * 1024)
-retained[0] = 1
+for offset in range(0, len(retained), 4096):
+    retained[offset] = 1
 with open(sys.argv[1], 'wb') as marker:
     marker.write(b'ready')
 time.sleep(60)
 """
-    subprocess.Popen([sys.executable, "-c", helper, ready], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for index in range(3):
+        child_ready = f"{ready}.{index}"
+        subprocess.Popen([sys.executable, "-c", helper, child_ready], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.monotonic() + 3
-    while not os.path.exists(ready) and time.monotonic() < deadline:
+    while not all(os.path.exists(f"{ready}.{index}") for index in range(3)) and time.monotonic() < deadline:
         time.sleep(0.005)
-    if not os.path.exists(ready):
+    if not all(os.path.exists(f"{ready}.{index}") for index in range(3)):
         raise SystemExit(5)
+if mode == "request-marker":
+    with open(sys.argv[2] + ".ready", "wb") as ready:
+        ready.write(b"waiting")
+if mode == "fork-during-request":
+    helper = "import time; time.sleep(0.2)"
 if mode == "eof-before-hello":
     raise SystemExit(17)
 if mode == "truncated-hello":
@@ -95,6 +103,10 @@ if mode in ("descendant-hang", "detached-stdio"):
 if mode == "request-marker":
     with open(sys.argv[2], "wb") as marker:
         marker.write(b"request")
+if mode == "fork-during-request":
+    for _ in range(3):
+        subprocess.Popen([sys.executable, "-c", helper], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.12)
 if mode == "descendant-cpu":
     subprocess.Popen([sys.executable, "-c", "import time; end=time.process_time()+0.2\nwhile time.process_time()<end: pass"])
     time.sleep(0.3)

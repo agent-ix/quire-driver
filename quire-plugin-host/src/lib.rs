@@ -5,7 +5,10 @@
 //! FR-331 bodies remain caller-typed; this crate does not define a second
 //! provider schema or settlement vocabulary.
 
+#[cfg(target_os = "linux")]
+use nix::unistd::{sysconf, SysconfVar};
 use process_wrap::std::{ChildWrapper, CommandWrap};
+#[cfg(target_os = "linux")]
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -15,11 +18,6 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use sysinfo::Pid;
-#[cfg(unix)]
-use sysinfo::System;
-#[cfg(target_os = "linux")]
-use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
 
 use quire_canonical::{to_vec, Limits};
 use quire_exact::{Cancel, CancelCause};
@@ -355,6 +353,8 @@ pub struct PluginSession<M, F, A> {
     monitor: ProcessMonitor,
     limits: RunLimits,
     next_id: u64,
+    #[cfg(test)]
+    request_write_started: bool,
     _types: std::marker::PhantomData<(F, A)>,
 }
 
@@ -499,6 +499,8 @@ where
             monitor,
             limits: start.limits,
             next_id: 1,
+            #[cfg(test)]
+            request_write_started: false,
             _types: std::marker::PhantomData,
         };
 
@@ -512,6 +514,7 @@ where
                 child.as_mut(),
                 start.cancel,
                 &mut session.monitor,
+                session.limits.cancellation_grace,
             )?;
             if envelope.kind == Kind::Fault {
                 return Err(PluginError::Fault(envelope.decode_body::<F>()?));
@@ -548,6 +551,9 @@ where
         Q: Serialize,
         R: DeserializeOwned,
     {
+        if self.child.is_none() {
+            return Err(PluginError::SessionClosed);
+        }
         let result = (|| {
             if let Some(cause) = cancel.cause() {
                 return Err(cancel_error(cause));
@@ -566,6 +572,10 @@ where
                 .child
                 .as_mut()
                 .ok_or(PluginError::MissingPipe("child"))?;
+            #[cfg(test)]
+            {
+                self.request_write_started = true;
+            }
             write_frame_cancellable(
                 writer,
                 Envelope {
@@ -586,6 +596,7 @@ where
                     .ok_or(PluginError::MissingPipe("child"))?,
                 cancel,
                 &mut self.monitor,
+                self.limits.cancellation_grace,
             ) {
                 Ok(frame) => frame,
                 Err(PluginError::Cancelled) => {
@@ -778,6 +789,7 @@ fn next_frame<A, V, F>(
     child: &mut dyn ChildWrapper,
     cancel: &Cancel,
     monitor: &mut ProcessMonitor,
+    eof_grace: Duration,
 ) -> Result<Envelope, PluginError<A, V, F>> {
     loop {
         if let Some(cause) = cancel.cause() {
@@ -791,9 +803,9 @@ fn next_frame<A, V, F>(
                 }
                 return Ok(frame);
             }
-            Ok(Ok(None)) => return Err(eof_error(child)?),
+            Ok(Ok(None)) => return Err(eof_error(child, eof_grace)?),
             Ok(Err(error)) => return Err(PluginError::Frame(error)),
-            Err(RecvTimeoutError::Disconnected) => return Err(eof_error(child)?),
+            Err(RecvTimeoutError::Disconnected) => return Err(eof_error(child, eof_grace)?),
             Err(RecvTimeoutError::Timeout) => {
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
                     return Err(PluginError::Exited(status));
@@ -856,8 +868,8 @@ fn write_frame_cancellable<A, V, F>(
             Ok(Err(error)) => return Err(PluginError::Frame(error)),
             Err(RecvTimeoutError::Disconnected) => return Err(PluginError::WriterThread),
             Err(RecvTimeoutError::Timeout) => {
-                if let Some(cause) = cancel.cause() {
-                    return Err(cancel_error(cause));
+                if let Some(result) = completed_write_wins_cancellation(&receiver, cancel) {
+                    return result;
                 }
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
                     return Err(PluginError::Exited(status));
@@ -883,6 +895,19 @@ fn write_frame_control<A, V, F>(
         Err(RecvTimeoutError::Timeout) => Err(PluginError::WriterUnresponsive),
         Err(RecvTimeoutError::Disconnected) => Err(PluginError::WriterThread),
     }
+}
+
+fn completed_write_wins_cancellation<A, V, F>(
+    receiver: &Receiver<Result<(), FrameError>>,
+    cancel: &Cancel,
+) -> Option<Result<(), PluginError<A, V, F>>> {
+    let cause = cancel.cause()?;
+    Some(match receiver.try_recv() {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(PluginError::Frame(error)),
+        Err(mpsc::TryRecvError::Empty) => Err(cancel_error(cause)),
+        Err(mpsc::TryRecvError::Disconnected) => Err(PluginError::WriterThread),
+    })
 }
 
 fn join_thread_within(handle: &thread::JoinHandle<impl Sized>, timeout: Duration) -> bool {
@@ -1020,8 +1045,9 @@ fn is_shell_script(path: &Path) -> bool {
 
 fn eof_error<A, V, F>(
     child: &mut dyn ChildWrapper,
+    grace: Duration,
 ) -> Result<PluginError<A, V, F>, PluginError<A, V, F>> {
-    let Some(until) = Instant::now().checked_add(Duration::from_millis(20)) else {
+    let Some(until) = Instant::now().checked_add(grace) else {
         return Ok(PluginError::MissingFrame);
     };
     loop {
@@ -1034,13 +1060,14 @@ fn eof_error<A, V, F>(
 }
 
 struct ProcessMonitor {
-    system: System,
     #[cfg(unix)]
     group_id: Option<u32>,
     memory_limit: Option<u64>,
     cpu_time_limit: Option<Duration>,
-    last_cpu_ms: HashMap<(Pid, u64), u64>,
-    request_cpu_ms: u64,
+    #[cfg(target_os = "linux")]
+    last_cpu_ticks: HashMap<(u32, u64), u64>,
+    #[cfg(target_os = "linux")]
+    request_cpu_ticks: u64,
     request_active: bool,
     #[cfg(test)]
     force_unavailable: bool,
@@ -1048,18 +1075,19 @@ struct ProcessMonitor {
 
 impl ProcessMonitor {
     fn new(
-        child: &dyn ChildWrapper,
+        _child: &dyn ChildWrapper,
         memory_limit: Option<u64>,
         cpu_time_limit: Option<Duration>,
     ) -> Self {
         Self {
-            system: System::new(),
             #[cfg(unix)]
-            group_id: Some(child.id()),
+            group_id: Some(_child.id()),
             memory_limit,
             cpu_time_limit,
-            last_cpu_ms: HashMap::new(),
-            request_cpu_ms: 0,
+            #[cfg(target_os = "linux")]
+            last_cpu_ticks: HashMap::new(),
+            #[cfg(target_os = "linux")]
+            request_cpu_ticks: 0,
             request_active: false,
             #[cfg(test)]
             force_unavailable: false,
@@ -1070,55 +1098,63 @@ impl ProcessMonitor {
         if self.memory_limit.is_none() && self.cpu_time_limit.is_none() {
             return Ok(());
         }
-        self.last_cpu_ms.clear();
-        self.request_cpu_ms = 0;
-        let pids = self.refresh_tree()?;
-        for pid in pids {
-            if let Some(process) = self.system.process(pid) {
-                self.last_cpu_ms
-                    .insert((pid, process.start_time()), process.accumulated_cpu_time());
+        #[cfg(target_os = "linux")]
+        {
+            self.last_cpu_ticks.clear();
+            self.request_cpu_ticks = 0;
+            let samples = self.refresh_tree()?;
+            for sample in samples {
+                self.last_cpu_ticks
+                    .insert((sample.pid, sample.start_ticks), sample.cpu_ticks);
             }
+            self.request_active = true;
+            self.check()
         }
-        self.request_active = true;
-        self.check()
+        #[cfg(not(target_os = "linux"))]
+        Err(ProcessBudgetError::Unavailable)
     }
 
     fn check(&mut self) -> Result<(), ProcessBudgetError> {
         if (self.memory_limit.is_none() && self.cpu_time_limit.is_none()) || !self.request_active {
             return Ok(());
         }
-        let pids = self.refresh_tree()?;
-        let mut resident_bytes = 0_u64;
-        for pid in pids {
-            let process = self
-                .system
-                .process(pid)
-                .ok_or(ProcessBudgetError::Unavailable)?;
-            resident_bytes = resident_bytes.saturating_add(process.memory());
-            let identity = (pid, process.start_time());
-            let current = process.accumulated_cpu_time();
-            let previous = self.last_cpu_ms.insert(identity, current).unwrap_or(0);
-            self.request_cpu_ms = self
-                .request_cpu_ms
-                .saturating_add(current.saturating_sub(previous));
-        }
-        if self
-            .memory_limit
-            .is_some_and(|limit| resident_bytes > limit)
+        #[cfg(target_os = "linux")]
         {
-            return Err(ProcessBudgetError::MemoryExceeded);
+            let samples = self.refresh_tree()?;
+            let mut resident_bytes = 0_u64;
+            for sample in samples {
+                resident_bytes = resident_bytes.saturating_add(sample.memory_bytes);
+                let identity = (sample.pid, sample.start_ticks);
+                let previous = self
+                    .last_cpu_ticks
+                    .insert(identity, sample.cpu_ticks)
+                    .unwrap_or(0);
+                self.request_cpu_ticks = self
+                    .request_cpu_ticks
+                    .saturating_add(sample.cpu_ticks.saturating_sub(previous));
+            }
+            if self
+                .memory_limit
+                .is_some_and(|limit| resident_bytes > limit)
+            {
+                return Err(ProcessBudgetError::MemoryExceeded);
+            }
+            if let Some(limit) = self.cpu_time_limit {
+                if cpu_ticks_exceed(self.request_cpu_ticks, limit)
+                    .ok_or(ProcessBudgetError::Unavailable)?
+                {
+                    return Err(ProcessBudgetError::CpuTimeExceeded);
+                }
+            }
+            Ok(())
         }
-        if self
-            .cpu_time_limit
-            .is_some_and(|limit| Duration::from_millis(self.request_cpu_ms) > limit)
-        {
-            return Err(ProcessBudgetError::CpuTimeExceeded);
-        }
-        Ok(())
+        #[cfg(not(target_os = "linux"))]
+        Err(ProcessBudgetError::Unavailable)
     }
 
-    fn refresh_tree(&mut self) -> Result<Vec<Pid>, ProcessBudgetError> {
-        if !cfg!(target_os = "linux") || !sysinfo::IS_SUPPORTED_SYSTEM || {
+    #[cfg(target_os = "linux")]
+    fn refresh_tree(&self) -> Result<Vec<LinuxProcessSample>, ProcessBudgetError> {
+        if {
             #[cfg(test)]
             {
                 self.force_unavailable
@@ -1130,34 +1166,15 @@ impl ProcessMonitor {
         } {
             return Err(ProcessBudgetError::Unavailable);
         }
-        #[cfg(target_os = "linux")]
-        {
-            let group_id = self.group_id.ok_or(ProcessBudgetError::Unavailable)?;
-            self.refresh_processes();
-            let members =
-                linux_process_group_members(group_id).ok_or(ProcessBudgetError::Unavailable)?;
-            if members.is_empty() {
-                return Err(ProcessBudgetError::Unavailable);
-            }
-            Ok(members)
+        let group_id = self.group_id.ok_or(ProcessBudgetError::Unavailable)?;
+        let members =
+            linux_process_group_samples(group_id).ok_or(ProcessBudgetError::Unavailable)?;
+        if members.is_empty() {
+            return Err(ProcessBudgetError::Unavailable);
         }
-        #[cfg(not(target_os = "linux"))]
-        Err(ProcessBudgetError::Unavailable)
+        Ok(members)
     }
 
-    #[cfg(target_os = "linux")]
-    fn refresh_processes(&mut self) {
-        self.system.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::nothing()
-                .with_memory()
-                .with_cpu()
-                .without_tasks(),
-        );
-    }
-
-    #[cfg(unix)]
     fn terminate_tree(&mut self, child: &mut dyn ChildWrapper) -> bool {
         // Unix descendants that deliberately leave this process group (for
         // example with setsid) are outside this host's cleanup boundary.
@@ -1174,7 +1191,22 @@ impl ProcessMonitor {
                 let _ = child.try_wait();
                 match child.start_kill() {
                     Ok(()) => {}
-                    Err(_) => return true,
+                    Err(error) if error.raw_os_error() == Some(nix::errno::Errno::ESRCH as i32) => {
+                        return true;
+                    }
+                    Err(_) => return false,
+                }
+                #[cfg(target_os = "linux")]
+                if self
+                    .group_id
+                    .and_then(linux_process_group_samples)
+                    .is_some_and(|members| {
+                        members
+                            .iter()
+                            .all(|member| matches!(member.state, 'Z' | 'X'))
+                    })
+                {
+                    return true;
                 }
                 if Instant::now() >= until {
                     return false;
@@ -1206,29 +1238,93 @@ impl ProcessMonitor {
 }
 
 #[cfg(target_os = "linux")]
-fn linux_process_group_members(group_id: u32) -> Option<Vec<Pid>> {
+#[derive(Clone, Copy, Debug)]
+struct LinuxProcessSample {
+    pid: u32,
+    start_ticks: u64,
+    cpu_ticks: u64,
+    memory_bytes: u64,
+    state: char,
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_group_samples(group_id: u32) -> Option<Vec<LinuxProcessSample>> {
+    let ticks_per_second = u64::try_from(sysconf(SysconfVar::CLK_TCK).ok()??).ok()?;
+    let page_size = u64::try_from(sysconf(SysconfVar::PAGE_SIZE).ok()??).ok()?;
+    if ticks_per_second == 0 || page_size == 0 {
+        return None;
+    }
     let mut members = Vec::new();
     for entry in std::fs::read_dir("/proc").ok()? {
-        let entry = entry.ok()?;
+        let Ok(entry) = entry else { continue };
         let pid = match entry.file_name().to_str()?.parse::<u32>() {
             Ok(pid) => pid,
             Err(_) => continue,
         };
         let stat = match std::fs::read_to_string(entry.path().join("stat")) {
             Ok(stat) => stat,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(_) => return None,
+            Err(_) => continue,
         };
-        let close = stat.rfind(')')?;
-        let fields: Vec<&str> = stat.get(close + 1..)?.split_ascii_whitespace().collect();
+        let Some(close) = stat.rfind(')') else {
+            continue;
+        };
+        let Some(fields) = stat.get(close + 1..) else {
+            continue;
+        };
+        let fields: Vec<&str> = fields.split_ascii_whitespace().collect();
         // After the parenthesized command name, stat fields start at state:
-        // state, ppid, pgrp.
-        let process_group = fields.get(2)?.parse::<u32>().ok()?;
+        // state, ppid, pgrp, ..., utime, stime, ..., starttime, ...
+        let Some(state) = fields.get(0).and_then(|value| value.chars().next()) else {
+            continue;
+        };
+        let Some(process_group) = fields.get(2).and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
         if process_group == group_id {
-            members.push(Pid::from_u32(pid));
+            let Ok(statm) = std::fs::read_to_string(entry.path().join("statm")) else {
+                continue;
+            };
+            let statm_fields: Vec<&str> = statm.split_ascii_whitespace().collect();
+            let Some(resident_pages) = statm_fields
+                .get(1)
+                .and_then(|value| value.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            let Some(user_ticks) = fields.get(11).and_then(|value| value.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            let Some(system_ticks) = fields.get(12).and_then(|value| value.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            let Some(start_ticks) = fields.get(19).and_then(|value| value.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            members.push(LinuxProcessSample {
+                pid,
+                start_ticks,
+                cpu_ticks: user_ticks.saturating_add(system_ticks),
+                memory_bytes: resident_pages.saturating_mul(page_size),
+                state,
+            });
         }
     }
     Some(members)
+}
+
+#[cfg(target_os = "linux")]
+fn cpu_ticks_exceed(ticks: u64, limit: Duration) -> Option<bool> {
+    let clock_ticks = sysconf(SysconfVar::CLK_TCK).ok()??;
+    let ticks_per_second = u64::try_from(clock_ticks).ok()?;
+    (ticks_per_second > 0).then(|| {
+        u128::from(ticks) * 1_000_000_000
+            > limit
+                .as_nanos()
+                .saturating_mul(u128::from(ticks_per_second))
+    })
 }
 
 /// Why the host could not continue enforcing the requested process budget.
@@ -1345,6 +1441,9 @@ pub enum PluginError<A, V, F> {
     /// A child-process pipe was unavailable.
     #[error("plugin child did not expose {0}")]
     MissingPipe(&'static str),
+    /// The session was already terminated after an earlier failure.
+    #[error("the plugin session is closed")]
+    SessionClosed,
     /// A pipe read or write failed.
     #[error(transparent)]
     Frame(#[from] FrameError),
@@ -1518,7 +1617,7 @@ mod tests {
     use quire_exact::CancelCause;
     use serde::{Deserialize, Serialize};
     use std::ffi::OsString;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::thread;
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -1545,7 +1644,6 @@ mod tests {
         max_total_bytes: 4096,
     };
 
-    /// Trace: FR-013-AC-7, TC-024; JCS frames round-trip with exact length-prefix accounting.
     #[test]
     fn frame_round_trips_one_canonical_value() {
         let envelope = Envelope {
@@ -1612,7 +1710,7 @@ mod tests {
         ));
     }
 
-    /// Trace: FR-013-AC-7, TC-024; reject protocol identity before decoding a typed body.
+    /// Trace: FR-013-AC-2, TC-023; reject protocol identity before decoding a typed body.
     #[test]
     fn body_decode_requires_protocol_identity() {
         let envelope = Envelope {
@@ -1778,79 +1876,17 @@ mod tests {
         let _ = std::fs::remove_file(ready);
     }
 
-    #[cfg(unix)]
-    /// Trace: FR-013-AC-5, TC-025; a completed request write still enters cancel grace.
+    /// Trace: FR-013-AC-5, TC-025; a completed writer notification wins the simultaneous cancel.
     #[test]
-    fn completed_request_write_enters_cancellation_grace() {
+    fn completed_write_notification_wins_cancellation() {
         let cancel = Cancel::new();
-        let executable = echo_fixture();
-        let ready = ready_fixture_path();
-        let arguments = [OsString::from("wait-cancel"), ready.as_os_str().to_owned()];
-        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
-            SessionStart {
-                executable: &executable,
-                arguments: &arguments,
-                limits: session_limits(),
-                cancel: &cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-        .expect("hello is admitted");
         cancel.cancel(CancelCause::Requested);
-        let request_id = session.next_id;
-        let envelope = Envelope {
-            protocol: PROTOCOL.to_owned(),
-            id: request_id,
-            kind: Kind::Request,
-            body: serde_json::to_value(test_request()).expect("request serializes"),
-        };
-        let writer = session.writer.as_ref().expect("writer");
-        let child = session.child.as_mut().expect("child");
-        super::write_frame_cancellable::<String, String, serde_json::Value>(
-            writer,
-            envelope,
-            &cancel,
-            child.as_mut(),
-            &mut session.monitor,
-        )
-        .expect("completed write is handed to the grace path");
-        session.next_id += 1;
-        let cancelled = super::next_frame::<String, String, serde_json::Value>(
-            &session.receiver,
-            session.child.as_mut().expect("child").as_mut(),
-            &cancel,
-            &mut session.monitor,
+        let (sender, receiver) = super::mpsc::channel();
+        sender.send(Ok(())).expect("writer completion is queued");
+        let result = super::completed_write_wins_cancellation::<String, String, serde_json::Value>(
+            &receiver, &cancel,
         );
-        assert!(matches!(cancelled, Err(PluginError::Cancelled)));
-        super::write_frame_control::<String, String, serde_json::Value>(
-            session.writer.as_ref().expect("writer"),
-            Envelope {
-                protocol: PROTOCOL.to_owned(),
-                id: request_id,
-                kind: Kind::Cancel,
-                body: serde_json::json!({"id": request_id}),
-            },
-            session.limits.cancellation_grace,
-        )
-        .expect("cancel control write is bounded");
-        let frame = super::next_frame_with_grace::<String, String, serde_json::Value>(
-            &session.receiver,
-            session.child.as_mut().expect("child").as_mut(),
-            session.limits.cancellation_grace,
-            &mut session.monitor,
-        )
-        .expect("valid response in cancellation grace is preserved");
-        assert_eq!(frame.id, request_id);
-        assert_eq!(frame.kind, Kind::Result);
-        assert_eq!(
-            frame
-                .decode_body::<TestResult>()
-                .expect("result body is valid")
-                .items,
-            test_request().items
-        );
-        session.shutdown().expect("session shuts down cleanly");
-        let _ = std::fs::remove_file(ready);
+        assert!(matches!(result, Some(Ok(()))));
     }
 
     #[cfg(unix)]
@@ -2179,7 +2215,7 @@ mod tests {
     }
 
     #[cfg(unix)]
-    /// Trace: FR-013-AC-1, FR-013-AC-8, TC-023, TC-026; refuse bare executable names and enforce CPU budgets.
+    /// Trace: FR-013-AC-1, TC-023; refuse bare executable names.
     #[test]
     fn session_enforces_cpu_budget_and_refuses_bare_executable_names() {
         let cancel = Cancel::new();
@@ -2295,6 +2331,7 @@ mod tests {
         let cancel = Cancel::new();
         let executable = failure_fixture();
         let marker = ready_fixture_path();
+        let ready = PathBuf::from(format!("{}.ready", marker.display()));
         let arguments = [
             OsString::from("request-marker"),
             marker.as_os_str().to_owned(),
@@ -2311,6 +2348,11 @@ mod tests {
             |_manifest| Ok::<(), String>(()),
         )
         .expect("hello is admitted");
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !ready.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(ready.exists(), "fixture is waiting for its first request");
         session.monitor.force_unavailable = true;
         let error = session
             .request(
@@ -2323,11 +2365,21 @@ mod tests {
             error.primary_cause(),
             PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
         ));
+        assert!(!session.request_write_started);
         assert!(
             !marker.exists(),
             "the request was not written before measurement"
         );
+        let closed = session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect_err("a terminated session cannot be reused");
+        assert!(matches!(closed, PluginError::SessionClosed));
         let _ = std::fs::remove_file(marker);
+        let _ = std::fs::remove_file(ready);
     }
 
     /// Trace: FR-013-AC-8, TC-026; sum memory for double-forked process-group members.
@@ -2353,23 +2405,23 @@ mod tests {
             |_manifest| Ok::<(), String>(()),
         )
         .expect("hello is admitted");
-        assert!(ready.exists(), "double-fork descendant signaled readiness");
+        assert!(
+            (0..3).all(|index| PathBuf::from(format!("{}.{}", ready.display(), index)).exists()),
+            "three double-fork descendants signaled readiness"
+        );
         let members = session
             .monitor
             .refresh_tree()
             .expect("group members are measured");
-        let member_memory: Vec<u64> = members
-            .iter()
-            .map(|pid| {
-                session
-                    .monitor
-                    .system
-                    .process(*pid)
-                    .expect("sampled member")
-                    .memory()
-            })
-            .collect();
+        let member_memory: Vec<u64> = members.iter().map(|sample| sample.memory_bytes).collect();
         assert!(member_memory.iter().all(|bytes| *bytes < 48 * 1024 * 1024));
+        assert!(
+            members
+                .iter()
+                .filter(|sample| sample.memory_bytes > 0)
+                .count()
+                >= 3
+        );
         assert!(member_memory.iter().sum::<u64>() > 48 * 1024 * 1024);
         let error = session
             .request(
@@ -2383,6 +2435,39 @@ mod tests {
             PluginError::ProcessBudget(ProcessBudgetError::MemoryExceeded)
         ));
         let _ = std::fs::remove_file(ready);
+        for index in 0..3 {
+            let _ = std::fs::remove_file(format!("{}.{}", ready.display(), index));
+        }
+    }
+
+    /// Trace: FR-013-AC-8, TC-026; fork and exit races remain best-effort samples.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn forking_plugin_does_not_turn_process_sample_races_into_unavailable() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let arguments = [OsString::from("fork-during-request")];
+        let mut limits = session_limits();
+        limits.max_process_memory_bytes = Some(512 * 1024 * 1024);
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits,
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        let result = session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect("a process appearing during polling is not an unavailable failure");
+        assert_eq!(result.items, test_request().items);
+        session.shutdown().expect("fork descendants are terminated");
     }
 
     /// Trace: FR-013-AC-8, TC-026; accumulate CPU deltas for a short-lived descendant.
