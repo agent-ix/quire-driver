@@ -63,6 +63,34 @@ fn emit_diagnostic(kind: &str, message: &str) {
     let _ = write_diagnostic(&mut stderr, kind, message);
 }
 
+/// Write command output with one policy for closed pipes and output failures.
+fn write_primary_output(bytes: &[u8], description: &str, success: Category) -> Category {
+    match streams::write_primary_stdout(bytes) {
+        Ok(()) => success,
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => success,
+        Err(error) => {
+            emit_diagnostic(
+                "OutputFailure",
+                &format!("could not write {description}: {error}"),
+            );
+            Category::InternalFailure
+        }
+    }
+}
+
+fn version_exit_code() -> ExitCode {
+    if category_exit_result(Category::Success) == RESERVED_COMMAND_NOT_FOUND {
+        return process_exit_code(Category::Success);
+    }
+
+    let version = concat!(env!("CARGO_PKG_VERSION"), "\n");
+    process_exit_code(write_primary_output(
+        version.as_bytes(),
+        "package version",
+        Category::Success,
+    ))
+}
+
 /// Parser selectors implement the command surface owned by QSL ADR-029.
 #[cfg(test)]
 const VERBS: &[&str] = &[
@@ -425,17 +453,7 @@ fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
     match ix_cli_kit::json::encode_canonical(document, false) {
         Ok(mut encoded) => {
             encoded.push('\n');
-            match streams::write_primary_stdout(encoded.as_bytes()) {
-                Ok(()) => result.category,
-                Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => result.category,
-                Err(error) => {
-                    emit_diagnostic(
-                        "OutputFailure",
-                        &format!("could not write outcome document: {error}"),
-                    );
-                    Category::InternalFailure
-                }
-            }
+            write_primary_output(encoded.as_bytes(), "outcome document", result.category)
         }
         Err(error) => {
             emit_diagnostic(
@@ -450,7 +468,8 @@ fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
 pub(super) fn entrypoint() -> ExitCode {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
     match parse_invocation(&arguments) {
-        Ok(Invocation::Help | Invocation::Version) => process_exit_code(Category::Success),
+        Ok(Invocation::Help) => process_exit_code(Category::Success),
+        Ok(Invocation::Version) => version_exit_code(),
         Ok(Invocation::Operation {
             verb,
             format,

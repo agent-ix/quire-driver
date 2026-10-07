@@ -287,6 +287,18 @@ fn refusal_keeps_its_exit_code_when_stderr_is_unwritable() {
 #[cfg(feature = "tc018-test-adapter")]
 #[test]
 fn reserved_exit_code_uses_internal_failure_fallback() {
+    let version = Command::new(QUIRE)
+        .arg("--version")
+        .env("TC018_CASE", "reserved-exit")
+        .output()
+        .expect("run the test-built quire binary with --version");
+    assert_eq!(version.status.code(), Some(30));
+    assert!(version.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&version.stderr),
+        "driver exit mapping rejected result 5 (reserved code 5); using fallback code 30.\n"
+    );
+
     for format in ["text", "json"] {
         let output = Command::new(QUIRE)
             .args(["run", SOURCE, "yes", "--format", format])
