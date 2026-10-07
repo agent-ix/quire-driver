@@ -133,9 +133,7 @@ pub(crate) fn run<T: Send + 'static>(
                 .spawn(move || {
                     let mut signals = match Signals::new([SIGINT, SIGTERM]) {
                         Ok(signals) => {
-                            ready_tx
-                                .send(Ok(()))
-                                .expect("listener initializer is waiting");
+                            let _ = ready_tx.send(Ok(()));
                             signals
                         }
                         Err(error) => {
@@ -191,6 +189,19 @@ mod tests {
     use super::{lock_active, SignalContext};
     use quire_exact::Cancel;
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    struct ClearReceivedOnDrop<'a>(&'a SignalContext);
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    impl Drop for ClearReceivedOnDrop<'_> {
+        fn drop(&mut self) {
+            self.0
+                .shared
+                .received
+                .store(0, std::sync::atomic::Ordering::Release);
+        }
+    }
+
     #[test]
     fn active_session_is_cleared_when_its_guard_drops() {
         let context = SignalContext::default();
@@ -215,14 +226,11 @@ mod tests {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         context.observe(signal_hook::consts::signal::SIGTERM);
         #[cfg(any(target_os = "linux", target_os = "macos"))]
+        let _clear_received = ClearReceivedOnDrop(&context);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert_eq!(first.cause(), Some(CancelCause::Requested));
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert_eq!(second.cause(), None);
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        context
-            .shared
-            .received
-            .store(0, std::sync::atomic::Ordering::Release);
         drop(first_guard);
     }
 
@@ -245,6 +253,7 @@ mod tests {
         let cancel = Cancel::new();
         let _guard = context.activate(cancel.clone());
         context.observe(SIGTERM);
+        let _clear_received = ClearReceivedOnDrop(&context);
         assert_eq!(cancel.cause(), Some(CancelCause::Requested));
         assert_eq!(
             context
@@ -253,10 +262,6 @@ mod tests {
                 .load(std::sync::atomic::Ordering::Acquire),
             SIGTERM
         );
-        context
-            .shared
-            .received
-            .store(0, std::sync::atomic::Ordering::Release);
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -551,11 +556,11 @@ mod tests {
                     "--exact",
                     "signals::tests::plugin_session_signals_cancel_and_reap_each_active_lifecycle_stage",
                 ])
-                .env("QUIRE_PLUGIN_SIGNAL_STAGE", stage)
-                .env("QUIRE_PLUGIN_SIGNAL_READY", &ready)
-                .env("QUIRE_PLUGIN_SIGNAL_DESCENDANT", &descendant)
-                    .env("QUIRE_PLUGIN_SIGNAL_PLUGIN_MARKER", &plugin_marker)
-                    .env("QUIRE_PLUGIN_SIGNAL_OUTCOME", &outcome)
+                    .env("QUIRE_PLUGIN_SIGNAL_STAGE", stage)
+                    .env("QUIRE_PLUGIN_SIGNAL_READY", &ready)
+                    .env("QUIRE_PLUGIN_SIGNAL_DESCENDANT", &descendant)
+                .env("QUIRE_PLUGIN_SIGNAL_PLUGIN_MARKER", &plugin_marker)
+                .env("QUIRE_PLUGIN_SIGNAL_OUTCOME", &outcome)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
@@ -597,7 +602,7 @@ mod tests {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    panic!("{stage} lifecycle child did not finish after SIGTERM");
+                    panic!("{stage} lifecycle child did not finish within bounded signal wait");
                 }
                 thread::sleep(Duration::from_millis(5));
             };
@@ -622,7 +627,8 @@ mod tests {
                 !stdout
                     .windows(b"QUIRE_OUTCOME_SENTINEL".len())
                     .any(|window| window == b"QUIRE_OUTCOME_SENTINEL"),
-                "signal wrote outcome bytes: {stdout:?}"
+                "signal wrote outcome bytes: {}",
+                String::from_utf8_lossy(&stdout)
             );
             assert!(!outcome.exists(), "signal wrote outcome document");
             if stage.starts_with("request") {
