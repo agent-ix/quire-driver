@@ -21,9 +21,10 @@ Scope: FR-003-AC-1 through FR-003-AC-10.
 
 ## Test Procedure
 
-1. Inspect the parser and application path: the driver calls QSL
-   `qsl_replay::CallerLimits::from_operands`, which uses
-   `qsl_foundation::setting::parse_operands`. Confirm the driver has no
+1. Inspect the parser and application path: the driver calls
+   `qsl_foundation::setting::parse_operands`, checks resolved names against
+   operation bounds, then applies accepted values with
+   `CallerLimits::set_bound`. Confirm the driver has no
    duplicate grammar, duplicate-detection or name-to-field rules.
 2. Read the selected operation's QSL `SettingLimits::bounds()`. For every
    returned setting, pass its exact QSL name with a distinct valid value
@@ -38,7 +39,8 @@ Scope: FR-003-AC-1 through FR-003-AC-10.
    malformed and duplicate refusals identify their respective causes. A former
    bare accounting name is an ordinary unknown setting. After QSL-656 lands,
    pass the accounting names defined by QSL FR-255 under
-   `accounting.<counter>` and verify QSL resolves them.
+   `accounting.<counter>` and verify the driver accepts them through QSL's
+   operand parser and applies them through `CallerLimits::set_bound`.
 4. For each accounting setting exposed by the selected operation's
    `SettingLimits::bounds()`, pass a caller value through QSL
    `CallerLimits::set_bound` and inspect the effective value at the operation
