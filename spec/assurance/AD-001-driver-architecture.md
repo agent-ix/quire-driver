@@ -205,7 +205,7 @@ add library-source intake or expand that baseline contract.
   the exit module's `caller_exit_code` to preserve QSL's numeric category
   result at the process boundary, without mapping it through the kit's
   `Outcome`; reserved code `5` is a QSL mapping invariant failure handled by
-  the CLI. Four other shared CLI modules remain open: `streams` for result,
+  the CLI. Three other shared CLI modules remain open: `streams` for result,
   diagnostic and colour handling; `json` for canonical machine-output
   encoding; and `config` if the CLI introduces configuration. FR-002-AC-11 and
   AC-12 specify the package semantic-version output and built-binary agreement;

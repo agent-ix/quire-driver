@@ -44,8 +44,7 @@ plus FR-014-AC-4.
    declared by the `quire-cli` Cargo package. Run
    `ix_cli_kit::version::Agreement::command` on the built `quire` executable
    with `--version`, paired with the `CARGO_PKG_VERSION` surface. Require the
-   agreement check to pass when the versions match. If the command exits
-   non-zero, require the check to report `Unverifiable`, not agreement.
+   agreement check to pass.
 8. Inspect the CLI output paths and verify results and diagnostics are written
    through ix-cli-kit's `streams` module. Exercise its stdout/stderr selection,
    write-failure and broken-pipe behavior through the CLI.
@@ -70,14 +69,14 @@ under test are owned by `quire-cli/src/cli.rs`.
   only the QSL category outputs, not the kit's entire `u8` surface. The code-5
   behavior is specified by AC-6 and checked at the process boundary.
 - The parser remains owned by `quire-cli`. Stream, JSON, conditional config,
-  behavior have separate criteria under IR-607; this case verifies the stream
-  and JSON module call sites and behavior and the package-version
-  output/agreement check.
+  and version behavior have separate criteria under IR-607. This case verifies
+  the stream and JSON module call sites and behavior, plus the package-version
+  output and agreement check.
 - JSON mode emits one QSL-defined `quire-outcome/1` value equal to the typed
   library outcome. A stream write failure returns the internal-failure
   category through QSL's exit function; a broken pipe ends quietly with the
   outcome's code.
 - An unnamed configuration file is not read.
 - The version output reports the `quire-cli` package semver; the kit's
-  built-binary agreement check compares it with `CARGO_PKG_VERSION`, and a
-  non-zero command exit is reported as `Unverifiable`.
+  built-binary agreement check compares it with `CARGO_PKG_VERSION` and
+  passes.

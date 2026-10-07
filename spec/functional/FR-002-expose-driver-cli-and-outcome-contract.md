@@ -94,8 +94,6 @@ the fallback when that function returns reserved value `5`.
   compare `CARGO_PKG_VERSION` with the version reported by the built
   `quire --version` command through
   `ix_cli_kit::version::Agreement::command`.
-- If the built `quire --version` command exits non-zero, then `quire-cli` SHALL
-  report the version surface as `Unverifiable` through the agreement check.
 - The CLI SHALL keep its argument parser in the `quire-cli` package.
 - The CLI SHALL read only input paths named by its arguments and read no
   unnamed configuration file.
@@ -115,7 +113,7 @@ the fallback when that function returns reserved value `5`.
 | FR-002-AC-9 | When the CLI writes machine-mode outcomes, it uses ix-cli-kit's `json` module for canonical JSON encoding. | Test (TC-009, TC-018) |
 | FR-002-AC-10 | When the CLI resolves configuration values, it uses ix-cli-kit's `config` module. | Test (TC-009) |
 | FR-002-AC-11 | When invoked with `--version`, the CLI reports the semantic version declared by the `quire-cli` Cargo package. | Test (TC-009) |
-| FR-002-AC-12 | The built-binary version-agreement check uses `ix_cli_kit::version::Agreement::command` to compare `CARGO_PKG_VERSION` with the output of the built `quire --version` command; a non-zero command exit is `Unverifiable`. | Test (TC-009) |
+| FR-002-AC-12 | The `quire-cli` built-binary version-agreement check uses `ix_cli_kit::version::Agreement::command` to compare `CARGO_PKG_VERSION` with the output of the built `quire --version` command and requires agreement. | Test (TC-009) |
 
 ## Dependencies
 
