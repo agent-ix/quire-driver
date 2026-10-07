@@ -14,20 +14,20 @@ Verify that CLI `--limit` values override the named operation limits, omitted
 values keep their defaults, and a reached limit remains a typed incomplete
 outcome.
 
-Scope: FR-003-AC-1 through FR-003-AC-5.
+Scope: FR-003-AC-1 through FR-003-AC-6.
 
 ## Test Procedure
 
 1. Inspect the parser and application path: names are resolved with QSL
-   `Setting::from_name`, typed settings are passed to QSL
-   `SettingLimits::set_bound`, and the driver has no parallel name-to-field
-   table.
+   `qsl_foundation::Setting::from_name`, typed settings are passed to QSL
+   `qsl_foundation::SettingLimits::set_bound`, and the driver has no parallel
+   name-to-field table.
 2. Read the selected operation's QSL `SettingLimits::bounds`. For every
    returned setting, pass its exact `Setting::name()` with a distinct valid
    value through `--limit`; observe that only that setting's bound changes
    at the operation boundary.
-3. Pass a name not resolved by QSL `Setting::from_name`, a QSL setting not
-   exposed by the selected operation, a malformed value and a duplicate
+3. Pass a name that `qsl_foundation::Setting::from_name` does not resolve, a QSL setting
+   not exposed by the selected operation, a malformed value and a duplicate
    setting. Observe each refusal before any stage.
 4. Run an input that exceeds a chosen limit. Through the driver's typed
    execution wrapper, inspect the returned `LimitExceeded` configured bound
@@ -42,9 +42,12 @@ Test location: `src/limits.rs`, `src/execute.rs`, `quire-cli/src/cli.rs`, and
 - Every setting exposed by the operation is accepted under its exact QSL
   `Setting::name()` spelling and changes only the matching bound through
   QSL `SettingLimits::set_bound`.
-- Unrecognized names, recognized settings not exposed by the operation,
-  malformed values and duplicates are refused before any stage with QSL's
-  refusal category; no driver-only alias is accepted.
+- Names that `qsl_foundation::Setting::from_name` does not resolve, malformed values and
+  duplicates are refused before any stage with QSL's refusal category.
+- A recognized setting not exposed by the operation is refused before any
+  stage with QSL's refusal category.
+- No spelling or alias not resolved by `qsl_foundation::Setting::from_name`
+  is accepted.
 - The low limit returns QSL's typed `LimitExceeded`; the driver wrapper
   preserves its configured bound and `setting()` and has category
   `Incomplete`. The process status is selected by QSL's category exit

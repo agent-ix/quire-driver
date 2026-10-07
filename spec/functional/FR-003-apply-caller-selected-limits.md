@@ -44,11 +44,13 @@ return QSL's typed limit outcome and report no success.
 - If a caller supplies an unknown limit field, malformed value or duplicate,
   then the CLI SHALL reject it before the operation begins with QSL's refusal
   category.
-- The driver SHALL resolve each `--limit` name with QSL's `Setting::from_name`
+- The driver SHALL resolve each `--limit` name with QSL's
+  `qsl_foundation::Setting::from_name`
   and SHALL use the resulting typed setting, rather than a driver-owned name
   alias or name-to-field table, when applying the value.
 - The driver SHALL use the resulting typed setting with the selected
-  operation's QSL `SettingLimits::set_bound` to select the bound to change.
+  operation's QSL `qsl_foundation::SettingLimits::set_bound` to select the
+  bound to change.
   If QSL recognizes a setting but the selected operation does not expose it,
   the CLI SHALL reject the option before the operation begins with QSL's
   refusal category.
@@ -65,10 +67,11 @@ return QSL's typed limit outcome and report no success.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-003-AC-1 | Setting one valid `--limit` overrides only its named field; every omitted field retains its published default, and the effective limits passed to the operation equal those values. | Test (TC-010) |
-| FR-003-AC-2 | A name that QSL does not recognize, a setting not exposed by the selected operation, a malformed value or a duplicate `--limit` is refused before any stage with QSL's refusal category and names the option value. | Test (TC-010) |
+| FR-003-AC-2 | A `--limit` name that `qsl_foundation::Setting::from_name` does not resolve, a malformed value or a duplicate `--limit` is refused before any stage with QSL's refusal category and names the option value. | Test (TC-010) |
 | FR-003-AC-3 | An input that reaches a caller-lowered bound returns typed `LimitExceeded` with the configured value and field name and QSL's incomplete category; the process status equals QSL's category exit function. Raising the same bound to fit the input allows the operation to complete. | Test (TC-010) |
-| FR-003-AC-4 | Each accepted `--limit` name is an exact name resolved by QSL `Setting::from_name`; the driver accepts no spelling or alias that QSL does not resolve. | Test (TC-010) |
-| FR-003-AC-5 | Applying an accepted setting changes only the bound selected by QSL `SettingLimits::set_bound`; every other operation limit retains its prior value. | Test (TC-010) |
+| FR-003-AC-4 | Each accepted `--limit` name is an exact name resolved by `qsl_foundation::Setting::from_name`; the driver accepts no spelling or alias that QSL does not resolve. | Test and Inspection (TC-010) |
+| FR-003-AC-5 | A setting recognized by QSL but not exposed by the selected operation is refused before any stage with QSL's refusal category and names the option value. | Test (TC-010) |
+| FR-003-AC-6 | Applying an accepted setting changes only the bound selected by QSL `qsl_foundation::SettingLimits::set_bound`; every other operation limit retains its prior value. | Test and Inspection (TC-010) |
 
 ## Dependencies
 
