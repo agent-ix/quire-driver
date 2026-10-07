@@ -15,7 +15,7 @@ relationships:
 Verify that the driver CLI exposes the specified verbs, preserves typed
 outcomes in `quire-outcome/1` documents and uses QSL's single exit function.
 
-Scope: FR-002-AC-1 through FR-002-AC-6 and FR-002-AC-8 through FR-002-AC-11,
+Scope: FR-002-AC-1 through FR-002-AC-6 and FR-002-AC-8 through FR-002-AC-12,
 plus FR-014-AC-4.
 
 ## Test Procedure
@@ -40,14 +40,12 @@ plus FR-014-AC-4.
    pipe.
 6. Run from a directory containing an unnamed configuration file and verify
    that the CLI does not read it.
-7. Invoke `quire --version`. Verify it reports the Cargo package semantic
-   version, the first eight characters of the kit-baked source revision, and
-   the kit-baked source state (`clean`, `dirty` or `unknown`); when the kit
-   cannot determine a value, require `unknown` rather than a guess. Run
-   `ix_cli_kit::version::Agreement` against the built binary with
-   `CARGO_PKG_VERSION` and the captured `--version` output as the two surfaces,
-   and require agreement. The driver currently reports no engine or plugin
-   version surface.
+7. Invoke `quire --version` and verify that it reports the semantic version
+   declared by the `quire-cli` Cargo package. Run
+   `ix_cli_kit::version::Agreement::command` on the built `quire` executable
+   with `--version`, paired with the `CARGO_PKG_VERSION` surface. Require the
+   agreement check to pass when the versions match. If the command exits
+   non-zero, require the check to report `Unverifiable`, not agreement.
 8. Inspect the CLI output paths and verify results and diagnostics are written
    through ix-cli-kit's `streams` module. Exercise its stdout/stderr selection,
    write-failure and broken-pipe behavior through the CLI.
@@ -72,13 +70,14 @@ under test are owned by `quire-cli/src/cli.rs`.
   only the QSL category outputs, not the kit's entire `u8` surface. The code-5
   behavior is specified by AC-6 and checked at the process boundary.
 - The parser remains owned by `quire-cli`. Stream, JSON, conditional config,
-  and version adoption have separate criteria under IR-607; this case verifies
-  the stream and JSON module call sites and behavior.
+  behavior have separate criteria under IR-607; this case verifies the stream
+  and JSON module call sites and behavior and the package-version
+  output/agreement check.
 - JSON mode emits one QSL-defined `quire-outcome/1` value equal to the typed
   library outcome. A stream write failure returns the internal-failure
   category through QSL's exit function; a broken pipe ends quietly with the
   outcome's code.
 - An unnamed configuration file is not read.
-- The version output reports the package semver, abbreviated baked revision and
-  baked source state; the kit's built-binary agreement check passes between
-  `CARGO_PKG_VERSION` and the captured `--version` output.
+- The version output reports the `quire-cli` package semver; the kit's
+  built-binary agreement check compares it with `CARGO_PKG_VERSION`, and a
+  non-zero command exit is reported as `Unverifiable`.

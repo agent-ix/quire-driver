@@ -15,8 +15,6 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-301
     type: depends_on
-  - target: ix://agent-ix/ix-cli-kit/FR-007
-    type: depends_on
   - target: ix://agent-ix/ix-cli-kit/FR-008
     type: depends_on
 ---
@@ -90,16 +88,14 @@ the fallback when that function returns reserved value `5`.
   module for canonical JSON encoding.
 - When the CLI resolves configuration values, it SHALL use ix-cli-kit's
   `config` module.
-- When the user invokes `quire --version`, the CLI SHALL report the Cargo
-  package semantic version, the first eight characters of the source revision
-  baked by ix-cli-kit's `version` module, and the baked source state
-  (`clean`, `dirty` or `unknown`).
-- When ix-cli-kit cannot determine the revision or source state, the CLI SHALL
-  report `unknown` for that value.
-- The CLI SHALL NOT substitute a plausible value for unresolved provenance.
-- The built-binary version-agreement check SHALL compare the Cargo package
-  version with the version reported by `quire --version` through
-  `ix_cli_kit::version::Agreement`.
+- When the user invokes `quire --version`, the CLI SHALL report the semantic
+  version declared by the `quire-cli` Cargo package.
+- When `quire-cli` runs its built-binary version-agreement check, it SHALL
+  compare `CARGO_PKG_VERSION` with the version reported by the built
+  `quire --version` command through
+  `ix_cli_kit::version::Agreement::command`.
+- If the built `quire --version` command exits non-zero, then `quire-cli` SHALL
+  report the version surface as `Unverifiable` through the agreement check.
 - The CLI SHALL keep its argument parser in the `quire-cli` package.
 - The CLI SHALL read only input paths named by its arguments and read no
   unnamed configuration file.
@@ -118,7 +114,8 @@ the fallback when that function returns reserved value `5`.
 | FR-002-AC-8 | When the CLI writes results and diagnostics, it uses ix-cli-kit's `streams` module for stream discipline. | Test (TC-009, TC-018) |
 | FR-002-AC-9 | When the CLI writes machine-mode outcomes, it uses ix-cli-kit's `json` module for canonical JSON encoding. | Test (TC-009, TC-018) |
 | FR-002-AC-10 | When the CLI resolves configuration values, it uses ix-cli-kit's `config` module. | Test (TC-009) |
-| FR-002-AC-11 | `quire --version` reports the Cargo package semantic version, the first eight characters of the kit-baked source revision, and the kit-baked source state (`clean`, `dirty` or `unknown`; unresolved values are `unknown`, never guessed). The built-binary agreement check compares `CARGO_PKG_VERSION` with the `--version` output through `ix_cli_kit::version::Agreement`. The CLI has no engine or plugin version surface. | Test (TC-009) |
+| FR-002-AC-11 | When invoked with `--version`, the CLI reports the semantic version declared by the `quire-cli` Cargo package. | Test (TC-009) |
+| FR-002-AC-12 | The built-binary version-agreement check uses `ix_cli_kit::version::Agreement::command` to compare `CARGO_PKG_VERSION` with the output of the built `quire --version` command; a non-zero command exit is `Unverifiable`. | Test (TC-009) |
 
 ## Dependencies
 
@@ -128,8 +125,7 @@ the fallback when that function returns reserved value `5`.
   exit-code pass-through; QSL ADR-029 remains authoritative for category
   outcomes and codes. IR-607 adopts the exit module first and retains the
   remaining required kit mechanics as open work.
-- [ix-cli-kit FR-007](ix://agent-ix/ix-cli-kit/FR-007) and
-  [FR-008](ix://agent-ix/ix-cli-kit/FR-008) define the baked source provenance
-  and built-binary version agreement used by AC-11.
+- [ix-cli-kit FR-008](ix://agent-ix/ix-cli-kit/FR-008) defines the built-binary
+  version agreement used by AC-12.
 - [TC-009](../test-cases/TC-009-cli-outcome-and-exit-contract.md).
 - [TC-018](../test-cases/TC-018-binary-process-boundary.md), adding verification for AC-2 through AC-4 and AC-6.

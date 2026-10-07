@@ -207,10 +207,11 @@ add library-source intake or expand that baseline contract.
   `Outcome`; reserved code `5` is a QSL mapping invariant failure handled by
   the CLI. Four other shared CLI modules remain open: `streams` for result,
   diagnostic and colour handling; `json` for canonical machine-output
-  encoding; `config` if the CLI introduces configuration; and `version` for
-  shared build provenance and version agreement. The current CLI has no config
-  reader and its `--version` path does not yet render version provenance. The
-  kit's feature-gated `secrets` module is outside the driver's adoption scope.
+  encoding; and `config` if the CLI introduces configuration. FR-002-AC-11 and
+  AC-12 specify the package semantic-version output and built-binary agreement;
+  implementation and evidence remain planned. The current CLI has no config
+  reader. The kit's feature-gated `secrets` module is outside the driver's
+  adoption scope.
   The argument parser remains in `quire-cli`; the kit defines no argv parser.
 - First-party Git dependencies are declared with `branch = "main"`; each
   consumer's `Cargo.lock` records the resolved commit. Dependency manifests
@@ -276,7 +277,7 @@ The merged FR-002..FR-010 and TC-009..TC-018 specify the planned extension.
 | AOT and execute/replay/terminal-record chain remain planned | IR-610, with CG's terminal-map owner | Run TC-015..TC-016 with paired provider/replay inputs and complete per-item accounting. CG AD-003 is merged (CG PR #214); its merge does not establish terminal-map implementation. |
 | Relation-bound CG input depends on QSL AR2 | QSL-514 / [QSL FR-307](https://github.com/agent-ix/quire-spec-language/blob/main/spec/functional/FR-307-export-the-bindings-each-item-references.md) (bound-item export and per-item refusals) | Run TC-017 in the QSL-owned `quire-integration` test once AR2 is available. |
 | ix-cli-kit serde minimum conflicts with quire-driver's exact serde requirement | PLAT-1154 | Lower the kit's serde minimum before adding the CLI dependency; no driver or upstream serde requirements move in this slice. The IR-607 code slice is blocked until PLAT-1154 merges. |
-| ix-cli-kit adoption is staged; exit pass-through, streams, canonical JSON and version provenance/agreement are specified, while configuration remains conditional | IR-607 / driver FR-002 | Adopt `exit::caller_exit_code` with no second outcome mapping; use kit streams and JSON for CLI output; implement and verify the version surface from kit-baked provenance and its Agreement API. No configuration reader exists; any future reader uses the kit config module. |
+| ix-cli-kit adoption is staged; exit pass-through, streams, canonical JSON and package-version agreement are specified, while configuration remains conditional | IR-607 / driver FR-002 | Adopt `exit::caller_exit_code` with no second outcome mapping; use kit streams and JSON for CLI output; implement the `quire-cli` package version surface and verify the built binary with the kit Agreement API. No configuration reader exists; any future reader uses the kit config module. |
 | The npm package `@agent-ix/quire-cli` also ships a `quire` executable; its relationship to the Cargo CLI is unresolved | IR-607 / QSL ADR-029 and FR-002 question | Clarify whether npm and Cargo distribution are the same supported user-facing CLI; FR-014 scopes Cargo workspace ownership only. |
 | Cross-repository parity can differ despite local tests | IR-528 in `quire-integration` | Collect CLI/library outcome and exit parity, provider/plugin install, cache behavior, AOT parity, QSL binary deletion and the full proof-chain evidence. No G5b pass is claimed here. |
 | Local E5 checks cover sampled units, not every node family QSL can emit | QSL emission-to-admission test owner | Retain upstream coverage of emitted forms; driver TC-006 and the runtime handoff check do not establish exhaustive emission coverage. |
