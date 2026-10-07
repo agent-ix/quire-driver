@@ -1154,16 +1154,11 @@ impl ProcessMonitor {
 
     #[cfg(target_os = "linux")]
     fn refresh_tree(&self) -> Result<Vec<LinuxProcessSample>, ProcessBudgetError> {
-        if {
-            #[cfg(test)]
-            {
-                self.force_unavailable
-            }
-            #[cfg(not(test))]
-            {
-                false
-            }
-        } {
+        #[cfg(test)]
+        let force_unavailable = self.force_unavailable;
+        #[cfg(not(test))]
+        let force_unavailable = false;
+        if force_unavailable {
             return Err(ProcessBudgetError::Unavailable);
         }
         let group_id = self.group_id.ok_or(ProcessBudgetError::Unavailable)?;
@@ -1278,7 +1273,7 @@ fn linux_process_group_samples(group_id: u32) -> Option<Vec<LinuxProcessSample>>
         let fields: Vec<&str> = fields.split_ascii_whitespace().collect();
         // After the parenthesized command name, stat fields start at state:
         // state, ppid, pgrp, ..., utime, stime, ..., starttime, ...
-        let Some(state) = fields.get(0).and_then(|value| value.chars().next()) else {
+        let Some(state) = fields.first().and_then(|value| value.chars().next()) else {
             continue;
         };
         let Some(process_group) = fields.get(2).and_then(|value| value.parse::<u32>().ok()) else {
@@ -2464,7 +2459,7 @@ mod tests {
             error.primary_cause(),
             PluginError::ProcessBudget(ProcessBudgetError::MemoryExceeded)
         ));
-        let _ = std::fs::remove_file(ready);
+        let _ = std::fs::remove_file(&ready);
         for index in 0..3 {
             let _ = std::fs::remove_file(format!("{}.{}", ready.display(), index));
         }
@@ -2584,7 +2579,7 @@ mod tests {
         let cancel = Cancel::new();
         let executable = failure_fixture();
         let arguments = [OsString::from("thread-tasks")];
-        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+        let session = PluginSession::<TestManifest, serde_json::Value, String>::start(
             SessionStart {
                 executable: &executable,
                 arguments: &arguments,
