@@ -40,8 +40,14 @@ plus FR-014-AC-4.
    pipe.
 6. Run from a directory containing an unnamed configuration file and verify
    that the CLI does not read it.
-7. Invoke `--version` and verify the displayed version agrees with the
-   build-time provenance and version check provided by ix-cli-kit.
+7. Invoke `quire --version`. Verify it reports the Cargo package semantic
+   version, the first eight characters of the kit-baked source revision, and
+   the kit-baked source state (`clean`, `dirty` or `unknown`); when the kit
+   cannot determine a value, require `unknown` rather than a guess. Run
+   `ix_cli_kit::version::Agreement` against the built binary with
+   `CARGO_PKG_VERSION` and the captured `--version` output as the two surfaces,
+   and require agreement. The driver currently reports no engine or plugin
+   version surface.
 8. Inspect the CLI output paths and verify results and diagnostics are written
    through ix-cli-kit's `streams` module. Exercise its stdout/stderr selection,
    write-failure and broken-pipe behavior through the CLI.
@@ -73,3 +79,6 @@ under test are owned by `quire-cli/src/cli.rs`.
   category through QSL's exit function; a broken pipe ends quietly with the
   outcome's code.
 - An unnamed configuration file is not read.
+- The version output reports the package semver, abbreviated baked revision and
+  baked source state; the kit's built-binary agreement check passes between
+  `CARGO_PKG_VERSION` and the captured `--version` output.
