@@ -274,7 +274,12 @@ fn read_source(path: &str, source_limit: usize) -> std::io::Result<Vec<u8>> {
 }
 
 /// Dispatch the root verb while preserving its QSL-owned result category.
-fn dispatch(verb: Verb, _format: OutputFormat, raw_arguments: &[OsString]) -> Category {
+fn dispatch(
+    verb: Verb,
+    _format: OutputFormat,
+    raw_arguments: &[OsString],
+    _signals: crate::signals::SignalContext,
+) -> Category {
     if verb == Verb::Run {
         return match RunOptions::parse(raw_arguments) {
             Ok(options) => run(options),
@@ -295,15 +300,21 @@ fn dispatch(verb: Verb, _format: OutputFormat, raw_arguments: &[OsString]) -> Ca
 
 pub(super) fn entrypoint() -> ExitCode {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
-    match parse_invocation(&arguments) {
+    // The operation wrapper is used for all commands so a signal arriving
+    // without an active plugin session retains the platform default action.
+    crate::signals::run(move |signal_context| match parse_invocation(&arguments) {
         Ok(Invocation::Help | Invocation::Version) => process_exit_code(Category::Success),
         Ok(Invocation::Operation {
             verb,
             format,
             raw_arguments,
-        }) => process_exit_code(dispatch(verb, format, &raw_arguments)),
+        }) => process_exit_code(dispatch(verb, format, &raw_arguments, signal_context)),
         Err(_) => process_exit_code(Category::Refusal),
-    }
+    })
+    .unwrap_or_else(|error| {
+        eprintln!("could not install CLI signal handling: {error}");
+        process_exit_code(Category::Refusal)
+    })
 }
 
 #[cfg(test)]
