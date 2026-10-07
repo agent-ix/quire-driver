@@ -137,7 +137,8 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::LazyLock;
 
-    use qsl_foundation::diagnostic::{Category, LimitsField};
+    use qsl_foundation::diagnostic::Category;
+    use qsl_foundation::Setting;
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::{
         default_accounting, Call, CallOutcome, CallValue, DependencyInput, SpineLimits,
@@ -248,7 +249,7 @@ mod tests {
             panic!("the driver must not remap the QSL limit variant");
         };
         assert_eq!(limit.configured_bound(), 1);
-        assert_eq!(limit.limits_field(), Some(LimitsField::SourceBytes));
+        assert_eq!(limit.setting(), Setting::S1InputBytes);
         assert!(limit.actual() > u128::from(limit.configured_bound()));
     }
 

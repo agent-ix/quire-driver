@@ -191,9 +191,8 @@ impl Upstream for QslCg {
 
 #[cfg(test)]
 mod tests {
-    use qsl_foundation::diagnostic::{
-        InternalFault, LimitExceeded, LimitKind, LimitsField, StageFailure,
-    };
+    use qsl_foundation::diagnostic::{InternalFault, LimitExceeded, StageFailure};
+    use qsl_foundation::Setting;
     use qsl_replay::spine::CompileRefusal;
     use quire_exact::CancelCause;
 
@@ -248,21 +247,19 @@ mod tests {
     /// Trace: FR-001-AC-5
     #[test]
     fn lifecycle_limits_preserve_qsl_payload_cause_and_field_stage() {
-        for (kind, field, expected_stage, code) in [
+        for (setting, expected_stage, code) in [
             (
-                LimitKind::InputBytes,
-                LimitsField::SourceBytes,
+                Setting::S1InputBytes,
                 SpineStage::Source,
                 "stage_limit_exceeded/input-bytes-exceeded",
             ),
             (
-                LimitKind::WorkBudget,
-                LimitsField::CheckingWorkBudget,
+                Setting::S3WorkUnits,
                 SpineStage::Check,
                 "stage_limit_exceeded/work-budget-exceeded",
             ),
         ] {
-            let expected = LimitExceeded::new(kind, 8, 9).named(field);
+            let expected = LimitExceeded::new(setting, 8, 9);
             for (operation, _) in OPERATIONS {
                 let refusal = driver_refusal(StageFailure::Limit(expected.clone()), operation);
                 assert_eq!(refusal.code(), code);
