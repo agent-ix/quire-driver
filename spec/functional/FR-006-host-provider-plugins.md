@@ -9,6 +9,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-driver/FR-013
     type: depends_on
+  - target: ix://agent-ix/quire-driver/FR-014
+    type: depends_on
 ---
 # FR-006: Route negotiated items to process providers
 
@@ -27,12 +29,15 @@ settlement path used for first-party providers.
 - The admitted provider manifest, negotiated provider identity and routed
   request items.
 - The emitted checked-package bytes and provider limits.
+- The caller-owned QSL cancellation handle for the active run.
 - The process-provider seam supplied by the `quire-cli` composition.
 
 ## Outputs
 
 - The typed provider results returned for the routed items, consumed by the
   driver's proof settlement path.
+- Bounded plugin process-tree cleanup before normal CLI termination or exit
+  after handled SIGINT/SIGTERM on platforms covered by this requirement.
 
 ## Behavior
 
@@ -44,17 +49,44 @@ settlement path used for first-party providers.
   `quire-plugin-host`, using QSL ADR-029 PL-1 through PL-7 as the authoritative
   contract; it SHALL add no plugin wire format, lifecycle or failure mapping.
 - The `quire-cli` adapter SHALL start the host session with the caller-named
-  executable path, admit its hello manifest through the shared manifest
-  boundary, and send only the items negotiated to that provider.
+  executable path, pass the once-admitted descriptor returned by the host hello
+  admitter to the driver's existing registry without re-admitting it or
+  building a second registry, and send only the items negotiated to that
+  provider.
 - The driver SHALL pass the seam's validated typed results to the same
   settlement path used for first-party provider results.
+- The `quire-cli` adapter SHALL request graceful shutdown of every active
+  plugin session before normal command termination. On Linux and macOS, if
+  graceful shutdown exceeds `RunLimits.cancellation_grace`, it SHALL terminate
+  the process tree and await cleanup within the one-second bound in FR-013.
+  On Windows, the merged host's forced cleanup path terminates the Job Object
+  through `terminate_tree`/`terminate_job`; native Windows evidence remains
+  planned. The separate Job Object kill-on-close mechanism is planned under
+  IR-674 and specified by FR-013-AC-14.
+- When `quire-cli` on Linux or macOS receives SIGINT or SIGTERM while a plugin
+  session is starting, running or shutting down, it SHALL request cancellation
+  through the caller-owned QSL handle, allow `RunLimits.cancellation_grace` to
+  expire or the session to settle, terminate any remaining
+  plugin process tree, and await cleanup within the one-second bound in
+  FR-013 before exiting. The CLI SHALL restore the default signal disposition
+  and re-raise the received signal; this requirement makes no claim about a
+  QSL cancellation cause for the signal. If no plugin session is active, the
+  CLI SHALL retain the platform's default signal disposition. This guarantee
+  does not cover an uncatchable host kill on Unix or a plugin descendant that
+  deliberately leaves the host's process group.
+- Windows console control events, including Ctrl+C and console close, retain
+  the platform's default disposition; this requirement makes no plugin cleanup
+  guarantee for those events. Windows process-tree cleanup, if supported by
+  the host, is specified only by [FR-013-AC-14](./FR-013-host-process-plugins.md).
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the caller-named executable path, current emitted package bytes and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and admits the hello manifest. | Test (TC-013, TC-028) |
+| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the caller-named executable path, current emitted package bytes and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Test (TC-013, TC-028) |
 | FR-006-AC-2 | Validated typed results returned through the process-provider seam enter the same driver proof settlement path as first-party provider results, while unrelated routed items retain their own provider results. | Test (TC-013) |
+| FR-006-AC-3 | Before normal CLI command termination, the adapter requests graceful shutdown of every active plugin session; on Linux and macOS, if `RunLimits.cancellation_grace` expires first, the process tree terminates and cleanup completes within one second. The merged Windows host force-terminates the Job Object through `terminate_tree`/`terminate_job`; native Windows evidence remains planned. Kill-on-close is separately planned under IR-674. | Test (TC-028) |
+| FR-006-AC-4 | On Linux or macOS, handled SIGINT or SIGTERM while a plugin session is starting, running or shutting down requests cancellation through the caller-owned QSL handle, waits for settlement or `RunLimits.cancellation_grace` expiry, and cleans up the plugin process tree before the CLI restores the default disposition and re-raises the signal. No QSL cancellation cause is claimed; with no active session, the platform's default signal disposition is retained. | Test (TC-028) |
 
 ## Dependencies
 
@@ -65,4 +97,7 @@ settlement path used for first-party providers.
   composition by the `quire-cli` package.
 - FR-005 defines the first-party `Provider` interface and shared manifest
   admission.
+- CG IR-629 supplies the process `BackendKind` mapping required before the
+  process-provider invocation in TC-013/TC-028 can execute. This FR does not
+  define or infer that mapping.
 - [TC-013](../test-cases/TC-013-plugin-host-protocol-and-failures.md).

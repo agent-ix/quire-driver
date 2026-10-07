@@ -100,9 +100,17 @@ specifies the driver-owned process-provider seam and settlement composition.
 - The host SHALL avoid unbounded busy-wait while waiting for process exit.
 - When graceful shutdown begins, the host SHALL send the shutdown frame and
   observe process exit within the configured grace.
+- The merged host's Windows forced-cleanup path terminates the process tree
+  through `terminate_tree`/`terminate_job`. It does not configure
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` through its standard-library Job Object
+  path; kill-on-close remains planned under IR-674, and this specification
+  makes no claim that automatic handle-close cleanup is implemented.
 - When the child exits non-zero, the host SHALL return a process failure.
   EOF before the expected frame SHALL preserve an available
   process exit status in preference to a generic missing-frame error.
+- When Windows process-tree setup fails before plugin execution, the host SHALL
+  return a typed host-start failure, dispatch no provider request, and
+  terminate any child already created.
 - The process host SHALL remain a separate package.
 - The `quire-driver` package SHALL NOT have a normal or build dependency on
   `quire-plugin-host`.
@@ -131,9 +139,11 @@ specifies the driver-owned process-provider seam and settlement composition.
 | FR-013-AC-8 | Per-request memory and CPU-time budgets aggregate usage across the plugin process tree; a sampled budget breach terminates descendants and reports the corresponding failure. Memory sampling is best-effort between polls. If complete-tree measurement is unavailable, the host returns `ProcessBudgetError::Unavailable` before sending the request. | Test |
 | FR-013-AC-9 | Stderr beyond the session retention limit is drained but not retained; stderr is available on failures, and reader/writer workers are joined within one second after termination begins. | Test |
 | FR-013-AC-10 | After stdout closes while the child remains alive, process-exit waiting does not busy-wait; EOF before a response preserves an available child exit status. | Test |
-| FR-013-AC-11 | The host uses QSL ADR-029 PL-1 through PL-7 without defining a local wire or manifest-digest format; `quire-driver` excludes the host crate, and `quire-cli` composes it with the driver's seam. | Test (TC-005, TC-028) and analysis |
+| FR-013-AC-11 | The host uses QSL ADR-029 PL-1 through PL-7 without defining a local wire or manifest-digest format; `quire-driver` excludes the host crate, and `quire-cli` has a direct host dependency and composes it with the driver's seam. | Test (TC-005, TC-028) and analysis |
 | FR-013-AC-12 | On a clean Cargo cache, the repository `make test` target fetches every locked platform dependency before running the offline TC-005 dependency metadata check, and the check passes. | Test (TC-027) |
 | FR-013-AC-13 | The host test suite reports an actionable prerequisite failure naming the missing fixture runtime and its installation instructions. | Test (TC-027) |
+| FR-013-AC-14 | When a supported Windows process-tree cleanup mechanism is selected under IR-674, the host assigns the plugin process tree to a kill-on-close Job Object before plugin code executes; closing the owning job handle terminates remaining job members. | Planned under IR-674; native Windows evidence required |
+| FR-013-AC-15 | When Windows process-tree setup fails before plugin execution, the host returns a typed host-start failure, dispatches no provider request, and terminates any child already created. | Analysis/Inspection (review Windows host startup/error path in `quire-plugin-host`; runtime evidence requires a native Windows runner and an injectable or distinguishable setup-failure seam) |
 
 ## Dependencies
 
