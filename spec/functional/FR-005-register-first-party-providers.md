@@ -109,7 +109,8 @@ is specified in Behavior.
   synthesized.
 - The driver SHALL preserve QSL's typed duplicate-backend refusal and
   withdrawn-identity outcome; it SHALL NOT implement duplicate policy itself.
-  Equal descriptors are idempotent and an unequal descriptor for an existing
+  Per QSpec FR-290-AC-9, equal descriptors are idempotent; per
+  FR-290-AC-10, an unequal descriptor for an existing
   `BackendId` withdraws that identity (QSL FR-075-AC-4/AC-7 and QSL-637).
 - The driver SHALL preserve a caller-supplied `Process` origin, descriptor
   identity and advertised pairs when registering a process descriptor and
@@ -117,8 +118,9 @@ is specified in Behavior.
   conversion specified by FR-019/FR-022, the driver SHALL call that conversion
   and CG SHALL construct `BackendKind::Process` from the supplied origin. The
   driver SHALL NOT construct the kind or map backend identity to it.
-- When a plugin hello manifest contains invalid domains, the driver SHALL pass
-  the domain labels to QSL descriptor admission and preserve QSL-654's typed
+- When a plugin hello manifest contains invalid domains, the `quire-cli` host
+  hello admitter SHALL pass the domain labels to QSL descriptor admission and
+  preserve QSL-654's typed
   per-registration `invalid_capability` refusal with cause `invalid-domains`.
   The driver SHALL NOT validate domains or construct this refusal itself.
 - When a plugin hello manifest has an absent or unknown kind or mode, the

@@ -37,8 +37,8 @@ and FR-006-AC-5 through FR-006-AC-23.
    it or adding members, and `deadline_ms` comes
    from the caller. Verify bounds appear only at `items[].extent.bounds` and
    `items[].temporal.subject.proof_bounds`, with no request-level `domains` or
-   `limits` member. Check CG's negotiation result against QSpec FR-290-AC-13
-   and QSpec TC-271 NG-05/06/18/19. Do not claim a serialized proof-bound
+   `limits` member. QSpec TC-271 owns the CG negotiation checks for QSpec
+   FR-290-AC-13. Do not claim a serialized proof-bound
    `kind` until QSL-654 emitter support lands.
 3. Start the explicit fixture executable. Have the `quire-cli` adapter decode
    its FR-331 hello DTO without discarding optional fields. Pass its identity,
@@ -51,8 +51,9 @@ and FR-006-AC-5 through FR-006-AC-23.
    carrier; populate linked-provider carriers from their FR-331 manifests and
    do not synthesize absent optional members. An absent or unknown kind/mode
    reaches QSL and remains its typed `invalid_capability` refusal. When
-   QSL-654 supplies the domain-aware admission API, pass domain labels to QSL
-   and verify it returns `invalid_capability` with cause `invalid-domains`;
+   QSL-654 supplies the domain-aware admission API, have the `quire-cli` host
+   hello admitter pass domain labels to QSL and verify it returns
+   `invalid_capability` with cause `invalid-domains`;
    the driver does not validate domains or construct that refusal. Verify
    descriptor identity, advertised pairs and supplied origin are passed to CG
    unchanged (FR-005-AC-5). The future conversion to `BackendKind::Process` is
