@@ -390,7 +390,7 @@ mod tests {
         assert!(parse_invocation(&check).is_err());
     }
 
-    /// Trace: FR-002-AC-4, shared options remain a kit adoption seam.
+    /// Trace: FR-002-AC-1
     #[test]
     fn accepts_shared_format_without_resolving_config_or_output() {
         let args = vec![

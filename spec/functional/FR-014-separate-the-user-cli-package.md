@@ -36,9 +36,10 @@ cache, and process-provider adapter using `quire-plugin-host`.
 
 - A workspace package named `quire-cli` that provides the `quire` executable.
 - The binary argument parser and CLI tests/fixtures owned by `quire-cli`.
-- A Cargo dependency graph in which the CLI composes the driver and cache.
+- A Cargo dependency graph in which the CLI composes the driver, cache and
+  ix-cli-kit.
 - A Cargo dependency graph in which `quire-cli` composes the plugin host while
-  the `quire-driver` dependency closure excludes it.
+  the `quire-driver` dependency closure excludes both the host and ix-cli-kit.
 
 ## Behavior
 
@@ -46,8 +47,11 @@ cache, and process-provider adapter using `quire-plugin-host`.
   `quire-cli` package.
 - Exactly one workspace package, `quire-cli`, SHALL provide the `quire` binary
   target.
-- `quire-cli` SHALL have direct normal dependencies on `quire-driver` and
-  `quire-cache` and `quire-plugin-host`.
+- `quire-cli` SHALL have direct normal dependencies on `quire-driver`,
+  `quire-cache`, `quire-plugin-host` and `ix-cli-kit`.
+- The `ix-cli-kit` Git dependency in `quire-cli/Cargo.toml` SHALL specify
+  `branch = "main"`; the consumer's `Cargo.lock` SHALL record the resolved
+  commit, with no `rev` field in the dependency declaration.
 - The workspace root SHALL list `quire-cli` in `default-members`.
 - The `quire-cli` package SHALL own the argument parser in
   `quire-cli/src/cli.rs`, with the binary entry point in
@@ -60,7 +64,7 @@ cache, and process-provider adapter using `quire-plugin-host`.
 | ID | Criteria | Verification |
 | --- | --- | --- |
 | FR-014-AC-1 | Exactly one workspace package, `quire-cli`, provides the `quire` binary target. | Test (TC-028) |
-| FR-014-AC-2 | `quire-cli` has direct normal dependency edges to `quire-driver`, `quire-cache` and `quire-plugin-host`; the `quire-driver` closure has no normal or build edge to `quire-plugin-host`. | Test (TC-005, TC-028) |
+| FR-014-AC-2 | `quire-cli` has direct normal dependency edges to `quire-driver`, `quire-cache`, `quire-plugin-host` and `ix-cli-kit`; the `quire-driver` closure has no normal or build edge to `quire-plugin-host` or `ix-cli-kit`. | Test (TC-005, TC-028) |
 | FR-014-AC-3 | The workspace root lists `quire-cli` in `default-members`. | Test (TC-005) |
 | FR-014-AC-4 | CLI contract and binary process-boundary tests and their fixtures reside in the `quire-cli` package. | Test (TC-009, TC-018, TC-028) |
 | FR-014-AC-5 | The CLI parser definition resides in `quire-cli/src/cli.rs`, and the binary entry point is in `quire-cli/src/main.rs`; the `quire-driver` package's `src/lib.rs` does not export a `cli` module. | Test (TC-028) |
@@ -74,6 +78,8 @@ cache, and process-provider adapter using `quire-plugin-host`.
   independent of downstream cache implementation.
 - [FR-002](./FR-002-expose-driver-cli-and-outcome-contract.md) defines the
   binary's command and outcome contract.
+- [ix-cli-kit FR-017](ix://agent-ix/ix-cli-kit/FR-017) provides the caller-owned
+  exit-code pass-through consumed by the CLI; the kit does not own argv parsing.
 - [FR-012](./FR-012-implement-the-downstream-content-addressed-cache.md)
   defines the separate cache package.
 - [TC-005](../test-cases/TC-005-dependency-edges.md) and

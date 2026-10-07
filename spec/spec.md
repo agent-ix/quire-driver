@@ -124,8 +124,13 @@ library entries.
 QSL owns lifecycle policy and the `quire-outcome/1`, diagnostic, exit-category
 and operation contracts. The driver preserves those typed outcomes and uses
 QSL's `Category::exit_code` as the sole category-to-process exit mapping.
-`ix-cli-kit` supplies shared CLI mechanics. FR-002 defines the direct numeric
-pass-through at the process boundary until the kit can carry QSL's codes.
+FR-002 routes that numeric result through `ix_cli_kit::exit::caller_exit_code`,
+which preserves every value except reserved code `5`; the CLI handles that
+error as a QSL category-mapping invariant failure. The CLI continues to own
+argv parsing. Adoption of ix-cli-kit's `streams`, `json` and `version` modules
+is required by FR-002 and remains open under IR-607; if the CLI adds
+configuration resolution, it will use the kit's `config` module. The kit's
+feature-gated `secrets` module is outside the driver's adoption scope.
 
 ### 2.2 Out of Scope
 

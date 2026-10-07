@@ -12,18 +12,20 @@ relationships:
 
 ## Description
 
-Verify FR-002-AC-2 through FR-002-AC-4 at the driver's root argv and process
-boundary. QSL ADR-029 supplies the outcome value and exit semantics; this case
-checks that the binary preserves them while using ix-cli-kit shared mechanics.
+Verify FR-002-AC-2 through FR-002-AC-4, FR-002-AC-6, FR-002-AC-8 and
+FR-002-AC-9 at the driver's root argv and process boundary. QSL ADR-029
+supplies the outcome value and exit semantics; this case checks that the
+binary preserves them while using ix-cli-kit's exit, streams and JSON modules.
 
 ## Test Procedure
 
 1. Inspect the binary entry point and root argv dispatch. Confirm that it invokes
-   the selected typed operation, uses the applicable ix-cli-kit output, config
-   and version helpers, and has one conversion from QSL's
-   `Category::exit_code` result to `std::process::ExitCode`. Check that no path
-   converts the category through ix-cli-kit's `Outcome` or a second numeric
-   category mapping.
+   the selected typed operation and passes QSL's `Category::exit_code` result
+   through `ix_cli_kit::exit::caller_exit_code` to
+   `std::process::ExitCode`. Check that no path converts the category through
+   ix-cli-kit's `Outcome` or a second numeric category mapping. `config` is used
+   if CLI configuration is introduced; the optional `secrets` module is outside
+   the driver scope.
 2. Build the `quire` child process with a test-only adapter at the typed `check`
    operation call. Select its case through the child environment variable
    `TC018_CASE`, with the four values in the table below. The adapter receives
@@ -67,7 +69,8 @@ checks that the binary preserves them while using ix-cli-kit shared mechanics.
 3. Repeat each invocation with `--format json`, keeping its case, source and
    request arrangement unchanged. Parse stdout as exactly one JSON value,
    followed only by whitespace, and compare it to the parent's expected QSL
-   serialization, with no wrapper or changed fields. For `refused-range`, require
+   serialization through ix-cli-kit's `json` module, with no wrapper or changed
+   fields. For `refused-range`, require
    a nonempty diagnostic with code `undefined_expression` and cause
    `unproved-range` in the parent outcome; retain its cause, locus and message
    as expected content. Render that
@@ -78,18 +81,35 @@ checks that the binary preserves them while using ix-cli-kit shared mechanics.
    equal to the parent's value; the absent stdout content is the rendered
    diagnostic line, not those required fields.
 
+4. Build the child with a dedicated test-only Cargo feature that enables an
+   exit-function seam to supply raw code `5` in place of QSL's
+   `Category::exit_code` result. The seam SHALL not be enabled in the default
+   or release binary and SHALL not be selectable through production argv or
+   environment variables. Confirm the child exits with
+   `Category::InternalFailure.exit_code()` (`30`), stdout is empty in both
+   text and machine modes, and stderr contains a plain-text diagnostic naming
+   reserved code `5` and fallback code `30`.
+5. Inspect the binary's output paths and verify text results and diagnostics
+   use ix-cli-kit's `streams` module for stdout/stderr selection and write
+   behavior, including failure and broken-pipe handling.
+
 Test location: `quire-cli/tests/binary_process.rs` with its test-only
 operation adapter and fixtures under `quire-cli/tests/fixtures/`; entry-point
 review covers `quire-cli/src/main.rs` and `quire-cli/src/cli.rs`.
 
 ## Expected Results
 
-- Root argv selects the typed operation. The binary uses ix-cli-kit helpers for
-  their applicable shared mechanics while retaining its own root argv boundary.
-- Each child status is exactly the code returned by QSL's exit function,
-  including 20, 21, 22 and 30. There is one pass-through to
-  `std::process::ExitCode` and no ix-cli-kit `Outcome` conversion.
+- Root argv selects the typed operation. The exit boundary uses
+  `ix_cli_kit::exit::caller_exit_code` while retaining its own root argv
+  boundary. Stream writes and JSON encoding use the corresponding ix-cli-kit
+  modules.
+- For typed-result cases, each child status is exactly the code returned by
+  QSL's exit function, including 20, 21, 22 and 30. The test-only code-5 case
+  instead uses status `30` and has no stdout result. There is one pass-through
+  to `std::process::ExitCode` and no ix-cli-kit `Outcome` conversion.
 - Machine stdout contains exactly the unchanged QSL `quire-outcome/1` value
-  for each run. The known `undefined_expression/unproved-range` diagnostic
+  for each typed-result run. The code-5 fallback case writes no stdout result
+  and emits its specified plain-text diagnostic only on stderr. The known
+  `undefined_expression/unproved-range` diagnostic
   retains its structured fields in that value, and its complete nonempty
   rendered line appears on stderr and is absent from stdout.
