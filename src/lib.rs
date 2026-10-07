@@ -40,8 +40,10 @@
 //! design) renders them.
 //!
 //! The registry is an ordinary value the caller builds with
-//! [`build_registry`] from provider manifests and passes in. It is never
-//! global state (ADR-012 §7.1).
+//! [`build_registry`] or [`build_linked_providers`] and passes in. A
+//! [`LinkedProviders`] value can append already-admitted process descriptors
+//! to that same registry before negotiation. It is never global state
+//! (ADR-012 §7.1).
 
 #![forbid(unsafe_code)]
 
@@ -50,6 +52,7 @@ mod drive;
 pub mod execute;
 mod handoff;
 pub mod limits;
+mod process_provider;
 pub mod provider;
 mod refusal;
 mod registry;
@@ -63,6 +66,9 @@ pub use cache::{
 pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, Routed};
 pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};
 pub use limits::{LimitError, LimitOverrides};
+pub use process_provider::{
+    ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
+};
 pub use provider::{
     KaniExecutionLimits, KaniProvider, Provider, ProviderItemFailure, ProviderItemResult,
     ProviderLimits, ProviderOutcomeError, ProviderRequest, ProviderResults, ProviderTerminalError,
