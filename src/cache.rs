@@ -360,6 +360,8 @@ mod tests {
             identity: identity.to_owned(),
             manifest_digest: qsl_route::ManifestDigest::from_digest(digest),
             advertises: Vec::new(),
+            domains: None,
+            wire: None,
         }])
         .expect("manifest is admitted");
         (registry, backend)
@@ -443,11 +445,15 @@ mod tests {
                 identity: first.as_str().to_owned(),
                 manifest_digest: qsl_route::ManifestDigest::from_digest([1; 32]),
                 advertises: Vec::new(),
+                domains: None,
+                wire: None,
             },
             crate::ProviderManifest {
                 identity: second.as_str().to_owned(),
                 manifest_digest: qsl_route::ManifestDigest::from_digest([2; 32]),
                 advertises: Vec::new(),
+                domains: None,
+                wire: None,
             },
         ])
         .expect("both descriptors are admitted");
@@ -489,6 +495,8 @@ mod tests {
             identity: String::new(),
             manifest_digest: qsl_route::ManifestDigest::from_digest([3; 32]),
             advertises: Vec::new(),
+            domains: None,
+            wire: None,
         }]);
         assert!(registration.is_err());
         let empty_registry = crate::build_registry(&[]).expect("empty registry is admitted");

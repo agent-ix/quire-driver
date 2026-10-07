@@ -19,7 +19,9 @@ path = "src/main.rs"
 tc018-test-adapter = []
 
 [dependencies]
+base64 = "=0.22.1"
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 ix-cli-kit = { git = "https://github.com/agent-ix/ix-cli-kit", branch = "main" }
@@ -27,16 +29,20 @@ ix-cli-kit = { git = "https://github.com/agent-ix/ix-cli-kit", branch = "main" }
 quire-cache = { path = "../quire-cache" }
 quire-driver = { path = ".." }
 quire-exact = { git = "https://github.com/agent-ix/quire-exact", branch = "main" }
+quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main", features = ["serde_json"] }
 quire-plugin-host = { path = "../quire-plugin-host" }
-serde = { version = "=1.0.228", features = ["derive"] }
+serde = { version = "=1.0.228", features = ["derive", "rc"] }
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
 thiserror = "=2.0.20"
+serde_path_to_error = "=0.1.20"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 signal-hook = "=0.3.18"
 
 [dev-dependencies]
+qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 regex = "=1.13.1"
-serde_json = "=1.0.151"
 
 [lints.rust]
 unsafe_code = "forbid"

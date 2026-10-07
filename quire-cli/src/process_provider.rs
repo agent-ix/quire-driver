@@ -22,12 +22,6 @@ use serde::Serialize;
 type ProviderWireTypes<M, Q, R, F, A, V> = fn() -> (M, Q, R, F, A, V);
 type SessionWireTypes<Q, R, V> = fn() -> (Q, R, V);
 
-fn require_admitted_descriptor<A, V, F>(
-    descriptor: Option<BackendDescriptor>,
-) -> Result<BackendDescriptor, AdapterError<A, V, F>> {
-    descriptor.ok_or(AdapterError::MissingAdmittedDescriptor)
-}
-
 /// Why hello admission did not provide a caller-admitted process descriptor.
 #[derive(Debug, thiserror::Error)]
 pub enum AdmissionFailure<E> {
@@ -98,7 +92,7 @@ where
     Q: Serialize,
     R: DeserializeOwned,
     F: DeserializeOwned,
-    Admit: Fn(&M) -> Result<BackendDescriptor, A> + 'static,
+    Admit: Fn(&M) -> Result<(BackendDescriptor, quire_driver::ProviderManifest), A> + 'static,
     Encode: for<'a> Fn(ProcessProviderRequest<'a>) -> Q + 'static,
     Validate: Fn(&M, &R) -> Result<(), V> + 'static,
     Convert: Fn(R) -> ProviderResults + 'static,
@@ -114,7 +108,7 @@ where
         cancel: &Cancel,
     ) -> Result<Self::Session, Self::Error> {
         let active = self.signals.activate(cancel.clone());
-        let mut admitted_descriptor = None;
+        let mut admitted = None;
         let host = PluginSession::start(
             SessionStart {
                 executable,
@@ -132,19 +126,21 @@ where
                 cancel,
             },
             |manifest| {
-                let descriptor = (self.admit)(manifest).map_err(AdmissionFailure::Caller)?;
+                let (descriptor, retained_manifest) =
+                    (self.admit)(manifest).map_err(AdmissionFailure::Caller)?;
                 if descriptor.origin() != ProviderOrigin::Process {
                     return Err(AdmissionFailure::WrongOrigin);
                 }
-                admitted_descriptor = Some(descriptor);
+                admitted = Some((descriptor, retained_manifest));
                 Ok(())
             },
         )
         .map_err(AdapterError::Start)?;
-        let descriptor = require_admitted_descriptor(admitted_descriptor)?;
+        let (descriptor, manifest) = admitted.ok_or(AdapterError::MissingAdmittedDescriptor)?;
         Ok(HostProcessSession {
             host,
             descriptor,
+            manifest,
             signals: self.signals.clone(),
             encode: Arc::clone(&self.encode),
             validate: Arc::clone(&self.validate),
@@ -159,6 +155,7 @@ where
 pub struct HostProcessSession<M, Q, R, F, A, V, Encode, Validate, Convert> {
     host: PluginSession<M, F, AdmissionFailure<A>>,
     descriptor: BackendDescriptor,
+    manifest: quire_driver::ProviderManifest,
     signals: crate::signals::SignalContext,
     encode: Arc<Encode>,
     validate: Arc<Validate>,
@@ -183,6 +180,10 @@ where
 
     fn descriptor(&self) -> &BackendDescriptor {
         &self.descriptor
+    }
+
+    fn manifest(&self) -> &quire_driver::ProviderManifest {
+        &self.manifest
     }
 
     fn invoke(
@@ -224,10 +225,11 @@ mod tests {
     use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
     use quire_driver::{
         build_linked_providers, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
-        ProcessProviderSession, ProviderRequest, ProviderResults,
+        ProcessProviderSession, ProviderManifest, ProviderRequest, ProviderResults,
     };
     use quire_exact::Cancel;
     use serde::Deserialize;
+    use sha2::Digest as _;
 
     use super::HostProcessProvider;
 
@@ -235,6 +237,34 @@ mod tests {
     struct Hello {
         identity: String,
         advertises: Vec<(Option<String>, Option<String>)>,
+    }
+
+    fn admit_hello(
+        manifest: &Hello,
+        origin: ProviderOrigin,
+        digest: u8,
+    ) -> Result<(BackendDescriptor, ProviderManifest), String> {
+        let identity =
+            BackendId::from_wire(&manifest.identity).map_err(|error| error.to_string())?;
+        let digest = ManifestDigest::from_digest([digest; 32]);
+        let descriptor = BackendDescriptor::admit(
+            Candidate::new(identity),
+            origin,
+            digest,
+            manifest
+                .advertises
+                .iter()
+                .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
+        )
+        .map_err(|error| format!("{error:?}"))?;
+        let retained = ProviderManifest {
+            identity: manifest.identity.clone(),
+            manifest_digest: digest,
+            advertises: manifest.advertises.clone(),
+            domains: None,
+            wire: None,
+        };
+        Ok((descriptor, retained))
     }
 
     fn python_path() -> PathBuf {
@@ -249,6 +279,10 @@ mod tests {
     fn fixture_path() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../quire-plugin-host/tests/fixtures/echo-plugin.py")
+    }
+
+    fn backend_provider_fixture_path() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/backend-provider-plugin.py")
     }
 
     fn wrong_result_fixture_path() -> PathBuf {
@@ -287,21 +321,12 @@ mod tests {
             crate::signals::SignalContext::default(),
             move |manifest: &Hello| {
                 admission_count.fetch_add(1, Ordering::Relaxed);
-                let identity =
-                    BackendId::from_wire(&manifest.identity).map_err(|error| error.to_string())?;
-                BackendDescriptor::admit(
-                    Candidate::new(identity),
-                    ProviderOrigin::Process,
-                    ManifestDigest::from_digest([9; 32]),
-                    manifest
-                        .advertises
-                        .iter()
-                        .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
-                )
-                .map_err(|error| format!("{error:?}"))
+                admit_hello(manifest, ProviderOrigin::Process, 9)
             },
             |request: ProcessProviderRequest<'_>| {
-                assert_eq!(request.emitted_package, b"checked package bytes");
+                assert!(!request.emitted_package.bytes().is_empty());
+                assert_eq!(request.deadline_ms, 4096);
+                assert!(!request.manifest.is_empty());
                 serde_json::json!({
                     "items": request.provider_request.items().iter().map(|item| item.request_index).collect::<Vec<_>>()
                 })
@@ -335,7 +360,7 @@ mod tests {
 
         let mut linked = build_linked_providers(&[]).expect("empty linked registry builds");
         linked
-            .register_admitted([session.descriptor().clone()])
+            .register_admitted([(session.descriptor().clone(), session.manifest().clone())])
             .expect("caller-admitted Process descriptor joins same registry");
         assert_eq!(
             linked
@@ -349,8 +374,13 @@ mod tests {
 
         // An empty request is intentional while CG IR-629 has no process
         // BackendKind; this adapter test cannot claim routed Process items.
+        let package = crate::test_support::emitted_package();
+        let manifest = crate::manifest_snapshot::retain_wire_bytes(linked.manifest_snapshot())
+            .expect("linked manifest snapshot retains canonical bytes");
         let request = ProcessProviderRequest {
-            emitted_package: b"checked package bytes",
+            emitted_package: &package,
+            deadline_ms: 4096,
+            manifest: &manifest,
             provider_request: ProviderRequest::new(&[]),
             cancel: &cancel,
         };
@@ -360,6 +390,113 @@ mod tests {
         assert_eq!(finished.manifest.identity, "agent-ix/provider/test");
         assert_eq!(finished.stderr, b"opaque provider diagnostic\n");
         assert!(!finished.stderr_truncated);
+    }
+
+    /// Trace: FR-005-AC-5, FR-005-AC-12, FR-005-AC-13, FR-005-AC-14, FR-005-AC-15.
+    #[test]
+    fn fr331_hello_is_admitted_once_and_retained_for_registry_snapshot() {
+        use crate::backend_provider::{ManifestAdmissionError, ManifestStage};
+
+        let admissions = Arc::new(AtomicUsize::new(0));
+        let admission_count = Arc::clone(&admissions);
+        let provider = HostProcessProvider::<
+            ManifestStage,
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+            ManifestAdmissionError,
+            String,
+            _,
+            _,
+            _,
+            _,
+        >::new(
+            crate::signals::SignalContext::default(),
+            move |manifest: &ManifestStage| {
+                admission_count.fetch_add(1, Ordering::Relaxed);
+                manifest
+                    .admit_process(limits().max_frame_bytes)
+                    .map(|admitted| (admitted.descriptor().clone(), admitted.manifest().clone()))
+            },
+            |_: ProcessProviderRequest<'_>| serde_json::json!({"items": []}),
+            |manifest: &ManifestStage, result: &serde_json::Value| {
+                if result["identity"] == manifest.manifest[0]["backend"] {
+                    Ok(())
+                } else {
+                    Err("result identity differs from admitted hello".to_owned())
+                }
+            },
+            |_| ProviderResults::default(),
+        );
+        let cancel = Cancel::new();
+        let fixture = backend_provider_fixture_path();
+        assert!(fixture.is_file(), "FR-331 fixture exists");
+        let mut session = provider
+            .start(
+                &python_path(),
+                &[fixture.into_os_string()],
+                limits(),
+                &cancel,
+            )
+            .expect("typed FR-331 hello is admitted");
+        assert_eq!(admissions.load(Ordering::Relaxed), 1);
+        assert_eq!(session.descriptor().origin(), ProviderOrigin::Process);
+        assert_eq!(
+            session.descriptor().id().as_str(),
+            "agent-ix/provider/fr331-fixture"
+        );
+
+        let mut linked = build_linked_providers(&[]).expect("one registry builds");
+        linked
+            .register_admitted([(session.descriptor().clone(), session.manifest().clone())])
+            .expect("no second admission is performed");
+        assert_eq!(
+            linked
+                .registry()
+                .descriptors()
+                .next()
+                .expect("one process descriptor is registered")
+                .origin(),
+            ProviderOrigin::Process
+        );
+        let manifest = crate::manifest_snapshot::retain_wire_bytes(linked.manifest_snapshot())
+            .expect("linked manifest snapshot retains canonical bytes");
+        assert_eq!(manifest.len(), 1);
+        let retained_wire = manifest[0]
+            .wire
+            .as_deref()
+            .expect("retained hello descriptor has canonical bytes");
+        let retained_digest: [u8; 32] = sha2::Sha256::digest(retained_wire).into();
+        assert_eq!(
+            retained_digest,
+            *session.manifest().manifest_digest.record().as_bytes()
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(retained_wire)
+                .expect("retained bytes are valid JSON"),
+            serde_json::json!({
+                "backend": "agent-ix/provider/fr331-fixture",
+                "advertises": [{"kind": "operation-contract", "mode": "bounded"}],
+                "domains": ["integer"],
+                "bounds": {"max_states": 8}
+            })
+        );
+
+        let package = crate::test_support::emitted_package();
+        let request = ProcessProviderRequest {
+            emitted_package: &package,
+            deadline_ms: 4096,
+            manifest: &manifest,
+            provider_request: ProviderRequest::new(&[]),
+            cancel: &cancel,
+        };
+        session
+            .invoke(request)
+            .expect("fixture responds to request");
+        let finished = session.shutdown().expect("session ends cleanly");
+        assert_eq!(finished.manifest.manifest.len(), 1);
+        assert_eq!(finished.manifest.manifest[0]["domains"][0], "integer");
+        assert_eq!(finished.manifest.manifest[0]["bounds"]["max_states"], 8);
     }
 
     #[test]
@@ -379,20 +516,7 @@ mod tests {
             _,
         >::new(
             crate::signals::SignalContext::default(),
-            |manifest: &Hello| {
-                let identity =
-                    BackendId::from_wire(&manifest.identity).map_err(|error| error.to_string())?;
-                BackendDescriptor::admit(
-                    Candidate::new(identity),
-                    ProviderOrigin::Process,
-                    ManifestDigest::from_digest([9; 32]),
-                    manifest
-                        .advertises
-                        .iter()
-                        .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
-                )
-                .map_err(|error| format!("{error:?}"))
-            },
+            |manifest: &Hello| admit_hello(manifest, ProviderOrigin::Process, 9),
             |_: ProcessProviderRequest<'_>| serde_json::json!({"items": []}),
             |manifest: &Hello, result: &serde_json::Value| {
                 if result["identity"] == manifest.identity {
@@ -409,8 +533,11 @@ mod tests {
         let mut session = provider
             .start(&python_path(), &arguments, limits(), &cancel)
             .expect("fixture hello is admitted");
+        let package = crate::test_support::emitted_package();
         let request = ProcessProviderRequest {
-            emitted_package: b"checked package bytes",
+            emitted_package: &package,
+            deadline_ms: 4096,
+            manifest: &[],
             provider_request: ProviderRequest::new(&[]),
             cancel: &cancel,
         };
@@ -445,20 +572,7 @@ mod tests {
             _,
         >::new(
             crate::signals::SignalContext::default(),
-            |manifest: &Hello| {
-                BackendDescriptor::admit(
-                    Candidate::new(
-                        BackendId::from_wire(&manifest.identity).map_err(|e| e.to_string())?,
-                    ),
-                    ProviderOrigin::Linked,
-                    ManifestDigest::from_digest([7; 32]),
-                    manifest
-                        .advertises
-                        .iter()
-                        .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
-                )
-                .map_err(|error| format!("{error:?}"))
-            },
+            |manifest: &Hello| admit_hello(manifest, ProviderOrigin::Linked, 7),
             |_: ProcessProviderRequest<'_>| serde_json::json!({}),
             |_: &Hello, _: &serde_json::Value| Ok::<(), String>(()),
             |_: serde_json::Value| ProviderResults::default(),
@@ -483,15 +597,5 @@ mod tests {
             _ => false,
         };
         assert!(refused_for_origin, "linked-origin hello is rejected");
-    }
-
-    #[test]
-    fn missing_caller_admitted_descriptor_is_a_typed_adapter_error() {
-        let result: Result<BackendDescriptor, super::AdapterError<String, String, String>> =
-            super::require_admitted_descriptor(None);
-        assert!(matches!(
-            result,
-            Err(super::AdapterError::MissingAdmittedDescriptor)
-        ));
     }
 }

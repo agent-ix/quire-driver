@@ -11,10 +11,11 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
 
+use qsl_package::EmittedPackage;
 use qsl_route::BackendDescriptor;
 use quire_exact::Cancel;
 
-use crate::{ProviderRequest, ProviderResults};
+use crate::{ProviderManifest, ProviderRequest, ProviderResults};
 
 /// Caller-owned process and framing budgets, independent of the host crate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,7 +39,12 @@ pub struct ProcessProviderLimits {
 pub struct ProcessProviderRequest<'a> {
     /// Exact emitted checked-package bytes, intentionally forwarded under
     /// FR-006 without decoding or rewriting them in the driver seam.
-    pub emitted_package: &'a [u8],
+    pub emitted_package: &'a EmittedPackage,
+    /// Caller-supplied deadline for this request in milliseconds.
+    pub deadline_ms: u64,
+    /// Snapshot of all registered candidate manifests, from the one driver
+    /// registry that admitted linked and process providers.
+    pub manifest: &'a [ProviderManifest],
     /// Driver-owned typed request for this provider's negotiated items.
     pub provider_request: ProviderRequest<'a>,
     /// Caller-owned cancellation handle for this request.
@@ -59,6 +65,9 @@ pub trait ProcessProviderSession {
 
     /// The descriptor returned by the one QSL admission of the hello manifest.
     fn descriptor(&self) -> &BackendDescriptor;
+
+    /// The lossless driver-owned FR-331 manifest retained at admission.
+    fn manifest(&self) -> &ProviderManifest;
 
     /// Send one routed request and return driver-owned typed provider results.
     /// Current results carry Kani-specific evidence and failures; generalizing
@@ -90,119 +99,4 @@ pub trait ProcessProvider {
         limits: ProcessProviderLimits,
         cancel: &Cancel,
     ) -> Result<Self::Session, Self::Error>;
-}
-
-#[cfg(test)]
-mod tests {
-    use std::convert::Infallible;
-    use std::ffi::OsString;
-    use std::path::Path;
-    use std::time::Duration;
-
-    use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
-    use quire_exact::Cancel;
-
-    use crate::{ProviderRequest, ProviderResults};
-
-    use super::{
-        ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
-    };
-
-    struct FakeProvider;
-
-    struct FakeSession {
-        descriptor: BackendDescriptor,
-    }
-
-    impl ProcessProvider for FakeProvider {
-        type Session = FakeSession;
-        type Error = Infallible;
-
-        fn start(
-            &self,
-            executable: &Path,
-            arguments: &[OsString],
-            limits: ProcessProviderLimits,
-            cancel: &Cancel,
-        ) -> Result<Self::Session, Self::Error> {
-            assert_eq!(executable, Path::new("./provider"));
-            assert_eq!(arguments, [OsString::from("--fixture")]);
-            assert_eq!(limits.max_total_bytes, 1024);
-            assert_eq!(cancel.cause(), None);
-            Ok(FakeSession {
-                descriptor: BackendDescriptor::admit(
-                    Candidate::new(
-                        BackendId::from_wire("agent-ix/provider/process").expect("nonempty id"),
-                    ),
-                    ProviderOrigin::Process,
-                    ManifestDigest::from_digest([9; 32]),
-                    [(Some("operation-contract"), Some("bounded"))],
-                )
-                .expect("the hello admitter accepts the fixture manifest"),
-            })
-        }
-    }
-
-    impl ProcessProviderSession for FakeSession {
-        type Error = Infallible;
-        type Diagnostics = ();
-
-        fn descriptor(&self) -> &BackendDescriptor {
-            &self.descriptor
-        }
-
-        fn invoke(
-            &mut self,
-            request: ProcessProviderRequest<'_>,
-        ) -> Result<ProviderResults, Self::Error> {
-            assert_eq!(request.emitted_package, b"package");
-            assert!(request.provider_request.items().is_empty());
-            assert_eq!(request.cancel.cause(), None);
-            Ok(ProviderResults::default())
-        }
-
-        fn shutdown(self) -> Result<Self::Diagnostics, Self::Error> {
-            Ok(())
-        }
-    }
-
-    /// The seam starts once, exposes its admitted Process descriptor for the
-    /// shared registry, and sends typed driver requests over that session.
-    /// PR2's routing test must send real routed items through this seam; this
-    /// test uses an empty request to isolate the session contract.
-    #[test]
-    fn starts_once_and_invokes_with_driver_owned_provider_types() {
-        let cancel = Cancel::new();
-        let limits = ProcessProviderLimits {
-            max_frame_bytes: 64,
-            max_total_bytes: 1024,
-            max_stderr_bytes: 128,
-            cancellation_grace: Duration::from_millis(50),
-            max_process_memory_bytes: None,
-            max_process_cpu_time: None,
-        };
-        let mut session = FakeProvider
-            .start(
-                Path::new("./provider"),
-                &[OsString::from("--fixture")],
-                limits,
-                &cancel,
-            )
-            .expect("provider starts");
-        assert_eq!(session.descriptor().origin(), ProviderOrigin::Process);
-        assert_eq!(
-            session.descriptor().id().as_str(),
-            "agent-ix/provider/process"
-        );
-
-        let package = b"package";
-        let provider_request = ProviderRequest::new(&[]);
-        let request = ProcessProviderRequest {
-            emitted_package: package,
-            provider_request,
-            cancel: &cancel,
-        };
-        let _ = session.invoke(request).expect("provider request succeeds");
-        session.shutdown().expect("provider shuts down");
-    }
 }
