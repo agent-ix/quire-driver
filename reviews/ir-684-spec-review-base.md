@@ -82,3 +82,9 @@ Round 2 dispositions (FND-001 and FND-002 remain fixed; no new row needed):
 | FND | outcome | sha/reason |
 | --- | --- | --- |
 | FND-003 | still-open | introduced by fix round 2; the FR-003 Behavior bullet and the TC-010 Description still name `CallerLimits::from_operands` as a driver API, contradicting the parse, bounds-check, `set_bound` sequence |
+
+Round 3 dispositions, for the fix round-3 wording commit on PR #52 (commit id recorded only in the Linear dispositions marker). A grep of FR-003, TC-010, tests.md, src and quire-cli finds no remaining `from_operands` and no "as applicable". `quire validate --scope .` on the touched docs exits 0. The matrix statuses are unchanged.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-003 | fixed | fix round 3: FR-003 Behavior and the TC-010 Description now resolve bare accounting names through QSL `parse_operands` / `Setting::from_name`, then check each against the selected operation's bounds and apply it with `CallerLimits::set_bound`; `CallerLimits::from_operands` is removed from both |
