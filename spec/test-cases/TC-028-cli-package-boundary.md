@@ -3,6 +3,8 @@ id: TC-028
 title: "Keep the CLI package separate from the driver and compose cache and host"
 type: TC
 relationships:
+  - target: ix://agent-ix/quire-driver/FR-002
+    type: verifies
   - target: ix://agent-ix/quire-driver/FR-006
     type: verifies
   - target: ix://agent-ix/quire-driver/FR-013
@@ -22,7 +24,7 @@ Only end-to-end process-provider routing requires the process backend mapping
 from CG IR-629. Package-graph, adapter-fixture lifecycle, and cleanup checks do
 not require that mapping and can run independently of it.
 
-Scope: FR-006-AC-1, FR-006-AC-3..FR-006-AC-4, FR-013-AC-11,
+Scope: FR-002-AC-3..FR-002-AC-4, FR-006-AC-1, FR-006-AC-3..FR-006-AC-4, FR-013-AC-11,
 FR-013-AC-14..FR-013-AC-15,
 FR-014-AC-1, FR-014-AC-2, FR-014-AC-4 and FR-014-AC-5.
 
@@ -47,27 +49,32 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4 and FR-014-AC-5.
    second registry. Confirm it connects the descriptor to the process-provider
    seam. End-to-end provider routing remains blocked on CG IR-629; this
    admission-boundary check uses an adapter fixture.
-7. On Linux and macOS, using an adapter fixture independent of CG routing and a plugin fixture
-   that starts a descendant which remains alive, let a request finish
+7. On Linux and macOS, using an adapter fixture independent of CG routing and
+   a plugin fixture that starts a descendant which remains alive, let a request finish
    normally. Confirm the CLI closes the session and the process tree exits
    before the CLI exits; if `RunLimits.cancellation_grace` expires first,
-   confirm forced cleanup completes within one second. Windows forced
-   process-tree cleanup remains planned under IR-674.
+   confirm forced cleanup completes within one second. Windows forced cleanup
+   uses the existing `terminate_tree`/`terminate_job` path and is verified in
+   step 9; only automatic kill-on-close remains planned under IR-674.
 8. On Linux and macOS only, for each plugin-session state, run one invocation
    that receives SIGINT and one that receives SIGTERM: wait for a `started`
    marker before hello is written, wait for a request-running marker, and wait
    for a shutdown-waiting marker after the shutdown frame. Confirm the CLI
    requests cancellation, waits for settlement or
    `RunLimits.cancellation_grace` expiry, terminates any remaining process
-   tree, exits with the conventional signal-terminated status, and makes no
-   QSL cause claim. With no active session, confirm the CLI retains the
+   tree, restores the default disposition and re-raises the received signal.
+   Confirm the parent observes signal termination for that exact signal (not
+   an integer exit code), stdout contains no `quire-outcome/1` document, and no
+   QSL cause is claimed. With no active session, confirm the CLI retains the
    platform's default signal disposition. Windows console control events are
    outside this signal guarantee.
-9. Windows Job Object behavior is planned under IR-674 and has no current
-   implementation claim. When a supported mechanism and native Windows runner
-   are available, verify assignment before plugin execution and descendant
-   termination on owning-handle close. Record this as Windows-native evidence;
-   do not count Linux or macOS results as Windows evidence.
+9. On Windows, verify forced plugin-tree cleanup through the host's existing
+   `terminate_tree`/`terminate_job` path using a native Windows runner. The
+   separate automatic kill-on-close mechanism is planned under IR-674; when
+   implemented, verify Job Object assignment before plugin execution and
+   descendant termination on owning-handle close. Record this as
+   Windows-native evidence; do not count Linux or macOS results as Windows
+   evidence.
 10. Inspect the Windows host startup/error path in
     `quire-plugin-host/src/lib.rs` for Job Object creation and assignment
     failures. Record whether failures are distinguishable as typed start
@@ -104,6 +111,7 @@ Linux/macOS runners provide the signal evidence in step 8.
 - Normal CLI termination requests graceful shutdown on all supported adapter
   platforms; Linux/macOS handled SIGINT/SIGTERM close active plugin trees
   within the defined bound.
-- Windows Job Object behavior remains planned under IR-674; step 10 currently
-  specifies static inspection only, with runtime evidence requiring a native
-  Windows runner and a usable setup-failure seam.
+- Windows forced cleanup uses the merged host's explicit termination path;
+  verify it on a native Windows runner. Automatic kill-on-close remains
+  planned under IR-674, and setup-failure runtime evidence requires a native
+  Windows runner and a usable failure seam.
