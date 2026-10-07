@@ -67,8 +67,7 @@ pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, Routed}
 pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};
 pub use limits::{LimitError, LimitOverrides};
 pub use process_provider::{
-    start_process_provider, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
-    ProcessProviderSession,
+    ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
 };
 pub use provider::{
     KaniExecutionLimits, KaniProvider, Provider, ProviderItemFailure, ProviderItemResult,

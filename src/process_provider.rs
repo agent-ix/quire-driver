@@ -36,7 +36,8 @@ pub struct ProcessProviderLimits {
 
 /// One routed request sent over an already-started process session.
 pub struct ProcessProviderRequest<'a> {
-    /// Exact emitted checked-package bytes.
+    /// Exact emitted checked-package bytes, intentionally forwarded under
+    /// FR-006 without decoding or rewriting them in the driver seam.
     pub emitted_package: &'a [u8],
     /// Driver-owned typed request for this provider's negotiated items.
     pub provider_request: ProviderRequest<'a>,
@@ -52,17 +53,25 @@ pub trait ProcessProviderSession {
     /// Typed adapter failure.
     type Error;
 
+    /// Host diagnostics retained when graceful shutdown completes, including
+    /// captured stderr and the process exit status when available.
+    type Diagnostics;
+
     /// The descriptor returned by the one QSL admission of the hello manifest.
     fn descriptor(&self) -> &BackendDescriptor;
 
     /// Send one routed request and return driver-owned typed provider results.
+    /// Current results carry Kani-specific evidence and failures; generalizing
+    /// them for other provider kinds is tracked by IR-677.
     fn invoke(
         &mut self,
         request: ProcessProviderRequest<'_>,
     ) -> Result<ProviderResults, Self::Error>;
 
-    /// Request graceful shutdown of this session and its process tree.
-    fn shutdown(self) -> Result<(), Self::Error>;
+    /// Request graceful shutdown and return the host's captured diagnostics.
+    /// Callers should preserve or report these diagnostics. Dropping a session
+    /// without calling `shutdown` relies on the host's `Drop` cleanup path.
+    fn shutdown(self) -> Result<Self::Diagnostics, Self::Error>;
 }
 
 /// Start a named process provider and admit its hello before backend routing.
@@ -83,18 +92,6 @@ pub trait ProcessProvider {
     ) -> Result<Self::Session, Self::Error>;
 }
 
-/// Start a provider session; its admitted descriptor can be appended to the
-/// linked provider registry before negotiation.
-pub fn start_process_provider<P: ProcessProvider>(
-    provider: &P,
-    executable: &Path,
-    arguments: &[OsString],
-    limits: ProcessProviderLimits,
-    cancel: &Cancel,
-) -> Result<P::Session, P::Error> {
-    provider.start(executable, arguments, limits, cancel)
-}
-
 #[cfg(test)]
 mod tests {
     use std::convert::Infallible;
@@ -108,8 +105,7 @@ mod tests {
     use crate::{ProviderRequest, ProviderResults};
 
     use super::{
-        start_process_provider, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
-        ProcessProviderSession,
+        ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
     };
 
     struct FakeProvider;
@@ -149,6 +145,7 @@ mod tests {
 
     impl ProcessProviderSession for FakeSession {
         type Error = Infallible;
+        type Diagnostics = ();
 
         fn descriptor(&self) -> &BackendDescriptor {
             &self.descriptor
@@ -164,13 +161,15 @@ mod tests {
             Ok(ProviderResults::default())
         }
 
-        fn shutdown(self) -> Result<(), Self::Error> {
+        fn shutdown(self) -> Result<Self::Diagnostics, Self::Error> {
             Ok(())
         }
     }
 
     /// The seam starts once, exposes its admitted Process descriptor for the
     /// shared registry, and sends typed driver requests over that session.
+    /// PR2's routing test must send real routed items through this seam; this
+    /// test uses an empty request to isolate the session contract.
     #[test]
     fn starts_once_and_invokes_with_driver_owned_provider_types() {
         let cancel = Cancel::new();
@@ -182,14 +181,14 @@ mod tests {
             max_process_memory_bytes: None,
             max_process_cpu_time: None,
         };
-        let mut session = start_process_provider(
-            &FakeProvider,
-            Path::new("./provider"),
-            &[OsString::from("--fixture")],
-            limits,
-            &cancel,
-        )
-        .expect("provider starts");
+        let mut session = FakeProvider
+            .start(
+                Path::new("./provider"),
+                &[OsString::from("--fixture")],
+                limits,
+                &cancel,
+            )
+            .expect("provider starts");
         assert_eq!(session.descriptor().origin(), ProviderOrigin::Process);
         assert_eq!(
             session.descriptor().id().as_str(),

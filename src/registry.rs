@@ -59,7 +59,10 @@ impl LinkedProviders<'_> {
 
     /// Register caller-admitted descriptors into the same registry that owns
     /// the linked providers. QSL retains authority over duplicate identity
-    /// refusal and withdrawal; this method does not re-admit descriptors.
+    /// refusal and withdrawal; this method does not re-admit descriptors. If
+    /// QSL reports a conflict, its registry remains in that post-conflict
+    /// state: non-conflicting registrations remain, each conflicting identity
+    /// is withdrawn, and later calls continue to return the retained refusal.
     pub fn register_admitted(
         &mut self,
         descriptors: impl IntoIterator<Item = BackendDescriptor>,
