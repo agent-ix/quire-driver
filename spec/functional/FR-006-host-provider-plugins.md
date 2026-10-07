@@ -81,7 +81,9 @@ settlement path used for first-party providers.
 - The `quire-cli` adapter SHALL place temporal proof bounds under
   `items[].temporal.subject.proof_bounds`. The current CG routed output does
   not retain all these fields; their projection is a named integration gap for
-  IR-629, and bounds `kind` additionally depends on QSL-654.
+  IR-629. QSL FR-290-AC-13 owns the PV-4 domain-kind rule: compare boundable
+  kinds only, and do not compare unbounded items. The FR-331 proof-bound kind
+  is specified; QSL's emitter support for writing that member remains pending.
 - The driver SHALL pass a validated plugin result to the shared settlement
   path only when QSL supplies a terminal mapping for it. A result without a
   currently supported terminal mapping SHALL remain typed, unmapped provider
@@ -93,13 +95,16 @@ settlement path used for first-party providers.
   code and available locus and message into a QSL `OutcomeDiagnostic` in the
   outcome document. It SHALL NOT parse free-form message or `detail` text to
   choose a terminal; terminal mappings must be defined by QSL.
-- When the plugin rejects a request because `package_id` does not match the
-  decoded package bytes, or because the package spelling is non-canonical, the
-  `quire-cli` adapter SHALL decode the plugin's FR-331 response and preserve
-  each routed item identity and typed FR-272 diagnostic. The driver's shared
-  settlement path SHALL map each failed item to QSL `TerminalValue::Failed`
-  and carry the diagnostic separately in the outcome document. Results for
-  unrelated providers SHALL remain unchanged.
+- Given an FR-331 response for a `package_id` mismatch, the `quire-cli`
+  adapter SHALL preserve each routed item identity and the typed FR-272
+  diagnostic (`stale_dependency` code with `content-mismatch` cause).
+- Given an FR-331 response for non-canonical package spelling, the `quire-cli`
+  adapter SHALL preserve each routed item identity and the typed FR-272
+  diagnostic (`invalid_runtime_input` code with `invalid-value` cause).
+- For either preserved response, the driver's shared settlement path SHALL map
+  each failed item to QSL `TerminalValue::Failed` and carry the diagnostic
+  separately in the outcome document. Results for unrelated providers SHALL
+  remain unchanged.
 - The driver SHALL synthesize provider failures only for host/protocol failures
   defined by ADR-029 PL-7; it SHALL NOT attribute a request-body refusal to
   QSL, which has no process request-body reader.
@@ -142,14 +147,16 @@ settlement path used for first-party providers.
 | FR-006-AC-9 | The `quire-cli` adapter serializes a request without top-level `domains` or `limits` members. | Planned (TC-013) |
 | FR-006-AC-10 | The `quire-cli` adapter serializes each item's request index, claim locus and kind from CG's routed output. | Planned (TC-013; full source projection awaits IR-629) |
 | FR-006-AC-11 | The `quire-cli` adapter serializes each item's selected backend and candidate set from CG's routed output. | Planned (TC-013; full source projection awaits IR-629) |
-| FR-006-AC-12 | The `quire-cli` adapter serializes each item's extent and bounds from CG's routed output. | Planned (TC-013; full source projection awaits IR-629 and QSL-654) |
+| FR-006-AC-12 | The `quire-cli` adapter serializes each item's extent and bounds from CG's routed output. | Planned (TC-013; full source projection awaits IR-629; QSL proof-bound kind emission remains pending) |
 | FR-006-AC-13 | The `quire-cli` adapter serializes each item's temporal proof bounds under `items[].temporal.subject.proof_bounds`. | Planned (TC-013; full source projection awaits IR-629) |
 | FR-006-AC-14 | The driver's shared settlement path preserves a plugin `declined` result's typed code in QSL `TerminalValue::Declined { code }`. | Planned (TC-013) |
 | FR-006-AC-15 | A validated result without a specified QSL terminal mapping remains typed and unmapped in the driver's shared settlement path. | Planned (TC-013; IR-677 and QSL result-mapping APIs) |
 | FR-006-AC-16 | The driver's shared settlement path carries the FR-272 cause, diagnostic code and available locus and message in a QSL `OutcomeDiagnostic`; free-form message or `detail` text does not select a terminal. | Planned (TC-013) |
-| FR-006-AC-17 | Given a plugin response marking every routed item failed with FR-272 cause `stale_dependency` and code `content-mismatch`, the `quire-cli` adapter preserves the typed response and routed item identities, and the driver's shared settlement path maps each item to QSL `TerminalValue::Failed` with the diagnostic from FR-006-AC-16. | Planned (TC-013) |
-| FR-006-AC-18 | Given a plugin response marking every routed item failed with FR-272 cause `invalid_runtime_input` and code `invalid-value` for a non-canonical package spelling, the `quire-cli` adapter preserves the typed response and routed item identities, and the driver's shared settlement path maps each item to QSL `TerminalValue::Failed` with the diagnostic from FR-006-AC-16. | Planned (TC-013) |
+| FR-006-AC-17 | Given an FR-331 response for a `package_id` mismatch, the `quire-cli` adapter preserves each routed item identity and the FR-272 diagnostic with code `stale_dependency` and cause `content-mismatch`. | Planned (TC-013) |
+| FR-006-AC-18 | Given an FR-331 response for non-canonical package spelling, the `quire-cli` adapter preserves each routed item identity and the FR-272 diagnostic with code `invalid_runtime_input` and cause `invalid-value`. | Planned (TC-013) |
 | FR-006-AC-19 | The driver synthesizes failed provider results only for host/protocol failures defined by ADR-029 PL-7; it does not attribute a process request-body refusal to QSL. | Planned (TC-013) |
+| FR-006-AC-20 | For a preserved package-mismatch response, the driver's shared settlement path maps every failed routed item to QSL `TerminalValue::Failed` and carries the typed diagnostic in `OutcomeDiagnostic`, leaving unrelated provider results unchanged. | Planned (TC-013; IR-677 and QSL settlement API) |
+| FR-006-AC-21 | For a preserved non-canonical-package response, the driver's shared settlement path maps every failed routed item to QSL `TerminalValue::Failed` and carries the typed diagnostic in `OutcomeDiagnostic`, leaving unrelated provider results unchanged. | Planned (TC-013; IR-677 and QSL settlement API) |
 
 ## Dependencies
 
@@ -159,10 +166,12 @@ settlement path used for first-party providers.
   specifies the separate host implementation. FR-014 specifies its
   composition by the `quire-cli` package.
 - [FR-331](ix://agent-ix/quire-specification/FR-331) owns the
-  `quire.backend-provider/v1` envelope; QSL owns typed terminal values and
+  `quire.backend-provider/v1` envelope; QSL FR-290-AC-13 owns the PV-4
+  domain-kind rule; QSL owns typed terminal values and
   `quire-outcome/1` serialization.
-- QSL-654 adds the `kind` member to proof bounds; the driver does not add that
-  field until QSpec/QSL publishes it. CG's separate `bounds[].kind` work is
+- QSL-654 specifies the proof-bound `kind` member; QSL emitter support for
+  writing it remains pending. QSL FR-290-AC-13 defines the PV-4 domain-kind
+  comparison rule. CG's separate `bounds[].kind` work is
   outside this request adapter.
 - QSL-490 and QSL-655 are prerequisites for a plugin `proved` result's trusted
   `ProofBasis` and for replay settlement of plugin counterexample candidates.

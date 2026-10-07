@@ -17,8 +17,8 @@ process-provider seam and returns typed provider results through its proof
 path; TC-028 verifies that `quire-cli` composes this seam with
 `quire-plugin-host`.
 
-Scope: FR-005-AC-5 through FR-005-AC-11, FR-006-AC-1 through FR-006-AC-2,
-and FR-006-AC-5 through FR-006-AC-19.
+Scope: FR-005-AC-5 through FR-005-AC-17, FR-006-AC-1 through FR-006-AC-2,
+and FR-006-AC-5 through FR-006-AC-21.
 
 ## Test Procedure
 
@@ -39,11 +39,22 @@ and FR-006-AC-5 through FR-006-AC-19.
    `items[].temporal.subject.proof_bounds`, with no request-level `domains` or
    `limits` member.
 3. Start the explicit fixture executable. Have the `quire-cli` adapter decode
-   its FR-331 hello DTO without discarding optional fields. Pass its identity and advertised labels through
-   one QSL descriptor admission with caller-supplied `Process` origin, then
-   register the returned descriptor in the existing registry without a
-   second admission. An absent or unknown kind/mode reaches QSL and remains
-   its typed `invalid_capability` refusal.
+   its FR-331 hello DTO without discarding optional fields. Pass its identity
+   and advertised labels through one QSL descriptor admission with
+   caller-supplied `Process` origin, then return the admitted descriptor and
+   lossless FR-331 DTO to the driver. Register the descriptor with the one
+   QSL registry owned by the driver's `AdmittedRegistry`, without a second
+   admission. Retain one DTO for each registered candidate in that
+   driver-owned registry; for linked providers,
+   populate it from the advertised kind, mode, domains and bounds. An absent or
+   unknown kind/mode reaches QSL and remains its typed `invalid_capability`
+   refusal. A hello domain defect must retain QSL's per-registration
+   `invalid-domains` refusal; an absent or unknown kind/mode must retain
+   `invalid_capability`. Verify descriptor identity, advertised pairs and
+   supplied origin are passed to CG unchanged. The future conversion to
+   `BackendKind::Process` is planned
+   for CG IR-629; the driver does not construct that kind or map backend
+   identity to it.
 4. Use each of the 13 Kani result rows in QSpec FR-331-AC-20's Kani results
    table as a conversion case. For each row, compare the typed result fields
    with the current QSL terminal contract and exercise a terminal only where
@@ -65,18 +76,18 @@ and FR-006-AC-5 through FR-006-AC-19.
    no current QSL terminal mapping; verify it remains typed and unmapped.
    These cases remain planned until the relevant QSL mapping is available.
 7. Send a request with a `package_id` that does not match the decoded package.
-   Verify the plugin responds with one FR-331 result that marks every routed
-   item failed and carries FR-272 cause `stale_dependency` and code
-   `content-mismatch`. Repeat with a non-canonical spelling of the package;
-   verify the plugin responds with one FR-331 result marking every routed
-   item failed with cause `invalid_runtime_input` and code `invalid-value`.
-   Verify the `quire-cli` adapter decodes the typed result and preserves each
-   identity and diagnostic, and the driver's shared settlement path maps each
-   failed result to QSL `TerminalValue::Failed` and carries its typed
-   diagnostic in an `OutcomeDiagnostic`; unrelated provider results remain
-   unchanged. A free-form diagnostic message or detail never selects a QSL
+   Verify the FR-331 response marks every routed item failed with code
+   `stale_dependency` and cause `content-mismatch`. Verify the `quire-cli`
+   adapter preserves each identity and typed diagnostic. Independently verify
+   that the driver's shared settlement path maps every failed item to QSL
+   `TerminalValue::Failed`, carries the diagnostic in `OutcomeDiagnostic`, and
+   leaves unrelated provider results unchanged.
+8. Repeat with a non-canonical spelling of the package. Verify the FR-331
+   response marks every routed item failed with code `invalid_runtime_input`
+   and cause `invalid-value`; verify adapter preservation and settlement as in
+   step 7. A free-form diagnostic message or detail never selects a QSL
    terminal.
-8. Verify PL-7 transport failures are handled by the driver's typed transport
+9. Verify PL-7 transport failures are handled by the driver's typed transport
    failure mapping and are not misreported as plugin request-body refusals.
 
 The separate host implementation's PL-1 through PL-7 conformance is verified
@@ -86,7 +97,7 @@ for end-to-end process negotiation and settlement. The current
 `RoutedItemOutput` does not carry the full FR-331 request item or deadline. The
 IR-629 routed-request seam must expose the original request index, claim and
 occurrence, kind, extent/bounds, selected backend and candidates, plus the
-request deadline. Bounds `kind` additionally waits on QSL-654. These missing
+request deadline. The proof-bound `kind` is specified by QSL-654 and FR-290-AC-13; QSL emitter support for writing it remains pending. These missing
 source fields are tracked integration gaps; the test must not synthesize them
 from unrelated provider evidence.
 
