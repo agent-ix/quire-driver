@@ -64,3 +64,21 @@ Round 1, the fix round-1 commit on PR #52 (commit id recorded only in the Linear
 | --- | --- | --- |
 | FND-001 | fixed | fix round 1: the tests.md AC-5 row is now 🚧 Partial and names the accounting clause as planned until QSL-656 |
 | FND-002 | fixed | fix round 1: the tests.md AC-1/AC-3 row now cites `src/execute.rs::caller_source_limit_preserves_configured_bound_and_field` for typed metadata and keeps binary_process.rs for status and raised-bound completion |
+
+## New findings (disposition pass 2)
+
+Round 2 reviewed the fix round-2 commit on PR #52 (commit id recorded only in the Linear dispositions marker). That commit rewrote FR-003 Behavior, FR-003-AC-9, the FR-003 Dependencies, the TC-010 Description, step 3 and Expected Results, and the tests.md AC-9/AC-10 row to use bare accounting counter names. The reviewer confirmed the owner correction against QSpec FR-461 Behavior 6 on quire-specification main. A grep of FR-003, TC-010, tests.md, src and quire-cli finds no remaining `accounting.<counter>` form and no statement that the driver refuses bare names. `quire validate --scope .` on FR-003, TC-010 and tests.md exits 0.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | medium | The new FR-003 Behavior bullet and the TC-010 Description name `CallerLimits::from_operands` as a driver API for accounting names, bringing back the constructor that this PR's own normative change removed; it applies every parsed setting with no `bounds()` check, so it contradicts the parse, bounds-check, `set_bound` sequence and AC-4/AC-5 | spec/functional/FR-003-apply-caller-selected-limits.md:59-63; spec/test-cases/TC-010-caller-selected-limits.md:15-19 |
+
+### FND-003
+
+FR-003 now reads: "When QSL-656 / QSL #665 lands, the driver SHALL use the bare accounting counter names defined by QSL FR-255 (for example, `work_units`) through QSL's `parse_operands`, `Setting::from_name`, and `CallerLimits::from_operands` APIs as applicable to the selected operation." `CallerLimits::from_operands` parses and applies every operand to the full `CallerLimits`, so `explore.states` would be accepted for `run`. The first Behavior bullet, FR-003-AC-4, AC-5 and AC-10 require a per-operation `bounds()` check followed by `CallerLimits::set_bound`. Two implementers could read "as applicable" differently, and one reading allows the very bypass this PR removed. QSL's own use of `from_operands` inside its resolution is QSL's business; the driver's normative sequence should not name it. Fix: say the names are resolved by QSL's `parse_operands` / `Setting::from_name` and applied through the bounds-check then `CallerLimits::set_bound` sequence above, and drop `CallerLimits::from_operands` from both places.
+
+Round 2 dispositions (FND-001 and FND-002 remain fixed; no new row needed):
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-003 | still-open | introduced by fix round 2; the FR-003 Behavior bullet and the TC-010 Description still name `CallerLimits::from_operands` as a driver API, contradicting the parse, bounds-check, `set_bound` sequence |

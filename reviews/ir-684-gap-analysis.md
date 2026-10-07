@@ -81,3 +81,9 @@ Round 1, the fix round-1 commit on PR #52 (commit id recorded only in the Linear
 | FND | outcome | sha/reason |
 | --- | --- | --- |
 | FND-001 | fixed | fix round 1: `work_units=1` is in the binary refusal loop and in `qsl_parser_refuses_unknown_malformed_and_duplicate_operands` expecting `UsageCause::UnknownSetting`; a re-added bare alias now fails |
+
+Round 2, the fix round-2 commit on PR #52 (commit id recorded only in the Linear dispositions marker). The QSL owner corrected the accounting setting names. The reviewer independently read QSpec FR-461 Behavior 6 on quire-specification main: "An `incomplete` execution outcome names its `quire.value.accounting/v1` counter, for example `work_units`. That counter name is its setting at every entry point." Accounting settings are therefore the bare counter names, not `accounting.<counter>`. QSL-656 / QSL #665 will make QSL's parser resolve them, and the driver delegates. The premise of FND-001 was TC-010's then-current requirement that a bare name be refused as unknown. That requirement was itself wrong, so FND-001 is superseded by the owner correction, not fixed. A driver test asserting `work_units` is unknown would break when the driver's QSL pin moves past QSL #665. The author removed it from both the process loop and the unit test; the unit-test deletion is the only change to src/limits.rs. The matrix statuses are unchanged (82 tagged, 49 untagged, 2 method-without-symbol), and AC-9/AC-10 stay untagged and planned.
+
+| FND | outcome | sha/reason |
+| --- | --- | --- |
+| FND-001 | rejected | superseded by owner correction: per QSpec FR-461 Behavior 6 the bare counter name (for example `work_units`) is the canonical accounting setting, so TC-010's earlier "bare name is an ordinary unknown setting" requirement, the premise of this finding, was wrong; the test asserting it was rightly removed in fix round 2 and TC-010/FR-003 now defer bare-name resolution to QSL |
