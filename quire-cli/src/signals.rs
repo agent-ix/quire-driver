@@ -231,6 +231,8 @@ mod tests {
         assert_eq!(first.cause(), Some(CancelCause::Requested));
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert_eq!(second.cause(), None);
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        drop(_clear_received);
         drop(first_guard);
     }
 
