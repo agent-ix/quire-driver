@@ -58,9 +58,10 @@ limit outcome and report no success.
   driver-owned aliases or a separate parser.
 - When QSL-656 / QSL #665 lands, the driver SHALL use the bare accounting
   counter names defined by QSL FR-255 (for example, `work_units`) through
-  QSL's `parse_operands`, `Setting::from_name`, and
-  `CallerLimits::from_operands` APIs as applicable to the selected operation.
-  This keeps name resolution QSL-owned without a driver namespace or aliases.
+  QSL's `parse_operands` / `Setting::from_name` name resolution, then check
+  each resolved setting against the selected operation's bounds and apply it
+  with `CallerLimits::set_bound`. This keeps name resolution QSL-owned without
+  a driver namespace or aliases.
 - If a recognized setting is absent from the selected operation's bounds,
   then the CLI SHALL refuse it before any stage with code `invalid-request`
   and a diagnostic that distinguishes an operation-unavailable setting from

@@ -14,10 +14,11 @@ Verify that QSL parses CLI `--limit` operands, applies exposed settings to the
 selected operation, omitted values keep their defaults, and a reached limit
 remains a typed incomplete outcome. Until QSL-656 / QSL #665 lands, pinned QSL
 does not recognize the bare accounting counter names as caller-settable; when
-it lands, QSL's `parse_operands`, `Setting::from_name`, and
-`CallerLimits::from_operands` APIs own that resolution and the driver must not
-add a namespace or aliases. The driver supports 64-bit hosts; it adds no
-platform overflow rule, and QSL owns bound application behavior on 32-bit hosts.
+it lands, QSL's `parse_operands` / `Setting::from_name` own name resolution.
+The driver then checks each setting against operation bounds before applying it
+with `CallerLimits::set_bound`, without adding a namespace or aliases. The
+driver supports 64-bit hosts; it adds no platform overflow rule, and QSL owns
+bound application behavior on 32-bit hosts.
 
 Scope: FR-003-AC-1 through FR-003-AC-10.
 
