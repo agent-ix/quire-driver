@@ -109,6 +109,7 @@ fn cargo_target_and_dependencies_belong_to_quire_cli() {
     let dependencies = direct_normal_dependencies(cli);
     assert!(dependencies.contains("quire-driver"));
     assert!(dependencies.contains("quire-cache"));
+    assert!(dependencies.contains("quire-plugin-host"));
     assert!(!dependencies.contains("ix-cli-kit"));
 }
 

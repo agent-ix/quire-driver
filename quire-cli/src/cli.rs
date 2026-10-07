@@ -274,7 +274,12 @@ fn read_source(path: &str, source_limit: usize) -> std::io::Result<Vec<u8>> {
 }
 
 /// Dispatch the root verb while preserving its QSL-owned result category.
-fn dispatch(verb: Verb, _format: OutputFormat, raw_arguments: &[OsString]) -> Category {
+fn dispatch(
+    verb: Verb,
+    _format: OutputFormat,
+    raw_arguments: &[OsString],
+    _signals: crate::signals::SignalContext,
+) -> Category {
     if verb == Verb::Run {
         return match RunOptions::parse(raw_arguments) {
             Ok(options) => run(options),
@@ -301,7 +306,12 @@ pub(super) fn entrypoint() -> ExitCode {
             verb,
             format,
             raw_arguments,
-        }) => process_exit_code(dispatch(verb, format, &raw_arguments)),
+        }) => process_exit_code(dispatch(
+            verb,
+            format,
+            &raw_arguments,
+            crate::signals::SignalContext::default(),
+        )),
         Err(_) => process_exit_code(Category::Refusal),
     }
 }
