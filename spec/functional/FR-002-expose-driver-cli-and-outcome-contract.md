@@ -58,8 +58,9 @@ except for that signal-terminated invocation.
   specifies the separate CLI package boundary.
 - The CLI SHALL preserve the library's QSL-defined `quire-outcome/1` value
   without adding, removing or changing outcome data.
-- When an invocation is terminated by SIGINT or SIGTERM during an active
-  plugin session, after the plugin cleanup specified by FR-006 the CLI SHALL
+- When an invocation on Linux or macOS is terminated by SIGINT or SIGTERM
+  during an active plugin session, after the plugin cleanup specified by
+  FR-006 the CLI SHALL
   restore the default signal disposition and re-raise the received signal.
   That terminated invocation SHALL write no `quire-outcome/1` document, and
   the CLI SHALL make no QSL cancellation-cause claim.
@@ -78,7 +79,7 @@ except for that signal-terminated invocation.
 | FR-002-AC-1 | The driver binary exposes the command and output surface defined by QSL ADR-029 LC-1, CB-1 and CB-5, and dispatches each command to its typed operation. | Test (TC-009) |
 | FR-002-AC-2 | For each O-16 category, the process status equals the value returned by QSL's `Category::exit_code`; the CLI has no second category-to-exit mapping. | Test (TC-009, TC-018) |
 | FR-002-AC-3 | In machine mode, each command writes one parseable `quire-outcome/1` value equal to the library outcome under QSL's schema; the CLI adds, removes or changes no outcome data. An invocation terminated by SIGINT or SIGTERM during an active plugin session is exempt and writes no outcome document. | Test (TC-009, TC-018, TC-028) |
-| FR-002-AC-4 | The CLI uses ix-cli-kit for shared command/output, configuration and version mechanics, while preserving QSL's numeric exit result without the kit's typed `Outcome` remapping. An invocation terminated by SIGINT or SIGTERM during an active plugin session is exempt; after cleanup the CLI restores the default signal disposition and re-raises the signal, without inventing an exit number or QSL cause. | Test (TC-009, TC-018, TC-028) |
+| FR-002-AC-4 | The CLI uses ix-cli-kit for shared command/output, configuration and version mechanics, while preserving QSL's numeric exit result without the kit's typed `Outcome` remapping. An invocation on Linux or macOS terminated by SIGINT or SIGTERM during an active plugin session is exempt; after cleanup the CLI restores the default signal disposition and re-raises the signal, without inventing an exit number or QSL cause. | Test (TC-009, TC-018, TC-028) |
 | FR-002-AC-5 | The CLI reads only input paths named by its arguments and reads no unnamed configuration file. | Test (TC-009) |
 
 ## Dependencies
