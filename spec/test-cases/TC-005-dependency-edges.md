@@ -29,6 +29,8 @@ FR-014-AC-2 and FR-014-AC-3.
    `git+https://github.com/agent-ix/quire-spec-language`.
 2. Traverse the complete normal/build dependency closure from `quire-driver`.
    Identify `quire-cache` and inspect its direct dependency edges.
+3. Inspect the direct normal dependency edges from `quire-cli` and confirm it
+   depends on `quire-plugin-host`; confirm the driver closure remains host-free.
 
 Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_list`.
 

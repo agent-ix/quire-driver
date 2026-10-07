@@ -140,8 +140,9 @@ failure ownership across the driver and its upstream libraries.
 | Routing | QSL `qsl-route` | Route after negotiation and only for supported items; retain request indices and checked-node identity | FR-001 / TC-003 |
 | Generation and publication | CG `generate_routed` and CG FR-005 | Supply only routed, relation-bound items and caller contexts; carry generation output and CG-derived claim map without re-derivation | FR-001, FR-010 / TC-006, TC-007, TC-017 |
 | First-party provider execution | Driver `Provider` trait; QSL ADR-029 PV | Invoke only the selected first-party provider with the current emitted package, its negotiated items, limits and cancellation; preserve typed results | FR-005 / TC-012 |
-| Process-provider seam | Driver-owned process-provider interface; `quire-cli` composition adapter | The `quire-cli` adapter supplies admitted plugin hello manifests to the QSL registry builder; dispatch selected process-provider work and pass validated typed results into the same proof settlement path; the driver has no host-package dependency | FR-006 / TC-013 |
-| Process plugin host | `quire-plugin-host`, composed by `quire-cli`; QSL ADR-029 PL-1..PL-7 | Start hello-first sessions, enforce framing and caller budgets, preserve validated results and typed failures, and terminate the process tree on cancellation or timeout | FR-013 / TC-023..TC-027 |
+| Process-provider seam | Driver-owned process-provider interface; `quire-cli` composition adapter | `quire-cli` supplies admitted plugin hello manifests; the driver registers them with linked manifests through one QSL registry, dispatches selected process-provider work and settles validated results; the driver has no host-package dependency | FR-005, FR-006 / TC-012, TC-013, TC-028 |
+| Process plugin host | `quire-plugin-host`, composed by `quire-cli`; QSL ADR-029 PL-1..PL-7 | Start hello-first sessions, enforce framing and caller budgets, preserve validated results and typed failures, terminate the process tree on cancellation or timeout, and use Windows Job Object kill-on-close | FR-013 / TC-023..TC-028 |
+| CLI plugin lifecycle exit | `quire-cli` process-provider adapter | Close active sessions before normal CLI exit; handle SIGINT/SIGTERM by requesting QSL cancellation and terminating the process tree; use a Windows Job Object with kill-on-close | FR-006 / TC-028 |
 | Eligible cache calls | Driver cache interface and QSL ADR-029 CA-1..CA-5 | Supply operation, package and provider identity, admitted `ManifestDigest`, typed request and generation options; preserve typed hit/miss results without depending on `quire-cache` | FR-007 / TC-014 |
 | Cache key and storage | `quire-cache`, implementing QSL ADR-029 CA-1..CA-5 | Derive and verify content identity, enforce typed reads, storage policy and caller byte limits | FR-012 / TC-020..TC-022 |
 | AOT execution | QSL ADR-029 EB | Pass the current checked package, selected entries, limits, cancellation and named toolchain to the selected backend; preserve failures without switching engines | FR-008 / TC-015 |
@@ -158,8 +159,9 @@ not imply that a proof was executed.
 
 FR-011 places cancellation at the driver library boundary: a caller owns a
 cloneable QSL handle and may cancel from another thread. QSL's typed result,
-`incomplete` category and CB-4 exit mapping remain authoritative. A CLI
-signal/deadline trigger is a separate planned frontend adapter. The E4
+`incomplete` category and CB-4 exit mapping remain authoritative. FR-006
+specifies CLI handling of SIGINT/SIGTERM for active plugin sessions; a
+separate CLI deadline trigger remains planned. The E4
 `EmittedUnit` source provision is used as E5 evidence and then released.
 `Driven.package` retains QSL's `CheckedUnit` source so callers can resolve
 diagnostic loci without reacquiring source. Under FR-001's current empty
