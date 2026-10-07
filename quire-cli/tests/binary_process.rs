@@ -145,6 +145,7 @@ fn reserved_exit_code_uses_internal_failure_fallback() {
 }
 
 /// The normal binary ignores TC-018's selector even when the caller sets it.
+#[cfg(not(feature = "tc018-test-adapter"))]
 #[test]
 fn default_binary_does_not_enable_the_test_exit_seam() {
     let output = Command::new(QUIRE)
