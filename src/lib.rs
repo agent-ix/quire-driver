@@ -40,8 +40,10 @@
 //! design) renders them.
 //!
 //! The registry is an ordinary value the caller builds with
-//! [`build_registry`] from provider manifests and passes in. It is never
-//! global state (ADR-012 §7.1).
+//! [`build_registry`] or [`build_linked_providers`] and passes in. A
+//! [`LinkedProviders`] value can append already-admitted process descriptors
+//! to that same registry before negotiation. It is never global state
+//! (ADR-012 §7.1).
 
 #![forbid(unsafe_code)]
 
@@ -65,7 +67,8 @@ pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, Routed}
 pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};
 pub use limits::{LimitError, LimitOverrides};
 pub use process_provider::{
-    invoke_process_provider, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
+    start_process_provider, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
+    ProcessProviderSession,
 };
 pub use provider::{
     KaniExecutionLimits, KaniProvider, Provider, ProviderItemFailure, ProviderItemResult,
@@ -74,7 +77,6 @@ pub use provider::{
 pub use quire_contract_codegen::ProofCeilings;
 pub use refusal::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
 pub use registry::{
-    build_linked_providers, build_registry, register_admitted_descriptors, AdmittedRegistry,
-    LinkedProviders, ProviderManifest,
+    build_linked_providers, build_registry, AdmittedRegistry, LinkedProviders, ProviderManifest,
 };
 pub use upstream::{QslCg, Upstream};

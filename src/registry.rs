@@ -31,8 +31,9 @@ pub struct ProviderManifest {
 
 /// A registry accepted by the driver's complete manifest-admission pass.
 ///
-/// The wrapper exposes only shared access, so callers cannot add a conflicting
-/// descriptor after admission and then create cache requests from stale state.
+/// The wrapper exposes shared access by default. Process descriptors that have
+/// already crossed QSL admission may be appended explicitly through
+/// [`LinkedProviders::register_admitted`].
 #[derive(Debug)]
 pub struct AdmittedRegistry {
     registry: Registry,
@@ -56,6 +57,16 @@ impl LinkedProviders<'_> {
         &self.admitted
     }
 
+    /// Register caller-admitted descriptors into the same registry that owns
+    /// the linked providers. QSL retains authority over duplicate identity
+    /// refusal and withdrawal; this method does not re-admit descriptors.
+    pub fn register_admitted(
+        &mut self,
+        descriptors: impl IntoIterator<Item = BackendDescriptor>,
+    ) -> Result<(), DriverRefusal> {
+        register_into_registry(&mut self.admitted.registry, descriptors)
+    }
+
     /// The unique linked provider for `backend`, if present.
     ///
     /// Returns `None` when there is no matching provider or when multiple
@@ -64,6 +75,13 @@ impl LinkedProviders<'_> {
     /// implementation by input order.
     #[must_use]
     pub fn provider(&self, backend: &BackendId) -> Option<&dyn Provider> {
+        if !self
+            .admitted
+            .descriptors()
+            .any(|descriptor| descriptor.id() == backend)
+        {
+            return None;
+        }
         // A repeated identical manifest is QSL-idempotent, but it does not
         // identify which of multiple linked implementations should execute.
         let mut matching = self
@@ -138,19 +156,17 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
 /// process-host hello admitter) without performing descriptor admission a
 /// second time. The caller supplies each descriptor's origin; this function
 /// preserves it and delegates duplicate-backend policy to QSL's registry.
-pub fn register_admitted_descriptors(
-    mut admitted: AdmittedRegistry,
+fn register_into_registry(
+    registry: &mut Registry,
     descriptors: impl IntoIterator<Item = BackendDescriptor>,
-) -> Result<AdmittedRegistry, DriverRefusal> {
-    let mut refusals: Vec<RegistrationRefusal> = Vec::new();
+) -> Result<(), DriverRefusal> {
     for descriptor in descriptors {
-        let _ = admitted.registry.register(descriptor);
+        let _ = registry.register(descriptor);
     }
-    refusals.extend(admitted.registry.refusals());
+    let refusals: Vec<RegistrationRefusal> = registry.refusals().collect();
     if refusals.is_empty() {
-        Ok(admitted)
+        Ok(())
     } else {
-        refusals.sort();
         Err(DriverRefusal::Registration(refusals))
     }
 }
@@ -178,11 +194,11 @@ pub fn build_linked_providers<'a>(
 
 #[cfg(test)]
 mod tests {
-    use qsl_route::{BackendId, ManifestDigest, ProviderOrigin};
+    use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
 
     use crate::{KaniProvider, Provider, ProviderManifest};
 
-    use super::{build_linked_providers, register_admitted_descriptors};
+    use super::build_linked_providers;
 
     fn provider(identity: &str, digest: u8) -> KaniProvider {
         KaniProvider::new(ProviderManifest {
@@ -192,27 +208,103 @@ mod tests {
         })
     }
 
-    /// Trace: FR-005-AC-5, caller-admitted Process origin is preserved by registration.
+    /// Trace: FR-005-AC-5.
+    /// Caller-admitted Process origin is preserved by registration.
     #[test]
-    fn registers_a_caller_admitted_process_descriptor_without_re_admission() {
+    fn caller_admitted_process_descriptor_joins_the_existing_registry() {
         let linked_provider = provider("agent-ix/provider/linked", 7);
-        let linked = build_linked_providers(&[&linked_provider]).expect("linked provider admits");
-        let descriptor = qsl_route::BackendDescriptor::admit(
-            qsl_route::Candidate::new(BackendId::from_wire("agent-ix/plugin/test").unwrap()),
+        let mut linked =
+            build_linked_providers(&[&linked_provider]).expect("linked provider admits");
+        let descriptor = BackendDescriptor::admit(
+            Candidate::new(
+                BackendId::from_wire("agent-ix/plugin/test").expect("nonempty identity"),
+            ),
             ProviderOrigin::Process,
             ManifestDigest::from_digest([8; 32]),
             [(Some("operation-contract"), Some("bounded"))],
         )
         .expect("the host hello admitter returns a QSL-admitted descriptor");
-        let admitted = register_admitted_descriptors(linked.admitted, [descriptor])
+        let id = BackendId::from_wire("agent-ix/plugin/test").expect("nonempty identity");
+        linked
+            .register_admitted([descriptor])
             .expect("descriptor registers into the existing registry");
-        let id = BackendId::from_wire("agent-ix/plugin/test").unwrap();
-        let registered = admitted
+        let registered = linked
+            .registry()
             .descriptors()
             .find(|descriptor| descriptor.id() == &id)
             .expect("registered descriptor");
         assert_eq!(registered.origin(), ProviderOrigin::Process);
-        assert_eq!(admitted.backends().count(), 2);
+        assert_eq!(linked.registry().backends().count(), 2);
+    }
+
+    /// Trace: FR-005-AC-4.
+    /// Unequal linked/process descriptors withdraw their shared identity and
+    /// retain each distinct manifest digest in QSL's refusal.
+    #[test]
+    fn linked_process_conflict_returns_qsl_refusals_and_withdraws_identity() {
+        let identity = "agent-ix/provider/shared";
+        let linked_provider = provider(identity, 1);
+        let mut linked =
+            build_linked_providers(&[&linked_provider]).expect("linked provider admits");
+        let process = BackendDescriptor::admit(
+            Candidate::new(BackendId::from_wire(identity).expect("nonempty identity")),
+            ProviderOrigin::Process,
+            ManifestDigest::from_digest([2; 32]),
+            [(Some("operation-contract"), Some("bounded"))],
+        )
+        .expect("process descriptor admits");
+
+        let refusal = linked
+            .register_admitted([process])
+            .expect_err("different origin and manifest conflict");
+        let refusals = match refusal {
+            crate::DriverRefusal::Registration(refusals) => refusals,
+            _ => Vec::new(),
+        };
+        assert_eq!(refusals.len(), 2);
+        assert_eq!(refusals[0].identity().as_str(), identity);
+        assert_eq!(refusals[1].identity().as_str(), identity);
+        assert_eq!(
+            refusals
+                .iter()
+                .map(|refusal| refusal.manifest_digest())
+                .collect::<Vec<_>>(),
+            [
+                ManifestDigest::from_digest([1; 32]),
+                ManifestDigest::from_digest([2; 32])
+            ]
+        );
+        let id = BackendId::from_wire(identity).expect("nonempty identity");
+        assert!(linked
+            .registry()
+            .descriptors()
+            .all(|descriptor| descriptor.id() != &id));
+        assert!(linked.provider(&id).is_none());
+    }
+
+    /// Trace: FR-005-AC-4.
+    /// Repeating an identical caller-admitted descriptor is idempotent under
+    /// the QSL registry.
+    #[test]
+    fn repeated_process_descriptor_is_idempotent() {
+        let linked_provider = provider("agent-ix/provider/linked", 1);
+        let mut linked =
+            build_linked_providers(&[&linked_provider]).expect("linked provider admits");
+        let process = BackendDescriptor::admit(
+            Candidate::new(
+                BackendId::from_wire("agent-ix/provider/process").expect("nonempty identity"),
+            ),
+            ProviderOrigin::Process,
+            ManifestDigest::from_digest([2; 32]),
+            [(Some("operation-contract"), Some("bounded"))],
+        )
+        .expect("process descriptor admits");
+
+        linked
+            .register_admitted([process.clone(), process])
+            .expect("identical descriptor repeat is idempotent");
+        assert_eq!(linked.registry().backends().count(), 2);
+        assert_eq!(linked.registry().refusals().count(), 0);
     }
 
     /// Trace: FR-005-AC-1, FR-005-AC-3.

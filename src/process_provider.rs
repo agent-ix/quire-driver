@@ -3,23 +3,27 @@
 //!
 //! The wire authority is QSpec FR-331
 //! (`agent-ix/quire-specification/spec/objects/interfaces/FR-331-backend-provider-envelope.md`)
-//! and FR-462 (`spec/functional/tooling/FR-462-speak-the-plugin-wire.md`).
-//! This module owns no wire schema; its caller supplies the typed item and
-//! result conversion at that authority boundary.
+//! and FR-462 (`quire-specification/spec/functional/tooling/FR-462-speak-the-plugin-wire.md`).
+//! The seam uses the driver's [`ProviderRequest`] and [`ProviderResults`]; it
+//! does not define a local FR-331 wire schema or depend on the host crate.
 
+use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
 
-use qsl_route::{BackendDescriptor, BackendId};
+use qsl_route::BackendDescriptor;
 use quire_exact::Cancel;
+
+use crate::{ProviderRequest, ProviderResults};
 
 /// Caller-owned process and framing budgets, independent of the host crate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProcessProviderLimits {
     /// Maximum encoded frame size.
     pub max_frame_bytes: u64,
-    /// Maximum encoded bytes across the full session.
-    pub max_session_bytes: u64,
+    /// Maximum encoded bytes across the full plugin session; maps to the
+    /// host's shared aggregate byte budget.
+    pub max_total_bytes: u64,
     /// Maximum stderr bytes retained for diagnostics.
     pub max_stderr_bytes: u64,
     /// Grace period for cancellation and shutdown.
@@ -30,124 +34,176 @@ pub struct ProcessProviderLimits {
     pub max_process_cpu_time: Option<Duration>,
 }
 
-/// One request passed from the driver to its process-provider implementation.
-pub struct ProcessProviderRequest<'a, Item> {
-    /// Explicit executable path selected by the caller.
-    pub executable: &'a Path,
-    /// Admitted provider identity selected by negotiation.
-    pub backend: &'a BackendId,
-    /// The descriptor admitted once from the provider hello.
-    pub descriptor: &'a BackendDescriptor,
+/// One routed request sent over an already-started process session.
+pub struct ProcessProviderRequest<'a> {
     /// Exact emitted checked-package bytes.
     pub emitted_package: &'a [u8],
-    /// Exactly the request items routed to this provider.
-    pub items: &'a [Item],
-    /// Caller-supplied process limits.
-    pub limits: ProcessProviderLimits,
-    /// Caller-owned cancellation handle.
+    /// Driver-owned typed request for this provider's negotiated items.
+    pub provider_request: ProviderRequest<'a>,
+    /// Caller-owned cancellation handle for this request.
     pub cancel: &'a Cancel,
 }
 
-/// Implementation of the driver's process-provider boundary.
+/// A process provider whose hello has already been admitted by QSL.
 ///
-/// The associated item and result types are intentionally supplied by the
-/// caller. The driver does not invent an FR-331 wire representation or depend
-/// on `quire-plugin-host`.
-pub trait ProcessProvider {
-    /// Request-item type selected by the caller's FR-331 contract.
-    type Item;
-    /// Typed provider result returned to the caller's settlement path.
-    type Results;
+/// `invoke` sends each request over this same session; implementations must
+/// not restart the process, send another hello, or admit its descriptor again.
+pub trait ProcessProviderSession {
     /// Typed adapter failure.
     type Error;
 
-    /// Dispatch one provider's routed items through the caller's adapter.
+    /// The descriptor returned by the one QSL admission of the hello manifest.
+    fn descriptor(&self) -> &BackendDescriptor;
+
+    /// Send one routed request and return driver-owned typed provider results.
     fn invoke(
-        &self,
-        request: ProcessProviderRequest<'_, Self::Item>,
-    ) -> Result<Self::Results, Self::Error>;
+        &mut self,
+        request: ProcessProviderRequest<'_>,
+    ) -> Result<ProviderResults, Self::Error>;
+
+    /// Request graceful shutdown of this session and its process tree.
+    fn shutdown(self) -> Result<(), Self::Error>;
 }
 
-/// Invoke the process-provider seam with an already-admitted descriptor.
-pub fn invoke_process_provider<P: ProcessProvider>(
+/// Start a named process provider and admit its hello before backend routing.
+pub trait ProcessProvider {
+    /// Started, hello-admitted session type.
+    type Session: ProcessProviderSession<Error = Self::Error>;
+    /// Typed adapter failure.
+    type Error;
+
+    /// Start only the caller-named executable, read one hello, and admit its
+    /// manifest exactly once with caller-supplied `Process` origin.
+    fn start(
+        &self,
+        executable: &Path,
+        arguments: &[OsString],
+        limits: ProcessProviderLimits,
+        cancel: &Cancel,
+    ) -> Result<Self::Session, Self::Error>;
+}
+
+/// Start a provider session; its admitted descriptor can be appended to the
+/// linked provider registry before negotiation.
+pub fn start_process_provider<P: ProcessProvider>(
     provider: &P,
-    request: ProcessProviderRequest<'_, P::Item>,
-) -> Result<P::Results, P::Error> {
-    provider.invoke(request)
+    executable: &Path,
+    arguments: &[OsString],
+    limits: ProcessProviderLimits,
+    cancel: &Cancel,
+) -> Result<P::Session, P::Error> {
+    provider.start(executable, arguments, limits, cancel)
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::panic,
-    reason = "failed seam assertions are the test report"
-)]
 mod tests {
+    use std::convert::Infallible;
+    use std::ffi::OsString;
     use std::path::Path;
     use std::time::Duration;
 
     use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
     use quire_exact::Cancel;
 
+    use crate::{ProviderRequest, ProviderResults};
+
     use super::{
-        invoke_process_provider, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
+        start_process_provider, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
+        ProcessProviderSession,
     };
 
-    struct EchoProvider;
+    struct FakeProvider;
 
-    impl ProcessProvider for EchoProvider {
-        type Item = u8;
-        type Results = Vec<u8>;
-        type Error = std::convert::Infallible;
+    struct FakeSession {
+        descriptor: BackendDescriptor,
+    }
 
-        fn invoke(
+    impl ProcessProvider for FakeProvider {
+        type Session = FakeSession;
+        type Error = Infallible;
+
+        fn start(
             &self,
-            request: ProcessProviderRequest<'_, Self::Item>,
-        ) -> Result<Self::Results, Self::Error> {
-            assert_eq!(request.executable, Path::new("./provider"));
-            assert_eq!(request.backend.as_str(), "agent-ix/provider/process");
-            assert_eq!(request.descriptor.origin(), ProviderOrigin::Process);
-            assert_eq!(request.emitted_package, b"package");
-            assert_eq!(request.items, [3, 5]);
-            assert_eq!(request.limits.max_frame_bytes, 64);
-            assert_eq!(request.cancel.cause(), None);
-            Ok(request.items.to_vec())
+            executable: &Path,
+            arguments: &[OsString],
+            limits: ProcessProviderLimits,
+            cancel: &Cancel,
+        ) -> Result<Self::Session, Self::Error> {
+            assert_eq!(executable, Path::new("./provider"));
+            assert_eq!(arguments, [OsString::from("--fixture")]);
+            assert_eq!(limits.max_total_bytes, 1024);
+            assert_eq!(cancel.cause(), None);
+            Ok(FakeSession {
+                descriptor: BackendDescriptor::admit(
+                    Candidate::new(
+                        BackendId::from_wire("agent-ix/provider/process").expect("nonempty id"),
+                    ),
+                    ProviderOrigin::Process,
+                    ManifestDigest::from_digest([9; 32]),
+                    [(Some("operation-contract"), Some("bounded"))],
+                )
+                .expect("the hello admitter accepts the fixture manifest"),
+            })
         }
     }
 
-    /// Trace: FR-006-AC-1, the seam forwards the named executable, admitted
-    /// process descriptor, emitted bytes, exactly routed items, limits and cancellation.
+    impl ProcessProviderSession for FakeSession {
+        type Error = Infallible;
+
+        fn descriptor(&self) -> &BackendDescriptor {
+            &self.descriptor
+        }
+
+        fn invoke(
+            &mut self,
+            request: ProcessProviderRequest<'_>,
+        ) -> Result<ProviderResults, Self::Error> {
+            assert_eq!(request.emitted_package, b"package");
+            assert!(request.provider_request.items().is_empty());
+            assert_eq!(request.cancel.cause(), None);
+            Ok(ProviderResults::default())
+        }
+
+        fn shutdown(self) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    /// The seam starts once, exposes its admitted Process descriptor for the
+    /// shared registry, and sends typed driver requests over that session.
     #[test]
-    fn invokes_process_provider_with_the_complete_typed_request() {
-        let backend = BackendId::from_wire("agent-ix/provider/process").expect("nonempty id");
-        let descriptor = BackendDescriptor::new(
-            Candidate::new(backend.clone()),
-            ProviderOrigin::Process,
-            ManifestDigest::from_digest([9; 32]),
-            [],
-        );
-        let items = [3, 5];
+    fn starts_once_and_invokes_with_driver_owned_provider_types() {
         let cancel = Cancel::new();
-        let results = invoke_process_provider(
-            &EchoProvider,
-            ProcessProviderRequest {
-                executable: Path::new("./provider"),
-                backend: &backend,
-                descriptor: &descriptor,
-                emitted_package: b"package",
-                items: &items,
-                limits: ProcessProviderLimits {
-                    max_frame_bytes: 64,
-                    max_session_bytes: 1024,
-                    max_stderr_bytes: 128,
-                    cancellation_grace: Duration::from_millis(50),
-                    max_process_memory_bytes: None,
-                    max_process_cpu_time: None,
-                },
-                cancel: &cancel,
-            },
+        let limits = ProcessProviderLimits {
+            max_frame_bytes: 64,
+            max_total_bytes: 1024,
+            max_stderr_bytes: 128,
+            cancellation_grace: Duration::from_millis(50),
+            max_process_memory_bytes: None,
+            max_process_cpu_time: None,
+        };
+        let mut session = start_process_provider(
+            &FakeProvider,
+            Path::new("./provider"),
+            &[OsString::from("--fixture")],
+            limits,
+            &cancel,
         )
-        .expect("provider succeeds");
-        assert_eq!(results, items);
+        .expect("provider starts");
+        assert_eq!(session.descriptor().origin(), ProviderOrigin::Process);
+        assert_eq!(
+            session.descriptor().id().as_str(),
+            "agent-ix/provider/process"
+        );
+
+        let package = b"package";
+        let provider_request = ProviderRequest::new(&[]);
+        let request = ProcessProviderRequest {
+            emitted_package: package,
+            provider_request,
+            cancel: &cancel,
+        };
+        let _ = session.invoke(request).expect("provider request succeeds");
+        session.shutdown().expect("provider shuts down");
     }
 }
