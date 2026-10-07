@@ -65,21 +65,13 @@ fn invalid_member(field: &'static str, detail: impl Into<String>) -> ManifestAdm
     }
 }
 
-fn validate_set(
+fn validate_shape_set(
     field: &'static str,
     values: Option<&[String]>,
     allowed: &[&str],
-    required: bool,
 ) -> Result<(), ManifestAdmissionError> {
     let Some(values) = values else {
-        return if required {
-            Err(invalid_member(
-                field,
-                "required for the advertised capability",
-            ))
-        } else {
-            Ok(())
-        };
+        return Ok(());
     };
     if values.is_empty() {
         return Err(invalid_member(field, "must contain at least one value"));
@@ -109,20 +101,8 @@ fn validate_manifest(shape: &ProviderDescriptorShape) -> Result<(), ManifestAdmi
     {
         return Err(invalid_member("advertises", "contains a duplicate pair"));
     }
-    if let Some(domains) = &shape.domains {
-        let mut seen = std::collections::BTreeSet::new();
-        if domains.is_empty()
-            || domains.iter().any(|value| {
-                !["collection", "population", "integer", "recursive"].contains(&value.as_str())
-                    || !seen.insert(value)
-            })
-        {
-            return Err(invalid_member(
-                "domains",
-                "contains an empty, unknown, or duplicate value",
-            ));
-        }
-    }
+    // Domain vocabulary and admission refusal belong to QSL-654. Keep the
+    // typed value for QSL instead of pre-refusing it in the driver.
     if shape.options.as_ref().is_some_and(BTreeMap::is_empty) {
         return Err(invalid_member("options", "must not be empty when present"));
     }
@@ -143,6 +123,8 @@ fn validate_manifest(shape: &ProviderDescriptorShape) -> Result<(), ManifestAdmi
             ));
         }
     }
+    // QSL-654 owns evidence-kind admission/refusal. Preserve that field
+    // without applying a driver-side vocabulary rule.
     for (field, values, allowed) in [
         (
             "obligation_forms",
@@ -159,40 +141,13 @@ fn validate_manifest(shape: &ProviderDescriptorShape) -> Result<(), ManifestAdmi
             shape.reductions.as_deref(),
             &["symmetry", "partial-order", "constraint"][..],
         ),
-    ] {
-        validate_set(field, values, allowed, false)?;
-    }
-    let probabilistic = shape
-        .advertises
-        .iter()
-        .any(|pair| pair.kind.as_deref() == Some("probabilistic-satisfaction"));
-    let temporal = shape
-        .advertises
-        .iter()
-        .any(|pair| pair.kind.as_deref() == Some("temporal-satisfaction"));
-    validate_set(
-        "evidence_kinds",
-        shape.evidence_kinds.as_deref(),
-        &["statistical", "exact"],
-        probabilistic,
-    )?;
-    validate_set(
-        "fairness_kinds",
-        shape.fairness_kinds.as_deref(),
-        &["weak", "strong"],
-        temporal,
-    )?;
-    if shape.evidence_kinds.is_some() != probabilistic {
-        return Err(invalid_member(
-            "evidence_kinds",
-            "must be present exactly for probabilistic-satisfaction",
-        ));
-    }
-    if shape.fairness_kinds.is_some() != temporal {
-        return Err(invalid_member(
+        (
             "fairness_kinds",
-            "must be present exactly for temporal-satisfaction",
-        ));
+            shape.fairness_kinds.as_deref(),
+            &["weak", "strong"][..],
+        ),
+    ] {
+        validate_shape_set(field, values, allowed)?;
     }
     Ok(())
 }
@@ -245,7 +200,7 @@ pub enum ManifestAdmissionError {
     /// A provider hello did not carry exactly one descriptor.
     #[error("plugin hello must carry exactly one provider descriptor")]
     DescriptorCount,
-    /// A descriptor member had the wrong JSON shape or type.
+    /// A descriptor member violated FR-331 wire shape or type requirements.
     #[error("plugin hello manifest has an invalid {field} member: {detail}")]
     InvalidMember {
         /// The member whose type or shape did not satisfy FR-331.
@@ -267,9 +222,11 @@ pub enum ManifestAdmissionError {
 impl ManifestStage {
     /// Admit the hello's one manifest using the caller-supplied Process origin.
     ///
-    /// The digest is computed from the exact decoded FR-331 descriptor using
-    /// JCS. QSL owns identity, capability, mode and duplicate admission; this
-    /// method neither normalizes labels nor assigns an origin from wire data.
+    /// The digest and retained bytes use RFC 8785. QSL owns identity,
+    /// capability, mode and duplicate admission; this method neither
+    /// normalizes labels nor assigns an origin from wire data. Domain and
+    /// evidence-label admission is pending QSL-654; these members are retained
+    /// without driver-side vocabulary refusal.
     pub fn admit_process(
         &self,
         max_frame_bytes: u64,
@@ -291,8 +248,12 @@ impl ManifestStage {
                 detail: source.inner().to_string(),
             })?;
         validate_manifest(&shape)?;
-        let digest =
-            quire_canonical::sha256(&**wire, quire_canonical::Limits::new(max_frame_bytes))?;
+        let limits = quire_canonical::Limits::new(max_frame_bytes);
+        let canonical_wire = quire_canonical::to_vec(&**wire, limits)?;
+        let digest = quire_canonical::sha256(&**wire, limits)?;
+        // The checked-in QSL API does not yet accept domains/evidence kinds.
+        // Preserve them in the DTO; pass them to admission when QSL-654 adds
+        // its domain- and evidence-aware signature.
         let descriptor = BackendDescriptor::admit(
             Candidate::new(BackendId::from_wire(&shape.backend)?),
             ProviderOrigin::Process,
@@ -312,7 +273,8 @@ impl ManifestStage {
                     .iter()
                     .map(|pair| (pair.kind.clone(), pair.mode.clone()))
                     .collect(),
-                wire: Some(Arc::clone(wire)),
+                domains: shape.domains,
+                wire: Some(Arc::<[u8]>::from(canonical_wire)),
             },
         })
     }
@@ -343,6 +305,12 @@ pub enum RequestStageError {
     /// A nested bound is outside FR-331's safe JSON integer range.
     #[error("request bounds must use safe FR-331 JSON integers")]
     Bound,
+    /// FR-331 requires at least one retained manifest and one routed item.
+    #[error("a process request requires at least one manifest and one item")]
+    EmptyRequest,
+    /// A retained manifest snapshot could not be reconstructed as JSON.
+    #[error("a retained FR-331 manifest descriptor is invalid")]
+    ManifestDescriptor,
 }
 
 impl RequestStage {
@@ -370,16 +338,19 @@ impl RequestStage {
         if items.iter().any(|item| !item_has_safe_bounds(item)) {
             return Err(RequestStageError::Bound);
         }
+        if manifest.is_empty() || items.is_empty() {
+            return Err(RequestStageError::EmptyRequest);
+        }
         let package_id = package.package_id().record();
         Ok(Self {
             contract_version: CONTRACT_VERSION,
             capability_vocabulary: CAPABILITY_VOCABULARY,
             manifest: manifest
                 .iter()
-                .map(ProviderManifest::wire_descriptor)
-                .collect(),
+                .map(manifest_descriptor)
+                .collect::<Result<Vec<_>, _>>()?,
             request: RequestBody {
-                package: URL_SAFE_NO_PAD.encode(package.bytes()),
+                package: encode_package_bytes(package.bytes()),
                 package_id: PackageIdWire {
                     domain: package_id.domain().as_str(),
                     algorithm: "sha256",
@@ -393,6 +364,38 @@ impl RequestStage {
             },
         })
     }
+}
+
+fn encode_package_bytes(bytes: &[u8]) -> String {
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn manifest_descriptor(manifest: &ProviderManifest) -> Result<Value, RequestStageError> {
+    if let Some(wire) = &manifest.wire {
+        let value: Value =
+            serde_json::from_slice(wire).map_err(|_| RequestStageError::ManifestDescriptor)?;
+        if value.get("backend").and_then(Value::as_str) != Some(manifest.identity.as_str()) {
+            return Err(RequestStageError::ManifestDescriptor);
+        }
+        return Ok(value);
+    }
+    let mut descriptor = serde_json::Map::new();
+    descriptor.insert(
+        "backend".to_owned(),
+        Value::String(manifest.identity.clone()),
+    );
+    descriptor.insert(
+        "advertises".to_owned(),
+        serde_json::json!(manifest
+            .advertises
+            .iter()
+            .map(|(kind, mode)| serde_json::json!({"kind": kind, "mode": mode}))
+            .collect::<Vec<_>>()),
+    );
+    if let Some(domains) = &manifest.domains {
+        descriptor.insert("domains".to_owned(), serde_json::json!(domains));
+    }
+    Ok(Value::Object(descriptor))
 }
 
 fn item_has_safe_bounds(item: &RequestItem) -> bool {
@@ -684,22 +687,19 @@ mod tests {
             admitted.descriptor().id().as_str(),
             "agent-ix/provider/test"
         );
-        assert_eq!(
-            admitted.manifest().wire_descriptor()["domains"],
-            serde_json::json!(["integer"])
-        );
-        assert_eq!(
-            admitted.manifest().wire_descriptor()["bounds"]["max_states"],
-            Value::from(8)
-        );
-        assert!(Arc::ptr_eq(
-            &source_wire,
+        let retained: Value = serde_json::from_slice(
             admitted
                 .manifest()
                 .wire
-                .as_ref()
-                .expect("wire DTO retained")
-        ));
+                .as_deref()
+                .expect("canonical wire DTO retained"),
+        )
+        .expect("retained descriptor is JSON");
+        assert_eq!(retained, *source_wire);
+        assert_eq!(
+            admitted.manifest().domains.as_deref(),
+            Some(["integer".to_owned()].as_slice())
+        );
     }
 
     #[test]
@@ -723,7 +723,7 @@ mod tests {
     }
 
     #[test]
-    fn manifest_descriptor_checks_closed_schema_constraints() {
+    fn manifest_descriptor_checks_wire_shape_constraints() {
         let base = || {
             serde_json::json!({
                 "backend": "agent-ix/provider/test",
@@ -731,9 +731,6 @@ mod tests {
             })
         };
         let mut cases = Vec::new();
-        let mut invalid = base();
-        invalid["domains"] = serde_json::json!([]);
-        cases.push((invalid, "domains"));
         let mut invalid = base();
         invalid["options"] = serde_json::json!({});
         cases.push((invalid, "options"));
@@ -767,20 +764,6 @@ mod tests {
             );
             assert!(error.to_string().contains(field), "{error}");
         }
-
-        let mut temporal = base();
-        temporal["advertises"] =
-            serde_json::json!([{"kind":"temporal-satisfaction", "mode":"bounded"}]);
-        let stage = ManifestStage {
-            contract_version: CONTRACT_VERSION.to_owned(),
-            capability_vocabulary: Some(CAPABILITY_VOCABULARY.to_owned()),
-            manifest: vec![Arc::new(temporal)],
-        };
-        assert!(stage
-            .admit_process(4096)
-            .unwrap_err()
-            .to_string()
-            .contains("fairness_kinds"));
     }
 
     #[test]
@@ -819,6 +802,17 @@ mod tests {
 
     /// Trace: FR-006-AC-1.
     #[test]
+    fn package_encoding_uses_unpadded_base64url_for_special_bytes() {
+        let bytes = [0xfb, 0xff];
+        assert_ne!(bytes.len() % 3, 0);
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(bytes),
+            "+/8"
+        );
+        assert_eq!(encode_package_bytes(&bytes), "-_8");
+    }
+
+    #[test]
     fn request_wire_keeps_package_bounds_and_temporal_proof_bounds_at_contract_paths() {
         let item = RequestItem {
             request_index: 3,
@@ -854,23 +848,41 @@ mod tests {
             }),
             probabilistic: None,
         };
-        let package = crate::test_support::emitted_package();
-        let retained_wire = Arc::new(serde_json::json!({
+        let package = crate::test_support::emitted_package_with_urlsafe_bytes();
+        let retained_value = serde_json::json!({
             "backend":"agent-ix/provider/test",
             "advertises":[{"kind":"operation-contract", "mode":"bounded"}],
             "domains":["integer"]
-        }));
-        let manifests = [ProviderManifest {
-            identity: "agent-ix/provider/test".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([5; 32]),
-            advertises: vec![(
-                Some("operation-contract".to_owned()),
-                Some("bounded".to_owned()),
-            )],
-            wire: Some(Arc::clone(&retained_wire)),
-        }];
-        let request_stage = RequestStage::from_emitted(&package, &manifests, 100, vec![item])
-            .expect("the real emitted identity and safe request values serialize");
+        });
+        let retained_wire = Arc::<[u8]>::from(
+            quire_canonical::to_vec(&retained_value, quire_canonical::Limits::new(4096))
+                .expect("manifest canonicalizes"),
+        );
+        let manifests = [
+            ProviderManifest {
+                identity: "agent-ix/provider/test".to_owned(),
+                manifest_digest: ManifestDigest::from_digest([5; 32]),
+                advertises: vec![(
+                    Some("operation-contract".to_owned()),
+                    Some("bounded".to_owned()),
+                )],
+                domains: Some(vec!["integer".to_owned()]),
+                wire: Some(Arc::clone(&retained_wire)),
+            },
+            ProviderManifest {
+                identity: "agent-ix/provider/linked".to_owned(),
+                manifest_digest: ManifestDigest::from_digest([6; 32]),
+                advertises: vec![(
+                    Some("operation-contract".to_owned()),
+                    Some("bounded".to_owned()),
+                )],
+                domains: Some(vec!["recursive".to_owned()]),
+                wire: None,
+            },
+        ];
+        let request_stage =
+            RequestStage::from_emitted(&package, &manifests, 100, vec![item.clone()])
+                .expect("the real emitted identity and safe request values serialize");
         let package_id = package.package_id().record();
         let request = serde_json::to_value(request_stage).expect("typed request serializes");
 
@@ -884,7 +896,15 @@ mod tests {
         );
         assert_eq!(request["request"]["package_id"]["algorithm"], "sha256");
         assert_eq!(request["request"]["package_id"]["digest"], package_id.hex());
-        assert_eq!(request["manifest"][0], *retained_wire);
+        assert_eq!(request["manifest"][0], retained_value);
+        assert_eq!(
+            request["manifest"][1]["backend"],
+            "agent-ix/provider/linked"
+        );
+        assert_eq!(
+            request["manifest"][1]["domains"],
+            serde_json::json!(["recursive"])
+        );
 
         assert_eq!(
             request["request"]["items"][0]["extent"]["bounds"][0]["bound"]["maximum"],
@@ -895,8 +915,14 @@ mod tests {
                 ["maximum"],
             4
         );
-        assert!(request["request"].get("domains").is_none());
-        assert!(request["request"].get("limits").is_none());
+        assert!(matches!(
+            RequestStage::from_emitted(&package, &manifests, 100, Vec::new()),
+            Err(RequestStageError::EmptyRequest)
+        ));
+        assert!(matches!(
+            RequestStage::from_emitted(&package, &[], 100, vec![item.clone()]),
+            Err(RequestStageError::EmptyRequest)
+        ));
         assert!(RequestStage::from_emitted(&package, &[], 0, Vec::new()).is_err());
         assert!(
             RequestStage::from_emitted(&package, &[], MAX_SAFE_INTEGER + 1, Vec::new()).is_err()

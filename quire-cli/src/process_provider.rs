@@ -22,12 +22,6 @@ use serde::Serialize;
 type ProviderWireTypes<M, Q, R, F, A, V> = fn() -> (M, Q, R, F, A, V);
 type SessionWireTypes<Q, R, V> = fn() -> (Q, R, V);
 
-fn require_admitted_descriptor<A, V, F>(
-    descriptor: Option<BackendDescriptor>,
-) -> Result<BackendDescriptor, AdapterError<A, V, F>> {
-    descriptor.ok_or(AdapterError::MissingAdmittedDescriptor)
-}
-
 /// Why hello admission did not provide a caller-admitted process descriptor.
 #[derive(Debug, thiserror::Error)]
 pub enum AdmissionFailure<E> {
@@ -266,6 +260,7 @@ mod tests {
             identity: manifest.identity.clone(),
             manifest_digest: digest,
             advertises: manifest.advertises.clone(),
+            domains: None,
             wire: None,
         };
         Ok((descriptor, retained))
@@ -577,15 +572,5 @@ mod tests {
             _ => false,
         };
         assert!(refused_for_origin, "linked-origin hello is rejected");
-    }
-
-    #[test]
-    fn missing_caller_admitted_descriptor_is_a_typed_adapter_error() {
-        let result: Result<BackendDescriptor, super::AdapterError<String, String, String>> =
-            super::require_admitted_descriptor(None);
-        assert!(matches!(
-            result,
-            Err(super::AdapterError::MissingAdmittedDescriptor)
-        ));
     }
 }

@@ -667,6 +667,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([digest; 32]),
             advertises: Vec::new(),
+            domains: None,
             wire: None,
         }])
         .expect("test manifest is admitted");
@@ -761,6 +762,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: digest,
             advertises: Vec::new(),
+            domains: None,
             wire: None,
         }])
         .expect("descriptor is admitted");
@@ -950,6 +952,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: manifest,
             advertises: Vec::new(),
+            domains: None,
             wire: None,
         }])
         .expect("manifest is admitted");
@@ -996,6 +999,7 @@ mod tests {
                     identity: backend.as_str().to_owned(),
                     manifest_digest: excluded_manifest,
                     advertises: Vec::new(),
+                    domains: None,
                     wire: None,
                 }])
                 .expect("excluded descriptor is admitted");
@@ -1028,6 +1032,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([27; 32]),
             advertises: Vec::new(),
+            domains: None,
             wire: None,
         }])
         .expect("descriptor is admitted");
@@ -1059,6 +1064,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([28; 32]),
             advertises: Vec::new(),
+            domains: None,
             wire: None,
         }])
         .expect("descriptor is admitted");
@@ -1170,6 +1176,7 @@ mod tests {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([23; 32]),
             advertises: Vec::new(),
+            domains: None,
             wire: None,
         }])
         .expect("descriptor is admitted");

@@ -10,6 +10,17 @@ use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_driver::{drive, CompileInput, GenerationInput, QslCg};
 
 pub fn emitted_package() -> qsl_package::EmittedPackage {
+    emitted_package_with_source_name("process-provider-test")
+}
+
+/// A real emitted package whose bytes exercise URL-safe base64 substitutions.
+pub fn emitted_package_with_urlsafe_bytes() -> qsl_package::EmittedPackage {
+    // Five tildes ensure the serialized source identity contains an aligned
+    // standard-base64 `/` and make the resulting byte length non-divisible by 3.
+    emitted_package_with_source_name("process-provider-~~~~~")
+}
+
+fn emitted_package_with_source_name(source_name: &str) -> qsl_package::EmittedPackage {
     let lock = DefinitionLock::pinned();
     let root = lock.entry(CatalogRole::Root);
     let source = format!(
@@ -18,8 +29,8 @@ pub fn emitted_package() -> qsl_package::EmittedPackage {
     );
     let packages = BTreeMap::new();
     let input = CompileInput {
-        source: SourceIdentity::new("agent-ix", "process-provider-test", "git", "1"),
-        path: "unit.native",
+        source: SourceIdentity::new("agent-ix", source_name, "git", "1"),
+        path: "unit-test.native",
         bytes: source.as_bytes(),
         packages: &packages,
         limits: SpineLimits::default(),

@@ -553,6 +553,7 @@ mod tests {
                                 identity: identity.to_owned(),
                                 manifest_digest: digest,
                                 advertises: Vec::new(),
+                                domains: None,
                                 wire: None,
                             },
                         ))
