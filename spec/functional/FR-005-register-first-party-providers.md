@@ -55,17 +55,33 @@ is specified in Behavior.
 - The driver SHALL derive backend identity from the manifest identity.
 - The driver SHALL pass the request's emitted package, routed items, limits
   and cancellation handle to the selected provider without altering them.
-- The driver SHALL preserve provider results as typed values without
-  inferring their terminal meaning from provider diagnostic text or
-  provider-specific evidence.
-- The shared provider-result carrier SHALL represent each routed item with a
-  QSL-owned typed terminal value or typed failure, preserving its request index
-  and backend identity; provider-specific execution evidence MAY accompany the
-  terminal value.
-- The shared provider-result carrier SHALL represent results from providers
-  other than Kani without requiring a Kani-specific evidence or failure type.
-  QSL owns terminal values and their categories; the driver SHALL NOT define a
-  parallel terminal vocabulary or remap a QSL terminal from diagnostic text.
+- The driver SHALL preserve each provider result's request index and backend
+  identity in the shared result carrier.
+- For Kani results, the driver SHALL use CG's `run_terminal_value` mapping
+  (FR-009-AC-4); Kani evidence SHALL NOT be used to define a second terminal
+  mapping in the driver.
+- When QSL replay has not settled a plugin counterexample, the driver SHALL
+  retain it as a non-terminal candidate and SHALL NOT emit `Refuted` for it.
+  QSL replay must reproduce the candidate before the driver emits `Refuted`
+  (ADR-029 PV-2 item 4).
+- The driver's shared `ProviderResults` SHALL represent provider results and
+  failures without requiring Kani-specific evidence or failure types. For a
+  Kani result, the driver SHALL use CG's authoritative `run_terminal_value`
+  mapping (FR-009-AC-4); for a process-provider result, QSL owns terminal
+  values and their categories. The driver SHALL preserve typed FR-331 result
+  fields and FR-272 diagnostic fields without parsing free-form diagnostic
+  text to choose a QSL terminal. It SHALL NOT define a parallel terminal
+  vocabulary or remap a QSL terminal from text.
+- The driver SHALL preserve a provider failure's typed FR-272 `Diagnostic`,
+  including its declared code and `UnavailabilityCause` where present, as an
+  `OutcomeDiagnostic` separate from the QSL terminal value.
+- When QSL has not provided its trusted proof-basis terminal for a plugin
+  `proved` result, the driver SHALL retain the result as unmapped data and omit
+  fabricated Kani `success_checks`.
+- When a plugin result claims `replay-parity`, `replay-refused`, or
+  `kani-vacuous-proof`, the driver SHALL reject it as a tool failure. Those
+  values are produced by QSL's replay or Kani settlement, not accepted from a
+  plugin.
 - When a caller requests Kani generation, the caller SHALL supply CG
   `ProofCeilings` containing explicit memory-byte and wall-clock bounds.
 - The driver SHALL pass the caller's `ProofCeilings` unchanged to
@@ -99,8 +115,13 @@ is specified in Behavior.
 | FR-005-AC-2 | The provider receives the same emitted package, routed request, limits and cancellation handle supplied by the driver, and its typed results are returned without semantic changes. Kani generation uses caller-supplied `ProofCeilings`; execution requires those ceilings to match the harness identity and preserves CG's ceiling, memory and symbolic-argument evidence. | Test (TC-012) |
 | FR-005-AC-3 | Two providers with distinct manifest identities are registered as distinct backends; a run invokes only the provider selected for its routed items. | Test (TC-012) |
 | FR-005-AC-4 | The driver preserves QSL registry results: an equal descriptor repeat is idempotent; an unequal descriptor for an existing `BackendId`, including one with a different origin, returns the typed duplicate-backend refusal, withdraws that identity, and invokes neither provider. | Partial (TC-012 checks equal linked-manifest idempotence; process-origin registration remains with plugin-host work) |
-| FR-005-AC-5 | The `quire-cli` host hello admitter calls QSL descriptor admission once with caller-supplied origin `Process` and returns the admitted descriptor; the driver registers it in its single QSL registry without re-admission. The driver projects each resulting descriptor's identity, advertised pairs and supplied origin into CG's descriptor without changing their meaning, and CG maps that origin to its process backend kind. | Partial (TC-012 covers projection; CLI/host composition remains planned. CG IR-629 process backend-kind code is pending.) |
-| FR-005-AC-6 | Each routed item has a typed provider result that preserves its request index and backend identity and carries a QSL-owned terminal value or typed failure. Provider-specific evidence may accompany the terminal value, but neither it nor diagnostic text changes the QSL terminal category; representing a non-Kani result does not require a Kani-specific carrier. | Test (TC-012, TC-013) |
+| FR-005-AC-5 | The `quire-cli` host hello admitter calls QSL descriptor admission once with caller-supplied origin `Process` and returns the admitted descriptor; the driver registers it in its single QSL registry without re-admission. The driver passes the descriptor's identity, advertised pairs and supplied origin into CG's descriptor without changing their meaning, then calls CG's public descriptor-to-kind conversion. CG constructs `BackendKind::Process` from the descriptor's `Process` origin; the driver does not construct that kind or map the backend identity to it. | Partial (TC-012 covers origin projection; CLI/host composition remains planned. CG IR-629 process backend-kind code is pending.) |
+| FR-005-AC-6 | The driver's shared provider-result carrier preserves each routed item's request index and backend identity. | Planned (TC-012, TC-013; IR-677) |
+| FR-005-AC-7 | A plugin counterexample received before QSL replay is represented in the shared result carrier as a non-terminal candidate; it has no `Refuted` terminal until QSL S6a replay reproduces it. | Planned (TC-013; QSL-655) |
+| FR-005-AC-8 | For Kani results, the driver uses CG's authoritative `run_terminal_value` mapping; driver evidence and diagnostic text do not define or alter the terminal category. | Partial (TC-012 exercises CG's mapping; the driver does not implement a second mapping) |
+| FR-005-AC-9 | The driver represents non-Kani provider data without Kani-specific evidence or failure types, while QSL remains the owner of terminal values and categories. | Planned (TC-012, TC-013; IR-677, QSL-655) |
+| FR-005-AC-10 | The driver does not map plugin `proved` results to a terminal until QSL supports its trusted proof basis, and it does not fabricate Kani `success_checks`. | Planned (TC-013; QSL-490 and QSL-655) |
+| FR-005-AC-11 | The driver treats plugin claims of `replay-parity`, `replay-refused`, or `kani-vacuous-proof` as tool failures. | Planned (TC-013) |
 
 Current implementation status: the linked Kani adapter is the only Provider
 execution adapter, and its `ProviderLimits` and result carriers are
@@ -125,6 +146,10 @@ TC-012 while the execution slice remains Linked-only.
   separate host, and FR-014 defines its `quire-cli` composition.
 - QSL FR-069 defines the typed terminal reader and `quire-outcome/1` remains
   the serialized outcome contract.
+- QSL-490 and QSL-655 are prerequisites for mapping plugin `proved` results to
+  a trusted `ProofBasis` terminal and for replay-settling plugin counterexample
+  candidates. Until then those plugin results remain unmapped at the terminal
+  layer.
 - [TC-012](../test-cases/TC-012-first-party-provider-interface.md).
 - [FR-002](FR-002-expose-driver-cli-and-outcome-contract.md) defines the
   command entry point that registers and invokes providers.

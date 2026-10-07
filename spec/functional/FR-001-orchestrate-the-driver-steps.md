@@ -26,8 +26,12 @@ ADR-011 T-13, ADR-012 §7.2):
 2. E4: QSL's `package` operation emits the `quire.checked-package/v2`
    bytes and `package_id` from the checked unit.
 3. The `route` candidate step for each requested item.
-4. The pre-negotiation conversion. Every registered `BackendId` passes once
-   through CG's one total conversion, `BackendKind::from_identity`.
+4. The pre-negotiation descriptor projection. The driver passes every QSL
+   descriptor and its `ProviderOrigin` to CG unchanged, then calls CG's public
+   descriptor-to-kind conversion to populate each routed item's kind. CG uses
+   `BackendKind::from_identity` for Linked providers only; for a `Process`
+   origin, CG constructs `BackendKind::Process` from that origin. The driver
+   does not construct a Process kind or convert its identity to that kind.
 5. E7: CG `negotiate_backend_provider` over the FR-331 envelope built from
    the registry and the candidate sets.
 6. The `route` routing step, after negotiation, over the items CG settled
@@ -166,8 +170,10 @@ the admitted package only at the `package_id` E4 emitted.
 - QSL ADR-011 §2.1, §6.1 driver row, §7.1 and T-13; ADR-012 §7.1 and §7.2.
 - QSL `qsl-replay` (typed spine lifecycle) and `qsl-route` (registry, candidate
   step, routing step).
-- CG `negotiate_backend_provider` and `BackendKind::from_identity`
-  (agent-ix/quire-contract-codegen#86); CG `generate_routed` (CG FR-022,
+- CG's public descriptor-to-kind conversion and
+  `negotiate_backend_provider`; `BackendKind::from_identity` is for Linked
+  providers, and CG constructs `BackendKind::Process` from descriptor origin
+  (IR-629); CG `generate_routed` (CG FR-022,
   IR-293, IR-294, IR-298, IR-300, IR-302).
 - IR `quire-contract-model`: `read_checked_package`, `CheckedPackageV2`,
   `CheckedNodeId`.

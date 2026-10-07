@@ -10,8 +10,9 @@ relationships:
 
 ## Description
 
-Verify that the driver calls compile, the E5 read, the backend conversion,
-negotiation, routing and generation in that order, against the real QSL and CG functions.
+Verify that the driver calls compile, the E5 read, the Linked-backend
+conversion, negotiation, routing and generation in that order, against the
+real QSL and CG functions.
 
 Scope: FR-001-AC-4.
 
@@ -27,7 +28,7 @@ Test: `tests/drive.rs`, `tc_001_tc_006_steps_run_in_order_through_generation`.
 
 ## Expected Results
 
-- The call log is: compile, the E5 read, the conversion of `kani`, one
+- The call log is: compile, the E5 read, the conversion of Linked `kani`, one
   negotiation of one item, one routing call, one generation call over
   one item. (The candidate step calls no upstream
   function the recorder sees.)
