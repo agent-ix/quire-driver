@@ -13,6 +13,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-specification/FR-331
     type: depends_on
+  - target: ix://agent-ix/quire-specification/FR-290
+    type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-069
     type: depends_on
 ---
@@ -81,9 +83,10 @@ settlement path used for first-party providers.
 - The `quire-cli` adapter SHALL place temporal proof bounds under
   `items[].temporal.subject.proof_bounds`. The current CG routed output does
   not retain all these fields; their projection is a named integration gap for
-  IR-629. QSL FR-290-AC-13 owns the PV-4 domain-kind rule: compare boundable
-  kinds only, and do not compare unbounded items. The FR-331 proof-bound kind
-  is specified; QSL's emitter support for writing that member remains pending.
+  IR-629. CG negotiation owns the PV-4 domain-kind comparison defined by QSpec
+  FR-290-AC-13. The adapter SHALL NOT implement or restate that comparison.
+  FR-331 specifies the proof-bound `kind`; QSL-654 owns QSL emitter support for
+  writing that member, which remains pending.
 - The driver SHALL pass a validated plugin result to the shared settlement
   path only when QSL supplies a terminal mapping for it. A result without a
   currently supported terminal mapping SHALL remain typed, unmapped provider
@@ -155,8 +158,10 @@ settlement path used for first-party providers.
 | FR-006-AC-17 | Given an FR-331 response for a `package_id` mismatch, the `quire-cli` adapter preserves each routed item identity and the FR-272 diagnostic with code `stale_dependency` and cause `content-mismatch`. | Planned (TC-013) |
 | FR-006-AC-18 | Given an FR-331 response for non-canonical package spelling, the `quire-cli` adapter preserves each routed item identity and the FR-272 diagnostic with code `invalid_runtime_input` and cause `invalid-value`. | Planned (TC-013) |
 | FR-006-AC-19 | The driver synthesizes failed provider results only for host/protocol failures defined by ADR-029 PL-7; it does not attribute a process request-body refusal to QSL. | Planned (TC-013) |
-| FR-006-AC-20 | For a preserved package-mismatch response, the driver's shared settlement path maps every failed routed item to QSL `TerminalValue::Failed` and carries the typed diagnostic in `OutcomeDiagnostic`, leaving unrelated provider results unchanged. | Planned (TC-013; IR-677 and QSL settlement API) |
-| FR-006-AC-21 | For a preserved non-canonical-package response, the driver's shared settlement path maps every failed routed item to QSL `TerminalValue::Failed` and carries the typed diagnostic in `OutcomeDiagnostic`, leaving unrelated provider results unchanged. | Planned (TC-013; IR-677 and QSL settlement API) |
+| FR-006-AC-20 | For a preserved package-mismatch response, the driver's shared settlement path maps each failed routed item to QSL `TerminalValue::Failed`. | Planned (TC-013; IR-677 and QSL settlement API) |
+| FR-006-AC-21 | For a preserved non-canonical-package response, the driver's shared settlement path maps each failed routed item to QSL `TerminalValue::Failed`. | Planned (TC-013; IR-677 and QSL settlement API) |
+| FR-006-AC-22 | For package-mismatch and non-canonical-package responses, the driver's shared settlement path carries each typed FR-272 diagnostic separately in QSL `OutcomeDiagnostic`. | Planned (TC-013; IR-677 and QSL settlement API) |
+| FR-006-AC-23 | Settling a failed process-provider response leaves unrelated provider results unchanged. | Planned (TC-013; IR-677 and QSL settlement API) |
 
 ## Dependencies
 
@@ -166,11 +171,11 @@ settlement path used for first-party providers.
   specifies the separate host implementation. FR-014 specifies its
   composition by the `quire-cli` package.
 - [FR-331](ix://agent-ix/quire-specification/FR-331) owns the
-  `quire.backend-provider/v1` envelope; QSL FR-290-AC-13 owns the PV-4
+  `quire.backend-provider/v1` envelope; QSpec FR-290-AC-13 owns the PV-4
   domain-kind rule; QSL owns typed terminal values and
   `quire-outcome/1` serialization.
 - QSL-654 specifies the proof-bound `kind` member; QSL emitter support for
-  writing it remains pending. QSL FR-290-AC-13 defines the PV-4 domain-kind
+  writing it remains pending. QSpec FR-290-AC-13 defines the PV-4 domain-kind
   comparison rule. CG's separate `bounds[].kind` work is
   outside this request adapter.
 - QSL-490 and QSL-655 are prerequisites for a plugin `proved` result's trusted

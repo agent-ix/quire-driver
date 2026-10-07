@@ -96,53 +96,58 @@ is specified in Behavior.
   execution timeout; the driver SHALL NOT supply a second timeout.
 - For each plugin hello, the `quire-cli` host hello admitter SHALL call the QSL
   descriptor-admission boundary once with caller-supplied origin `Process` and
-  return the admitted descriptor plus its lossless FR-331 manifest DTO to the
-  driver. The driver owns one `AdmittedRegistry`, which SHALL retain that DTO
-  alongside the descriptor registered with its single `qsl_route::Registry`;
-  the driver SHALL NOT re-admit the descriptor, reconstruct the DTO from the
-  QSL descriptor, or build a second registry. For each linked provider, the
-  driver SHALL retain a lossless FR-331 DTO in the same driver-owned registry
-  record as its descriptor. The
-  driver SHALL populate that DTO from the linked provider's advertised kind,
-  mode, domains and bounds.
+  return the admitted descriptor plus its FR-331 DTO to the driver.
+- The driver SHALL register each admitted descriptor in its single QSL
+  registry without re-admission; `quire-cli` SHALL NOT build another registry.
+- The driver-owned `AdmittedRegistry` SHALL retain one lossless
+  `ProviderManifest` carrier for each registered candidate.
+- The `quire-cli` adapter SHALL convert each process hello DTO losslessly into
+  the retained `ProviderManifest` carrier at admission.
+- When building the registry for a linked provider, the driver SHALL populate
+  its `ProviderManifest` carrier from that provider's FR-331 manifest. Optional
+  members absent from that manifest SHALL remain absent rather than being
+  synthesized.
 - The driver SHALL preserve QSL's typed duplicate-backend refusal and
   withdrawn-identity outcome; it SHALL NOT implement duplicate policy itself.
   Equal descriptors are idempotent and an unequal descriptor for an existing
-  `BackendId` withdraws that identity (QSL FR-075-AC-4/AC-7, FR-290-AC-9/10
-  and QSL-637).
-- When a plugin hello manifest has a domain defect, the `quire-cli` hello
-  admitter SHALL preserve QSL's per-registration `invalid-domains` refusal.
-  When a plugin hello manifest has an absent or unknown kind or mode, the
-  `quire-cli` hello admitter SHALL preserve QSL's per-registration
-  `invalid_capability` refusal.
-- The driver SHALL pass each registered descriptor's identity, advertised
-  pairs and caller-supplied origin to CG unchanged. After CG IR-629 implements
-  the conversion specified by FR-019/FR-022, the driver SHALL call that public
-  conversion and CG SHALL construct `BackendKind::Process` from the `Process`
-  origin. The driver SHALL NOT construct the kind or map backend identity to
-  it.
+  `BackendId` withdraws that identity (QSL FR-075-AC-4/AC-7 and QSL-637).
+- The driver SHALL preserve a caller-supplied `Process` origin, descriptor
+  identity and advertised pairs when registering a process descriptor and
+  projecting it to CG unchanged. After CG IR-629 implements the public
+  conversion specified by FR-019/FR-022, the driver SHALL call that conversion
+  and CG SHALL construct `BackendKind::Process` from the supplied origin. The
+  driver SHALL NOT construct the kind or map backend identity to it.
+- When a plugin hello manifest contains invalid domains, the driver SHALL pass
+  the domain labels to QSL descriptor admission and preserve QSL-654's typed
+  per-registration `invalid_capability` refusal with cause `invalid-domains`.
+  The driver SHALL NOT validate domains or construct this refusal itself.
+- When a plugin hello manifest has an absent or unknown kind or mode, the
+  driver SHALL preserve QSL's typed per-registration `invalid_capability`
+  refusal.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 | --- | --- | --- |
-| FR-005-AC-1 | A compile-time provider implementing `Provider` returns its FR-331 manifest; the descriptor-construction caller supplies origin `Linked`, and QSL registry registration preserves that origin and the manifest identity. | Test (TC-012; `src/registry.rs` asserts the Linked origin; Process origin remains planned under FR-005-AC-5) |
+| FR-005-AC-1 | A compile-time provider implementing `Provider` returns its FR-331 manifest; the descriptor-construction caller supplies origin `Linked`, and QSL registry registration preserves that origin and the manifest identity. | Test (TC-012; `src/registry.rs` asserts the Linked origin; Process origin registration and projection are partially covered by FR-005-AC-5) |
 | FR-005-AC-2 | The provider receives the same emitted package, routed request, limits and cancellation handle supplied by the driver, and its typed results are returned without semantic changes. Kani generation uses caller-supplied `ProofCeilings`; execution requires those ceilings to match the harness identity and preserves CG's ceiling, memory and symbolic-argument evidence. | Test (TC-012) |
 | FR-005-AC-3 | Two providers with distinct manifest identities are registered as distinct backends; a run invokes only the provider selected for its routed items. | Test (TC-012) |
 | FR-005-AC-4 | The driver preserves QSL registry results: an equal descriptor repeat is idempotent; an unequal descriptor for an existing `BackendId`, including one with a different origin, returns the typed duplicate-backend refusal, withdraws that identity, and invokes neither provider. | Partial (TC-012 checks equal linked-manifest idempotence; process-origin registration remains with plugin-host work) |
-| FR-005-AC-5 | For each plugin hello, the `quire-cli` host hello admitter calls QSL descriptor admission once with caller-supplied origin `Process` and returns the admitted descriptor plus its lossless FR-331 manifest DTO to the driver. | Planned (TC-013) |
+| FR-005-AC-5 | The driver preserves a caller-supplied `Process` origin, descriptor identity and advertised pairs when it registers the descriptor and projects it to CG unchanged. | Partial (TC-012 covers caller-admitted registration and projection; plugin hello admission remains planned in TC-013) |
 | FR-005-AC-6 | The driver's shared provider-result carrier preserves each routed item's request index and backend identity. | Planned (TC-012, TC-013; IR-677) |
 | FR-005-AC-7 | A plugin counterexample received before QSL replay is represented in the shared result carrier as a non-terminal candidate; it has no `Refuted` terminal until QSL S6a replay reproduces it. | Planned (TC-013; QSL-655) |
 | FR-005-AC-8 | For Kani results, the driver uses CG's authoritative `run_terminal_value` mapping; driver evidence and diagnostic text do not define or alter the terminal category. | Partial (TC-012 exercises CG's mapping; the driver does not implement a second mapping) |
 | FR-005-AC-9 | The driver represents non-Kani provider data without Kani-specific evidence or failure types, while QSL remains the owner of terminal values and categories. | Planned (TC-012, TC-013; IR-677, QSL-655) |
 | FR-005-AC-10 | The driver does not map plugin `proved` results to a terminal until QSL supports its trusted proof basis, and it does not fabricate Kani `success_checks`. | Planned (TC-013; QSL-490 and QSL-655) |
 | FR-005-AC-11 | Once QSL-655 amends ADR-029 PL-7 to define plugin claims of `replay-parity`, `replay-refused`, or `kani_vacuous_proof` as invalid, the driver rejects those claims as tool failures. | Planned (TC-013; QSL-655 / ADR-029 PL-7 amendment) |
-| FR-005-AC-12 | The driver registers each admitted descriptor with the single QSL registry in its `AdmittedRegistry` without re-admitting it. | Planned (TC-013) |
-| FR-005-AC-13 | The driver-owned `AdmittedRegistry` retains one lossless FR-331 DTO for each registered candidate; for linked providers, the DTO is populated from the linked provider's advertised kind, mode, domains and bounds. | Planned (TC-012, TC-013) |
-| FR-005-AC-14 | The driver passes each registered descriptor's identity, advertised pairs and caller-supplied origin to CG unchanged. | Partial (TC-012 covers Linked-origin projection; Process-origin projection remains planned in TC-013) |
-| FR-005-AC-15 | After CG IR-629 implements the public conversion specified by FR-019/FR-022, the driver calls that conversion and CG constructs `BackendKind::Process` from the supplied `Process` origin; the driver does not construct the kind or map backend identity to it. | Planned (TC-012, TC-013; CG IR-629) |
-| FR-005-AC-16 | For a plugin hello manifest with a domain defect, the hello admitter preserves QSL's typed per-registration `invalid-domains` refusal. | Planned (TC-013; QSL FR-290) |
-| FR-005-AC-17 | For a plugin hello manifest with an absent or unknown kind or mode, the hello admitter preserves QSL's typed per-registration `invalid_capability` refusal. | Planned (TC-013; QSL FR-290) |
+| FR-005-AC-12 | For each plugin hello, the `quire-cli` host hello admitter calls QSL descriptor admission once with caller-supplied origin `Process` and returns the admitted descriptor to the driver. | Planned (TC-013) |
+| FR-005-AC-13 | The driver registers each admitted descriptor in its single QSL registry without re-admission, and `quire-cli` builds no second registry. | Planned (TC-013) |
+| FR-005-AC-14 | The driver-owned `AdmittedRegistry` retains one lossless `ProviderManifest` carrier for each registered candidate. | Planned (TC-013) |
+| FR-005-AC-15 | The `quire-cli` adapter converts each process hello DTO losslessly into the retained `ProviderManifest` carrier at admission. | Planned (TC-013) |
+| FR-005-AC-16 | When building the registry for a linked provider, the driver populates its `ProviderManifest` carrier from that provider's FR-331 manifest; optional members absent from the manifest remain absent. | Planned (TC-012, TC-013) |
+| FR-005-AC-17 | After CG IR-629 implements the public conversion specified by FR-019/FR-022, the driver calls that conversion and CG constructs `BackendKind::Process` from the supplied `Process` origin; the driver does not construct the kind or map backend identity to it. | Planned (TC-012, TC-013; CG IR-629) |
+| FR-005-AC-18 | When a plugin hello manifest contains invalid domains, the driver passes the labels to QSL descriptor admission and preserves QSL-654's per-registration `invalid_capability` refusal with cause `invalid-domains`; the driver does not validate domains or construct the refusal. | Planned (TC-013; QSL-654) |
+| FR-005-AC-19 | When a plugin hello manifest has an absent or unknown kind or mode, the driver preserves QSL's typed per-registration `invalid_capability` refusal. | Planned (TC-013; QSL registry admission) |
 
 Current implementation status: the linked Kani adapter is the only Provider
 execution adapter, and its `ProviderLimits` and result carriers are
@@ -162,7 +167,7 @@ TC-012 while the execution slice remains Linked-only.
 - CG FR-017 and FR-028 for Kani execution evidence and proof ceilings.
 - QSL ADR-029 PV-1 and PV-3 (the current driver carriers are Kani-only);
   QSL FR-075 and FR-288 for registry identity and provider-manifest
-  registration; QSL FR-290 for per-registration hello manifest admission.
+  registration; QSL-654 for per-registration domain admission and refusal.
 - FR-006 defines the driver-owned process-provider seam; FR-013 defines the
   separate host, and FR-014 defines its `quire-cli` composition.
 - QSL FR-069 defines the typed terminal reader and `quire-outcome/1` remains
