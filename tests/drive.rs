@@ -36,7 +36,7 @@ use quire_contract_codegen::{
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageRefusal, CheckedPackageRefusalCode, CheckedPackageV2,
+    CheckedPackageV2,
 };
 use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
@@ -1853,13 +1853,12 @@ fn tc_004_e5_identity_and_refusal_are_faults() {
     )
     .expect("UNIT drives")
     .checked;
-    let refusal = CheckedPackageRefusal {
-        code: CheckedPackageRefusalCode::MalformedWire,
-        path: None,
-        cause: None,
-        locus: None,
-        contract_version: None,
-        document_pointer: None,
+    let CheckedPackageDispatchResult::Refused(refusal) = quire_contract_model::read_checked_package(
+        b"not a JSON document",
+        CheckedPackageReadLimits::bounded(),
+        &CheckedPackageEvidence::new(),
+    ) else {
+        panic!("malformed reader bytes must produce a typed refusal");
     };
 
     for answer in [
