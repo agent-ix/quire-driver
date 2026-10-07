@@ -52,11 +52,15 @@ limit outcome and report no success.
   setting-name grammar,
   duplicate detection, value parsing and overflow handling. The driver SHALL
   NOT reimplement these rules or add aliases.
-- While QSL-656 remains unmerged, the CLI SHALL accept only setting names
-  recognized by the current QSL operand parser; accounting settings are not
-  caller-settable during this interim.
-- When QSL-656 lands, the driver SHALL use the accounting setting names
-  defined by QSL FR-255 under `accounting.<counter>` without adding aliases.
+- Until QSL-656 / QSL #665 lands, the pinned QSL operand parser does not
+  recognize the accounting counter names as caller-settable settings. The
+  driver SHALL delegate name resolution to QSL, leaving these names without
+  driver-owned aliases or a separate parser.
+- When QSL-656 / QSL #665 lands, the driver SHALL use the bare accounting
+  counter names defined by QSL FR-255 (for example, `work_units`) through
+  QSL's `parse_operands`, `Setting::from_name`, and
+  `CallerLimits::from_operands` APIs as applicable to the selected operation.
+  This keeps name resolution QSL-owned without a driver namespace or aliases.
 - If a recognized setting is absent from the selected operation's bounds,
   then the CLI SHALL refuse it before any stage with code `invalid-request`
   and a diagnostic that distinguishes an operation-unavailable setting from
@@ -81,13 +85,13 @@ limit outcome and report no success.
 | FR-003-AC-6 | Applying an accepted setting through QSL `CallerLimits::set_bound` changes only the matching bound; every other operation limit retains its prior value. | Test and Inspection (TC-010) |
 | FR-003-AC-7 | A malformed `--limit` operand is refused before any stage with code `invalid-request` and identifies that operand. | Test (TC-010) |
 | FR-003-AC-8 | A duplicate `--limit` setting is refused before any stage with code `invalid-request` and identifies the duplicate setting. | Test (TC-010) |
-| FR-003-AC-9 | After QSL-656 lands, the driver accepts the accounting setting names defined by QSL FR-255 through QSL's operand parser under the canonical `accounting.<counter>` namespace, without adding aliases. | Test (TC-010) |
+| FR-003-AC-9 | After QSL-656 / QSL #665 lands, the driver accepts the bare accounting counter names defined by QSL FR-255 through QSL's operand APIs, without adding a namespace or aliases. | Test (TC-010) |
 | FR-003-AC-10 | After QSL-656, when the selected operation's `SettingLimits::bounds()` includes a caller accounting setting, the driver applies that value through QSL `CallerLimits::set_bound` and passes it to the operation. | Test (TC-010) |
 
 ## Dependencies
 
 - QSL ADR-029 LC-4, FR-255 and FR-277; QSpec FR-300's caller-supplied
-  limits. QSL-656 adds the ten namespaced accounting settings required to
+  limits. QSL-656 / QSL #665 adds the ten bare accounting settings required to
   meet the every-bound goal.
 - [FR-002](FR-002-expose-driver-cli-and-outcome-contract.md) defines the
   command entry point and exit function.

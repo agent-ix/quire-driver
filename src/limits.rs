@@ -158,13 +158,6 @@ mod tests {
             })
         ));
         assert!(matches!(
-            LimitOverrides::parse(&["work_units=1".to_owned()]),
-            Err(UsageRefusal {
-                cause: UsageCause::UnknownSetting,
-                ..
-            })
-        ));
-        assert!(matches!(
             LimitOverrides::parse(&["s1.nodes=ten".to_owned()]),
             Err(UsageRefusal {
                 cause: UsageCause::NotAnInteger,
