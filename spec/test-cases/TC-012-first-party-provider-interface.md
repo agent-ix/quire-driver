@@ -14,7 +14,7 @@ Verify the linked Kani Provider slice: manifest admission and lookup, Kani
 preflight refusals, and CG-owned terminal mapping. Full routed invocation,
 typed-result forwarding, and process-provider integration remain planned.
 
-Scope: FR-005-AC-1 through FR-005-AC-5.
+Scope: FR-005-AC-1 through FR-005-AC-11.
 
 ## Test Procedure
 
@@ -39,17 +39,28 @@ Scope: FR-005-AC-1 through FR-005-AC-5.
 7. The origin-aware QSL-to-CG descriptor projection is tested in
    `src/drive.rs`: build separate QSL registries with otherwise equal `kani`
    descriptors, one `Linked` and one `Process`, then verify their CG
-   projections preserve identity and advertised pairs while mapping each
-   origin to its corresponding CG variant. The Linked-origin half of
+   descriptor projections preserve identity, advertised pairs and the supplied
+   origin. This test covers descriptor projection only. CG's construction of
+   `BackendKind::Process` from that origin remains pending under IR-629; the
+   driver does not map the backend identity to a CG kind. The Linked-origin half of
    FR-005-AC-1 is tested in `src/registry.rs`. Process-origin plugin hello
    registration through the `quire-cli` process-provider adapter remains
    planned. `quire-cli` supplies plugin hello manifests to the QSL registry
    builder. CG IR-629 is spec-merged but its process backend-kind code is
    pending; the origin projection itself is covered by the driver test.
 
-Test location: `src/registry.rs`, `src/drive.rs`, `src/provider.rs`, and
-`tests/drive.rs`; full routed invocation and process-provider integration
-remain planned.
+8. Verify the Kani output's terminal is the one produced by CG's
+   `run_terminal_value`; the driver does not derive a terminal from evidence or
+   diagnostics independently.
+9. Planned under IR-677: verify the generalized shared carrier preserves
+   request index and backend identity without requiring Kani evidence or
+   failure types. Keep a plugin counterexample in that carrier as a
+   non-terminal candidate until QSL S6a replay reproduces it; do not emit
+   `Refuted` before replay.
+
+Test location: `src/registry.rs`, `src/drive.rs`, `src/provider.rs`,
+`tests/drive.rs`, and the planned IR-677 non-Kani carrier test; full routed
+invocation and process-provider integration remain planned.
 
 ## Expected Results
 
@@ -69,10 +80,15 @@ remain planned.
   identity as the execution timeout; the driver supplies no second timeout.
 - CG maps cover-unsatisfied to `Proved { success_checks: 0 }` and timeout to
   `Incomplete(TimedOut)`; the driver does not reimplement that mapping.
-- Provider limits and result carriers are Kani-only for this slice.
+- Current provider limits and result carriers are Kani-only; the generalized
+  result-carrier test remains planned under IR-677. Plugin `proved` results
+  remain unmapped pending QSL-490 and QSL-655; the driver does not fabricate
+  Kani `success_checks`. Plugin claims of replay-only causes remain tool
+  failures.
   Cancellation is checked between routed items. The current CG execution API
   accepts no cancellation handle, so an already-running harness continues
   until its identity's `wall_clock` ceiling.
-- Process-origin plugin admission remains planned with plugin-host work. CG
-  origin interpretation is covered by the projection test; the driver does
-  not construct CG process kinds from provider manifest bytes.
+- Process-origin plugin admission remains planned with plugin-host work. The
+  test covers projection of the supplied origin into CG's descriptor; CG's
+  construction of `BackendKind::Process` remains pending under IR-629. The
+  driver does not construct CG process kinds from provider manifest bytes.
