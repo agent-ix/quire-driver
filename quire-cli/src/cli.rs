@@ -4,10 +4,10 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::Read;
+use std::io::{self, Read, Write};
 use std::process::ExitCode;
 
-use ix_cli_kit::exit::caller_exit_code;
+use ix_cli_kit::exit::{caller_exit_code, RESERVED_COMMAND_NOT_FOUND};
 use ix_cli_kit::streams::{self, Diagnostics};
 use qsl_foundation::diagnostic::{Category, Code};
 use qsl_foundation::SourceIdentity;
@@ -25,8 +25,7 @@ fn process_exit_code(category: Category) -> ExitCode {
         Ok(exit_code) => exit_code,
         Err(error) => {
             let fallback = Category::InternalFailure.exit_code();
-            streams::emit_diagnostic(
-                Diagnostics::default(),
+            emit_diagnostic(
                 "ExitMappingFailure",
                 &format!(
                     "driver exit mapping rejected result {} (reserved code {}); using fallback code {fallback}.",
@@ -45,10 +44,23 @@ compile_error!("the TC-018 test adapter is unavailable in release builds");
 fn category_exit_result(category: Category) -> u8 {
     #[cfg(all(feature = "tc018-test-adapter", debug_assertions))]
     if std::env::var_os("TC018_CASE").as_deref() == Some(std::ffi::OsStr::new("reserved-exit")) {
-        return 5;
+        return RESERVED_COMMAND_NOT_FOUND;
     }
 
     category.exit_code()
+}
+
+/// Write a diagnostic to a caller-owned sink without panicking on a closed
+/// stderr pipe.
+fn write_diagnostic<W: Write>(sink: &mut W, kind: &str, message: &str) -> io::Result<()> {
+    streams::Record::error(kind, message).write(Diagnostics::default(), sink)
+}
+
+/// Best-effort stderr output; a closed diagnostic pipe must not replace the
+/// command's already selected QSL exit result with a panic.
+fn emit_diagnostic(kind: &str, message: &str) {
+    let mut stderr = io::stderr().lock();
+    let _ = write_diagnostic(&mut stderr, kind, message);
 }
 
 /// Parser selectors implement the command surface owned by QSL ADR-029.
@@ -280,7 +292,7 @@ impl CommandResult {
 
     /// An input refusal raised before QSL runs, recorded with QSL's catalog code.
     fn input_refusal(message: impl Into<String>) -> Self {
-        Self::catalog_failure(Code::InvalidRuntimeInput, message)
+        Self::catalog_failure(Code::InvalidRequest, message)
     }
 
     fn catalog_failure(code: Code, message: impl Into<String>) -> Self {
@@ -297,6 +309,18 @@ impl CommandResult {
         self.diagnostic = Some(message.into());
         self
     }
+}
+
+fn write_result_diagnostics<W: Write>(result: &CommandResult, sink: &mut W) -> io::Result<()> {
+    if let Some(message) = &result.diagnostic {
+        return write_diagnostic(sink, "DriverDiagnostic", message);
+    }
+    if let Some(document) = &result.document {
+        for diagnostic in document.diagnostics() {
+            write_diagnostic(sink, "QslDiagnostic", diagnostic.message())?;
+        }
+    }
+    Ok(())
 }
 
 /// Run one complete-V1 function through QSL's interpreter.
@@ -368,11 +392,17 @@ fn dispatch(
         .iter()
         .any(|argument| matches!(argument.to_str(), Some("--engine" | "--limit")))
     {
-        return CommandResult {
-            category: Category::Refusal,
-            document: None,
-            diagnostic: None,
-        };
+        let option = raw_arguments
+            .iter()
+            .find_map(|argument| match argument.to_str() {
+                Some(option @ ("--engine" | "--limit")) => Some(option),
+                _ => None,
+            })
+            .unwrap_or("--engine or --limit");
+        return CommandResult::failure(
+            Category::Refusal,
+            format!("option `{option}` is only accepted by `run`"),
+        );
     }
     CommandResult {
         category: Category::Unsupported,
@@ -383,9 +413,9 @@ fn dispatch(
 
 /// Emit one result document with the kit's canonical JSON and stream APIs.
 fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
-    if let Some(message) = &result.diagnostic {
-        streams::emit_diagnostic(Diagnostics::default(), "DriverDiagnostic", message);
-    }
+    let mut stderr = io::stderr().lock();
+    let _ = write_result_diagnostics(result, &mut stderr);
+    drop(stderr);
     let Some(document) = &result.document else {
         return result.category;
     };
@@ -399,8 +429,7 @@ fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
                 Ok(()) => result.category,
                 Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => result.category,
                 Err(error) => {
-                    streams::emit_diagnostic(
-                        Diagnostics::default(),
+                    emit_diagnostic(
                         "OutputFailure",
                         &format!("could not write outcome document: {error}"),
                     );
@@ -409,8 +438,7 @@ fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
             }
         }
         Err(error) => {
-            streams::emit_diagnostic(
-                Diagnostics::default(),
+            emit_diagnostic(
                 "OutputFailure",
                 &format!("could not encode outcome document: {error}"),
             );
@@ -437,13 +465,16 @@ pub(super) fn entrypoint() -> ExitCode {
                 crate::signals::SignalContext::default(),
             );
             let exit_result = category_exit_result(result.category);
-            if exit_result == 5 {
+            if exit_result == RESERVED_COMMAND_NOT_FOUND {
                 process_exit_code(result.category)
             } else {
                 process_exit_code(emit_result(&result, format))
             }
         }
-        Err(_) => process_exit_code(Category::Refusal),
+        Err(message) => {
+            let result = CommandResult::failure(Category::Refusal, message);
+            process_exit_code(emit_result(&result, OutputFormat::Text))
+        }
     }
 }
 
@@ -454,11 +485,13 @@ pub(super) fn entrypoint() -> ExitCode {
     reason = "a failed assertion is the test failure report"
 )]
 mod outcome_tests {
+    use std::io;
     use std::process::ExitCode;
 
     use qsl_foundation::diagnostic::Category;
+    use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 
-    use super::process_exit_code;
+    use super::{process_exit_code, write_diagnostic, write_result_diagnostics, CommandResult};
 
     /// Trace: FR-002-AC-2; one QSL exit function preserves its numeric results.
     #[test]
@@ -468,6 +501,43 @@ mod outcome_tests {
         for (category, expected_code) in Category::ALL.into_iter().zip(expected) {
             assert_eq!(process_exit_code(category), ExitCode::from(expected_code));
         }
+    }
+
+    struct ClosedPipe;
+
+    impl io::Write for ClosedPipe {
+        fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+    }
+
+    /// Trace: FR-002-AC-8; a closed diagnostic sink returns an error without panicking.
+    #[test]
+    fn diagnostic_write_reports_a_closed_stderr_pipe_without_panicking() {
+        let mut sink = ClosedPipe;
+        let error = write_diagnostic(&mut sink, "DriverDiagnostic", "refused request")
+            .expect_err("closed pipe is reported to its caller");
+        assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+    }
+
+    /// Trace: FR-002-AC-3, FR-002-AC-8; QSL document diagnostics are retained on stderr.
+    #[test]
+    fn typed_outcome_diagnostics_are_written_to_stderr() {
+        let document = OutcomeDocument::new(Operation::Execute, None, Category::Refusal)
+            .with_diagnostics(vec![OutcomeDiagnostic::new(
+                None,
+                "invalid-request",
+                None,
+                "the selected function has no parameter named x",
+            )]);
+        let result = CommandResult::document(document);
+        let mut stderr = Vec::new();
+        write_result_diagnostics(&result, &mut stderr).expect("write QSL diagnostic");
+        assert_eq!(stderr, b"the selected function has no parameter named x\n");
     }
 }
 

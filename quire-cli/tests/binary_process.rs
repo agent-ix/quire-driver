@@ -3,16 +3,27 @@
 
 use std::process::Command;
 
-use qsl_foundation::diagnostic::Category;
+use qsl_foundation::diagnostic::{Category, Code};
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     default_accounting, Call, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
-use qsl_replay::OutcomeDocument;
+use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use quire_driver::{execute, ExecutionEngine, ExecutionRequest};
 
 const QUIRE: &str = env!("CARGO_BIN_EXE_quire");
 const SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ir608-run.qsl");
+
+fn expected_document_bytes(code: Code, message: &str) -> Vec<u8> {
+    let document =
+        OutcomeDocument::new(Operation::Execute, None, code.category()).with_diagnostics(vec![
+            OutcomeDiagnostic::new(None, code.as_str(), None, message),
+        ]);
+    let mut bytes =
+        ix_cli_kit::json::encode_canonical(&document, false).expect("encode expected QSL document");
+    bytes.push('\n');
+    bytes.into_bytes()
+}
 
 /// Trace: FR-004-AC-1, omitted engine selects the linked interpreter.
 #[test]
@@ -84,13 +95,59 @@ fn malformed_run_limit_emits_one_qsl_outcome_and_streams_diagnostic() {
         .output()
         .expect("run quire with malformed limit");
     assert_eq!(output.status.code(), Some(20));
-    let document = serde_json::from_slice::<serde_json::Value>(&output.stdout)
-        .expect("one JSON outcome document");
-    assert_eq!(document["format"], "quire-outcome/1");
-    assert_eq!(document["operation"], "execute");
-    assert_eq!(document["category"], "refusal");
-    assert_eq!(document["diagnostics"][0]["code"], "invalid_runtime_input");
-    assert!(String::from_utf8_lossy(&output.stderr).contains("s1.input_bytes=invalid"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("s1.input_bytes=invalid"));
+    assert!(stderr.ends_with('\n'));
+    assert_eq!(
+        output.stdout,
+        expected_document_bytes(Code::InvalidRequest, stderr.trim_end())
+    );
+}
+
+/// Trace: FR-002-AC-3, FR-002-AC-8, FR-002-AC-9; source I/O errors retain QSL's native code.
+#[test]
+fn missing_source_emits_qsl_io_error_document_and_diagnostic() {
+    let output = Command::new(QUIRE)
+        .args(["run", "missing-source.qsl", "yes", "--format", "json"])
+        .output()
+        .expect("run quire with a missing source");
+    assert_eq!(output.status.code(), Some(20));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("could not read source missing-source.qsl:"));
+    assert!(stderr.ends_with('\n'));
+    assert_eq!(
+        output.stdout,
+        expected_document_bytes(Code::IoError, stderr.trim_end())
+    );
+}
+
+/// Trace: FR-002-AC-1, FR-002-AC-8; root argv refusals name the rejected argument.
+#[test]
+fn root_argv_refusal_names_invalid_format_without_result_output() {
+    let output = Command::new(QUIRE)
+        .args(["run", SOURCE, "yes", "--format", "dot"])
+        .output()
+        .expect("run quire with an invalid root format");
+    assert_eq!(output.status.code(), Some(20));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("dot"));
+}
+
+/// Trace: FR-002-AC-1, FR-002-AC-8; run-only options are named when refused on another verb.
+#[test]
+fn non_run_verb_refuses_and_names_run_only_option() {
+    for option in ["--engine", "--limit"] {
+        let output = Command::new(QUIRE)
+            .args(["check", option, "gpu"])
+            .output()
+            .expect("run quire with a run-only option on check");
+        assert_eq!(output.status.code(), Some(20), "{option}");
+        assert!(output.stdout.is_empty(), "{option}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(option),
+            "{option}"
+        );
+    }
 }
 
 /// Trace: FR-004-AC-3, unavailable engines refuse before reading a source.
@@ -190,6 +247,7 @@ fn malformed_limit_is_named_and_refused_before_source_read() {
         output.status.code(),
         Some(i32::from(Category::Refusal.exit_code()))
     );
+    assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("s1.input_bytes=invalid"));
 }
 
@@ -199,7 +257,7 @@ fn malformed_limit_is_named_and_refused_before_source_read() {
 fn reserved_exit_code_uses_internal_failure_fallback() {
     for format in ["text", "json"] {
         let output = Command::new(QUIRE)
-            .args(["check", "--format", format, "missing-source.qsl"])
+            .args(["run", SOURCE, "yes", "--format", format])
             .env("TC018_CASE", "reserved-exit")
             .output()
             .expect("run the test-built quire binary with a valid verb");
