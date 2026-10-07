@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::process::ExitCode;
 
 use ix_cli_kit::exit::caller_exit_code;
@@ -23,7 +23,8 @@ fn process_exit_code(category: Category) -> ExitCode {
         Ok(exit_code) => exit_code,
         Err(error) => {
             let fallback = Category::InternalFailure.exit_code();
-            eprintln!(
+            let _ = writeln!(
+                std::io::stderr().lock(),
                 "driver exit mapping rejected result {} (reserved code {}); using fallback code {fallback}.",
                 error.rejected_code, error.reserved_code
             );
@@ -331,12 +332,17 @@ pub(super) fn entrypoint() -> ExitCode {
             verb,
             format,
             raw_arguments,
-        }) => process_exit_code(dispatch(
-            verb,
-            format,
-            &raw_arguments,
-            crate::signals::SignalContext::default(),
-        )),
+        }) => {
+            // Current handlers return categories without writing stdout. Keep
+            // result emission after exit conversion when output support lands,
+            // so a rejected reserved result cannot accompany a result document.
+            process_exit_code(dispatch(
+                verb,
+                format,
+                &raw_arguments,
+                crate::signals::SignalContext::default(),
+            ))
+        }
         Err(_) => process_exit_code(Category::Refusal),
     }
 }
@@ -354,7 +360,7 @@ mod outcome_tests {
 
     use super::process_exit_code;
 
-    /// Trace: FR-002-AC-2, FR-002-AC-4; one QSL exit function passes through the kit.
+    /// Trace: FR-002-AC-2; one QSL exit function preserves its numeric results.
     #[test]
     fn process_code_is_qsl_category_exit_code_without_remapping() {
         let expected = [0, 10, 10, 20, 21, 22, 22, 30];

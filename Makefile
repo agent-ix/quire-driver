@@ -42,7 +42,14 @@ lint:
 test:
 	$(CARGO) fetch --locked
 	$(CARGO) test
-	$(CARGO) test --features tc018-test-adapter -p quire-cli --test binary_process reserved_exit_code_uses_internal_failure_fallback
+	@set -eu; \
+	output="$$($(CARGO) test --features tc018-test-adapter -p quire-cli --test binary_process reserved_exit_code_uses_internal_failure_fallback -- --exact 2>&1)" || { \
+		printf '%s\n' "$$output"; exit 1; \
+	}; \
+	printf '%s\n' "$$output"; \
+	printf '%s\n' "$$output" | grep -Fq 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;' || { \
+		echo "expected exactly one TC-018 reserved-exit test" >&2; exit 1; \
+	}
 
 .PHONY: build
 build:

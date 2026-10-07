@@ -86,6 +86,16 @@ fn cargo_target_and_dependencies_belong_to_quire_cli() {
         .collect();
     assert_eq!(cli_packages.len(), 1, "one quire-cli workspace package");
     let cli = cli_packages[0];
+    let default_features = cli["features"]["default"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !default_features
+            .iter()
+            .any(|feature| feature == "tc018-test-adapter"),
+        "TC-018's test-only feature must not be enabled by default"
+    );
 
     let quire_targets: Vec<(&Value, &Value)> = packages
         .iter()

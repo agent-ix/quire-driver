@@ -14,8 +14,8 @@ name = "quire"
 path = "src/main.rs"
 
 [features]
-# Enables TC-018's test-only exit-function seam. The code itself is excluded
-# from release builds, even when this feature is accidentally selected.
+# Opt-in TC-018 seam; it is absent from default features and only active in
+# builds with debug assertions. Other builds reject explicit feature selection.
 tc018-test-adapter = []
 
 [dependencies]

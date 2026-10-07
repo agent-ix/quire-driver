@@ -127,10 +127,10 @@ fn malformed_limit_is_named_and_refused_before_source_read() {
 fn reserved_exit_code_uses_internal_failure_fallback() {
     for format in ["text", "json"] {
         let output = Command::new(QUIRE)
-            .args(["--format", format, "--version"])
+            .args(["check", "--format", format, "missing-source.qsl"])
             .env("TC018_CASE", "reserved-exit")
             .output()
-            .expect("run the test-built quire binary");
+            .expect("run the test-built quire binary with a valid verb");
         assert_eq!(output.status.code(), Some(30), "{format}");
         assert!(output.stdout.is_empty(), "{format}");
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -142,4 +142,17 @@ fn reserved_exit_code_uses_internal_failure_fallback() {
             "{format}"
         );
     }
+}
+
+/// The normal binary ignores TC-018's selector even when the caller sets it.
+#[test]
+fn default_binary_does_not_enable_the_test_exit_seam() {
+    let output = Command::new(QUIRE)
+        .args(["check", "--format", "json", "missing-source.qsl"])
+        .env("TC018_CASE", "reserved-exit")
+        .output()
+        .expect("run the default-feature quire binary");
+    assert_eq!(output.status.code(), Some(21));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
 }
