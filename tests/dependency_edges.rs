@@ -132,7 +132,7 @@ impl Graph {
     }
 }
 
-/// Trace: FR-001-AC-1, FR-001-AC-11, FR-012-AC-13, FR-014-AC-2, FR-014-AC-3 (TC-005); driver closure, CLI host edge, cache boundary and CLI default membership.
+/// Trace: FR-001-AC-1, FR-001-AC-11, FR-012-AC-13, FR-014-AC-2, FR-014-AC-3 (TC-005); driver closure, CLI host/kit edges, cache boundary and CLI default membership.
 #[test]
 fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let graph = Graph::load();
@@ -163,7 +163,7 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     assert!(
         graph.reachable_from(&graph.root).iter().all(|id| !matches!(
             graph.package(id).name.as_str(),
-            "quire-cache" | "quire-plugin-host"
+            "quire-cache" | "quire-plugin-host" | "ix-cli-kit"
         )),
         "the quire-driver transitive dependency closure reaches a downstream implementation crate"
     );
@@ -175,7 +175,12 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let cli = graph.ids_named("quire-cli");
     assert_eq!(cli.len(), 1, "one CLI package");
     let cli_direct: BTreeSet<&str> = graph.deps_of(cli[0]).map(|p| p.name.as_str()).collect();
-    for required in ["quire-driver", "quire-cache", "quire-plugin-host"] {
+    for required in [
+        "quire-driver",
+        "quire-cache",
+        "quire-plugin-host",
+        "ix-cli-kit",
+    ] {
         assert!(
             cli_direct.contains(required),
             "quire-cli must directly depend on {required}"

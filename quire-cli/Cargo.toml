@@ -13,10 +13,16 @@ publish = false
 name = "quire"
 path = "src/main.rs"
 
+[features]
+# Opt-in TC-018 seam; it is absent from default features and only active in
+# builds with debug assertions. Other builds reject explicit feature selection.
+tc018-test-adapter = []
+
 [dependencies]
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+ix-cli-kit = { git = "https://github.com/agent-ix/ix-cli-kit", branch = "main" }
 # IR-609 composes the user-facing CLI with its separately bounded cache.
 quire-cache = { path = "../quire-cache" }
 quire-driver = { path = ".." }

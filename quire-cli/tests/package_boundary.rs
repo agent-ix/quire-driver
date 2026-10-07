@@ -75,7 +75,7 @@ fn direct_normal_dependencies(package: &Value) -> BTreeSet<&str> {
         .collect()
 }
 
-/// Trace: FR-014-AC-1
+/// Trace: FR-014-AC-1, FR-014-AC-2
 #[test]
 fn cargo_target_and_dependencies_belong_to_quire_cli() {
     let metadata = metadata();
@@ -86,6 +86,16 @@ fn cargo_target_and_dependencies_belong_to_quire_cli() {
         .collect();
     assert_eq!(cli_packages.len(), 1, "one quire-cli workspace package");
     let cli = cli_packages[0];
+    let default_features = cli["features"]["default"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !default_features
+            .iter()
+            .any(|feature| feature == "tc018-test-adapter"),
+        "TC-018's test-only feature must not be enabled by default"
+    );
 
     let quire_targets: Vec<(&Value, &Value)> = packages
         .iter()
@@ -110,7 +120,7 @@ fn cargo_target_and_dependencies_belong_to_quire_cli() {
     assert!(dependencies.contains("quire-driver"));
     assert!(dependencies.contains("quire-cache"));
     assert!(dependencies.contains("quire-plugin-host"));
-    assert!(!dependencies.contains("ix-cli-kit"));
+    assert!(dependencies.contains("ix-cli-kit"));
 }
 
 /// Trace: FR-014-AC-4, FR-014-AC-5, the parser, binary entry point, CLI tests and
