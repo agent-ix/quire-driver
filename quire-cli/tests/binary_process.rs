@@ -230,6 +230,33 @@ fn checking_work_limit_changes_the_call_outcome() {
     );
 }
 
+/// Trace: FR-003-AC-9, FR-003-AC-10. The QSL-owned bare accounting name
+/// updates the Call passed to spine::run.
+#[test]
+fn bare_work_units_limit_reaches_qsl_call_accounting() {
+    let output = Command::new(QUIRE)
+        .args([
+            "run",
+            SOURCE,
+            "yes",
+            "--limit",
+            "work_units=0",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("run with a zero accounting budget");
+    assert_eq!(
+        output.status.code(),
+        Some(i32::from(Category::Incomplete.exit_code()))
+    );
+    let document: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("QSL writes an incomplete document");
+    assert_eq!(document["category"], "incomplete");
+    assert_eq!(document["result"]["kind"], "incomplete");
+    assert_eq!(document["result"]["limit"]["setting"], "work_units");
+}
+
 /// Trace: FR-003-AC-3 / TC-010, a lifecycle stage limit uses QSL's exit code.
 #[test]
 fn lifecycle_stage_limit_uses_incomplete_exit_code() {

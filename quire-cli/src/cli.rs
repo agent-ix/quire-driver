@@ -360,12 +360,12 @@ fn run(options: RunOptions) -> CommandResult {
     let packages = BTreeMap::new();
     let dependencies = DependencyInput::default();
     let mut limits = SpineLimits::default();
-    let call = Call {
+    let mut call = Call {
         function: options.function,
         arguments: options.arguments,
         accounting: default_accounting(DEFAULT_WORK_UNITS),
     };
-    if let Err(error) = options.limits.apply_to(&mut limits) {
+    if let Err(error) = options.limits.apply_to(&mut limits, &mut call) {
         return CommandResult::input_refusal(error.to_string());
     }
     let bytes = match read_source(&options.path, limits.source.source_bytes) {
@@ -658,7 +658,10 @@ mod tests {
         assert_eq!(options.engine, ExecutionEngine::Interpreter);
         assert_eq!(
             options.limits.values(),
-            &[(qsl_foundation::Setting::S1InputBytes, 1024)]
+            &[(
+                qsl_foundation::SettingName::Stage(qsl_foundation::Setting::S1InputBytes),
+                1024,
+            )]
         );
     }
 
