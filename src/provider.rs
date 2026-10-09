@@ -318,7 +318,8 @@ mod tests {
     use std::time::Duration;
 
     use qsl_replay::{
-        IncompleteCause, Operation, OutcomeDocument, OutcomeItem, OutcomeStage, TerminalValue,
+        Certification, IncompleteCause, Operation, OutcomeDocument, OutcomeItem, OutcomeStage,
+        ProofBasis, TerminalValue,
     };
     use quire_contract_codegen::{
         Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver, MemoryMechanism,
@@ -491,7 +492,10 @@ mod tests {
         assert_eq!(terminal.request_index().get(), 4);
         assert_eq!(
             terminal.value(),
-            &TerminalValue::Proved { success_checks: 3 }
+            &TerminalValue::Proved {
+                basis: ProofBasis::Checks { success_checks: 3 },
+                certification: Certification::Certified,
+            }
         );
 
         let vacuous = result(KaniRunOutcome::CoverUnsatisfied {
@@ -502,7 +506,10 @@ mod tests {
         .expect("CG maps an unsatisfied cover to a vacuous proof");
         assert_eq!(
             vacuous.value(),
-            &TerminalValue::Proved { success_checks: 0 }
+            &TerminalValue::Proved {
+                basis: ProofBasis::Checks { success_checks: 0 },
+                certification: Certification::Certified,
+            }
         );
 
         let timed_out = result(KaniRunOutcome::Inconclusive {
@@ -563,6 +570,16 @@ mod tests {
         assert_eq!(items[1]["request_index"], 5);
         assert_eq!(items[0]["result"], "proved");
         assert_eq!(items[1]["result"], "proved");
+        assert_eq!(
+            items[0]["basis"],
+            serde_json::json!({"type": "bounded-proof", "checks": 3})
+        );
+        assert_eq!(
+            items[1]["basis"],
+            serde_json::json!({"type": "bounded-proof", "checks": 3})
+        );
+        assert_eq!(items[0]["certification"], "certified");
+        assert_eq!(items[1]["certification"], "certified");
     }
 
     /// Trace: FR-009-AC-4.
