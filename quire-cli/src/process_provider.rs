@@ -19,8 +19,8 @@ use quire_plugin_host::{
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-type ProviderWireTypes<M, Q, R, F, A, V> = fn() -> (M, Q, R, F, A, V);
-type SessionWireTypes<Q, R, V> = fn() -> (Q, R, V);
+type ProviderWireTypes<M, Q, R, F, A, V, I, E> = fn() -> (M, Q, R, F, A, V, I, E);
+type SessionWireTypes<Q, R, V, I, E> = fn() -> (Q, R, V, I, E);
 
 /// Why hello admission did not provide a caller-admitted process descriptor.
 #[derive(Debug, thiserror::Error)]
@@ -53,17 +53,17 @@ pub enum AdapterError<A, V, F> {
 /// A process provider adapter parameterized by caller-owned FR-331 types and
 /// conversion functions. This type defines no manifest, request, result or
 /// fault wire schema.
-pub struct HostProcessProvider<M, Q, R, F, A, V, Admit, Encode, Validate, Convert> {
+pub struct HostProcessProvider<M, Q, R, F, A, V, I, E, Admit, Encode, Validate, Convert> {
     admit: Arc<Admit>,
     encode: Arc<Encode>,
     validate: Arc<Validate>,
     convert: Arc<Convert>,
     signals: crate::signals::SignalContext,
-    _wire_types: PhantomData<ProviderWireTypes<M, Q, R, F, A, V>>,
+    _wire_types: PhantomData<ProviderWireTypes<M, Q, R, F, A, V, I, E>>,
 }
 
-impl<M, Q, R, F, A, V, Admit, Encode, Validate, Convert>
-    HostProcessProvider<M, Q, R, F, A, V, Admit, Encode, Validate, Convert>
+impl<M, Q, R, F, A, V, I, E, Admit, Encode, Validate, Convert>
+    HostProcessProvider<M, Q, R, F, A, V, I, E, Admit, Encode, Validate, Convert>
 {
     /// Build the adapter from QSL admission and caller-owned typed FR-331
     /// request/result conversions.
@@ -85,8 +85,8 @@ impl<M, Q, R, F, A, V, Admit, Encode, Validate, Convert>
     }
 }
 
-impl<M, Q, R, F, A, V, Admit, Encode, Validate, Convert> ProcessProvider
-    for HostProcessProvider<M, Q, R, F, A, V, Admit, Encode, Validate, Convert>
+impl<M, Q, R, F, A, V, I, E, Admit, Encode, Validate, Convert> ProcessProvider
+    for HostProcessProvider<M, Q, R, F, A, V, I, E, Admit, Encode, Validate, Convert>
 where
     M: DeserializeOwned,
     Q: Serialize,
@@ -95,9 +95,9 @@ where
     Admit: Fn(&M) -> Result<(BackendDescriptor, quire_driver::ProviderManifest), A> + 'static,
     Encode: for<'a> Fn(ProcessProviderRequest<'a>) -> Q + 'static,
     Validate: Fn(&M, &R) -> Result<(), V> + 'static,
-    Convert: Fn(R) -> ProviderResults + 'static,
+    Convert: Fn(R) -> ProviderResults<I, E> + 'static,
 {
-    type Session = HostProcessSession<M, Q, R, F, A, V, Encode, Validate, Convert>;
+    type Session = HostProcessSession<M, Q, R, F, A, V, I, E, Encode, Validate, Convert>;
     type Error = AdapterError<A, V, F>;
 
     fn start(
@@ -152,7 +152,7 @@ where
 }
 
 /// An admitted host session implementing the driver-owned process seam.
-pub struct HostProcessSession<M, Q, R, F, A, V, Encode, Validate, Convert> {
+pub struct HostProcessSession<M, Q, R, F, A, V, I, E, Encode, Validate, Convert> {
     host: PluginSession<M, F, AdmissionFailure<A>>,
     descriptor: BackendDescriptor,
     manifest: quire_driver::ProviderManifest,
@@ -161,11 +161,11 @@ pub struct HostProcessSession<M, Q, R, F, A, V, Encode, Validate, Convert> {
     validate: Arc<Validate>,
     convert: Arc<Convert>,
     active: crate::signals::ActiveSession,
-    _wire_types: PhantomData<SessionWireTypes<Q, R, V>>,
+    _wire_types: PhantomData<SessionWireTypes<Q, R, V, I, E>>,
 }
 
-impl<M, Q, R, F, A, V, Encode, Validate, Convert> ProcessProviderSession
-    for HostProcessSession<M, Q, R, F, A, V, Encode, Validate, Convert>
+impl<M, Q, R, F, A, V, I, E, Encode, Validate, Convert> ProcessProviderSession
+    for HostProcessSession<M, Q, R, F, A, V, I, E, Encode, Validate, Convert>
 where
     M: DeserializeOwned,
     Q: Serialize,
@@ -173,9 +173,11 @@ where
     F: DeserializeOwned,
     Encode: for<'a> Fn(ProcessProviderRequest<'a>) -> Q,
     Validate: Fn(&M, &R) -> Result<(), V>,
-    Convert: Fn(R) -> ProviderResults,
+    Convert: Fn(R) -> ProviderResults<I, E>,
 {
     type Error = AdapterError<A, V, F>;
+    type ItemResult = I;
+    type ItemFailure = E;
     type Diagnostics = SessionFinished<M>;
 
     fn descriptor(&self) -> &BackendDescriptor {
@@ -189,7 +191,7 @@ where
     fn invoke(
         &mut self,
         request: ProcessProviderRequest<'_>,
-    ) -> Result<ProviderResults, Self::Error> {
+    ) -> Result<ProviderResults<Self::ItemResult, Self::ItemFailure>, Self::Error> {
         let cancel = request.cancel;
         let _request_active = self.signals.activate(cancel.clone());
         let body = (self.encode)(request);
@@ -225,7 +227,8 @@ mod tests {
     use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
     use quire_driver::{
         build_linked_providers, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
-        ProcessProviderSession, ProviderManifest, ProviderRequest, ProviderResults,
+        ProcessProviderSession, ProviderItemResult, ProviderManifest, ProviderRequest,
+        ProviderResults,
     };
     use quire_exact::Cancel;
     use serde::Deserialize;
@@ -324,6 +327,8 @@ mod tests {
             _,
             _,
             _,
+            _,
+            _,
         >::new(
             crate::signals::SignalContext::default(),
             move |manifest: &Hello| {
@@ -347,7 +352,19 @@ mod tests {
             },
             move |result: serde_json::Value| {
                 converted.store(result["items"].as_array().is_some(), Ordering::Release);
-                ProviderResults::default()
+                let identity = result["identity"]
+                    .as_str()
+                    .expect("echo fixture returns an identity")
+                    .to_owned();
+                ProviderResults::<String, String> {
+                    items: vec![ProviderItemResult {
+                        request_index: 23,
+                        backend: Candidate {
+                            identity: identity.clone(),
+                        },
+                        result: Ok(identity),
+                    }],
+                }
             },
         );
         let cancel = Cancel::new();
@@ -391,8 +408,15 @@ mod tests {
             provider_request: ProviderRequest::new(&[]),
             cancel: &cancel,
         };
-        session.invoke(request).expect("host returns typed result");
+        let results = session.invoke(request).expect("host returns typed result");
         assert!(conversion_called.load(Ordering::Acquire));
+        assert_eq!(results.items.len(), 1);
+        assert_eq!(results.items[0].request_index, 23);
+        assert_eq!(results.items[0].backend.identity, "agent-ix/provider/test");
+        assert_eq!(
+            results.items[0].result.as_deref(),
+            Ok("agent-ix/provider/test")
+        );
         let finished = session.shutdown().expect("host shuts down cleanly");
         assert_eq!(finished.manifest.identity, "agent-ix/provider/test");
         assert_eq!(finished.stderr, b"opaque provider diagnostic\n");
@@ -413,6 +437,8 @@ mod tests {
             serde_json::Value,
             ManifestAdmissionError,
             String,
+            _,
+            _,
             _,
             _,
             _,
@@ -521,6 +547,8 @@ mod tests {
             _,
             _,
             _,
+            _,
+            _,
         >::new(
             crate::signals::SignalContext::default(),
             |manifest: &Hello| admit_hello(manifest, ProviderOrigin::Process, 9),
@@ -573,6 +601,8 @@ mod tests {
             serde_json::Value,
             String,
             String,
+            _,
+            _,
             _,
             _,
             _,
