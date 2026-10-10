@@ -19,9 +19,6 @@ process-wrap = { version = "=10.0.1", default-features = false, features = ["std
 [target.'cfg(unix)'.dependencies]
 nix = { version = "=0.31.3", features = ["feature"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-libproc = "=0.14.11"
-
 [lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"

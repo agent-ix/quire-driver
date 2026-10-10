@@ -1112,11 +1112,11 @@ impl ProcessMonitor {
         }
         #[cfg(target_os = "macos")]
         {
-            if self.cpu_time_limit.is_some() {
-                return Err(ProcessBudgetError::Unavailable);
-            }
-            self.request_active = true;
-            self.check()
+            // PGID sampling cannot prove complete-tree coverage: descendants
+            // may call setsid and disappear from the host's process group.
+            // Refuse every requested budget before dispatch until macOS has a
+            // mechanism that covers escaped and already-exited descendants.
+            Err(ProcessBudgetError::Unavailable)
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         Err(ProcessBudgetError::Unavailable)
@@ -1158,21 +1158,7 @@ impl ProcessMonitor {
         }
         #[cfg(target_os = "macos")]
         {
-            if self.cpu_time_limit.is_some() {
-                return Err(ProcessBudgetError::Unavailable);
-            }
-            let samples = self.refresh_tree()?;
-            let resident_bytes = samples
-                .iter()
-                .map(|sample| sample.memory_bytes)
-                .fold(0_u64, u64::saturating_add);
-            if self
-                .memory_limit
-                .is_some_and(|limit| resident_bytes > limit)
-            {
-                return Err(ProcessBudgetError::MemoryExceeded);
-            }
-            Ok(())
+            Err(ProcessBudgetError::Unavailable)
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         Err(ProcessBudgetError::Unavailable)
@@ -1190,16 +1176,6 @@ impl ProcessMonitor {
         let group_id = self.group_id.ok_or(ProcessBudgetError::Unavailable)?;
         let members =
             linux_process_group_samples(group_id).ok_or(ProcessBudgetError::Unavailable)?;
-        if members.is_empty() {
-            return Err(ProcessBudgetError::Unavailable);
-        }
-        Ok(members)
-    }
-
-    #[cfg(target_os = "macos")]
-    fn refresh_tree(&self) -> Result<Vec<MacProcessSample>, ProcessBudgetError> {
-        let group_id = self.group_id.ok_or(ProcessBudgetError::Unavailable)?;
-        let members = mac_process_group_samples(group_id).ok_or(ProcessBudgetError::Unavailable)?;
         if members.is_empty() {
             return Err(ProcessBudgetError::Unavailable);
         }
@@ -1276,45 +1252,6 @@ struct LinuxProcessSample {
     cpu_ticks: u64,
     memory_bytes: u64,
     state: char,
-}
-
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy, Debug)]
-struct MacProcessSample {
-    memory_bytes: u64,
-}
-
-#[cfg(target_os = "macos")]
-fn mac_process_group_samples(group_id: u32) -> Option<Vec<MacProcessSample>> {
-    use libproc::libproc::proc_pid::pidinfo;
-    use libproc::processes::{pids_by_type, ProcFilter};
-    use libproc::task_info::TaskInfo;
-
-    let pids = pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group_id }).ok()?;
-    let mut members = Vec::with_capacity(pids.len());
-    for pid in pids {
-        let pid = i32::try_from(pid).ok()?;
-        match pidinfo::<TaskInfo>(pid, 0) {
-            Ok(info) => members.push(MacProcessSample {
-                memory_bytes: info.pti_resident_size,
-            }),
-            Err(error) if mac_proc_entry_vanished(&error) => continue,
-            Err(_) => return None,
-        }
-    }
-    Some(members)
-}
-
-#[cfg(target_os = "macos")]
-fn mac_proc_entry_vanished(error: &str) -> bool {
-    let Some(errno) = error
-        .split_once("errno = ")
-        .and_then(|(_, suffix)| suffix.split_once(',').map(|(value, _)| value))
-        .and_then(|value| value.parse::<i32>().ok())
-    else {
-        return false;
-    };
-    errno == nix::errno::Errno::ESRCH as i32 || errno == nix::errno::Errno::ENOENT as i32
 }
 
 #[cfg(target_os = "linux")]
@@ -1410,22 +1347,6 @@ fn proc_scan_skips_only_disappeared_entries() {
     assert!(!proc_entry_vanished(&io::Error::from(
         io::ErrorKind::PermissionDenied
     )));
-}
-
-/// Trace: FR-013-AC-8, TC-026; classify only vanished macOS process queries as skippable.
-#[cfg(target_os = "macos")]
-#[test]
-fn macos_proc_scan_skips_only_disappeared_entries() {
-    assert!(mac_proc_entry_vanished(
-        "return code = 0, errno = 3, message = 'ESRCH'"
-    ));
-    assert!(mac_proc_entry_vanished(
-        "return code = 0, errno = 2, message = 'ENOENT'"
-    ));
-    assert!(!mac_proc_entry_vanished(
-        "return code = 0, errno = 13, message = 'EACCES'"
-    ));
-    assert!(!mac_proc_entry_vanished("unexpected libproc error"));
 }
 
 #[cfg(target_os = "linux")]
@@ -2544,19 +2465,25 @@ mod tests {
         let _ = std::fs::remove_file(ready);
     }
 
-    /// Trace: FR-013-AC-8, TC-026; sum resident memory across macOS process-group members.
+    /// Trace: FR-013-AC-8, TC-026; fail closed when a descendant escapes the sampled process group.
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_process_memory_budget_includes_descendants() {
+    fn macos_memory_budget_refuses_before_dispatch_for_escaped_descendant() {
         let cancel = Cancel::new();
         let executable = failure_fixture();
         let ready = ready_fixture_path();
+        let stop = PathBuf::from(format!("{}.stop", ready.display()));
+        let done = PathBuf::from(format!("{}.done", ready.display()));
+        let request_marker = PathBuf::from(format!("{}.request", ready.display()));
         let arguments = [
-            OsString::from("descendant-memory"),
+            OsString::from("escaped-descendant-memory"),
             ready.as_os_str().to_owned(),
+            stop.as_os_str().to_owned(),
+            done.as_os_str().to_owned(),
+            request_marker.as_os_str().to_owned(),
         ];
         let mut limits = session_limits();
-        limits.max_process_memory_bytes = Some(96 * 1024 * 1024);
+        limits.max_process_memory_bytes = Some(1);
         let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
             SessionStart {
                 executable: &executable,
@@ -2567,27 +2494,13 @@ mod tests {
             |_manifest| Ok::<(), String>(()),
         )
         .expect("hello is admitted");
-        assert!(
-            (0..3).all(|index| PathBuf::from(format!("{}.{}", ready.display(), index)).exists()),
-            "three double-fork descendants signaled readiness"
-        );
-        let members = session
-            .monitor
-            .refresh_tree()
-            .expect("process-group members are measured");
-        assert!(
-            members
-                .iter()
-                .filter(|sample| sample.memory_bytes > 0)
-                .count()
-                >= 3
-        );
-        assert!(
-            members
-                .iter()
-                .map(|sample| sample.memory_bytes)
-                .sum::<u64>()
-                > 96 * 1024 * 1024
+        assert!(ready.exists(), "escaped descendant signaled readiness");
+        let identity: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&ready).expect("read escaped PID and PGID"))
+                .expect("valid escaped process identity");
+        assert_ne!(
+            identity["pgid"], identity["host_pgid"],
+            "fixture descendant is outside the process group observed by the host"
         );
         let error = session
             .request(
@@ -2595,15 +2508,26 @@ mod tests {
                 &cancel,
                 |_manifest, _result: &TestResult| Ok::<(), String>(()),
             )
-            .expect_err("descendants push aggregate process memory over the limit");
+            .expect_err("incomplete macOS process-tree observation refuses before dispatch");
         assert!(matches!(
             error.primary_cause(),
-            PluginError::ProcessBudget(ProcessBudgetError::MemoryExceeded)
+            PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
         ));
-        let _ = std::fs::remove_file(&ready);
-        for index in 0..3 {
-            let _ = std::fs::remove_file(format!("{}.{}", ready.display(), index));
+        assert!(!session.request_write_started);
+        assert!(!request_marker.exists(), "no request reaches plugin code");
+        std::fs::write(&stop, b"stop").expect("release escaped descendant fixture");
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !done.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
         }
+        assert!(
+            done.exists(),
+            "escaped descendant exits after cleanup signal"
+        );
+        let _ = std::fs::remove_file(&ready);
+        let _ = std::fs::remove_file(stop);
+        let _ = std::fs::remove_file(done);
+        let _ = std::fs::remove_file(request_marker);
     }
 
     /// Trace: FR-013-AC-8, TC-026; sum memory for double-forked process-group members.

@@ -60,6 +60,33 @@ time.sleep(60)
         time.sleep(0.005)
     if not all(os.path.exists(f"{ready}.{index}") for index in range(3)):
         raise SystemExit(5)
+if mode == "escaped-descendant-memory":
+    ready, stop, done = sys.argv[2:5]
+    helper = """import json, os, sys, time
+host_pgid = int(sys.argv[4])
+retained = bytearray(32 * 1024 * 1024)
+for offset in range(0, len(retained), 4096):
+    retained[offset] = 1
+with open(sys.argv[1], 'w') as marker:
+    json.dump({'pgid': os.getpgrp(), 'host_pgid': host_pgid}, marker)
+deadline = time.monotonic() + 15
+while not os.path.exists(sys.argv[2]) and time.monotonic() < deadline:
+    time.sleep(0.01)
+with open(sys.argv[3], 'wb') as marker:
+    marker.write(b'done')
+"""
+    subprocess.Popen(
+        [sys.executable, "-c", helper, ready, stop, done, str(os.getpid())],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 3
+    while not os.path.exists(ready) and time.monotonic() < deadline:
+        time.sleep(0.005)
+    if not os.path.exists(ready):
+        raise SystemExit(5)
 if mode == "request-marker":
     with open(sys.argv[2] + ".ready", "wb") as ready:
         ready.write(b"waiting")
@@ -92,6 +119,9 @@ if mode == "stderr":
     sys.stderr.flush()
 
 request = read_frame()
+if mode == "escaped-descendant-memory":
+    with open(sys.argv[5], "wb") as marker:
+        marker.write(b"request")
 if mode in ("descendant-hang", "detached-stdio"):
     streams = {} if mode == "descendant-hang" else {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
     subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], **streams)
