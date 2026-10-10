@@ -68,7 +68,7 @@ Test location: `src/limits.rs`, `src/execute.rs`, `quire-cli/src/cli.rs`, and
   `AccountingLimits`; it leaves stage limits unchanged and reaches `spine::run`.
 - Names not resolved by the pinned QSL parser, malformed operands and
   duplicates are refused before any stage with code `invalid-request`.
-- A QSL-recognized setting absent from the operation's bounds is refused with
+- A QSL-recognized stage setting absent from the operation's bounds is refused with
   `invalid-request` and an operation-unavailable diagnostic, not the
   unknown-name diagnostic.
 - The driver adds no name parser, namespace or aliases. QSL-656 / QSL #665

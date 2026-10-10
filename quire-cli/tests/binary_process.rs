@@ -246,7 +246,7 @@ fn checking_work_limit_changes_the_call_outcome() {
     );
 }
 
-/// The QSL-owned bare accounting name updates the Call passed to spine::run.
+/// Trace: FR-003-AC-9, FR-003-AC-10. Bare accounting reaches QSL's call.
 #[test]
 fn bare_work_units_limit_reaches_qsl_call_accounting() {
     let output = Command::new(QUIRE)
