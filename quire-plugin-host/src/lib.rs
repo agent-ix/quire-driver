@@ -2346,7 +2346,7 @@ mod tests {
         ));
     }
 
-    /// Trace: FR-013-AC-8, TC-026; refuse dispatch when complete process measurement is unavailable.
+    /// Trace: FR-013-AC-8, FR-013-AC-18, TC-026; refuse a memory-budgeted dispatch when measurement is unavailable.
     #[cfg(unix)]
     #[test]
     fn begin_request_returns_unavailable_before_dispatch() {
@@ -2407,7 +2407,7 @@ mod tests {
         let _ = std::fs::remove_file(ready);
     }
 
-    /// Trace: FR-013-AC-8, TC-026; sum memory for double-forked process-group members.
+    /// Trace: FR-013-AC-8, FR-013-AC-16, TC-026; sum memory for double-forked process-group members.
     #[cfg(target_os = "linux")]
     #[test]
     fn process_memory_budget_includes_descendant_usage() {
