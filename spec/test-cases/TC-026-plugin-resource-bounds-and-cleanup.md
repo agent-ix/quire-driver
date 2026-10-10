@@ -19,23 +19,28 @@ Scope: FR-013-AC-8 through FR-013-AC-10.
 
 Use synchronized fixtures that spawn a child process and make the combined
 plugin-plus-child resident memory exceed the request limit while each process
-alone remains below it. Repeat for summed CPU-time deltas. Include a monitor
-test double that cannot observe the complete process tree, plus fixtures that
-write stderr beyond its session retention bound, close stdout and remain alive,
-and exit before the expected hello frame. For every budget failure, retain the
-host result and fixture process identifiers; after the host returns, check
-that neither the plugin nor its child remains alive and that all host I/O
-workers have terminated.
+alone remains below it. For CPU accounting, make a descendant consume CPU,
+exit and be reaped between monitor polls while the plugin remains alive; on a
+runtime with a complete accounting boundary, verify that the exited child's
+CPU still contributes to the request total. On a runtime without that
+capability, verify `ProcessBudgetError::Unavailable` occurs before the request
+frame is sent. Include a monitor test double that cannot observe the complete
+process tree, plus fixtures that write stderr beyond its session retention
+bound, close stdout and remain alive, and exit before the expected hello frame.
+For every budget failure, retain the host result and fixture process
+identifiers; after the host returns, check that neither the plugin nor its
+child remains alive and that all host I/O workers have terminated.
 
 ## Expected Results
 
-- The host samples the complete process tree at intervals no longer than 20 ms.
-  A sampled aggregate memory or CPU-time budget breach identifies its typed
-  failure and terminates the plugin and descendants. The sample is best-effort:
-  a transient peak between polls may exceed the configured value before the
-  next measurement.
-- When the monitor cannot observe the complete process tree, the host returns
-  `ProcessBudgetError::Unavailable` before sending any request frame.
+- The host samples resource use at intervals no longer than 20 ms. CPU totals
+  include descendants that exit between polls; a process-group sample that
+  loses an exited member is not accepted as complete accounting. Memory
+  sampling is best-effort, so a transient peak can exceed the configured
+  value before the next measurement.
+- When the runtime cannot establish complete CPU accounting or observe the
+  full memory tree, the host returns `ProcessBudgetError::Unavailable` before
+  sending any request frame.
 - Stderr retention does not exceed the configured session limit, excess bytes
   are drained, and captured stderr is available on success and failure.
 - The host returns process-exit or typed failure information without a busy
