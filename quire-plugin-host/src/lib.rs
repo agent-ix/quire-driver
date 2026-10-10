@@ -2441,7 +2441,7 @@ mod tests {
         let _ = std::fs::remove_file(ready);
     }
 
-    /// Trace: FR-013-AC-8, TC-026; reject unsupported macOS CPU accounting before dispatch.
+    /// Trace: FR-013-AC-17, TC-026; reject unsupported macOS CPU accounting before dispatch.
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_cpu_budget_returns_unavailable_before_dispatch() {
@@ -2487,7 +2487,7 @@ mod tests {
         let _ = std::fs::remove_file(ready);
     }
 
-    /// Trace: FR-013-AC-8, TC-026; fail closed when a descendant escapes the sampled process group.
+    /// Trace: FR-013-AC-18, TC-026; fail closed when a descendant escapes the sampled process group.
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_memory_budget_refuses_before_dispatch_for_escaped_descendant() {
@@ -2581,7 +2581,7 @@ mod tests {
         let _ = std::fs::remove_file(request_marker);
     }
 
-    /// Trace: FR-013-AC-8, TC-026; verify the escaped fixture's request marker names its own path.
+    /// Trace: TC-026; verify the escaped fixture's request marker names its own path.
     #[cfg(target_os = "macos")]
     #[test]
     fn escaped_fixture_request_marker_is_distinct_from_cleanup_marker() {
