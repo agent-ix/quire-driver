@@ -1110,7 +1110,15 @@ impl ProcessMonitor {
             self.request_active = true;
             self.check()
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
+        {
+            // PGID sampling cannot prove complete-tree coverage: descendants
+            // may call setsid and disappear from the host's process group.
+            // Refuse every requested budget before dispatch until macOS has a
+            // mechanism that covers escaped and already-exited descendants.
+            Err(ProcessBudgetError::Unavailable)
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         Err(ProcessBudgetError::Unavailable)
     }
 
@@ -1148,7 +1156,11 @@ impl ProcessMonitor {
             }
             Ok(())
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
+        {
+            Err(ProcessBudgetError::Unavailable)
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         Err(ProcessBudgetError::Unavailable)
     }
 
@@ -1782,6 +1794,28 @@ mod tests {
         ))
     }
 
+    struct StopEscapedFixture {
+        release: std::path::PathBuf,
+        stop: std::path::PathBuf,
+        armed: bool,
+    }
+
+    impl StopEscapedFixture {
+        fn disarm(&mut self) {
+            self.armed = false;
+        }
+    }
+
+    impl Drop for StopEscapedFixture {
+        fn drop(&mut self) {
+            if !self.armed {
+                return;
+            }
+            let _ = std::fs::write(&self.release, b"release");
+            let _ = std::fs::write(&self.stop, b"stop");
+        }
+    }
+
     fn cancel_after_fixture_ready(
         path: std::path::PathBuf,
         cancel: Cancel,
@@ -2405,6 +2439,259 @@ mod tests {
         assert!(matches!(closed, PluginError::SessionClosed));
         let _ = std::fs::remove_file(marker);
         let _ = std::fs::remove_file(ready);
+    }
+
+    /// Trace: FR-013-AC-17, TC-026; reject unsupported macOS CPU accounting before dispatch.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_cpu_budget_returns_unavailable_before_dispatch() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let marker = ready_fixture_path();
+        let ready = PathBuf::from(format!("{}.ready", marker.display()));
+        let arguments = [
+            OsString::from("request-marker"),
+            marker.as_os_str().to_owned(),
+        ];
+        let mut limits = session_limits();
+        limits.max_process_cpu_time = Some(Duration::from_secs(1));
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits,
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !ready.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(ready.exists(), "fixture is waiting for its first request");
+        let error = session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect_err("unsupported CPU measurement prevents request dispatch");
+        assert!(matches!(
+            error.primary_cause(),
+            PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
+        ));
+        assert!(!session.request_write_started);
+        assert!(!marker.exists(), "the request was not written");
+        let _ = std::fs::remove_file(marker);
+        let _ = std::fs::remove_file(ready);
+    }
+
+    /// Trace: FR-013-AC-18, TC-026; fail closed when a descendant escapes the sampled process group.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_memory_budget_refuses_before_dispatch_for_escaped_descendant() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let ready = ready_fixture_path();
+        let writing = PathBuf::from(format!("{}.writing", ready.display()));
+        let release = PathBuf::from(format!("{}.release", ready.display()));
+        let stop = PathBuf::from(format!("{}.stop", ready.display()));
+        let mut stop_escaped_fixture = StopEscapedFixture {
+            release: release.clone(),
+            stop: stop.clone(),
+            armed: true,
+        };
+        let done = PathBuf::from(format!("{}.done", ready.display()));
+        let request_marker = PathBuf::from(format!("{}.request", ready.display()));
+        let arguments = [
+            OsString::from("escaped-descendant-memory"),
+            ready.as_os_str().to_owned(),
+            writing.as_os_str().to_owned(),
+            release.as_os_str().to_owned(),
+            stop.as_os_str().to_owned(),
+            done.as_os_str().to_owned(),
+            request_marker.as_os_str().to_owned(),
+        ];
+        let mut limits = session_limits();
+        limits.max_process_memory_bytes = Some(1);
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits,
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !writing.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            writing.exists(),
+            "escaped descendant exposed its partial write"
+        );
+        assert!(
+            !ready.exists(),
+            "the readiness path stays absent while JSON is only partially written"
+        );
+        std::fs::write(&release, b"release").expect("release complete JSON publication");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !ready.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(ready.exists(), "complete JSON is atomically published");
+        let identity: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&ready).expect("read escaped PID and PGID"))
+                .expect("valid escaped process identity");
+        assert_ne!(
+            identity["pgid"], identity["host_pgid"],
+            "fixture descendant is outside the process group observed by the host"
+        );
+        let error = session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect_err("incomplete macOS process-tree observation refuses before dispatch");
+        assert!(matches!(
+            error.primary_cause(),
+            PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
+        ));
+        assert!(!session.request_write_started);
+        assert!(!request_marker.exists(), "no request reaches plugin code");
+        std::fs::write(&stop, b"stop").expect("release escaped descendant fixture");
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !done.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            done.exists(),
+            "escaped descendant exits after cleanup signal"
+        );
+        stop_escaped_fixture.disarm();
+        let _ = std::fs::remove_file(&ready);
+        let _ = std::fs::remove_file(writing);
+        let _ = std::fs::remove_file(release);
+        let _ = std::fs::remove_file(stop);
+        let _ = std::fs::remove_file(done);
+        let _ = std::fs::remove_file(request_marker);
+    }
+
+    /// Trace: TC-026; verify the escaped fixture's request marker names its own path.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn escaped_fixture_request_marker_is_distinct_from_cleanup_marker() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let ready = ready_fixture_path();
+        let writing = PathBuf::from(format!("{}.writing", ready.display()));
+        let release = PathBuf::from(format!("{}.release", ready.display()));
+        let stop = PathBuf::from(format!("{}.stop", ready.display()));
+        let mut stop_escaped_fixture = StopEscapedFixture {
+            release: release.clone(),
+            stop: stop.clone(),
+            armed: true,
+        };
+        let done = PathBuf::from(format!("{}.done", ready.display()));
+        let request_marker = PathBuf::from(format!("{}.request", ready.display()));
+        let arguments = [
+            OsString::from("escaped-descendant-memory"),
+            ready.as_os_str().to_owned(),
+            writing.as_os_str().to_owned(),
+            release.as_os_str().to_owned(),
+            stop.as_os_str().to_owned(),
+            done.as_os_str().to_owned(),
+            request_marker.as_os_str().to_owned(),
+        ];
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits: session_limits(),
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !writing.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            writing.exists(),
+            "escaped descendant exposed its partial write"
+        );
+        assert!(!ready.exists(), "ready is hidden before release");
+        std::fs::write(&release, b"release").expect("release complete JSON publication");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !ready.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(ready.exists(), "complete JSON is published");
+
+        session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect("fixture accepts the request");
+        assert!(
+            request_marker.exists(),
+            "the request marker uses its declared argv path"
+        );
+        assert!(
+            !done.exists(),
+            "request handling does not forge the cleanup-complete marker"
+        );
+
+        std::fs::write(&stop, b"stop").expect("release escaped descendant fixture");
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !done.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            done.exists(),
+            "escaped descendant exits after cleanup signal"
+        );
+        stop_escaped_fixture.disarm();
+        let _ = std::fs::remove_file(ready);
+        let _ = std::fs::remove_file(writing);
+        let _ = std::fs::remove_file(release);
+        let _ = std::fs::remove_file(stop);
+        let _ = std::fs::remove_file(done);
+        let _ = std::fs::remove_file(request_marker);
+    }
+
+    #[test]
+    fn escaped_fixture_guard_disarm_preserves_cleanup_without_recreating_markers() {
+        let base = ready_fixture_path();
+        let release = PathBuf::from(format!("{}.release", base.display()));
+        let stop = PathBuf::from(format!("{}.stop", base.display()));
+        let mut guard = StopEscapedFixture {
+            release: release.clone(),
+            stop: stop.clone(),
+            armed: true,
+        };
+        guard.disarm();
+        drop(guard);
+        assert!(!release.exists());
+        assert!(!stop.exists());
+
+        let guard = StopEscapedFixture {
+            release: release.clone(),
+            stop: stop.clone(),
+            armed: true,
+        };
+        drop(guard);
+        assert!(release.exists(), "armed cleanup releases publication wait");
+        assert!(stop.exists(), "armed cleanup stops escaped fixture");
+        let _ = std::fs::remove_file(release);
+        let _ = std::fs::remove_file(stop);
     }
 
     /// Trace: FR-013-AC-8, FR-013-AC-16, TC-026; sum memory for double-forked process-group members.
