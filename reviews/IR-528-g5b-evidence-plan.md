@@ -27,6 +27,7 @@ stderr, exit status, typed record and test logs as the gate evidence bundle.
 | Cache identity | Execute the same eligible prove request twice with unchanged request and admitted `ManifestDigest`; then supply a different admitted manifest digest while keeping the recorded revision pin fixed. Mutate each other meaning input independently. Corrupt an entry's name, preimage and typed result. Attempt to store plugin, internal-failure, cancelled, deadline, time-limited incomplete and wall-time-bearing outcomes. | Unchanged meaning inputs hit; a changed admitted manifest digest and every changed meaning input miss even with the same pin. Corrupt entries miss. Prohibited outcomes and plugin results are never stored. Hit/miss records identify the tested canonical input set without exposing a second cache-key policy. | `quire-integration` cache composition tests; key construction tests belong to downstream `quire-cache`. |
 | AOT parity | Run one checked-package corpus through the interpreter and AOT with identical entries, environments, arguments and accounting limits. Include completed, undefined, refused and incomplete results, source locations, loss records, a boundary limit and one unsupported entry. Build with the toolchain named in the request. | AOT and interpreter return equal typed evaluations and causes for every supported entry. Unsupported and preparation-limit results remain typed; neither silently selects another engine. The test also records that generated code read only the package from the current checked request. | `quire-integration` AOT/interpreter conformance tests, across the public driver-to-QSL API. |
 | Prove, Kani, replay and terminal records | Extend the existing real-Kani exemplar (`tests/qsl_kani_exemplar.rs`, IT-011) as the execution template. It passed 5/5 with real Kani in 530 seconds serially on the measured Linux run. For G5b, use one generated harness that proves and one that falsifies. Feed the falsifying result through QSL replay. Include a replay mismatch and a second requested item so the test checks item-local records. Capture generated artifact identity, Kani output, replay output and the final `quire-outcome/1` document. | The Kani run is real (not a fabricated provider response). A reproduced counterexample settles `refuted`; a mismatch settles `inconclusive`; CG's FR-331 mapping is the only terminal mapping. The output contains exactly one FR-331 record per requested item and the binary and library paths serialize it identically. | Extend `tests/qsl_kani_exemplar.rs` for the G5b CLI/library composition; retain the real-Kani run as an explicit long gate. The measured 530-second exemplar shows draco's Kani 0.68 setup can run this lane, subject to Linux remaining the authoritative `make ci` gate. |
+| Cross-platform process-tree budgets and cleanup | Run native host tests on Linux, macOS and Windows. On each platform, use synchronized fixtures where plugin and descendant are individually below a memory or CPU-time limit but their aggregate crosses it. Include a short-lived descendant that completes CPU work between monitor samples, an unavailable/incomplete-tree measurement case, and a sustained child that remains alive during cleanup. On Windows, also force Job Object setup failure before plugin execution. Record per-platform command, host version, configured limits, sampled observations, typed result, request-frame count, and surviving process-tree members. | Each platform enforces memory and CPU-time limits across the process tree and returns the corresponding typed budget failure while terminating descendants. A short-lived descendant must be accounted for; if the implementation cannot observe its completed CPU use, the evidence records the gap and final G5b remains blocked pending IR-668 resolution. An unavailable complete-tree measurement refuses before sending a request. On Windows, the job is assigned before plugin code executes, closing it terminates remaining members, and setup failure sends no request and cleans up any child already created. A Linux-only result is partial evidence and does not satisfy final IR-528 acceptance. | Native Linux, macOS and Windows runs of `quire-plugin-host` TC-026 and TC-028; preserve separate raw logs and process observations for each OS. |
 
 ## Gate assembly
 
@@ -39,7 +40,8 @@ stderr, exit status, typed record and test logs as the gate evidence bundle.
    a failed or timed-out case as a green aggregate.
 4. Gate G5b passes only when every required group has evidence, the parity
    and cache checks pass, and every requested item has its expected FR-331
-   terminal record.
+   terminal record. The cross-platform process-tree group must pass natively
+   on Linux, macOS and Windows; a Linux-only run is partial evidence.
 
 ## Dependencies and current gaps
 
@@ -47,11 +49,12 @@ stderr, exit status, typed record and test logs as the gate evidence bundle.
   abstraction-relation requirements that this plan covers.
 - IR-607 through IR-610 provide the binary, options, provider/cache and
   execution implementations.
-- IR-609's final process-backend mapping is gated on CG IR-629 landing
-  `BackendKind::Process`, as amended by QSL-637 PV-4. QSL-637 supplies the PV-4 registration and
-  descriptor rules. The driver converts each plugin `BackendId` to
-  `BackendKind::Process(BackendId)` after the CG merge; the mapping stays the
-  last IR-609 slice.
+- IR-609's final process-provider negotiation is gated on CG IR-629's public
+  origin-aware descriptor conversion, as amended by QSL-637 PV-4. QSL owns
+  `ProviderOrigin` and the registration rules; the driver preserves the QSL
+  descriptor origin and supplies that descriptor to CG. CG constructs
+  `BackendKind::Process` from `ProviderOrigin::Process`; the driver does not
+  map plugin `BackendId` values to CG kinds, consistent with FR-005-AC-17.
 - QSL LC7 removes the old `quire-spec` binary so the single `quire` CLI can
   own these verbs.
 - QSL AR2 is a prerequisite for the SP-D9 bound-item check; QSL AR3 and
