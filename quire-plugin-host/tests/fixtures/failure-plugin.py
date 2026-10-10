@@ -61,9 +61,9 @@ time.sleep(60)
     if not all(os.path.exists(f"{ready}.{index}") for index in range(3)):
         raise SystemExit(5)
 if mode == "escaped-descendant-memory":
-    ready, writing, stop, done = sys.argv[2:6]
+    ready, writing, release, stop, done = sys.argv[2:7]
     helper = """import json, os, sys, time
-host_pgid = int(sys.argv[5])
+host_pgid = int(sys.argv[6])
 retained = bytearray(32 * 1024 * 1024)
 for offset in range(0, len(retained), 4096):
     retained[offset] = 1
@@ -75,19 +75,23 @@ with open(temporary, 'wb') as marker:
     os.fsync(marker.fileno())
     with open(sys.argv[2], 'wb') as progress:
         progress.write(b'partial')
-    time.sleep(0.2)
+    deadline = time.monotonic() + 5
+    while not os.path.exists(sys.argv[3]) and time.monotonic() < deadline:
+        time.sleep(0.005)
+    if not os.path.exists(sys.argv[3]):
+        raise SystemExit(6)
     marker.write(payload[8:])
     marker.flush()
     os.fsync(marker.fileno())
 os.replace(temporary, sys.argv[1])
 deadline = time.monotonic() + 15
-while not os.path.exists(sys.argv[3]) and time.monotonic() < deadline:
+while not os.path.exists(sys.argv[4]) and time.monotonic() < deadline:
     time.sleep(0.01)
-with open(sys.argv[4], 'wb') as marker:
+with open(sys.argv[5], 'wb') as marker:
     marker.write(b'done')
 """
     subprocess.Popen(
-        [sys.executable, "-c", helper, ready, writing, stop, done, str(os.getpid())],
+        [sys.executable, "-c", helper, ready, writing, release, stop, done, str(os.getpid())],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -126,7 +130,7 @@ if mode == "stderr":
 
 request = read_frame()
 if mode == "escaped-descendant-memory":
-    with open(sys.argv[5], "wb") as marker:
+    with open(sys.argv[7], "wb") as marker:
         marker.write(b"request")
 if mode in ("descendant-hang", "detached-stdio"):
     streams = {} if mode == "descendant-hang" else {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}

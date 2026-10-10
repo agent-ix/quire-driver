@@ -1794,11 +1794,15 @@ mod tests {
         ))
     }
 
-    struct StopEscapedFixture(std::path::PathBuf);
+    struct StopEscapedFixture {
+        release: std::path::PathBuf,
+        stop: std::path::PathBuf,
+    }
 
     impl Drop for StopEscapedFixture {
         fn drop(&mut self) {
-            let _ = std::fs::write(&self.0, b"stop");
+            let _ = std::fs::write(&self.release, b"release");
+            let _ = std::fs::write(&self.stop, b"stop");
         }
     }
 
@@ -2481,14 +2485,19 @@ mod tests {
         let executable = failure_fixture();
         let ready = ready_fixture_path();
         let writing = PathBuf::from(format!("{}.writing", ready.display()));
+        let release = PathBuf::from(format!("{}.release", ready.display()));
         let stop = PathBuf::from(format!("{}.stop", ready.display()));
-        let _stop_escaped_fixture = StopEscapedFixture(stop.clone());
+        let _stop_escaped_fixture = StopEscapedFixture {
+            release: release.clone(),
+            stop: stop.clone(),
+        };
         let done = PathBuf::from(format!("{}.done", ready.display()));
         let request_marker = PathBuf::from(format!("{}.request", ready.display()));
         let arguments = [
             OsString::from("escaped-descendant-memory"),
             ready.as_os_str().to_owned(),
             writing.as_os_str().to_owned(),
+            release.as_os_str().to_owned(),
             stop.as_os_str().to_owned(),
             done.as_os_str().to_owned(),
             request_marker.as_os_str().to_owned(),
@@ -2517,6 +2526,7 @@ mod tests {
             !ready.exists(),
             "the readiness path stays absent while JSON is only partially written"
         );
+        std::fs::write(&release, b"release").expect("release complete JSON publication");
         let deadline = Instant::now() + Duration::from_secs(2);
         while !ready.exists() && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(2));
@@ -2553,6 +2563,91 @@ mod tests {
         );
         let _ = std::fs::remove_file(&ready);
         let _ = std::fs::remove_file(writing);
+        let _ = std::fs::remove_file(release);
+        let _ = std::fs::remove_file(stop);
+        let _ = std::fs::remove_file(done);
+        let _ = std::fs::remove_file(request_marker);
+    }
+
+    /// Trace: FR-013-AC-8, TC-026; verify the escaped fixture's request marker names its own path.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn escaped_fixture_request_marker_is_distinct_from_cleanup_marker() {
+        let cancel = Cancel::new();
+        let executable = failure_fixture();
+        let ready = ready_fixture_path();
+        let writing = PathBuf::from(format!("{}.writing", ready.display()));
+        let release = PathBuf::from(format!("{}.release", ready.display()));
+        let stop = PathBuf::from(format!("{}.stop", ready.display()));
+        let _stop_escaped_fixture = StopEscapedFixture {
+            release: release.clone(),
+            stop: stop.clone(),
+        };
+        let done = PathBuf::from(format!("{}.done", ready.display()));
+        let request_marker = PathBuf::from(format!("{}.request", ready.display()));
+        let arguments = [
+            OsString::from("escaped-descendant-memory"),
+            ready.as_os_str().to_owned(),
+            writing.as_os_str().to_owned(),
+            release.as_os_str().to_owned(),
+            stop.as_os_str().to_owned(),
+            done.as_os_str().to_owned(),
+            request_marker.as_os_str().to_owned(),
+        ];
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits: session_limits(),
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("hello is admitted");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !writing.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            writing.exists(),
+            "escaped descendant exposed its partial write"
+        );
+        assert!(!ready.exists(), "ready is hidden before release");
+        std::fs::write(&release, b"release").expect("release complete JSON publication");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !ready.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(ready.exists(), "complete JSON is published");
+
+        session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect("fixture accepts the request");
+        assert!(
+            request_marker.exists(),
+            "the request marker uses its declared argv path"
+        );
+        assert!(
+            !done.exists(),
+            "request handling does not forge the cleanup-complete marker"
+        );
+
+        std::fs::write(&stop, b"stop").expect("release escaped descendant fixture");
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !done.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            done.exists(),
+            "escaped descendant exits after cleanup signal"
+        );
+        let _ = std::fs::remove_file(ready);
+        let _ = std::fs::remove_file(writing);
+        let _ = std::fs::remove_file(release);
         let _ = std::fs::remove_file(stop);
         let _ = std::fs::remove_file(done);
         let _ = std::fs::remove_file(request_marker);
