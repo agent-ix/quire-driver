@@ -55,6 +55,10 @@ application, in occurrence-key order.
     (`x > 20`) is itself a scalar comparison, so this writes two
     requirement records: the `+` at index 0 and the guard `>` at index 1,
     both routed to `kani`.
+11. Drive the ordinary unit with caller-supplied FR-056 domain package
+    documents and capture the typed evidence passed to IR's E5 reader.
+    Compare the reader's evidence with the supplied digest and complete
+    document bytes, plus the supported root feature.
 
 Tests: `tests/drive.rs`,
 `tc_001_tc_006_steps_run_in_order_through_generation` (steps 1 to 3),
@@ -66,7 +70,8 @@ Tests: `tests/drive.rs`,
 `tc_006_x_plus_y_generation_passes_through_unchanged` (step 8),
 `tc_006_x_plus_100_in_the_return_context_is_refused_at_check` (step 9), and
 `tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable`
-(step 10).
+(step 10), and `tc_006_handoff_passes_domain_package_evidence_unchanged`
+(step 11).
 
 ## Expected Results
 
@@ -131,3 +136,7 @@ Tests: `tests/drive.rs`,
   family but `IntegerArithmetic`, naming the one derived domain (`x`'s own
   `[0, 9]` bound, as an `IntegerRange`); no harness is carried for it
   either.
+- Step 11's E5 evidence contains every caller-supplied domain-package
+  document under the original digest and with the original bytes, and still
+  contains the supported root feature. Dropping or changing that evidence
+  changes the typed value observed by the reader and fails the assertion.

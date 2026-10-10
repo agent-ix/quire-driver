@@ -13,9 +13,14 @@ where their evidence matches the G5b criterion.
 
 Run the gate only after the IR-527 specification and the implementation
 tickets it blocks have merged, and after QSL LC7 removes the old binary. Use
-the built integration executable and library with the actual admitted inputs
-and generated artifacts under test. Preserve per-case stdout, stderr, exit
-status, typed record and test logs as the gate evidence bundle.
+Use one exact dependency lock for the composed run. Run the built integration
+executable and library with the actual admitted inputs and generated artifacts
+under test. Preserve per-case stdout, stderr, exit status, typed record and test
+logs as the gate evidence bundle.
+Run end-to-end acceptance on every OS declared supported at gate freeze, using
+a native runner for each OS. A result from one platform does not establish
+acceptance on another; platform-specific process accounting and cleanup claims
+also require their own native evidence.
 
 ## Evidence groups
 
