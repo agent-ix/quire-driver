@@ -1794,6 +1794,14 @@ mod tests {
         ))
     }
 
+    struct StopEscapedFixture(std::path::PathBuf);
+
+    impl Drop for StopEscapedFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::write(&self.0, b"stop");
+        }
+    }
+
     fn cancel_after_fixture_ready(
         path: std::path::PathBuf,
         cancel: Cancel,
@@ -2472,12 +2480,15 @@ mod tests {
         let cancel = Cancel::new();
         let executable = failure_fixture();
         let ready = ready_fixture_path();
+        let writing = PathBuf::from(format!("{}.writing", ready.display()));
         let stop = PathBuf::from(format!("{}.stop", ready.display()));
+        let _stop_escaped_fixture = StopEscapedFixture(stop.clone());
         let done = PathBuf::from(format!("{}.done", ready.display()));
         let request_marker = PathBuf::from(format!("{}.request", ready.display()));
         let arguments = [
             OsString::from("escaped-descendant-memory"),
             ready.as_os_str().to_owned(),
+            writing.as_os_str().to_owned(),
             stop.as_os_str().to_owned(),
             done.as_os_str().to_owned(),
             request_marker.as_os_str().to_owned(),
@@ -2494,7 +2505,23 @@ mod tests {
             |_manifest| Ok::<(), String>(()),
         )
         .expect("hello is admitted");
-        assert!(ready.exists(), "escaped descendant signaled readiness");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !writing.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            writing.exists(),
+            "escaped descendant exposed its partial write"
+        );
+        assert!(
+            !ready.exists(),
+            "the readiness path stays absent while JSON is only partially written"
+        );
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !ready.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(ready.exists(), "complete JSON is atomically published");
         let identity: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&ready).expect("read escaped PID and PGID"))
                 .expect("valid escaped process identity");
@@ -2525,6 +2552,7 @@ mod tests {
             "escaped descendant exits after cleanup signal"
         );
         let _ = std::fs::remove_file(&ready);
+        let _ = std::fs::remove_file(writing);
         let _ = std::fs::remove_file(stop);
         let _ = std::fs::remove_file(done);
         let _ = std::fs::remove_file(request_marker);
