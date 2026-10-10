@@ -102,7 +102,7 @@ fn validate_manifest(shape: &ProviderDescriptorShape) -> Result<(), ManifestAdmi
     {
         return Err(invalid_member("advertises", "contains a duplicate pair"));
     }
-    // Domain vocabulary and admission refusal belong to QSL-654. Keep the
+    // Domain vocabulary and admission refusal belong to QSL. Keep the
     // typed value for QSL instead of pre-refusing it in the driver.
     if shape.options.as_ref().is_some_and(BTreeMap::is_empty) {
         return Err(invalid_member("options", "must not be empty when present"));
@@ -213,7 +213,8 @@ pub enum ManifestAdmissionError {
     /// QSL refused the descriptor's backend identity.
     #[error(transparent)]
     EmptyBackendIdentity(#[from] qsl_route::EmptyBackendIdentity),
-    /// QSL refused an advertised kind or mode with its native cause.
+    /// QSL refused advertised labels or domain declarations with its native
+    /// registration cause.
     #[error(transparent)]
     Registration(#[from] qsl_route::RegistrationRefusal),
     /// Canonical manifest hashing refused the input or exceeded its byte bound.
@@ -225,10 +226,9 @@ impl ManifestStage {
     /// Admit the hello's one manifest using the caller-supplied Process origin.
     ///
     /// The digest and retained bytes use RFC 8785. QSL owns identity,
-    /// capability, mode and duplicate admission; this method neither
-    /// normalizes labels nor assigns an origin from wire data. Domain and
-    /// evidence-label admission is pending QSL-654; these members are retained
-    /// without driver-side vocabulary refusal.
+    /// capability, mode and domain admission; this method neither normalizes
+    /// labels nor assigns an origin from wire data. Evidence-label admission
+    /// remains QSL-owned without a driver-side vocabulary rule.
     pub fn admit_process(
         &self,
         max_frame_bytes: u64,
@@ -255,9 +255,10 @@ impl ManifestStage {
         quire_canonical::encode(&mut sink, &**wire, limits)?;
         let (canonical_wire, hasher) = sink;
         let digest: [u8; 32] = hasher.finalize().into();
-        // The checked-in QSL API does not yet accept domains/evidence kinds.
-        // Preserve them in the DTO; pass them to admission when QSL-654 adds
-        // its domain- and evidence-aware signature.
+        let domain_labels = shape
+            .domains
+            .as_deref()
+            .map(|domains| domains.iter().map(String::as_str).collect::<Vec<_>>());
         let descriptor = BackendDescriptor::admit(
             Candidate::new(BackendId::from_wire(&shape.backend)?),
             ProviderOrigin::Process,
@@ -266,6 +267,7 @@ impl ManifestStage {
                 .advertises
                 .iter()
                 .map(|pair| (pair.kind.as_deref(), pair.mode.as_deref())),
+            domain_labels.as_deref(),
         )?;
         Ok(AdmittedManifest {
             descriptor,
@@ -689,6 +691,10 @@ mod tests {
             admitted.manifest().domains.as_deref(),
             Some(["integer".to_owned()].as_slice())
         );
+        assert!(admitted
+            .descriptor()
+            .domains()
+            .is_some_and(|domains| domains.contains(&qsl_foundation::bound::DomainKind::Integer)));
     }
 
     #[test]
@@ -787,6 +793,31 @@ mod tests {
             };
             assert_eq!(refusal.cause().as_str(), invalid.2);
         }
+    }
+
+    /// Trace: FR-005-AC-18; domain vocabulary and refusal remain QSL-owned.
+    #[test]
+    fn invalid_domains_reach_qsl_admission_without_driver_reclassification() {
+        let mut stage = hello(
+            Value::String("operation-contract".to_owned()),
+            Value::String("bounded".to_owned()),
+        );
+        let mut descriptor = (*stage.manifest[0]).clone();
+        descriptor["domains"] = serde_json::json!(["quantity"]);
+        stage.manifest[0] = Arc::new(descriptor);
+
+        let error = stage
+            .admit_process(1024 * 1024)
+            .expect_err("QSL refuses a domain that cannot have a finite bound");
+        let ManifestAdmissionError::Registration(refusal) = error else {
+            panic!("domain admission must preserve QSL's typed refusal: {error:?}");
+        };
+        assert_eq!(refusal.catalog_code().code(), "invalid_capability");
+        assert_eq!(refusal.catalog_code().cause(), "invalid-domains");
+        assert!(matches!(
+            refusal.cause(),
+            qsl_route::RegistrationCause::InvalidDomains(_)
+        ));
     }
 
     /// Trace: FR-006-AC-6.

@@ -20,6 +20,8 @@ use crate::{DriverRefusal, Provider};
 /// The `advertises` pairs are the manifest's `(kind, mode)` labels exactly
 /// as it states them; `route` admits them (`BackendDescriptor::admit`), so an
 /// absent or unknown label refuses the registration.
+/// Optional `domains` labels are passed to that same QSL admission call; QSL
+/// owns boundable-kind and mode/domain consistency refusals.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderManifest {
     /// The backend identity (`backend.identity`).
@@ -151,9 +153,9 @@ impl Deref for AdmittedRegistry {
 /// Every manifest is admitted with `ProviderOrigin::Linked` and registered.
 /// Do not use this function for plugin hello manifests: those require
 /// `ProviderOrigin::Process` under ADR-029 PV-1. When any registration is
-/// refused (an absent or unknown kind or mode, or a duplicate backend
-/// identity), the run is refused with every refusal, ordered by backend
-/// identity then manifest digest.
+/// refused (an absent or unknown kind or mode, invalid domains, or a duplicate
+/// backend identity), the run is refused with every refusal, ordered by
+/// backend identity then manifest digest.
 ///
 /// `Registry::register`'s own `Err` is what that one call caused or
 /// observed, not a diff against the registry's prior state, so it can
@@ -171,9 +173,10 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
         let backend_id = BackendId::from_wire(&manifest.identity)
             .map_err(DriverRefusal::EmptyBackendIdentity)?;
         let backend = Candidate::new(backend_id);
-        // The pinned QSL admission API has no domains argument. Preserve
-        // linked domains in the manifest DTO; pass them through when QSL-654
-        // adds domain-aware admission. The driver does not validate them.
+        let domain_labels = manifest
+            .domains
+            .as_deref()
+            .map(|domains| domains.iter().map(String::as_str).collect::<Vec<_>>());
         let admitted = BackendDescriptor::admit(
             backend,
             ProviderOrigin::Linked,
@@ -182,6 +185,7 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
                 .advertises
                 .iter()
                 .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
+            domain_labels.as_deref(),
         );
         match admitted {
             Ok(descriptor) => {
@@ -265,8 +269,11 @@ mod tests {
         KaniProvider::new(ProviderManifest {
             identity: identity.to_owned(),
             manifest_digest: ManifestDigest::from_digest([digest; 32]),
-            advertises: Vec::new(),
-            domains: None,
+            advertises: vec![(
+                Some("operation-contract".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: Some(vec!["integer".to_owned()]),
             wire: None,
         })
     }
@@ -276,9 +283,14 @@ mod tests {
     fn linked_manifest_snapshot_is_independent_of_registration_order() {
         let first = provider("agent-ix/provider/first", 1);
         let second = provider("agent-ix/provider/second", 2);
-        let forward = build_linked_providers(&[&first, &second])
-            .expect("both providers admit")
-            .manifest_snapshot();
+        let admitted = build_linked_providers(&[&first, &second]).expect("both providers admit");
+        assert!(admitted
+            .registry()
+            .descriptors()
+            .all(|descriptor| descriptor.domains().is_some_and(|domains| {
+                domains.contains(&qsl_foundation::bound::DomainKind::Integer)
+            })));
+        let forward = admitted.manifest_snapshot();
         let reverse = build_linked_providers(&[&second, &first])
             .expect("both providers admit")
             .manifest_snapshot();
@@ -303,6 +315,7 @@ mod tests {
             ProviderOrigin::Process,
             ManifestDigest::from_digest([8; 32]),
             [(Some("operation-contract"), Some("bounded"))],
+            Some(&["integer"]),
         )
         .expect("the host hello admitter returns a QSL-admitted descriptor");
         let id = BackendId::from_wire("agent-ix/plugin/test").expect("nonempty identity");
@@ -316,7 +329,7 @@ mod tests {
                         Some("operation-contract".to_owned()),
                         Some("bounded".to_owned()),
                     )],
-                    domains: None,
+                    domains: Some(vec!["integer".to_owned()]),
                     wire: None,
                 },
             )])
@@ -350,6 +363,7 @@ mod tests {
             ProviderOrigin::Process,
             ManifestDigest::from_digest([2; 32]),
             [(Some("operation-contract"), Some("bounded"))],
+            Some(&["integer"]),
         )
         .expect("process descriptor admits");
 
@@ -364,7 +378,7 @@ mod tests {
                             Some("operation-contract".to_owned()),
                             Some("bounded".to_owned()),
                         )],
-                        domains: None,
+                        domains: Some(vec!["integer".to_owned()]),
                         wire: None,
                     },
                 ),
@@ -377,6 +391,7 @@ mod tests {
                         ProviderOrigin::Process,
                         ManifestDigest::from_digest([4; 32]),
                         [(Some("operation-contract"), Some("bounded"))],
+                        Some(&["integer"]),
                     )
                     .expect("later descriptor admits"),
                     ProviderManifest {
@@ -386,7 +401,7 @@ mod tests {
                             Some("operation-contract".to_owned()),
                             Some("bounded".to_owned()),
                         )],
-                        domains: None,
+                        domains: Some(vec!["integer".to_owned()]),
                         wire: None,
                     },
                 ),
@@ -443,6 +458,7 @@ mod tests {
             ProviderOrigin::Process,
             ManifestDigest::from_digest([2; 32]),
             [(Some("operation-contract"), Some("bounded"))],
+            Some(&["integer"]),
         )
         .expect("process descriptor admits");
 
@@ -457,7 +473,7 @@ mod tests {
                             Some("operation-contract".to_owned()),
                             Some("bounded".to_owned()),
                         )],
-                        domains: None,
+                        domains: Some(vec!["integer".to_owned()]),
                         wire: None,
                     },
                 ),
@@ -470,7 +486,7 @@ mod tests {
                             Some("operation-contract".to_owned()),
                             Some("bounded".to_owned()),
                         )],
-                        domains: None,
+                        domains: Some(vec!["integer".to_owned()]),
                         wire: None,
                     },
                 ),

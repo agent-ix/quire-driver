@@ -428,6 +428,7 @@ mod origin_projection_tests {
             origin,
             ManifestDigest::from_digest([7; 32]),
             [(Some("value-validity"), Some("bounded"))],
+            Some(&["integer"]),
         )
         .expect("QSL accepts the typed descriptor")
     }

@@ -545,6 +545,7 @@ mod tests {
                             ProviderOrigin::Process,
                             digest,
                             Vec::<(Option<&str>, Option<&str>)>::new(),
+                            None,
                         )
                         .map_err(|e| format!("{e:?}"))?;
                         Ok((

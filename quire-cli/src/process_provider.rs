@@ -237,6 +237,8 @@ mod tests {
     struct Hello {
         identity: String,
         advertises: Vec<(Option<String>, Option<String>)>,
+        #[serde(default)]
+        domains: Option<Vec<String>>,
     }
 
     fn admit_hello(
@@ -255,13 +257,18 @@ mod tests {
                 .advertises
                 .iter()
                 .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
+            manifest
+                .domains
+                .as_deref()
+                .map(|domains| domains.iter().map(String::as_str).collect::<Vec<_>>())
+                .as_deref(),
         )
         .map_err(|error| format!("{error:?}"))?;
         let retained = ProviderManifest {
             identity: manifest.identity.clone(),
             manifest_digest: digest,
             advertises: manifest.advertises.clone(),
-            domains: None,
+            domains: manifest.domains.clone(),
             wire: None,
         };
         Ok((descriptor, retained))
