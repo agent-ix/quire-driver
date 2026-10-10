@@ -246,6 +246,8 @@ struct Recorder {
     envelope: RefCell<Option<BackendProviderEnvelope>>,
     /// E5's source provisions, captured while the E4 value is still alive.
     source_provision: RefCell<Option<Vec<(SourceIdentity, String)>>>,
+    /// The exact typed E5 evidence supplied to IR's reader.
+    read_evidence: RefCell<Option<CheckedPackageEvidence>>,
 }
 
 impl Recorder {
@@ -289,6 +291,7 @@ impl Upstream for Recorder {
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageDispatchResult {
         self.calls.borrow_mut().push(Call::ReadPackage);
+        *self.read_evidence.borrow_mut() = Some(evidence.clone());
         *self.source_provision.borrow_mut() = Some(
             emitted
                 .sources()
@@ -983,6 +986,42 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
             },
             Call::Generate { items: 1 },
         ]
+    );
+}
+
+/// Trace: FR-001-AC-7; TC-006 step 11.
+#[test]
+fn tc_006_handoff_passes_domain_package_evidence_unchanged() {
+    let packages = qsl_semantics::model::intake::package_input([CANCEL_MODEL_DOCUMENT.as_bytes()]);
+    let recorder = Recorder::default();
+    let registry = build_registry(&[]).expect("an empty registry builds");
+
+    drive(
+        &recorder,
+        input(&packages),
+        &registry,
+        None,
+        GenerationInput::default(),
+    )
+    .expect("the ordinary unit completes while passing its package evidence to E5");
+
+    let actual = recorder
+        .read_evidence
+        .borrow()
+        .clone()
+        .expect("E5 receives evidence");
+    let mut expected = CheckedPackageEvidence::new();
+    let (digest, document) = packages.iter().next().expect("one supplied domain package");
+    expected.insert_domain_package_document(
+        qsl_semantics::model::key::hex(digest),
+        document.as_slice(),
+    );
+    let lock = DefinitionLock::pinned();
+    expected.support_feature(lock.entry(CatalogRole::Root).identity);
+
+    assert_eq!(
+        actual, expected,
+        "domain package key and bytes reach E5 unchanged"
     );
 }
 
