@@ -14,27 +14,31 @@ Verify that QSL parses CLI `--limit` operands, applies exposed settings to the
 selected operation, omitted values keep their defaults, and a reached limit
 remains a typed incomplete outcome. Until QSL-656 / QSL #665 lands, pinned QSL
 does not recognize the bare accounting counter names as caller-settable; when
-it lands, QSL's `parse_operands` / `Setting::from_name` own name resolution.
-The driver then checks each setting against operation bounds before applying it
-with `CallerLimits::set_bound`, without adding a namespace or aliases. The
-driver supports 64-bit hosts; it adds no platform overflow rule, and QSL owns
-bound application behavior on 32-bit hosts.
+it lands, QSL's `parse_operands` owns name resolution and returns typed
+`SettingName` values. The driver checks stage settings against the selected
+operation's bounds and applies them with `CallerLimits::set_bound`. It applies
+accounting settings with `AccountingLimits::set_bound` to `Call.accounting`;
+accounting settings do not pass through stage bounds. The driver adds no
+namespace or aliases. The driver supports 64-bit hosts; it adds no platform
+overflow rule, and QSL owns bound application behavior on 32-bit hosts.
 
 Scope: FR-003-AC-1 through FR-003-AC-10.
 
 ## Test Procedure
 
 1. Inspect the parser and application path: the driver calls
-   `qsl_foundation::setting::parse_operands`, checks resolved names against
-   operation bounds, then applies accepted values with
-   `CallerLimits::set_bound`. Confirm the driver has no
-   duplicate grammar, duplicate-detection or name-to-field rules.
+   `qsl_foundation::setting::parse_operands` and branches on the returned
+   `SettingName`. It checks only stage settings against operation bounds,
+   applies those with `CallerLimits::set_bound`, and applies accounting
+   settings with `AccountingLimits::set_bound` to `Call.accounting`. Confirm
+   the driver has no duplicate grammar, duplicate-detection or name-to-field
+   rules.
 2. Read the selected operation's QSL `SettingLimits::bounds()`. For every
-   returned setting, pass its exact QSL name with a distinct valid value
+   returned stage setting, pass its exact QSL name with a distinct valid value
    through `--limit`; observe that only that exposed bound changes at the
-   operation boundary. Confirm a recognized setting absent from `bounds()` is
-   refused with `invalid-request` and an operation-unavailable diagnostic,
-   distinct from an unknown-name refusal.
+   operation boundary. Confirm a recognized stage setting absent from
+   `bounds()` is refused with `invalid-request` and an operation-unavailable
+   diagnostic, distinct from an unknown-name refusal.
 3. Pass the former driver-only name `normalization.work_units`, a malformed
    operand and a duplicate setting. Observe each refusal before any stage with
    code `invalid-request`; unknown-name, malformed and duplicate refusals
@@ -43,12 +47,12 @@ Scope: FR-003-AC-1 through FR-003-AC-10.
    settings are available to the operation. Until QSL-656 / QSL #665 lands,
    pinned QSL treats bare accounting names such as `work_units` as unknown.
    After it lands, pass the bare names defined by QSL FR-255 and verify QSL's
-   operand APIs resolve them and the operation receives accepted values
-   through QSL caller limits.
-4. For each accounting setting exposed by the selected operation's
-   `SettingLimits::bounds()`, pass a caller value through QSL
-   `CallerLimits::set_bound` and inspect the effective value at the operation
-   boundary. Run an input that exceeds a chosen limit. Through the driver's
+   operand API resolves them to `SettingName::Accounting` values.
+4. Apply a bare accounting operand such as `work_units=0`. Inspect that QSL
+   `AccountingLimits::set_bound` changes `Call.accounting` while the stage
+   limits remain unchanged, then run an input that exhausts that accounting
+   budget and verify QSL reports the accounting limit. Separately, run an
+   input that exceeds a chosen stage limit. Through the driver's
    typed execution wrapper, inspect the returned `LimitExceeded` configured
    bound and `setting()`; then repeat with the limit raised to fit the input.
 
@@ -58,8 +62,10 @@ Test location: `src/limits.rs`, `src/execute.rs`, `quire-cli/src/cli.rs`, and
 ## Expected Results
 
 - The explicit value replaces only its field; omitted fields retain defaults.
-- Every setting exposed by the operation is accepted under its exact name
-  through QSL's operand APIs and changes only the matching bound.
+- Every exposed stage setting is accepted under its exact name through QSL's
+  operand API and changes only the matching stage bound.
+- A QSL-resolved accounting setting changes `Call.accounting` through QSL's
+  `AccountingLimits`; it leaves stage limits unchanged and reaches `spine::run`.
 - Names not resolved by the pinned QSL parser, malformed operands and
   duplicates are refused before any stage with code `invalid-request`.
 - A QSL-recognized setting absent from the operation's bounds is refused with
