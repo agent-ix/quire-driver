@@ -1797,10 +1797,20 @@ mod tests {
     struct StopEscapedFixture {
         release: std::path::PathBuf,
         stop: std::path::PathBuf,
+        armed: bool,
+    }
+
+    impl StopEscapedFixture {
+        fn disarm(&mut self) {
+            self.armed = false;
+        }
     }
 
     impl Drop for StopEscapedFixture {
         fn drop(&mut self) {
+            if !self.armed {
+                return;
+            }
             let _ = std::fs::write(&self.release, b"release");
             let _ = std::fs::write(&self.stop, b"stop");
         }
@@ -2487,9 +2497,10 @@ mod tests {
         let writing = PathBuf::from(format!("{}.writing", ready.display()));
         let release = PathBuf::from(format!("{}.release", ready.display()));
         let stop = PathBuf::from(format!("{}.stop", ready.display()));
-        let _stop_escaped_fixture = StopEscapedFixture {
+        let mut stop_escaped_fixture = StopEscapedFixture {
             release: release.clone(),
             stop: stop.clone(),
+            armed: true,
         };
         let done = PathBuf::from(format!("{}.done", ready.display()));
         let request_marker = PathBuf::from(format!("{}.request", ready.display()));
@@ -2561,6 +2572,7 @@ mod tests {
             done.exists(),
             "escaped descendant exits after cleanup signal"
         );
+        stop_escaped_fixture.disarm();
         let _ = std::fs::remove_file(&ready);
         let _ = std::fs::remove_file(writing);
         let _ = std::fs::remove_file(release);
@@ -2579,9 +2591,10 @@ mod tests {
         let writing = PathBuf::from(format!("{}.writing", ready.display()));
         let release = PathBuf::from(format!("{}.release", ready.display()));
         let stop = PathBuf::from(format!("{}.stop", ready.display()));
-        let _stop_escaped_fixture = StopEscapedFixture {
+        let mut stop_escaped_fixture = StopEscapedFixture {
             release: release.clone(),
             stop: stop.clone(),
+            armed: true,
         };
         let done = PathBuf::from(format!("{}.done", ready.display()));
         let request_marker = PathBuf::from(format!("{}.request", ready.display()));
@@ -2645,12 +2658,40 @@ mod tests {
             done.exists(),
             "escaped descendant exits after cleanup signal"
         );
+        stop_escaped_fixture.disarm();
         let _ = std::fs::remove_file(ready);
         let _ = std::fs::remove_file(writing);
         let _ = std::fs::remove_file(release);
         let _ = std::fs::remove_file(stop);
         let _ = std::fs::remove_file(done);
         let _ = std::fs::remove_file(request_marker);
+    }
+
+    #[test]
+    fn escaped_fixture_guard_disarm_preserves_cleanup_without_recreating_markers() {
+        let base = ready_fixture_path();
+        let release = PathBuf::from(format!("{}.release", base.display()));
+        let stop = PathBuf::from(format!("{}.stop", base.display()));
+        let mut guard = StopEscapedFixture {
+            release: release.clone(),
+            stop: stop.clone(),
+            armed: true,
+        };
+        guard.disarm();
+        drop(guard);
+        assert!(!release.exists());
+        assert!(!stop.exists());
+
+        let guard = StopEscapedFixture {
+            release: release.clone(),
+            stop: stop.clone(),
+            armed: true,
+        };
+        drop(guard);
+        assert!(release.exists(), "armed cleanup releases publication wait");
+        assert!(stop.exists(), "armed cleanup stops escaped fixture");
+        let _ = std::fs::remove_file(release);
+        let _ = std::fs::remove_file(stop);
     }
 
     /// Trace: FR-013-AC-8, TC-026; sum memory for double-forked process-group members.
