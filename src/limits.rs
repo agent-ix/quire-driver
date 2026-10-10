@@ -243,7 +243,7 @@ mod tests {
         assert_eq!(limits.checking, original_checking.with_nodes(7));
     }
 
-    /// Bare accounting names are applied to the call, not the stage table.
+    /// Trace: FR-003-AC-9, FR-003-AC-10. Bare accounting names update only the call.
     #[test]
     fn each_bare_accounting_name_updates_only_call_accounting() {
         let defaults = call().accounting;

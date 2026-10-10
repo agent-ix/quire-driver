@@ -181,7 +181,7 @@ mod tests {
     };
     use qsl_replay::spine::{CompileRefusal, RunRefusal};
     use qsl_replay::OutcomeDocument;
-    use quire_exact::Cancel;
+    use quire_exact::{Cancel, CancelCause};
 
     use super::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest};
 
@@ -301,6 +301,49 @@ mod tests {
         assert_eq!(
             document.to_bytes().unwrap(),
             expected_document.to_bytes().unwrap()
+        );
+    }
+
+    /// Trace: FR-004-AC-4, caller cancellation and its QSL document pass through unchanged.
+    #[test]
+    fn pre_cancelled_caller_handle_preserves_qsl_refusal_and_document() {
+        let request = request(ExecutionEngine::Interpreter, SpineLimits::default());
+        request.cancel.cancel(CancelCause::Requested);
+
+        let expected_run = qsl_replay::spine::run(
+            request.source.clone(),
+            request.path,
+            request.bytes,
+            request.packages,
+            request.dependencies,
+            request.limits,
+            &request.call,
+            &request.cancel,
+        );
+        let expected_document = OutcomeDocument::from_run(&expected_run);
+        let expected_refusal = expected_run.expect_err("QSL observes the caller's cancellation");
+        assert!(matches!(
+            expected_refusal.as_ref(),
+            RunRefusal::Cancelled(CancelCause::Requested)
+        ));
+
+        let failure = execute(request).expect_err("the same caller handle stops execution");
+        assert_eq!(failure.category(), Category::Incomplete);
+        let ExecutionFailure::Run { refusal, document } = failure else {
+            panic!("execute must preserve QSL's cancellation refusal");
+        };
+        assert!(matches!(
+            refusal.as_ref(),
+            RunRefusal::Cancelled(CancelCause::Requested)
+        ));
+        assert_eq!(format!("{refusal:?}"), format!("{expected_refusal:?}"));
+        let expected_bytes = expected_document.to_bytes().expect("QSL encodes cancellation");
+        assert_eq!(document.to_bytes().expect("driver returns QSL document"), expected_bytes);
+
+        let failure = ExecutionFailure::Run { refusal, document };
+        assert_eq!(
+            failure.into_document().to_bytes().expect("failure returns QSL document"),
+            expected_bytes
         );
     }
 

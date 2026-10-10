@@ -47,24 +47,27 @@ limit outcome and report no success.
 
 - When the CLI receives `--limit` operands, the driver SHALL call
   `qsl_foundation::setting::parse_operands` to resolve them as QSL
-  `SettingName` values. For a stage setting, the driver SHALL check the
-  setting against the selected operation's `SettingLimits::bounds()` and
-  apply it with QSL's `CallerLimits::set_bound`. For an accounting setting,
-  the driver SHALL apply it with QSL's `AccountingLimits::set_bound` to the
-  selected `Call.accounting`. QSL owns setting-name grammar, duplicate
-  detection, value parsing and overflow handling. The driver SHALL NOT
-  reimplement these rules or add aliases.
+  `SettingName` values.
+- When QSL resolves a stage setting, the driver SHALL check it against the
+  selected operation's `SettingLimits::bounds()`.
+- When a resolved stage setting is exposed by those bounds, the driver SHALL
+  apply it with QSL's `CallerLimits::set_bound`.
+- When QSL resolves an accounting setting, the driver SHALL apply it with
+  QSL's `AccountingLimits::set_bound` to the selected `Call.accounting` without
+  checking stage bounds.
+- The driver SHALL NOT reimplement QSL's setting-name grammar, duplicate
+  detection, value parsing or overflow handling, or add aliases.
 - Until QSL-656 / QSL #665 lands, the pinned QSL operand parser does not
   recognize the accounting counter names as caller-settable settings. The
   driver SHALL delegate name resolution to QSL, leaving these names without
   driver-owned aliases or a separate parser.
 - When QSL-656 / QSL #665 lands, the driver SHALL use the bare accounting
   counter names defined by QSL FR-255 (for example, `work_units`) through
-  QSL's `parse_operands` name resolution. It SHALL apply each resolved
-  accounting setting with `AccountingLimits::set_bound` to `Call.accounting`,
-  without checking it against stage bounds or adding a driver namespace or
-  aliases.
-- If a recognized setting is absent from the selected operation's bounds,
+  QSL's `parse_operands` name resolution.
+- When QSL resolves a bare accounting setting, the driver SHALL apply it with
+  `AccountingLimits::set_bound` to `Call.accounting` without checking stage
+  bounds or adding a driver namespace or aliases.
+- If a resolved stage setting is absent from the selected operation's bounds,
   then the CLI SHALL refuse it before any stage with code `invalid-request`
   and a diagnostic that distinguishes an operation-unavailable setting from
   an unknown name.
@@ -83,7 +86,7 @@ limit outcome and report no success.
 | FR-003-AC-1 | Setting one QSL-resolved `--limit` operand overrides only its exposed bound; omitted settings retain their published defaults, and effective limits passed to the operation equal those values. | Test (TC-010) |
 | FR-003-AC-2 | A setting name not resolved by QSL's operand parser is refused before any stage with code `invalid-request` and names the offending operand. | Test (TC-010) |
 | FR-003-AC-3 | An input that reaches a caller-lowered bound returns typed `LimitExceeded` with the configured value and field name and QSL's incomplete category; the process status equals QSL's category exit function. Raising the same bound to fit the input allows the operation to complete. | Test (TC-010) |
-| FR-003-AC-4 | The driver uses QSL `parse_operands`, checks each resolved setting against the selected operation's `SettingLimits::bounds()`, and applies an exposed setting with `CallerLimits::set_bound`; it maintains no duplicate grammar, alias table, or name-to-field mapping. | Inspection (TC-010) |
+| FR-003-AC-4 | The driver uses QSL `parse_operands`, checks each resolved stage setting against the selected operation's `SettingLimits::bounds()`, and applies an exposed stage setting with `CallerLimits::set_bound`; accounting settings bypass stage bounds and use `AccountingLimits::set_bound` on `Call.accounting`, and the driver maintains no duplicate grammar, alias table, or name-to-field mapping. | Inspection (TC-010) |
 | FR-003-AC-5 | A stage setting parsed by QSL but absent from the selected operation's `SettingLimits::bounds()` is refused before any stage with code `invalid-request` and a distinct diagnostic naming the setting as unavailable for that operation. | Test (TC-010) |
 | FR-003-AC-6 | Applying an accepted setting through QSL `CallerLimits::set_bound` changes only the matching bound; every other operation limit retains its prior value. | Test and Inspection (TC-010) |
 | FR-003-AC-7 | A malformed `--limit` operand is refused before any stage with code `invalid-request` and identifies that operand. | Test (TC-010) |
