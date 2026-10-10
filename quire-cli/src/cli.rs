@@ -16,6 +16,7 @@ use qsl_replay::spine::{
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use quire_driver::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides};
+use quire_exact::Cancel;
 
 /// Pass QSL's category result through the kit without converting it to an `Outcome`.
 #[must_use]
@@ -355,17 +356,17 @@ fn write_result_diagnostics<W: Write>(result: &CommandResult, sink: &mut W) -> i
 fn run(options: RunOptions) -> CommandResult {
     if options.engine != ExecutionEngine::Interpreter {
         let failure = ExecutionFailure::UnsupportedEngine(options.engine);
-        return CommandResult::failure(failure.category(), failure.to_string());
+        return CommandResult::document(failure.into_document());
     }
     let packages = BTreeMap::new();
     let dependencies = DependencyInput::default();
     let mut limits = SpineLimits::default();
-    let call = Call {
+    let mut call = Call {
         function: options.function,
         arguments: options.arguments,
         accounting: default_accounting(DEFAULT_WORK_UNITS),
     };
-    if let Err(error) = options.limits.apply_to(&mut limits) {
+    if let Err(error) = options.limits.apply_to(&mut limits, &mut call) {
         return CommandResult::input_refusal(error.to_string());
     }
     let bytes = match read_source(&options.path, limits.source.source_bytes) {
@@ -384,10 +385,11 @@ fn run(options: RunOptions) -> CommandResult {
         dependencies: &dependencies,
         limits,
         call,
+        cancel: Cancel::new(),
         engine: options.engine,
     }) {
-        Ok(result) => CommandResult::document(OutcomeDocument::from_call(&result.outcome)),
-        Err(failure) => CommandResult::failure(failure.category(), failure.to_string()),
+        Ok(result) => CommandResult::document(result.document),
+        Err(failure) => CommandResult::document(failure.into_document()),
     }
 }
 
@@ -658,7 +660,10 @@ mod tests {
         assert_eq!(options.engine, ExecutionEngine::Interpreter);
         assert_eq!(
             options.limits.values(),
-            &[(qsl_foundation::Setting::S1InputBytes, 1024)]
+            &[(
+                qsl_foundation::SettingName::Stage(qsl_foundation::Setting::S1InputBytes),
+                1024
+            )]
         );
     }
 

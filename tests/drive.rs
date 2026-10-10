@@ -370,7 +370,7 @@ fn manifest(identity: &str, digest: u8, kinds: &[&str]) -> ProviderManifest {
             .iter()
             .map(|kind| (Some((*kind).to_owned()), Some("bounded".to_owned())))
             .collect(),
-        domains: None,
+        domains: Some(vec!["integer".to_owned()]),
         wire: None,
     }
 }
