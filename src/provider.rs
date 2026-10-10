@@ -346,6 +346,14 @@ mod tests {
     }
 
     fn result_at(request_index: usize, outcome: KaniRunOutcome) -> ProviderItemResult {
+        result_at_with_checks(request_index, outcome, 3)
+    }
+
+    fn result_at_with_checks(
+        request_index: usize,
+        outcome: KaniRunOutcome,
+        success_checks: u32,
+    ) -> ProviderItemResult {
         ProviderItemResult {
             request_index,
             backend: Candidate {
@@ -372,7 +380,7 @@ mod tests {
                 solver: KaniSolver::Cadical,
                 exit_code: Some(0),
                 outcome,
-                success_checks: 3,
+                success_checks,
                 checks: Vec::new(),
                 batch: None,
             }),
@@ -548,38 +556,50 @@ mod tests {
         );
     }
 
-    /// Trace: FR-009-AC-5, TC-016; serialize each provider item once in order.
+    /// Trace: FR-009-AC-4, FR-009-AC-5; preserve each proved item's evidence in QSL's document.
     #[test]
     fn provider_outcome_bytes_include_each_provider_item_once_in_request_order() {
         let results = ProviderResults {
             items: vec![
                 result_at(2, KaniRunOutcome::Verified),
-                result_at(5, KaniRunOutcome::Verified),
+                result_at_with_checks(5, KaniRunOutcome::Verified, 7),
+                result_at(
+                    8,
+                    KaniRunOutcome::CoverUnsatisfied {
+                        satisfied: 0,
+                        total: 1,
+                    },
+                ),
             ],
         };
         let document: Value = serde_json::from_slice(
             &results
                 .outcome_bytes()
-                .expect("both provider items have terminals"),
+                .expect("each provider item has a terminal"),
         )
         .expect("QSL bytes are JSON");
         let items = document["items"].as_array().expect("items is an array");
 
-        assert_eq!(items.len(), 2);
+        assert_eq!(items.len(), 3);
         assert_eq!(items[0]["request_index"], 2);
         assert_eq!(items[1]["request_index"], 5);
+        assert_eq!(items[2]["request_index"], 8);
         assert_eq!(items[0]["result"], "proved");
         assert_eq!(items[1]["result"], "proved");
+        assert_eq!(items[2]["result"], "inconclusive");
         assert_eq!(
             items[0]["basis"],
             serde_json::json!({"type": "bounded-proof", "checks": 3})
         );
         assert_eq!(
             items[1]["basis"],
-            serde_json::json!({"type": "bounded-proof", "checks": 3})
+            serde_json::json!({"type": "bounded-proof", "checks": 7})
         );
         assert_eq!(items[0]["certification"], "certified");
         assert_eq!(items[1]["certification"], "certified");
+        assert_eq!(items[2]["cause"]["kind"], "kani-vacuous-proof");
+        assert!(items[2].get("basis").is_none());
+        assert!(items[2].get("certification").is_none());
     }
 
     /// Trace: FR-009-AC-4.
