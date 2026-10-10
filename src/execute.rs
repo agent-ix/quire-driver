@@ -138,6 +138,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use qsl_foundation::diagnostic::Category;
+    use qsl_foundation::diagnostic::InternalFault;
     use qsl_foundation::Setting;
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::{
@@ -264,5 +265,24 @@ mod tests {
             .expect_err("one byte source limit refuses");
         assert_eq!(failure.category(), Category::Incomplete);
         assert_eq!(failure.category().exit_code(), 22);
+    }
+
+    /// Trace: FR-001-AC-5, a checked-invariant fault keeps QSL's internal category.
+    #[test]
+    fn checked_invariant_fault_remains_an_internal_failure() {
+        let refusal = RunRefusal::Fault(InternalFault::new("S6a", "checked-program-invariant"));
+        let failure = ExecutionFailure::Run(Box::new(refusal));
+
+        assert_eq!(failure.category(), Category::InternalFailure);
+        assert_eq!(failure.category().exit_code(), 30);
+        let ExecutionFailure::Run(refusal) = failure else {
+            panic!("the QSL run refusal must remain typed");
+        };
+        let RunRefusal::Fault(fault) = &*refusal else {
+            panic!("a checked-invariant failure must remain an internal fault");
+        };
+        assert_eq!(fault.stage(), "S6a");
+        assert_eq!(fault.invariant(), "checked-program-invariant");
+        assert_eq!(refusal.code(), qsl_foundation::Code::RuntimeInvariant);
     }
 }
