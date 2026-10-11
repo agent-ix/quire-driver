@@ -3120,8 +3120,8 @@ mod tests {
         assert_budget_diagnostics(error);
         let child_cpu_micros = marker_u64(&child_cpu);
         let plugin_cpu_micros = marker_u64(&plugin_cpu);
-        assert!(child_cpu_micros >= 100_000 && child_cpu_micros < 700_000);
-        assert!(plugin_cpu_micros >= 100_000 && plugin_cpu_micros < 700_000);
+        assert!((100_000..700_000).contains(&child_cpu_micros));
+        assert!((100_000..700_000).contains(&plugin_cpu_micros));
         assert!(
             500_000 < 700_000 && 500_000_u64.saturating_add(500_000) > 700_000,
             "each bounded workload fits individually but their combined work exceeds the cap"
