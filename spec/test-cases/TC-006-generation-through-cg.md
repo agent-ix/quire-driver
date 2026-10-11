@@ -13,7 +13,7 @@ relationships:
 Verify the E5 hand-off and step 7 against the real QSL, IR and CG
 functions. Kani is not run; generation only produces its output.
 
-Scope: FR-001-AC-6, FR-001-AC-7, FR-001-AC-8.
+Scope: FR-001-AC-6 through FR-001-AC-8, and FR-001-AC-12.
 
 ## Test Procedure
 
@@ -59,6 +59,18 @@ application, in occurrence-key order.
     documents and capture the typed evidence passed to IR's E5 reader.
     Compare the reader's evidence with the supplied digest and complete
     document bytes, plus the supported root feature.
+12. Drive an admitted checked package containing a bounded integer form
+    that CG FR-019 currently marks implemented, and a separate admitted
+    package containing a valid rational scalar form selected from CG
+    FR-019/TC-030's planned status register. At the driver-to-CG negotiation
+    seam, record each request item and forward the envelope unchanged to CG.
+    Compare the typed IR tag/form structurally with the corresponding
+    requirement and node in the exact admitted checked package, matched by
+    occurrence. For the planned form, compare an empty QSL-produced candidate
+    set with a single valid Kani candidate: the former retains CG's missing-
+    candidate disposition, while the latter reaches CG's typed form refusal.
+    Do not construct a caller-supplied CG lowerability/refusal value or derive
+    the form from display/debug text.
 
 Tests: `tests/drive.rs`,
 `tc_001_tc_006_steps_run_in_order_through_generation` (steps 1 to 3),
@@ -140,3 +152,10 @@ Tests: `tests/drive.rs`,
   document under the original digest and with the original bytes, and still
   contains the supported root feature. Dropping or changing that evidence
   changes the typed value observed by the reader and fails the assertion.
+- Step 12's captured form for each request item equals the typed form in the
+  matched admitted checked requirement/node. The bounded implemented form is
+  settled by CG according to FR-019. With no candidates, the planned form
+  retains the candidate-set disposition; with one valid Kani candidate, it
+  reaches CG and produces the planned row's typed form refusal, which the
+  driver preserves. Altering, dropping or replacing the checked form, or
+  deciding lowerability/refusal in the driver, fails the assertion.
