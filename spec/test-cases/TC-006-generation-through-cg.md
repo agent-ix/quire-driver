@@ -13,7 +13,7 @@ relationships:
 Verify the E5 hand-off and step 7 against the real QSL, IR and CG
 functions. Kani is not run; generation only produces its output.
 
-Scope: FR-001-AC-6, FR-001-AC-7, FR-001-AC-8.
+Scope: FR-001-AC-6 through FR-001-AC-8, and FR-001-AC-12.
 
 ## Test Procedure
 
@@ -59,6 +59,22 @@ application, in occurrence-key order.
     documents and capture the typed evidence passed to IR's E5 reader.
     Compare the reader's evidence with the supplied digest and complete
     document bytes, plus the supported root feature.
+12. Drive an admitted checked package containing a bounded integer form
+    that CG FR-019 currently marks implemented, and a separate admitted
+    package containing a valid rational scalar form selected from CG
+    FR-019/TC-030's planned status register. At the driver-to-CG negotiation
+    seam, record each request item and forward the envelope unchanged to CG.
+    Compare the typed IR tag/form structurally with the corresponding
+    requirement and node in the exact admitted checked package, matched by
+    occurrence.
+13. Using the same checked rational form, exercise three candidate controls
+    with candidate sets produced by QSL from their registered descriptors,
+    not authored by the test: (a) no candidate; (b) two valid candidates and
+    no named backend; and (c) one Kani candidate that passes candidate
+    validation but advertises `bounded` only for an unbounded item whose
+    `finite_bound_available` is true. Forward each typed item unchanged to
+    CG's public negotiation operation. Do not construct a caller-supplied CG
+    lowerability/refusal value or derive the form from display/debug text.
 
 Tests: `tests/drive.rs`,
 `tc_001_tc_006_steps_run_in_order_through_generation` (steps 1 to 3),
@@ -140,3 +156,16 @@ Tests: `tests/drive.rs`,
   document under the original digest and with the original bytes, and still
   contains the supported root feature. Dropping or changing that evidence
   changes the typed value observed by the reader and fails the assertion.
+- Steps 12 and 13's captured form equals the typed form in the matched
+  admitted checked requirement/node. The bounded implemented form is settled
+  by CG according to FR-019. In step 13(a), CG settles the empty set as
+  `unsupported` with `unsupported_projection` /
+  `unsupported-requested-capability`. In step 13(b), CG settles the
+  ambiguous set as `invalid-request` with
+  `invalid_capability`/`ambiguous-backend`, naming both candidates in
+  candidate order. In step 13(c), candidate validation selects the one Kani
+  candidate, then the valid planned rational form settles with the exact typed
+  refusal in its TC-030 Planned row before the unbounded/bounded-only
+  `requires-bound` result. Altering, dropping or replacing the checked form,
+  editing a QSL-produced candidate set, or deciding lowerability/refusal in
+  the driver fails the assertion.

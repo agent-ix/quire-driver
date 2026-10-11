@@ -9,6 +9,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-spec-language/ADR-012
     type: depends_on
+  - target: ix://agent-ix/quire-contract-codegen/FR-019
+    type: depends_on
 ---
 # FR-001: Orchestrate compile, backend conversion, negotiation, routing and generation
 
@@ -95,6 +97,13 @@ the admitted package only at the `package_id` E4 emitted.
   items settled `supported`. When no item settles `supported`, it SHALL
   not call `route`.
 - Types cross between QSL and CG as their wire spellings (QSL ADR-013 T-7).
+- For every request item, the driver SHALL project the typed IR tag/form
+  from the same admitted checked package at the E5 `package_id`, requirement
+  record and node named by that item's QSL record, matched by occurrence key.
+  It SHALL pass the form as CG's typed in-process negotiation input and
+  preserve the checked form's typed identity and structure. The driver SHALL
+  NOT accept a caller-computed lowerability result or refusal, classify the
+  form, or infer it from display or debug text.
 - Each routed item's node is the admitted package's `CheckedNodeId` whose
   digest spells the item's `WireNodeId`, found by lookup. Every item's node
   comes from the same compiled package's own
@@ -163,6 +172,7 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-9 | The same caller-owned `Cancel` handle is passed to QSL `parse`, `select`, `check` and `package`; cancellation returns `DriverRefusal::Cancelled` with QSL's stage and cause, and the driver adds no category or exit mapping. | Test (TC-019) |
 | FR-001-AC-10 | E5 receives the E4 `EmittedUnit` source provision; the returned `Driven` contains no `EmittedUnit`, retains the `CheckedUnit` root source for diagnostic loci, retains no library source under the current empty `DependencyInput`, and retains no more root-source bytes than `SpineLimits.source.source_bytes`. | Test (TC-019) |
 | FR-001-AC-11 | The normal/build dependency closure rooted at `quire-driver` contains no `quire-cache` package. | Test (TC-005) |
+| FR-001-AC-12 | For each request item, the driver's CG negotiation input carries the typed IR tag/form projected from the admitted checked requirement and node named by that same item's QSL requirement record; no caller-computed lowerability/refusal or display/debug-derived form substitutes for the checked form. | Test (TC-006) |
 
 ## Dependencies
 
@@ -175,6 +185,11 @@ the admitted package only at the `package_id` E4 emitted.
   IR-293, IR-294, IR-298, IR-300, IR-302).
 - IR `quire-contract-model`: `read_checked_package`, `CheckedPackageV2`,
   `CheckedNodeId`.
+- [CG FR-019](ix://agent-ix/quire-contract-codegen/FR-019) defines the typed
+  IR tag/form negotiation input, refusal ownership and classification order;
+  [CG TC-030](ix://agent-ix/quire-contract-codegen/TC-030) names the implemented
+  and planned form selectors. The driver projects the checked IR value and
+  does not implement CG's classifier.
 - QSL ADR-029 LC-3 and CB-4, and QSL FR-276 cancellation semantics.
 
 ## Status
