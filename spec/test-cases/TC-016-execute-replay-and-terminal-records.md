@@ -15,7 +15,7 @@ Verify the available proved-provider terminal path uses QSL's canonical
 for every requested item, including the routed scalar observation producer
 and report-claim guard, remains planned.
 
-Scope: FR-009-AC-1 through FR-009-AC-8.
+Scope: FR-009-AC-1 through FR-009-AC-11.
 
 ## Test Procedure
 
@@ -43,12 +43,19 @@ planned.
 - Available proved-provider outcomes are serialized by QSL's
   `OutcomeDocument`; the driver defines no JSON document shape.
 - A falsified scalar without QSL replay does not produce a terminal document.
-- A counterexample is `refuted` only when replay reproduces it; parity
-  disagreement is `inconclusive`, replay refusal keeps its cause, and replay
-  fault is an internal failure.
+- For predicate/function counterexamples, `refuted` requires QSL replay
+  reproduction; disagreement or completed non-reproduction is `inconclusive`
+  with the replay-parity cause, a replay refusal keeps its typed cause, and a
+  replay fault is an internal failure.
+- Scalar operator-parity reports preserve QSL FR-357's typed `Agrees`,
+  `Diverged`, `GeneratedFault`, `RefusedInput`, `Incomplete`, or refusal
+  outcome through CG FR-032's typed settlement conversion. No scalar
+  operator-parity report settles as `refuted`.
 - CG's mapping is used without a second driver mapping.
-- The outcome has exactly one terminal record for every requested item,
-  including unsupported and incomplete items.
+- A request that reaches per-item settlement has exactly one terminal record
+  per requested item, including unsupported and incomplete items. A
+  request-level typed refusal before settlement has no per-item terminal
+  record guarantee.
 - For missing or mismatched artifact/context/native evidence, the upstream
   typed completion refusal is preserved and QSL evaluation, settlement, and
   terminal creation do not occur.
