@@ -29,7 +29,11 @@ keep both processes alive until the combined budget breach in the escaped-child
 case. Assert the typed CPU-budget failure in both cases. On a runtime that
 cannot establish complete accounting and bounded termination for the full
 boundary, assert `ProcessBudgetError::Unavailable` before any request frame is
-sent, and assert that neither workload starts. Include a monitor test double
+sent, and assert that neither CPU workload starts. The positive Linux CPU cases
+must run in the designated native qualification with
+`QUIRE_REQUIRE_COMPLETE_CPU_BOUNDARY=1`; that setting makes missing delegated
+systemd cgroup-v2 support fail the test instead of silently skipping it. Include
+a monitor test double
 that cannot observe and terminate the complete current process tree, plus
 fixtures that write stderr beyond its session retention bound, close stdout and
 remain alive, and exit before the expected hello frame. For every budget
@@ -41,9 +45,13 @@ escaped child, remains alive and that all host I/O workers have terminated.
 
 - The host samples resource use at intervals no longer than 20 ms. On a runtime
   supporting the complete boundary, both synchronized CPU cases return the
-  typed CPU-budget failure although the plugin-only and child-only usage are
-  each below the cap. This makes the exited-between-polls and escaped
-  descendant contributions observable without exposing an internal CPU total.
+  typed CPU-budget failure although the bounded plugin-only and child-only
+  workloads are each below the cap and their combined work exceeds it. This
+  makes the exited-between-polls and escaped descendant contributions
+  observable without exposing an internal CPU total. The designated Linux
+  qualification runs `QUIRE_REQUIRE_COMPLETE_CPU_BOUNDARY=1 cargo test -p
+  quire-plugin-host --locked cpu_budget_`; missing delegated cgroup support
+  then fails the run instead of silently skipping positive cases.
 - When the runtime cannot establish complete CPU accounting together with
   bounded termination of that same boundary, it returns
   `ProcessBudgetError::Unavailable` before sending any request frame. The same
