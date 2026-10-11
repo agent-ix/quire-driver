@@ -3097,7 +3097,7 @@ mod tests {
             plugin_cpu.as_os_str().to_owned(),
             plugin_pid.as_os_str().to_owned(),
         ];
-        let limit = Duration::from_millis(620);
+        let limit = Duration::from_millis(700);
         let mut session = match cpu_session(&executable, &arguments, limit, &cancel) {
             Ok(session) => session,
             Err(PluginError::ProcessBudget(ProcessBudgetError::Unavailable)) => {
@@ -3118,11 +3118,12 @@ mod tests {
             )
             .expect_err("aggregate escaped child plus plugin CPU crosses the limit");
         assert_budget_diagnostics(error);
-        assert!(marker_u64(&child_cpu) < u64::try_from(limit.as_micros()).unwrap());
-        assert!(marker_u64(&plugin_cpu) < u64::try_from(limit.as_micros()).unwrap());
+        let child_cpu_micros = marker_u64(&child_cpu);
+        let plugin_cpu_micros = marker_u64(&plugin_cpu);
+        assert!(child_cpu_micros >= 100_000 && child_cpu_micros < 700_000);
+        assert!(plugin_cpu_micros >= 100_000 && plugin_cpu_micros < 700_000);
         assert!(
-            250_000 < u64::try_from(limit.as_micros()).unwrap()
-                && 250_000_u64.saturating_add(250_000) > u64::try_from(limit.as_micros()).unwrap(),
+            500_000 < 700_000 && 500_000_u64.saturating_add(500_000) > 700_000,
             "each bounded workload fits individually but their combined work exceeds the cap"
         );
         assert!(

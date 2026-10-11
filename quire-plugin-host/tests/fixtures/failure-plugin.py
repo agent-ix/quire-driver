@@ -100,7 +100,7 @@ with open(sys.argv[5], 'wb') as marker:
 if mode in ("cpu-reaped-child", "cpu-escaped-child"):
     go, ready, done, reaped, child_cpu, child_pid, plugin_cpu, plugin_pid = sys.argv[2:10]
     escaped = mode == "cpu-escaped-child"
-    child_seconds = 0.050 if mode == "cpu-reaped-child" else 0.350
+    child_seconds = 0.050 if mode == "cpu-reaped-child" else 0.500
     child_helper = (
         "import os, sys, time\n"
         "go, ready, done, cpu_path, pid_path = sys.argv[1:6]\n"
@@ -108,7 +108,7 @@ if mode in ("cpu-reaped-child", "cpu-escaped-child"):
         "open(ready, 'w').close()\n"
         "while not os.path.exists(go): time.sleep(0.001)\n"
         f"started = time.process_time(); target = {child_seconds}\n"
-        f"checkpoint = {0.250 if escaped else child_seconds}\n"
+        f"checkpoint = {0.100 if escaped else child_seconds}\n"
         "recorded = False\n"
         "while True:\n"
         "    elapsed = time.process_time() - started\n"
@@ -192,11 +192,11 @@ if mode in ("cpu-reaped-child", "cpu-escaped-child"):
         recorded = False
         while True:
             elapsed = time.process_time() - started
-            if not recorded and elapsed >= 0.250:
+            if not recorded and elapsed >= 0.100:
                 with open(plugin_cpu, "w") as output:
                     output.write(str(int(elapsed * 1000000)))
                 recorded = True
-            if elapsed >= 0.350:
+            if elapsed >= 0.500:
                 break
         time.sleep(60)
     write_frame({"protocol": protocol, "id": request["id"], "kind": "result", "body": {"identity": "agent-ix/provider/test", "items": request["body"]["items"]}})
