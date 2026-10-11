@@ -12,9 +12,10 @@ relationships:
 
 Verify the available proved-provider terminal path uses QSL's canonical
 `OutcomeItem` and `OutcomeDocument` serializer. Full replay-driven settlement
-for every requested item remains planned.
+for every requested item, including the routed scalar observation producer
+and report-claim guard, remains planned.
 
-Scope: FR-009-AC-1 through FR-009-AC-5.
+Scope: FR-009-AC-1 through FR-009-AC-8.
 
 ## Test Procedure
 
@@ -23,8 +24,16 @@ the bytes with QSL's `OutcomeDocument::settled` over
 `OutcomeItem::from_terminal`. Verify that a falsified scalar without replay
 remains a typed error and produces no guessed outcome.
 
-The multi-item replay scenarios below remain planned until the driver has the
-CG replay adapter and complete per-item settlement path.
+The scalar producer/replay scenarios below remain planned until the driver has
+the reviewed CG KaniForm API and the IR-610 producer/consumer path. The
+qualification must retain the exact generated artifact/package, scalar
+identity/occurrence, ordered operands, original `ScalarLimits`, and original
+QSL claim/replay context as one execution context; it must execute and
+authenticate that same artifact's actual typed native outcome before QSL
+evaluation. It must reject missing or mismatched evidence without invoking QSL
+or creating settlement, then verify `report.claim()` against the exact claim
+sent before any CG conversion for every report outcome. A caller-supplied
+outcome/digest echo or regenerated artifact is not a valid positive case.
 
 Test location: `src/provider.rs`; full prove/replay integration remains
 planned.
@@ -40,3 +49,9 @@ planned.
 - CG's mapping is used without a second driver mapping.
 - The outcome has exactly one terminal record for every requested item,
   including unsupported and incomplete items.
+- For missing or mismatched artifact/context/native evidence, the upstream
+  typed completion refusal is preserved and QSL evaluation, settlement, and
+  terminal creation do not occur.
+- A missing replay report or a report whose `claim()` differs from the exact
+  claim sent does not reach CG conversion or terminal settlement; the upstream
+  typed refusal is preserved without a new driver/CG/QSL mapping.
