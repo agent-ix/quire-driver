@@ -31,9 +31,14 @@ identity/occurrence, ordered operands, original `ScalarLimits`, and original
 QSL claim/replay context as one execution context; it must execute and
 authenticate that same artifact's actual typed native outcome before QSL
 evaluation. It must reject missing or mismatched evidence without invoking QSL
-or creating settlement, then verify `report.claim()` against the exact claim
-sent before any CG conversion for every report outcome. A caller-supplied
-outcome/digest echo or regenerated artifact is not a valid positive case.
+or creating settlement. The report-claim mismatch case remains planned until
+CG exports its FR-032 public scalar binding converter: then pass every report
+outcome through that converter, verify it compares `report.claim()` with the
+exact claim sent, and assert that an absent report or mismatch returns CG's
+typed binding refusal without settlement or terminal creation. The driver
+surfaces that refusal unchanged and creates no local mapping. A
+caller-supplied outcome/digest echo or regenerated artifact is not a valid
+positive case.
 
 Test location: `src/provider.rs`; full prove/replay integration remains
 planned.
@@ -59,6 +64,9 @@ planned.
 - For missing or mismatched artifact/context/native evidence, the upstream
   typed completion refusal is preserved and QSL evaluation, settlement, and
   terminal creation do not occur.
-- A missing replay report or a report whose `claim()` differs from the exact
-  claim sent does not reach CG conversion or terminal settlement; the upstream
-  typed refusal is preserved without a new driver/CG/QSL mapping.
+- After the public CG FR-032 binding converter exists, an absent replay report
+  or a report whose `claim()` differs from the exact claim sent returns CG's
+  typed binding refusal without replay settlement or terminal creation; the
+  driver surfaces that refusal unchanged, with no local mapping. Until that
+  API exists, this case remains planned and the driver has no refusal path to
+  claim.

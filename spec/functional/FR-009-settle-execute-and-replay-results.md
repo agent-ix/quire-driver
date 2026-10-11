@@ -77,12 +77,16 @@ replay context through QSL evaluation and report handling.
   and SHALL NOT invoke QSL replay evaluation or create a replay settlement or
   terminal record. The exact refusal variant remains governed by the upstream
   typed API; this requirement allocates no new refusal mapping.
-- Before using a QSL replay report for CG conversion or terminal settlement,
-  the driver SHALL compare `report.claim()` with the exact original claim sent
-  to QSL for every report outcome. If the report is absent or its claim differs,
-  the driver SHALL NOT invoke CG conversion or create a settlement or terminal
-  record, and SHALL preserve any upstream typed refusal without inventing a
-  driver, CG, or QSL mapping.
+- For scalar parity, the driver SHALL pass each QSL report and its exact sent
+  claim through CG's binding converter; that converter compares
+  `report.claim()` for every outcome before accepting the report for settlement.
+- If the report is absent or its claim differs, CG FR-032's converter returns
+  a typed binding refusal with no settlement. The current CG main exports no
+  public scalar binding converter, so this path remains planned until that API
+  exists.
+- The driver SHALL surface CG's typed binding refusal unchanged.
+- The driver SHALL NOT create a terminal record for that refused report.
+- The driver SHALL NOT add a local refusal mapping.
 - CG's FR-331 terminal mapping SHALL combine the Kani outcome and replay
   result.
 - The driver SHALL NOT define a second terminal mapping.
@@ -103,7 +107,7 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-5 | When a proof request reaches per-item settlement, the outcome contains exactly one FR-331 terminal record for every requested item, including unsupported and incomplete items; a request-level typed refusal before per-item settlement is governed by its refusal contract and has no per-item terminal-record guarantee. | Partial (TC-016 serializes available provider terminals through QSL; full per-item replay accounting remains planned) |
 | FR-009-AC-6 | For routed scalar replay, the driver retains one context binding the exact proved generated artifact and emitted package to the scalar identity, occurrence, ordered operands, original `ScalarLimits`, and exact QSL claim and replay context; it executes that artifact with those inputs and limits and retains the actual typed native outcome. | Planned (TC-016; IR-610 producer slice) |
 | FR-009-AC-7 | The driver verifies QSL's native-observation digest against the actual typed outcome it obtained by executing the exact proved artifact with the retained operands and original limits, and binds that observation to the artifact's canonical proof-content identity before QSL evaluates it; missing or mismatched context or observation preserves the upstream typed completion refusal and produces no QSL replay evaluation, settlement, or terminal record. | Planned (TC-016; IR-610 producer slice and reviewed CG API) |
-| FR-009-AC-8 | Before acting on any QSL replay report, the driver compares `report.claim()` with the exact claim sent for that replay; an absent report or claim mismatch produces no CG conversion, settlement, or terminal record and preserves the upstream typed refusal without adding a driver, CG, or QSL mapping. | Planned (TC-016; IR-610 producer/consumer slice and reviewed CG API) |
+| FR-009-AC-8 | For scalar parity, the CG-owned binding converter compares `report.claim()` with the exact claim sent for every report outcome; an absent report or mismatch yields CG FR-032's typed binding refusal with no settlement, which the driver surfaces unchanged and never turns into a terminal. This path remains planned until CG exports the public scalar binding converter; the driver adds no refusal mapping. | Planned (TC-016; IR-610 consumer slice and public CG converter API) |
 | FR-009-AC-9 | Each scalar operator-parity report outcome is converted only through CG FR-032's typed settlement conversion of the QSL FR-357 report; `Agrees`, `Diverged`, `GeneratedFault`, `RefusedInput`, `Incomplete`, and other typed refusal outcomes retain the meanings those contracts define. | Planned (TC-016; IR-610 consumer slice and reviewed CG API) |
 | FR-009-AC-10 | Predicate/function replay that disagrees or completes without reproducing a provider counterexample settles as `inconclusive` with its replay-parity cause. | Planned (TC-016; full replay path) |
 | FR-009-AC-11 | No scalar operator-parity report settles as `refuted`. | Planned (TC-016; IR-610 consumer slice and reviewed CG API) |
