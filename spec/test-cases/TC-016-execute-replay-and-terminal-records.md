@@ -24,8 +24,10 @@ the bytes with QSL's `OutcomeDocument::settled` over
 `OutcomeItem::from_terminal`. Verify that a falsified scalar without replay
 remains a typed error and produces no guessed outcome.
 
-The scalar producer/replay scenarios below remain planned until the driver has
-the reviewed CG KaniForm API and the IR-610 producer/consumer path. The
+The scalar producer/replay scenarios below remain planned. IR-773 owns the
+same-artifact producer; IR-631 consumes its receipt for replay conversion, and
+IR-610 owns later E9 integration. The producer does not perform replay
+conversion, settlement, or terminal creation. The
 qualification must retain the exact generated artifact/package, scalar
 identity/occurrence, ordered operands, original `ScalarLimits` and
 `ReplayLimits`, and original QSL claim/replay context as one execution
