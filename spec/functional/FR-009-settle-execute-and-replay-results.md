@@ -31,8 +31,8 @@ replay context through QSL evaluation and report handling.
 - The QSL replay result for each provider counterexample.
 - For a routed scalar replay, one retained context containing the exact
   generated artifact and emitted package, scalar identity and occurrence,
-  ordered operands, original `ScalarLimits`, and the original QSL claim and
-  replay context.
+  ordered operands, original `ScalarLimits` and `ReplayLimits`, and the
+  original QSL claim and replay context.
 - The actual typed native outcome produced by executing that retained artifact
   for the retained scalar inputs, and QSL's report for the original claim.
 
@@ -64,14 +64,17 @@ replay context through QSL evaluation and report handling.
   internal result and SHALL NOT report a reproduced counterexample.
 - For a routed scalar replay, the driver SHALL retain one context that binds
   the exact generated artifact and emitted package to the scalar identity,
-  occurrence, ordered operands, original `ScalarLimits`, and the exact claim
-  and replay context sent to QSL. It SHALL NOT replace any member with a
-  caller-supplied classification or a regenerated artifact.
+  occurrence, ordered operands, original `ScalarLimits` and `ReplayLimits`,
+  and the exact claim and replay context sent to QSL. It SHALL send that same
+  retained `ReplayLimits` in the QSL replay request. It SHALL NOT replace any
+  member with a caller-supplied classification or a regenerated artifact.
 - The driver SHALL execute that same retained artifact with the retained
-  scalar inputs and original limits, retain its actual typed native outcome,
-  and verify QSL's observation digest against that outcome while binding the
-  observation to the artifact's canonical proof-content identity before QSL
-  evaluates the observation.
+  scalar inputs and original `ScalarLimits`, retain its actual typed native
+  outcome, and verify QSL's observation digest against that outcome while
+  binding the observation to the artifact's canonical proof-content identity
+  before QSL evaluates the observation. The retained `ReplayLimits` remain
+  bound to the exact replay request context; they do not change native
+  execution limits.
 - If the required retained context or an authentic observation is absent or
   mismatched, the driver SHALL preserve the upstream typed completion refusal
   and SHALL NOT invoke QSL replay evaluation or create a replay settlement or
@@ -105,8 +108,8 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-3 | A replay refusal retains its typed cause and a replay fault is an internal failure; neither is converted to `refuted`. | Test |
 | FR-009-AC-4 | The terminal result is composed by CG's FR-331 mapping from both the provider result and replay result; the driver introduces no second mapping. | Partial (TC-016 proves QSL serialization for an available CG terminal; replay-combined settlement remains planned) |
 | FR-009-AC-5 | When a proof request reaches per-item settlement, the outcome contains exactly one FR-331 terminal record for every requested item, including unsupported and incomplete items; a request-level typed refusal before per-item settlement is governed by its refusal contract and has no per-item terminal-record guarantee. | Partial (TC-016 serializes available provider terminals through QSL; full per-item replay accounting remains planned) |
-| FR-009-AC-6 | For routed scalar replay, the driver retains one context binding the exact proved generated artifact and emitted package to the scalar identity, occurrence, ordered operands, original `ScalarLimits`, and exact QSL claim and replay context; it executes that artifact with those inputs and limits and retains the actual typed native outcome. | Planned (TC-016; IR-610 producer slice) |
-| FR-009-AC-7 | The driver verifies QSL's native-observation digest against the actual typed outcome it obtained by executing the exact proved artifact with the retained operands and original limits, and binds that observation to the artifact's canonical proof-content identity before QSL evaluates it; missing or mismatched context or observation preserves the upstream typed completion refusal and produces no QSL replay evaluation, settlement, or terminal record. | Planned (TC-016; IR-610 producer slice and reviewed CG API) |
+| FR-009-AC-6 | For routed scalar replay, the driver retains one context binding the exact proved generated artifact and emitted package to the scalar identity, occurrence, ordered operands, original `ScalarLimits` and `ReplayLimits`, and exact QSL claim and replay context; it sends the retained `ReplayLimits` in that QSL request, executes the artifact with the retained scalar inputs and `ScalarLimits`, and retains the actual typed native outcome. | Planned (TC-016; IR-773 S6b producer) |
+| FR-009-AC-7 | The driver verifies QSL's native-observation digest against the actual typed outcome it obtained by executing the exact proved artifact with the retained operands and original `ScalarLimits`, and binds that observation and the exact replay request, including its original `ReplayLimits`, to the artifact's canonical proof-content identity before QSL evaluates the observation; missing or mismatched context or observation preserves the upstream typed completion refusal and produces no QSL replay evaluation, settlement, or terminal record. | Planned (TC-016; IR-773 producer, IR-631 replay-conversion consumer, IR-610 E9 integration) |
 | FR-009-AC-8 | For scalar parity, the CG-owned binding converter compares `report.claim()` with the exact claim sent for every report outcome; an absent report or mismatch yields CG FR-032's typed binding refusal with no settlement, which the driver surfaces unchanged and never turns into a terminal. This path remains planned until CG exports the public scalar binding converter; the driver adds no refusal mapping. | Planned (TC-016; IR-610 consumer slice and public CG converter API) |
 | FR-009-AC-9 | Each scalar operator-parity report outcome is converted only through CG FR-032's typed settlement conversion of the QSL FR-357 report; `Agrees`, `Diverged`, `GeneratedFault`, `RefusedInput`, `Incomplete`, and other typed refusal outcomes retain the meanings those contracts define. | Planned (TC-016; IR-610 consumer slice and reviewed CG API) |
 | FR-009-AC-10 | Predicate/function replay that disagrees or completes without reproducing a provider counterexample settles as `inconclusive` with its replay-parity cause. | Planned (TC-016; full replay path) |
@@ -117,6 +120,9 @@ replay context through QSL evaluation and report handling.
 - QSL ADR-029 LC-1, CB-4 and library operation `prove`; ADR-013 O-16 and
   C-09; QSL FR-357 observation-digest and report-claim contract; CG FR-032
   native-observation and scalar-replay binding contract; CG's terminal-record
-  mapping. The driver producer and consumer API remains planned until the
-  reviewed CG KaniForm API is available.
+  mapping. IR-773 owns the planned same-artifact native-observation producer;
+  IR-631 consumes its receipt for replay conversion; IR-610 owns the later E9
+  integration. These criteria remain planned until the required reviewed APIs
+  are available. The producer does not create replay settlement or terminal
+  records.
 - [TC-016](../test-cases/TC-016-execute-replay-and-terminal-records.md).
