@@ -27,12 +27,16 @@ remains a typed error and produces no guessed outcome.
 The scalar producer/replay scenarios below remain planned until the driver has
 the reviewed CG KaniForm API and the IR-610 producer/consumer path. The
 qualification must retain the exact generated artifact/package, scalar
-identity/occurrence, ordered operands, original `ScalarLimits`, and original
-QSL claim/replay context as one execution context; it must execute and
-authenticate that same artifact's actual typed native outcome before QSL
-evaluation. It must reject missing or mismatched evidence without invoking QSL
-or creating settlement. The report-claim mismatch case remains planned until
-CG exports its FR-032 public scalar binding converter: then pass every report
+identity/occurrence, ordered operands, original `ScalarLimits` and
+`ReplayLimits`, and original QSL claim/replay context as one execution
+context. It must send the retained `ReplayLimits` unchanged in the QSL replay
+request, execute the artifact with the retained scalar inputs and
+`ScalarLimits`, and authenticate that same artifact's actual typed native
+outcome before QSL evaluation. The oracle compares the retained and sent
+`ReplayLimits` for equality. It must reject missing or mismatched evidence
+without invoking QSL or creating settlement. The report-claim mismatch case
+remains planned until CG exports its FR-032 public scalar binding converter:
+then pass every report
 outcome through that converter, verify it compares `report.claim()` with the
 exact claim sent, and assert that an absent report or mismatch returns CG's
 typed binding refusal without settlement or terminal creation. The driver
