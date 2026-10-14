@@ -12,10 +12,11 @@ relationships:
 
 Verify the `--engine` default, closed set, unavailable-engine refusal and
 no-substitution behavior. Also verify that the selected interpreter receives
-the caller-owned `ObjectEnvironment` unchanged and preserves QSL's typed
-refusal when required object context is missing.
+the caller-owned `ObjectEnvironment` unchanged and preserves QSL's actual
+outcome when object context is absent, including both QSL-defined `Undefined`
+and typed-refusal cases.
 
-Scope: FR-004-AC-1 through FR-004-AC-7.
+Scope: FR-004-AC-1 through FR-004-AC-8.
 
 ## Test Procedure
 
@@ -31,10 +32,12 @@ Scope: FR-004-AC-1 through FR-004-AC-7.
    on an object supplied in a nonempty caller-owned `ObjectEnvironment`; run
    the same call with an empty environment and compare both driver outcomes
    with direct QSL runs using those exact environments.
-6. Run a function that requires object context with that context absent from
+6. Run a function with a population argument whose identity has no binding in
    the caller-supplied environment; compare the driver's typed refusal with
-   direct QSL and verify the driver does not substitute a default or derive
-   context from display text or package bytes.
+   direct QSL, as specified by QSL FR-089-AC-4.
+7. Run a `lookup<T>(p, r) absent undefined` query whose bound population has
+   no matching key; compare the driver's `Undefined` outcome with direct QSL,
+   as specified by QSL FR-090.
 
 Test locations: `src/execute.rs`, `quire-cli/src/cli.rs`, and
 `quire-cli/tests/binary_process.rs`.
@@ -51,6 +54,10 @@ Test locations: `src/execute.rs`, `quire-cli/src/cli.rs`, and
 - The nonempty caller environment reaches QSL unchanged: the driver's result
   matches the direct QSL result for that environment and differs from the
   direct QSL result using an empty environment.
-- When required object context is absent, the driver returns the same typed
-  QSL refusal as the direct run with the same environment; no default or
-  derived context changes the outcome.
+- When a population argument names an identity absent from the environment,
+  the driver returns the same typed QSL refusal as the direct run.
+- When an `absent undefined` lookup has no matching key, the driver returns
+  QSL's `Undefined` outcome unchanged. The driver does not replace QSL's
+  operation-specific outcome with a refusal or another outcome.
+- The driver does not create a default environment or derive context from
+  display text or package bytes.
