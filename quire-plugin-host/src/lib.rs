@@ -621,8 +621,13 @@ where
             if let Some(cause) = cancel.cause() {
                 return Err(cancel_error(cause));
             }
+            let child = self
+                .child
+                .as_ref()
+                .map(Box::as_ref)
+                .ok_or(PluginError::MissingPipe("child"))?;
             self.monitor
-                .begin_request()
+                .begin_request(child)
                 .map_err(PluginError::ProcessBudget)?;
             let request_id = self.next_id;
             self.next_id = self
@@ -708,12 +713,14 @@ where
                 .as_mut()
                 .map(Box::as_mut)
                 .ok_or(PluginError::MissingPipe("child"))?;
-            if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
+            let status = child.try_wait().map_err(PluginError::Wait)?;
+            self.monitor
+                .check(child)
+                .map_err(PluginError::ProcessBudget)?;
+            if let Some(status) = status {
                 if !status.success() {
                     return Err(PluginError::Exited(status));
                 }
-            } else {
-                self.monitor.check().map_err(PluginError::ProcessBudget)?;
             }
             Ok(typed)
         })();
@@ -861,9 +868,7 @@ fn next_frame<A, V, F>(
         match receiver.recv_timeout(Duration::from_millis(20)) {
             Ok(Ok(Some(frame))) => {
                 frame.validate_protocol()?;
-                if frame.kind != Kind::Result {
-                    monitor.check().map_err(PluginError::ProcessBudget)?;
-                }
+                monitor.check(child).map_err(PluginError::ProcessBudget)?;
                 return Ok(frame);
             }
             Ok(Ok(None)) => return Err(eof_error(child, eof_grace)?),
@@ -871,9 +876,10 @@ fn next_frame<A, V, F>(
             Err(RecvTimeoutError::Disconnected) => return Err(eof_error(child, eof_grace)?),
             Err(RecvTimeoutError::Timeout) => {
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
+                    monitor.check(child).map_err(PluginError::ProcessBudget)?;
                     return Err(PluginError::Exited(status));
                 }
-                monitor.check().map_err(PluginError::ProcessBudget)?;
+                monitor.check(child).map_err(PluginError::ProcessBudget)?;
             }
         }
     }
@@ -895,9 +901,7 @@ fn next_frame_with_grace<A, V, F>(
         match receiver.recv_timeout(remaining.min(Duration::from_millis(20))) {
             Ok(Ok(Some(frame))) => {
                 frame.validate_protocol()?;
-                if frame.kind != Kind::Result {
-                    monitor.check().map_err(PluginError::ProcessBudget)?;
-                }
+                monitor.check(child).map_err(PluginError::ProcessBudget)?;
                 return Ok(frame);
             }
             Ok(Ok(None)) | Err(RecvTimeoutError::Disconnected) => {
@@ -906,9 +910,10 @@ fn next_frame_with_grace<A, V, F>(
             Ok(Err(error)) => return Err(PluginError::Frame(error)),
             Err(RecvTimeoutError::Timeout) => {
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
+                    monitor.check(child).map_err(PluginError::ProcessBudget)?;
                     return Err(PluginError::Exited(status));
                 }
-                monitor.check().map_err(PluginError::ProcessBudget)?;
+                monitor.check(child).map_err(PluginError::ProcessBudget)?;
             }
         }
     }
@@ -935,9 +940,10 @@ fn write_frame_cancellable<A, V, F>(
                     return result;
                 }
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
+                    monitor.check(child).map_err(PluginError::ProcessBudget)?;
                     return Err(PluginError::Exited(status));
                 }
-                monitor.check().map_err(PluginError::ProcessBudget)?;
+                monitor.check(child).map_err(PluginError::ProcessBudget)?;
             }
         }
     }
@@ -1069,7 +1075,7 @@ fn wait_for_exit<A, V, F>(
                     Err(PluginError::Exited(status))
                 };
             }
-            monitor.check().map_err(PluginError::ProcessBudget)?;
+            monitor.check(child).map_err(PluginError::ProcessBudget)?;
             continue;
         }
         match receiver.recv_timeout(Duration::from_millis(20)) {
@@ -1077,7 +1083,7 @@ fn wait_for_exit<A, V, F>(
             Ok(Err(error)) => return Err(PluginError::Frame(error)),
             Ok(Ok(None)) | Err(RecvTimeoutError::Disconnected) => stdout_closed = true,
             Err(RecvTimeoutError::Timeout) => {
-                monitor.check().map_err(PluginError::ProcessBudget)?;
+                monitor.check(child).map_err(PluginError::ProcessBudget)?;
             }
         }
     }
@@ -1129,6 +1135,8 @@ struct ProcessMonitor {
     cpu_time_limit: Option<Duration>,
     #[cfg(target_os = "linux")]
     request_cpu_baseline_micros: u64,
+    #[cfg(target_os = "windows")]
+    request_cpu_baseline: Option<Duration>,
     #[cfg(target_os = "linux")]
     cgroup_boundary: Option<linux_cgroup::Boundary>,
     request_active: bool,
@@ -1150,6 +1158,8 @@ impl ProcessMonitor {
             cpu_time_limit,
             #[cfg(target_os = "linux")]
             request_cpu_baseline_micros: 0,
+            #[cfg(target_os = "windows")]
+            request_cpu_baseline: None,
             #[cfg(target_os = "linux")]
             cgroup_boundary,
             request_active: false,
@@ -1158,7 +1168,7 @@ impl ProcessMonitor {
         }
     }
 
-    fn begin_request(&mut self) -> Result<(), ProcessBudgetError> {
+    fn begin_request(&mut self, _child: &dyn ChildWrapper) -> Result<(), ProcessBudgetError> {
         if self.memory_limit.is_none() && self.cpu_time_limit.is_none() {
             return Ok(());
         }
@@ -1176,7 +1186,7 @@ impl ProcessMonitor {
                 return Err(ProcessBudgetError::Unavailable);
             }
             self.request_active = true;
-            self.check()
+            self.check(_child)
         }
         #[cfg(target_os = "macos")]
         {
@@ -1186,11 +1196,28 @@ impl ProcessMonitor {
             // mechanism that covers escaped and already-exited descendants.
             Err(ProcessBudgetError::Unavailable)
         }
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        #[cfg(target_os = "windows")]
+        {
+            // The process-wrap Job Object API supplies complete CPU accounting, including
+            // terminated members. It does not provide a coherent live resident-memory total.
+            // Refuse memory requests before dispatch rather than treating CPU support as a
+            // complete resource boundary.
+            if self.memory_limit.is_some() {
+                return Err(ProcessBudgetError::Unavailable);
+            }
+            self.request_cpu_baseline = Some(
+                _child
+                    .job_cpu_time()
+                    .map_err(|_| ProcessBudgetError::Unavailable)?,
+            );
+            self.request_active = true;
+            self.check(_child)
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         Err(ProcessBudgetError::Unavailable)
     }
 
-    fn check(&mut self) -> Result<(), ProcessBudgetError> {
+    fn check(&mut self, _child: &dyn ChildWrapper) -> Result<(), ProcessBudgetError> {
         if (self.memory_limit.is_none() && self.cpu_time_limit.is_none()) || !self.request_active {
             return Ok(());
         }
@@ -1235,7 +1262,28 @@ impl ProcessMonitor {
         {
             Err(ProcessBudgetError::Unavailable)
         }
-        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        #[cfg(target_os = "windows")]
+        {
+            if self.memory_limit.is_some() {
+                return Err(ProcessBudgetError::Unavailable);
+            }
+            if let Some(limit) = self.cpu_time_limit {
+                let baseline = self
+                    .request_cpu_baseline
+                    .ok_or(ProcessBudgetError::Unavailable)?;
+                let current = _child
+                    .job_cpu_time()
+                    .map_err(|_| ProcessBudgetError::Unavailable)?;
+                let elapsed = current
+                    .checked_sub(baseline)
+                    .ok_or(ProcessBudgetError::Unavailable)?;
+                if elapsed > limit {
+                    return Err(ProcessBudgetError::CpuTimeExceeded);
+                }
+            }
+            Ok(())
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         Err(ProcessBudgetError::Unavailable)
     }
 
@@ -1691,14 +1739,20 @@ pub enum FrameError {
 mod tests {
     #[cfg(windows)]
     use super::wrap_plugin_command;
+    #[cfg(windows)]
+    use super::WORKER_CLEANUP_LIMIT;
     use super::{
         spawn_writer, write_frame_control, Envelope, FrameError, FrameLimits, FrameReader,
         FrameWriter, Kind, PluginError, PluginSession, ProcessBudgetError, RunLimits, SessionStart,
         PROTOCOL,
     };
+    #[cfg(windows)]
+    use process_wrap::std::ChildWrapper;
     use quire_exact::Cancel;
     use quire_exact::CancelCause;
     use serde::{Deserialize, Serialize};
+    #[cfg(windows)]
+    use std::ffi::OsStr;
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -1724,17 +1778,17 @@ mod tests {
         items: Vec<String>,
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     struct TestFiles(Vec<PathBuf>);
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     impl TestFiles {
         fn new(paths: impl IntoIterator<Item = PathBuf>) -> Self {
             Self(paths.into_iter().collect())
         }
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     impl Drop for TestFiles {
         fn drop(&mut self) {
             for path in &self.0 {
@@ -2014,6 +2068,337 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    fn windows_accounting_fixture(
+        ready: &Path,
+        request_seen: &Path,
+        descendant_started: &Path,
+        descendant_pid: &Path,
+        descendant_done: &Path,
+        descendant_script: &Path,
+    ) -> (PathBuf, [OsString; 5]) {
+        let powershell =
+            PathBuf::from(std::env::var_os("SystemRoot").expect("Windows sets SystemRoot"))
+                .join("System32")
+                .join("WindowsPowerShell")
+                .join("v1.0")
+                .join("powershell.exe");
+        let ready = ready.to_string_lossy().replace('\'', "''");
+        let request_seen = request_seen.to_string_lossy().replace('\'', "''");
+        let descendant_started = descendant_started.to_string_lossy().replace('\'', "''");
+        let descendant_pid = descendant_pid.to_string_lossy().replace('\'', "''");
+        let descendant_done = descendant_done.to_string_lossy().replace('\'', "''");
+        let descendant_script_path = descendant_script.to_string_lossy().replace('\'', "''");
+        let descendant_script_contents = format!(
+            "[IO.File]::WriteAllText('{descendant_started}','started'); \
+             $process=[Diagnostics.Process]::GetCurrentProcess(); $baseline=$process.TotalProcessorTime; \
+             while ($true) {{ $process.Refresh(); if (($process.TotalProcessorTime-$baseline).TotalMilliseconds -ge 1000) {{ break }}; [void]([Math]::Sqrt(123456.789)) }}; \
+             [IO.File]::WriteAllText('{descendant_done}','done')"
+        );
+        std::fs::write(descendant_script, descendant_script_contents)
+            .expect("write descendant PowerShell fixture");
+        let script = format!(
+            "$hello=[Text.Encoding]::UTF8.GetBytes('{{\"body\":{{\"advertises\":[],\"identity\":\"agent-ix/provider/test\"}},\"id\":0,\"kind\":\"hello\",\"protocol\":\"quire.plugin-wire/v1\"}}'); \
+             $prefix=[BitConverter]::GetBytes([UInt64]$hello.Length); \
+             [Array]::Reverse($prefix); \
+             $stdout=[Console]::OpenStandardOutput(); \
+             $stdout.Write($prefix,0,8); $stdout.Write($hello,0,$hello.Length); $stdout.Flush(); \
+             $process=[Diagnostics.Process]::GetCurrentProcess(); $baseline=$process.TotalProcessorTime; \
+             while ($true) {{ $process.Refresh(); if (($process.TotalProcessorTime-$baseline).TotalMilliseconds -ge 1000) {{ break }}; [void]([Math]::Sqrt(123456.789)) }}; \
+             [IO.File]::WriteAllText('{ready}','ready'); \
+             $stdin=[Console]::OpenStandardInput(); $first=$stdin.ReadByte(); if ($first -lt 0) {{ exit 2 }}; \
+             [IO.File]::WriteAllText('{request_seen}','request'); \
+             $childArgs='-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File \"{descendant_script_path}\"'; \
+             $worker=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $childArgs -PassThru -WindowStyle Hidden; \
+             [IO.File]::WriteAllText('{descendant_pid}',[string]$worker.Id); \
+             while (!(Test-Path '{descendant_done}')) {{ Start-Sleep -Milliseconds 10 }}; \
+             $result=[Text.Encoding]::UTF8.GetBytes('{{\"body\":{{\"identity\":\"agent-ix/provider/test\",\"items\":[\"item-1\"]}},\"id\":1,\"kind\":\"result\",\"protocol\":\"quire.plugin-wire/v1\"}}'); \
+             $resultPrefix=[BitConverter]::GetBytes([UInt64]$result.Length); [Array]::Reverse($resultPrefix); \
+             $stdout.Write($resultPrefix,0,8); $stdout.Write($result,0,$result.Length); $stdout.Flush()"
+        );
+        (
+            powershell,
+            [
+                OsString::from("-NoLogo"),
+                OsString::from("-NonInteractive"),
+                OsString::from("-NoProfile"),
+                OsString::from("-Command"),
+                OsString::from(script),
+            ],
+        )
+    }
+
+    #[cfg(windows)]
+    fn wait_for_fixture_file(path: &Path) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !path.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        path.exists()
+    }
+
+    #[cfg(windows)]
+    fn windows_process_has_exited(pid: u32) -> Result<bool, String> {
+        let powershell =
+            PathBuf::from(std::env::var_os("SystemRoot").expect("Windows sets SystemRoot"))
+                .join("System32")
+                .join("WindowsPowerShell")
+                .join("v1.0")
+                .join("powershell.exe");
+        let status = std::process::Command::new(powershell)
+            .args([
+                OsStr::new("-NoLogo"),
+                OsStr::new("-NonInteractive"),
+                OsStr::new("-NoProfile"),
+                OsStr::new("-Command"),
+            ])
+            .arg(format!(
+                "$process=Get-Process -Id {pid} -ErrorAction SilentlyContinue; if ($null -eq $process) {{ exit 0 }} else {{ exit 7 }}"
+            ))
+            .status()
+            .map_err(|error| format!("could not query descendant process {pid}: {error}"))?;
+        match status.code() {
+            Some(0) => Ok(true),
+            Some(7) => Ok(false),
+            code => Err(format!(
+                "PowerShell process query for PID {pid} returned unexpected status {code:?}"
+            )),
+        }
+    }
+
+    #[cfg(windows)]
+    fn wait_for_windows_process_exit(pid: u32) -> Result<bool, String> {
+        let deadline = Instant::now() + WORKER_CLEANUP_LIMIT;
+        loop {
+            if windows_process_has_exited(pid)? {
+                return Ok(true);
+            }
+            if Instant::now() >= deadline {
+                return Ok(false);
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[cfg(windows)]
+    #[derive(Debug)]
+    struct FixedCpuChild(Duration);
+
+    #[cfg(windows)]
+    impl ChildWrapper for FixedCpuChild {
+        fn inner(&self) -> &dyn ChildWrapper {
+            self
+        }
+
+        fn inner_mut(&mut self) -> &mut dyn ChildWrapper {
+            self
+        }
+
+        fn into_inner(self: Box<Self>) -> Box<dyn ChildWrapper> {
+            self
+        }
+
+        fn job_cpu_time(&self) -> std::io::Result<Duration> {
+            Ok(self.0)
+        }
+    }
+
+    /// Trace: FR-013-AC-8, FR-013-AC-17, TC-026; a final result frame cannot bypass the Job Object CPU check.
+    #[cfg(windows)]
+    #[test]
+    fn windows_cpu_budget_checks_final_result_frame() {
+        let mut child = FixedCpuChild(Duration::from_millis(10));
+        let mut monitor = super::ProcessMonitor {
+            memory_limit: None,
+            cpu_time_limit: Some(Duration::from_millis(1)),
+            request_cpu_baseline: Some(Duration::ZERO),
+            request_active: true,
+        };
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender
+            .send(Ok(Some(super::Envelope {
+                protocol: super::PROTOCOL.to_owned(),
+                id: 1,
+                kind: super::Kind::Result,
+                body: serde_json::json!({}),
+            })))
+            .expect("final result frame is queued");
+
+        let error = super::next_frame::<String, String, serde_json::Value>(
+            &receiver,
+            &mut child,
+            &Cancel::new(),
+            &mut monitor,
+            Duration::ZERO,
+        )
+        .expect_err("an over-budget final result is rejected");
+        assert!(matches!(
+            error,
+            PluginError::ProcessBudget(ProcessBudgetError::CpuTimeExceeded)
+        ));
+    }
+
+    /// Trace: FR-013-AC-8, FR-013-AC-17, FR-013-AC-19, TC-026; use the Job Object counter from the request baseline.
+    #[cfg(windows)]
+    #[test]
+    fn windows_cpu_budget_uses_job_counter_from_request_start() {
+        let base = ready_fixture_path();
+        let ready = marker_path(&base, "ready");
+        let request_seen = marker_path(&base, "request");
+        let descendant_started = marker_path(&base, "descendant-started");
+        let descendant_pid = marker_path(&base, "descendant-pid");
+        let descendant_done = marker_path(&base, "descendant-done");
+        let descendant_script = marker_path(&base, "descendant.ps1");
+        let _files = TestFiles::new([
+            ready.clone(),
+            request_seen.clone(),
+            descendant_started.clone(),
+            descendant_pid.clone(),
+            descendant_done.clone(),
+            descendant_script.clone(),
+        ]);
+        let (executable, arguments) = windows_accounting_fixture(
+            &ready,
+            &request_seen,
+            &descendant_started,
+            &descendant_pid,
+            &descendant_done,
+            &descendant_script,
+        );
+        let cancel = Cancel::new();
+        let mut limits = session_limits();
+        limits.max_process_cpu_time = Some(Duration::from_millis(250));
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits,
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("Windows Job Object starts and admits the plugin hello");
+
+        assert!(
+            wait_for_fixture_file(&ready),
+            "plugin completed its pre-request CPU work"
+        );
+        let error = session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect_err("the post-request CPU work exceeds the request budget");
+        assert!(matches!(
+            error.primary_cause(),
+            PluginError::ProcessBudget(ProcessBudgetError::CpuTimeExceeded)
+        ));
+        assert!(
+            request_seen.exists(),
+            "the plugin received the request before its CPU budget was exceeded"
+        );
+        assert!(
+            descendant_started.exists(),
+            "a descendant, not only the plugin root, consumed CPU inside the Job Object"
+        );
+        assert!(
+            !descendant_done.exists(),
+            "the CPU refusal interrupted the descendant before its normal completion"
+        );
+        let pid_text = std::fs::read_to_string(&descendant_pid)
+            .expect("the plugin records the CPU-burning descendant PID");
+        let pid = pid_text
+            .parse::<u32>()
+            .expect("the descendant PID marker contains a numeric process ID");
+        assert!(pid > 0, "the descendant PID is nonzero");
+        let PluginError::WithDiagnostics {
+            process_tree_cleanup_failed,
+            reader_join_failed,
+            writer_join_failed,
+            capture_error,
+            ..
+        } = &error
+        else {
+            panic!("typed budget refusal retains process-tree cleanup diagnostics");
+        };
+        assert!(
+            !process_tree_cleanup_failed
+                && !reader_join_failed
+                && !writer_join_failed
+                && capture_error.is_none(),
+            "the typed refusal reports successful bounded process-tree and worker cleanup"
+        );
+        assert!(
+            wait_for_windows_process_exit(pid)
+                .expect("PowerShell can query the descendant process"),
+            "the CPU-burning descendant exited within the process cleanup bound"
+        );
+    }
+
+    /// Trace: FR-013-AC-18, TC-026; refuse a Windows memory budget before writing a request.
+    #[cfg(windows)]
+    #[test]
+    fn windows_memory_budget_is_unavailable_before_dispatch() {
+        let base = ready_fixture_path();
+        let ready = marker_path(&base, "ready");
+        let request_seen = marker_path(&base, "request");
+        let descendant_started = marker_path(&base, "descendant-started");
+        let descendant_pid = marker_path(&base, "descendant-pid");
+        let descendant_done = marker_path(&base, "descendant-done");
+        let descendant_script = marker_path(&base, "descendant.ps1");
+        let _files = TestFiles::new([
+            ready.clone(),
+            request_seen.clone(),
+            descendant_started,
+            descendant_pid,
+            descendant_done,
+            descendant_script.clone(),
+        ]);
+        let (executable, arguments) = windows_accounting_fixture(
+            &ready,
+            &request_seen,
+            &marker_path(&base, "descendant-started"),
+            &marker_path(&base, "descendant-pid"),
+            &marker_path(&base, "descendant-done"),
+            &descendant_script,
+        );
+        let cancel = Cancel::new();
+        let mut limits = session_limits();
+        limits.max_process_memory_bytes = Some(u64::MAX);
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits,
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("Windows Job Object starts and admits the plugin hello");
+
+        assert!(
+            wait_for_fixture_file(&ready),
+            "plugin completed its pre-request CPU work"
+        );
+        let error = session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect_err("the unsupported complete memory boundary refuses the request");
+        assert!(matches!(
+            error.primary_cause(),
+            PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
+        ));
+        assert!(
+            !request_seen.exists(),
+            "the plugin received no request when memory measurement is unavailable"
+        );
+        assert!(!session.request_write_started);
+    }
+
     struct StopEscapedFixture {
         release: std::path::PathBuf,
         stop: std::path::PathBuf,
@@ -2100,7 +2485,7 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     fn marker_path(base: &Path, suffix: &str) -> PathBuf {
         PathBuf::from(format!("{}.{}", base.display(), suffix))
     }
