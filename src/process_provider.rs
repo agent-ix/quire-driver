@@ -56,6 +56,10 @@ pub struct ProcessProviderRequest<'a> {
 /// `invoke` sends each request over this same session; implementations must
 /// not restart the process, send another hello, or admit its descriptor again.
 pub trait ProcessProviderSession {
+    /// Typed result data returned by this provider.
+    type ItemResult;
+    /// Typed failure data returned by this provider.
+    type ItemFailure;
     /// Typed adapter failure.
     type Error;
 
@@ -69,13 +73,12 @@ pub trait ProcessProviderSession {
     /// The lossless driver-owned FR-331 manifest retained at admission.
     fn manifest(&self) -> &ProviderManifest;
 
-    /// Send one routed request and return driver-owned typed provider results.
-    /// Current results carry Kani-specific evidence and failures; generalizing
-    /// them for other provider kinds is tracked by IR-677.
+    /// Send one routed request and return provider-specific typed results in
+    /// the shared result carrier.
     fn invoke(
         &mut self,
         request: ProcessProviderRequest<'_>,
-    ) -> Result<ProviderResults, Self::Error>;
+    ) -> Result<ProviderResults<Self::ItemResult, Self::ItemFailure>, Self::Error>;
 
     /// Request graceful shutdown and return the host's captured diagnostics.
     /// Callers should preserve or report these diagnostics. Dropping a session

@@ -40,7 +40,7 @@ use quire_contract_model::{
 };
 use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
-    GenerationInput, KaniInput, KaniProvider, OutcomeKind, Provider, ProviderItemFailure,
+    GenerationInput, KaniInput, KaniProvider, KaniProviderFailure, OutcomeKind, Provider,
     ProviderLimits, ProviderManifest, ProviderRequest, QslCg, Upstream,
 };
 use quire_exact::{Cancel, CancelCause};
@@ -2140,6 +2140,6 @@ fn provider_trait_run_processes_a_selected_item() {
     assert_eq!(results.items.len(), 1);
     assert!(matches!(
         results.items[0].result,
-        Err(ProviderItemFailure::MissingExecutionLimits)
+        Err(KaniProviderFailure::MissingExecutionLimits)
     ));
 }

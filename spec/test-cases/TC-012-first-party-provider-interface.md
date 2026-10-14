@@ -11,8 +11,9 @@ relationships:
 ## Description
 
 Verify the linked Kani Provider slice: manifest admission and lookup, Kani
-preflight refusals, and CG-owned terminal mapping. Full routed invocation,
-typed-result forwarding, and process-provider integration remain planned.
+preflight refusals, CG-owned terminal mapping, and the generic result carrier
+used by non-Kani providers. Full routed invocation and process-provider
+terminal integration remain planned.
 
 Scope: FR-005-AC-1 through FR-005-AC-11.
 
@@ -33,10 +34,14 @@ Scope: FR-005-AC-1 through FR-005-AC-11.
    `ProviderItemResult` retains CG's execution ceilings, memory observation
    and symbolic-argument bounds. Supply a different memory or wall-clock
    ceiling and verify a typed mismatch refusal occurs before CG execution.
-6. Pass a cover-unsatisfied outcome and a timeout outcome through CG's
+6. Construct generic provider results with non-Kani success and failure types.
+   Verify each retains its request index and backend identity. Exercise the
+   host adapter conversion with a non-Kani result carrier and verify its typed
+   result reaches the caller unchanged.
+7. Pass a cover-unsatisfied outcome and a timeout outcome through CG's
    `run_terminal_value`; verify they map to `Proved { success_checks: 0 }`
    and `Incomplete(TimedOut)` respectively.
-7. The origin-aware QSL-to-CG descriptor projection is tested in
+8. The origin-aware QSL-to-CG descriptor projection is tested in
    `src/drive.rs`: build separate QSL registries with otherwise equal `kani`
    descriptors, one `Linked` and one `Process`, then verify their CG
    descriptor projections preserve identity, advertised pairs and the supplied
@@ -49,18 +54,16 @@ Scope: FR-005-AC-1 through FR-005-AC-11.
    builder. CG IR-629 is spec-merged but its process backend-kind code is
    pending; the origin projection itself is covered by the driver test.
 
-8. Verify the Kani output's terminal is the one produced by CG's
+9. Verify the Kani output's terminal is the one produced by CG's
    `run_terminal_value`; the driver does not derive a terminal from evidence or
    diagnostics independently.
-9. Planned under IR-677: verify the generalized shared carrier preserves
-   request index and backend identity without requiring Kani evidence or
-   failure types. Keep a plugin counterexample in that carrier as a
-   non-terminal candidate until QSL S6a replay reproduces it; do not emit
-   `Refuted` before replay.
+10. Planned under QSL-655: keep a plugin counterexample in the shared carrier
+    as a non-terminal candidate until QSL S6a replay reproduces it; do not emit
+    `Refuted` before replay.
 
 Test location: `src/registry.rs`, `src/drive.rs`, `src/provider.rs`,
-`tests/drive.rs`, and the planned IR-677 non-Kani carrier test; full routed
-invocation and process-provider integration remain planned.
+`quire-cli/src/process_provider.rs`, and `tests/drive.rs`; full routed
+invocation and process-provider terminal integration remain planned.
 
 ## Expected Results
 
@@ -80,11 +83,11 @@ invocation and process-provider integration remain planned.
   identity as the execution timeout; the driver supplies no second timeout.
 - CG maps cover-unsatisfied to `Proved { success_checks: 0 }` and timeout to
   `Incomplete(TimedOut)`; the driver does not reimplement that mapping.
-- Current provider limits and result carriers are Kani-only; the generalized
-  result-carrier test remains planned under IR-677. Plugin `proved` results
-  remain unmapped pending QSL-490 and QSL-655; the driver does not fabricate
-  Kani `success_checks`. Plugin claims of replay-only causes remain tool
-  failures.
+- Kani execution limits and terminal mapping remain Kani-specific. The shared
+  result carrier preserves generic non-Kani success and failure data, request
+  indexes and backend identities. Plugin `proved` results remain unmapped
+  pending QSL-490 and QSL-655; the driver does not fabricate Kani
+  `success_checks`. Plugin claims of replay-only causes remain tool failures.
   Cancellation is checked between routed items. The current CG execution API
   accepts no cancellation handle, so an already-running harness continues
   until its identity's `wall_clock` ceiling.
