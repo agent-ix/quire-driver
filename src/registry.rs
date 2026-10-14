@@ -11,6 +11,20 @@ use std::sync::Arc;
 
 use crate::{DriverRefusal, Provider};
 
+#[derive(serde::Serialize, quire_canonical::FixedShape)]
+struct LinkedManifestWire<'a> {
+    backend: &'a str,
+    advertises: Vec<AdvertisedPairWire<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    domains: Option<&'a Vec<String>>,
+}
+
+#[derive(serde::Serialize, quire_canonical::FixedShape)]
+struct AdvertisedPairWire<'a> {
+    kind: &'a str,
+    mode: &'a str,
+}
+
 /// The FR-331 provider-manifest fields the driver registers a backend from.
 ///
 /// This type and [`build_registry`] are for compile-time linked providers.
@@ -170,6 +184,9 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
     for manifest in manifests {
         let backend_id = BackendId::from_wire(&manifest.identity)
             .map_err(DriverRefusal::EmptyBackendIdentity)?;
+        if manifest.advertises.is_empty() {
+            return Err(DriverRefusal::EmptyLinkedManifestAdvertisements);
+        }
         let backend = Candidate::new(backend_id);
         // The pinned QSL admission API has no domains argument. Preserve
         // linked domains in the manifest DTO; pass them through when QSL-654
@@ -185,6 +202,7 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
         );
         match admitted {
             Ok(descriptor) => {
+                let wire = linked_manifest_wire(manifest)?;
                 // The conflict is read back, deduped, from `refusals()`
                 // below; a successful registration needs nothing here.
                 let _ = registry.register(descriptor);
@@ -195,7 +213,9 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
                             && retained.manifest_digest == manifest.manifest_digest
                     })
                 {
-                    admitted_manifests.push(manifest.clone());
+                    let mut retained = manifest.clone();
+                    retained.wire = Some(wire);
+                    admitted_manifests.push(retained);
                 }
             }
             Err(refusal) => refusals.push(refusal),
@@ -211,6 +231,37 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
         refusals.sort();
         Err(DriverRefusal::Registration(refusals))
     }
+}
+
+fn linked_manifest_wire(manifest: &ProviderManifest) -> Result<Arc<[u8]>, DriverRefusal> {
+    if let Some(wire) = &manifest.wire {
+        return Ok(Arc::clone(wire));
+    }
+
+    let advertises = manifest
+        .advertises
+        .iter()
+        .map(|(kind, mode)| match (kind.as_deref(), mode.as_deref()) {
+            (Some(kind), Some(mode)) => Ok(AdvertisedPairWire { kind, mode }),
+            _ => Err(DriverRefusal::Fault(
+                crate::DriverFault::AdmittedManifestMissingLabel,
+            )),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let descriptor = LinkedManifestWire {
+        backend: &manifest.identity,
+        advertises,
+        domains: manifest.domains.as_ref(),
+    };
+    let bytes = quire_canonical::to_vec(
+        &descriptor,
+        // FR-331 defines no linked-manifest byte ceiling. Linked manifests
+        // are supplied by in-process providers; do not add a smaller driver
+        // limit than the canonical encoder's representable byte range.
+        quire_canonical::Limits::new(u64::MAX),
+    )
+    .map_err(DriverRefusal::ManifestEncoding)?;
+    Ok(Arc::from(bytes))
 }
 
 /// Register descriptors admitted by the caller (for example, the CLI's
@@ -265,7 +316,10 @@ mod tests {
         KaniProvider::new(ProviderManifest {
             identity: identity.to_owned(),
             manifest_digest: ManifestDigest::from_digest([digest; 32]),
-            advertises: Vec::new(),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
             domains: None,
             wire: None,
         })
@@ -287,6 +341,114 @@ mod tests {
         assert!(forward
             .windows(2)
             .all(|pair| pair[0].identity < pair[1].identity));
+    }
+
+    /// Trace: FR-005-AC-16.
+    #[test]
+    fn linked_registry_populates_canonical_manifest_wire_and_preserves_absence() {
+        let absent_optional = provider("agent-ix/provider/without-optional", 3);
+        let present_optional = KaniProvider::new(ProviderManifest {
+            identity: "agent-ix/provider/with-optional".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([4; 32]),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: Some(vec!["integer".to_owned()]),
+            wire: None,
+        });
+
+        let manifests = build_linked_providers(&[&absent_optional, &present_optional])
+            .expect("QSL admits both linked manifests")
+            .manifest_snapshot();
+        let absent = manifests
+            .iter()
+            .find(|manifest| manifest.identity == "agent-ix/provider/without-optional")
+            .expect("absent-optional manifest is retained");
+        let present = manifests
+            .iter()
+            .find(|manifest| manifest.identity == "agent-ix/provider/with-optional")
+            .expect("present-optional manifest is retained");
+
+        assert_eq!(
+            absent.wire.as_deref(),
+            Some(&b"{\"advertises\":[{\"kind\":\"value-validity\",\"mode\":\"bounded\"}],\"backend\":\"agent-ix/provider/without-optional\"}"[..])
+        );
+        assert_eq!(
+            present.wire.as_deref(),
+            Some(&b"{\"advertises\":[{\"kind\":\"value-validity\",\"mode\":\"bounded\"}],\"backend\":\"agent-ix/provider/with-optional\",\"domains\":[\"integer\"]}"[..])
+        );
+    }
+
+    /// Trace: FR-005-AC-16.
+    #[test]
+    fn linked_registry_preserves_caller_supplied_wire_byte_for_byte() {
+        let wire: std::sync::Arc<[u8]> = std::sync::Arc::from(
+            &b"{\"advertises\":[{\"kind\":\"value-validity\",\"mode\":\"bounded\"}],\"backend\":\"agent-ix/provider/full-wire\",\"options\":{\"proof\":\"exact\"}}"[..],
+        );
+        let provider = KaniProvider::new(ProviderManifest {
+            identity: "agent-ix/provider/full-wire".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([7; 32]),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: None,
+            wire: Some(std::sync::Arc::clone(&wire)),
+        });
+
+        let snapshot = build_linked_providers(&[&provider])
+            .expect("QSL admits the linked descriptor")
+            .manifest_snapshot();
+        assert_eq!(snapshot[0].wire.as_deref(), Some(wire.as_ref()));
+    }
+
+    /// Trace: FR-005-AC-16.
+    #[test]
+    fn linked_manifest_encoding_does_not_add_a_one_megabyte_limit() {
+        let identity = format!("agent-ix/provider/{}", "x".repeat(1_048_577));
+        let provider = KaniProvider::new(ProviderManifest {
+            identity,
+            manifest_digest: ManifestDigest::from_digest([5; 32]),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: None,
+            wire: None,
+        });
+
+        let snapshot = build_linked_providers(&[&provider])
+            .expect("FR-331 has no one-megabyte linked-manifest ceiling")
+            .manifest_snapshot();
+        let wire = snapshot[0]
+            .wire
+            .as_deref()
+            .expect("registry populated canonical wire");
+        assert!(wire.len() > 1_048_576);
+    }
+
+    /// Trace: FR-005-AC-16.
+    #[test]
+    fn linked_registry_refuses_empty_advertisements_before_wire_emission() {
+        let manifest = ProviderManifest {
+            identity: "agent-ix/provider/empty-advertisements".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([6; 32]),
+            advertises: Vec::new(),
+            domains: None,
+            wire: None,
+        };
+
+        let refusal = super::build_registry(&[manifest])
+            .expect_err("FR-331 requires at least one advertised capability");
+        assert!(matches!(
+            refusal,
+            crate::DriverRefusal::EmptyLinkedManifestAdvertisements
+        ));
+        assert_eq!(refusal.code(), "invalid_capability");
+        assert_eq!(refusal.qsl_category(), Some(qsl_replay::Category::Refusal));
+        assert_eq!(refusal.stage(), crate::DriverStage::Registry);
+        assert_eq!(refusal.kind(), crate::OutcomeKind::Refused);
     }
 
     /// Trace: FR-005-AC-5.

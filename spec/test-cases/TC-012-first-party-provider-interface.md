@@ -15,7 +15,7 @@ preflight refusals, CG-owned terminal mapping, and the generic result carrier
 used by non-Kani providers. Full routed invocation and process-provider
 terminal integration remain planned.
 
-Scope: FR-005-AC-1 through FR-005-AC-11.
+Scope: FR-005-AC-1 through FR-005-AC-11 and FR-005-AC-16.
 
 ## Test Procedure
 
@@ -60,9 +60,17 @@ Scope: FR-005-AC-1 through FR-005-AC-11.
 10. Planned under QSL-655: keep a plugin counterexample in the shared carrier
     as a non-terminal candidate until QSL S6a replay reproduces it; do not emit
     `Refuted` before replay.
+11. Build a linked provider registry from a manifest whose `wire` is absent.
+    Verify `build_registry` retains canonical FR-331 bytes, includes present
+    optional members and omits absent ones. Pass a retained manifest with
+    `wire: None` directly to the FR-331 request adapter and verify it refuses
+    rather than reconstructing the descriptor. Verify a supplied `wire` value
+    is retained byte-for-byte, and an empty advertised-capability list is
+    refused before the registry can emit a descriptor.
 
 Test location: `src/registry.rs`, `src/drive.rs`, `src/provider.rs`,
-`quire-cli/src/process_provider.rs`, and `tests/drive.rs`; full routed
+`quire-cli/src/backend_provider.rs`, `quire-cli/src/process_provider.rs`, and
+`tests/drive.rs`; full routed
 invocation and process-provider terminal integration remain planned.
 
 ## Expected Results
@@ -95,3 +103,6 @@ invocation and process-provider terminal integration remain planned.
   test covers projection of the supplied origin into CG's descriptor; CG's
   construction of `BackendKind::Process` remains pending under IR-629. The
   driver does not construct CG process kinds from provider manifest bytes.
+- Linked registry admission retains canonical FR-331 bytes. Present optional
+  members survive and absent members remain absent; the FR-331 request adapter
+  refuses `wire: None` rather than reconstructing a manifest.

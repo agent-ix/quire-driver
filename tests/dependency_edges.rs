@@ -140,8 +140,8 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
 
     // §6.1 driver row: QSL layer crates, quire-exact (QSL's caller-owned
     // Cancel API), CG, IR's model crate (E5's reader and `CheckedNodeId`), and
-    // thiserror. serde_json is dev-only for this metadata test. Never the QSL
-    // root crate.
+    // thiserror. serde_json is dev-only for test support. Never the QSL root
+    // crate.
     let direct: BTreeSet<&str> = graph
         .deps_of(&graph.root)
         .map(|p| p.name.as_str())
@@ -155,6 +155,8 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         "quire-exact",
         "quire-contract-codegen",
         "quire-contract-model",
+        "quire-canonical",
+        "serde",
         "thiserror",
     ]
     .into_iter()

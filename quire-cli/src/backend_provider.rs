@@ -848,30 +848,31 @@ mod tests {
             quire_canonical::to_vec(&retained_value, quire_canonical::Limits::new(4096))
                 .expect("manifest canonicalizes"),
         );
-        let manifests = [
-            ProviderManifest {
-                identity: "agent-ix/provider/test".to_owned(),
-                manifest_digest: ManifestDigest::from_digest([5; 32]),
-                advertises: vec![(
-                    Some("operation-contract".to_owned()),
-                    Some("bounded".to_owned()),
-                )],
-                domains: Some(vec!["integer".to_owned()]),
-                wire: Some(Arc::clone(&retained_wire)),
-            },
-            ProviderManifest {
-                identity: "agent-ix/provider/linked".to_owned(),
-                manifest_digest: ManifestDigest::from_digest([6; 32]),
-                advertises: vec![(
-                    Some("operation-contract".to_owned()),
-                    Some("bounded".to_owned()),
-                )],
-                domains: Some(vec!["recursive".to_owned()]),
-                wire: None,
-            },
-        ];
-        let manifests = crate::manifest_snapshot::retain_wire_bytes(manifests.to_vec())
-            .expect("linked manifest canonicalizes before adapter serialization");
+        let process_manifest = ProviderManifest {
+            identity: "agent-ix/provider/test".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([5; 32]),
+            advertises: vec![(
+                Some("operation-contract".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: Some(vec!["integer".to_owned()]),
+            wire: Some(Arc::clone(&retained_wire)),
+        };
+        let linked_provider = quire_driver::KaniProvider::new(ProviderManifest {
+            identity: "agent-ix/provider/linked".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([6; 32]),
+            advertises: vec![(
+                Some("operation-contract".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: Some(vec!["recursive".to_owned()]),
+            wire: None,
+        });
+        let linked_manifests = quire_driver::build_linked_providers(&[&linked_provider])
+            .expect("linked provider is admitted by the production registry")
+            .manifest_snapshot();
+        let mut manifests = vec![process_manifest];
+        manifests.extend(linked_manifests);
         let request_stage =
             RequestStage::from_emitted(&package, &manifests, 100, vec![item.clone()])
                 .expect("the real emitted identity and safe request values serialize");
@@ -931,5 +932,38 @@ mod tests {
         assert!(
             RequestStage::from_emitted(&package, &[], MAX_SAFE_INTEGER + 1, Vec::new()).is_err()
         );
+    }
+
+    /// Trace: FR-005-AC-16.
+    #[test]
+    fn request_stage_refuses_missing_manifest_wire_without_reconstruction() {
+        let package = crate::test_support::emitted_package();
+        let manifest = ProviderManifest {
+            identity: "agent-ix/provider/missing-wire".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([9; 32]),
+            advertises: vec![(
+                Some("operation-contract".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: None,
+            wire: None,
+        };
+        let item = RequestItem {
+            request_index: 0,
+            kind: None,
+            claim: Value::Null,
+            extent: None,
+            backend: None,
+            candidates: Value::Null,
+            options: None,
+            reductions: None,
+            temporal: None,
+            probabilistic: None,
+        };
+
+        assert!(matches!(
+            RequestStage::from_emitted(&package, &[manifest], 100, vec![item]),
+            Err(RequestStageError::ManifestDescriptor)
+        ));
     }
 }
