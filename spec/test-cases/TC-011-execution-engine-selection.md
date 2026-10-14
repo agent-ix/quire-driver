@@ -11,9 +11,11 @@ relationships:
 ## Description
 
 Verify the `--engine` default, closed set, unavailable-engine refusal and
-no-substitution behavior.
+no-substitution behavior. Also verify that the selected interpreter receives
+the caller-owned `ObjectEnvironment` unchanged and preserves QSL's typed
+refusal when required object context is missing.
 
-Scope: FR-004-AC-1 through FR-004-AC-4.
+Scope: FR-004-AC-1 through FR-004-AC-7.
 
 ## Test Procedure
 
@@ -25,6 +27,14 @@ Scope: FR-004-AC-1 through FR-004-AC-4.
    `qsl_replay::spine::run` using the same source, call and limits. Cross-engine
    non-substitution remains unverified until a second engine or injectable
    engine seam is available.
+5. Through the public execution request, run a function whose result depends
+   on an object supplied in a nonempty caller-owned `ObjectEnvironment`; run
+   the same call with an empty environment and compare both driver outcomes
+   with direct QSL runs using those exact environments.
+6. Run a function that requires object context with that context absent from
+   the caller-supplied environment; compare the driver's typed refusal with
+   direct QSL and verify the driver does not substitute a default or derive
+   context from display text or package bytes.
 
 Test locations: `src/execute.rs`, `quire-cli/src/cli.rs`, and
 `quire-cli/tests/binary_process.rs`.
@@ -38,3 +48,9 @@ Test locations: `src/execute.rs`, `quire-cli/src/cli.rs`, and
 - The linked interpreter's typed preparation refusal matches direct QSL
   output. No cross-engine invocation claim is made until a second engine or
   injectable seam is available.
+- The nonempty caller environment reaches QSL unchanged: the driver's result
+  matches the direct QSL result for that environment and differs from the
+  direct QSL result using an empty environment.
+- When required object context is absent, the driver returns the same typed
+  QSL refusal as the direct run with the same environment; no default or
+  derived context changes the outcome.
