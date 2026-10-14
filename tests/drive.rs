@@ -198,6 +198,16 @@ static DEAD_BRANCH_UNIT: LazyLock<String> = LazyLock::new(|| {
     unit("function unreachable_branch using v(x: Int[0, 9]): Int[0, 10] pure { if x > 20 then x + 100 else 0 }\n")
 });
 
+/// RR-16: the same `x + 1` node is requested at two occurrences whose
+/// direct result conversions have different target ranges.
+static RR16_UNIT: LazyLock<String> = LazyLock::new(|| {
+    unit(
+        "function g using v(p: Int[0, 10]): Boolean pure { true }\n\
+          function h using v(q: Int[0, 20]): Boolean pure { true }\n\
+          function f using v(x: Int[0, 9]): Boolean pure { g(x + 1) and h(x + 1) }\n",
+    )
+});
+
 /// A unit that `import`s a library the driver's `DependencyInput::default()`
 /// (ADR-015 D-1) supplies nothing for: S4 source resolution refuses it at
 /// I1, `missing_import`/`missing-selection`.
@@ -544,6 +554,13 @@ fn overflow_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
 fn dead_branch_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
     CompileInput {
         bytes: DEAD_BRANCH_UNIT.as_bytes(),
+        ..input(packages)
+    }
+}
+
+fn rr16_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+    CompileInput {
+        bytes: RR16_UNIT.as_bytes(),
         ..input(packages)
     }
 }
@@ -1239,6 +1256,130 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
         },
     )
     .expect("CG generates for the routed item");
+    assert_eq!(driven.generation, expected);
+}
+
+/// Trace: FR-001-AC-12, QSL RR-16.
+/// Two occurrences of the same addition keep their own selected narrow
+/// conversion roots through IR lowering and CG generation.
+#[test]
+fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let recorder = Recorder::default();
+    let driven = drive(
+        &recorder,
+        rr16_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("the RR-16 unit drives");
+
+    assert_eq!(driven.routed.len(), 2, "only the two add occurrences route");
+    assert_eq!(
+        driven.generation.items.len(),
+        2,
+        "CG emits two request items"
+    );
+
+    let qsl_requirements = driven.package.package().graph().requirements();
+    let expected_contexts = qsl_requirements
+        .iter()
+        .filter_map(|(application, requirement)| {
+            requirement
+                .conversion_context()
+                .map(|conversion| (application, conversion))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        expected_contexts.len(),
+        2,
+        "QSL supplies two narrow contexts"
+    );
+
+    let (lowered, positions) = recorder.generation_input();
+    assert!(!lowered.wire().feature_accounting.is_empty());
+    assert_eq!(positions.len(), 4, "[add, narrow, add, narrow]");
+    let mut actual_contexts = Vec::new();
+    for pair in positions.chunks_exact(2) {
+        let [ContractRequestPosition::DriverItem {
+            node_id,
+            result_selection:
+                quire_contract_codegen::ContractDriverResultSelection::OwnResult {
+                    application,
+                    conversion: Some(conversion),
+                },
+        }, ContractRequestPosition::ContextRoot {
+            node_id: context_root,
+        }] = pair
+        else {
+            panic!("each driver add is followed by its direct narrow root: {pair:?}");
+        };
+        assert_eq!(application.node_id, *node_id);
+        assert_eq!(conversion.node_id, *context_root);
+        actual_contexts.push((application, conversion));
+    }
+
+    let checked_id = |wire: &qsl_foundation::digest::WireNodeId| CheckedNodeId {
+        domain: "quire.checked-semantic-node/v1".into(),
+        digest: wire.to_string().into_boxed_str(),
+    };
+    for ((expected_application, expected_conversion), (application, conversion)) in
+        expected_contexts.iter().zip(actual_contexts.iter())
+    {
+        assert_eq!(
+            application.node_id,
+            checked_id(&expected_application.node())
+        );
+        assert_eq!(
+            application.role,
+            quire_contract_model::CheckedOccurrenceRole::Expression
+        );
+        assert_eq!(application.ordinal, expected_application.origin().ordinal());
+        assert_eq!(conversion.node_id, checked_id(&expected_conversion.node()));
+        assert_eq!(
+            conversion.role,
+            quire_contract_model::CheckedOccurrenceRole::Expression
+        );
+        assert_eq!(conversion.ordinal, expected_conversion.origin().ordinal());
+    }
+    assert_ne!(
+        actual_contexts[0].0.ordinal, actual_contexts[1].0.ordinal,
+        "the shared add node retains distinct request occurrences"
+    );
+    assert_ne!(
+        actual_contexts[0].1.node_id, actual_contexts[1].1.node_id,
+        "each add retains its own conversion root"
+    );
+
+    let backend = kani_candidate(&driven);
+    let expected = direct_generation(
+        &recorder,
+        &[
+            RoutedGenerationItem {
+                request_index: 0,
+                node_id: actual_contexts[0].0.node_id.clone(),
+                backend: backend.clone(),
+                kind: BackendKind::Kani,
+            },
+            RoutedGenerationItem {
+                request_index: 1,
+                node_id: actual_contexts[1].0.node_id.clone(),
+                backend,
+                kind: BackendKind::Kani,
+            },
+        ],
+        &GenerationContexts {
+            kani: Some(KaniGenerationContext {
+                ceilings: proof_ceilings(),
+                subject_path: "crate::subject",
+                unwind: 1,
+            }),
+        },
+    )
+    .expect("CG generates each routed occurrence with its own context");
     assert_eq!(driven.generation, expected);
 }
 

@@ -368,11 +368,13 @@ fn validate_kani_item<'a>(
 mod tests {
     use std::num::NonZeroU64;
     use std::path::{Path, PathBuf};
+    use std::sync::LazyLock;
     use std::time::Duration;
 
     use qsl_replay::{
-        Certification, IncompleteCause, Operation, OutcomeDocument, OutcomeItem, OutcomeStage,
-        ProofBasis, TerminalValue,
+        compile_package, Certification, DependencyInput, IncompleteCause, Operation,
+        OutcomeDocument, OutcomeItem, OutcomeStage, ProofBasis, ReplayLimits, SourceIdentity,
+        StageLimits, TerminalValue,
     };
     use quire_contract_codegen::{
         Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver, MemoryMechanism,
@@ -393,7 +395,72 @@ mod tests {
         KindOutput, ObligationDisposition, ObligationRecord, ObligationSubject, RoutedItemOutput,
         ScalarObligationIdentity,
     };
-    use quire_contract_model::ContractFeatureRecordV1;
+    use quire_contract_codegen::routed_contract_lowering_profile;
+    use quire_contract_model::{
+        CheckedNodeId, CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2,
+        CheckedPackageV2ReadResult,
+    };
+
+    static REAL_ADMISSION: LazyLock<(CheckedNodeId, AdmittedItemAccounting)> =
+        LazyLock::new(|| {
+            let source = "language \"ix:native\" edition \"1-draft\";\n\
+            profile v = \"quire.value.complete/v1\";\n\
+            function f using v(x: Int[0, 9]): Boolean pure { x + 1 < 10 }\n";
+            let compiled = compile_package(
+                SourceIdentity::new("driver-test", "provider.native", "git", "fixture"),
+                "provider.native",
+                source.as_bytes(),
+                [],
+                &DependencyInput::default(),
+                StageLimits::default(),
+                ReplayLimits::default(),
+            )
+            .expect("QSL compiles provider fixture");
+            let mut evidence = CheckedPackageEvidence::new();
+            evidence.support_feature("quire.value.complete/v1");
+            let checked = match CheckedPackageV2::read(
+                compiled.bytes(),
+                CheckedPackageReadLimits::bounded(),
+                &evidence,
+            ) {
+                CheckedPackageV2ReadResult::Admitted(package) => *package,
+                other => panic!("IR admits QSL provider fixture: {other:?}"),
+            };
+            let node_id = checked
+                .graph()
+                .nodes
+                .iter()
+                .find(|node| node.declaration.is_none())
+                .expect("checked expression node")
+                .node_id
+                .clone();
+            let lowered = checked.lower(&[node_id.clone()], &routed_contract_lowering_profile());
+            let package = lowered
+                .package
+                .wire()
+                .expect("IR emits admitted contract package");
+            let record = package
+                .wire()
+                .feature_accounting
+                .first()
+                .expect("one exact request position")
+                .clone();
+            let occurrences = package
+                .wire()
+                .source_map
+                .requested_items
+                .first()
+                .expect("one source-map request position")
+                .occurrences
+                .clone();
+            (
+                node_id,
+                AdmittedItemAccounting {
+                    record,
+                    occurrences,
+                },
+            )
+        });
 
     fn result(outcome: KaniRunOutcome) -> ProviderItemResult {
         result_at(4, outcome)
@@ -512,14 +579,13 @@ mod tests {
 
     fn routed_item(
         identity: &str,
-        harness: Option<KaniScalarObligationHarness>,
+        mut harness: Option<KaniScalarObligationHarness>,
     ) -> RoutedItemOutput {
-        let checked_node: quire_contract_model::CheckedNodeId =
-            serde_json::from_value(serde_json::json!({
-                "domain": "quire.checked-semantic-node/v1",
-                "digest": "1".repeat(64),
-            }))
-            .expect("checked node id");
+        let (checked_node, admitted) = &*REAL_ADMISSION;
+        let checked_node = checked_node.clone();
+        if let Some(harness) = &mut harness {
+            harness.identity.node_id = checked_node.clone();
+        }
         let harness_symbol: quire_contract_codegen::HarnessSymbol = "generated_harness"
             .to_owned()
             .try_into()
@@ -529,6 +595,7 @@ mod tests {
             backend: Candidate {
                 identity: identity.to_owned(),
             },
+            admitted: admitted.clone(),
             output: KindOutput::Kani {
                 record: Box::new(ObligationRecord {
                     request_index: 0,
@@ -542,12 +609,6 @@ mod tests {
                     },
                 }),
                 harness: harness.map(Box::new),
-            },
-            admitted: AdmittedItemAccounting {
-                record: ContractFeatureRecordV1::Lowered {
-                    node_id: checked_node,
-                },
-                occurrences: Vec::new(),
             },
         }
     }
@@ -577,7 +638,6 @@ mod tests {
                 solver: KaniSolver::Cadical,
                 unwind: 1,
                 options: Vec::new(),
-                inferred_operands: Vec::new(),
             },
             rust: Artifact::new("generated.rs", ""),
             record: Artifact::new("record.json", "{}"),
