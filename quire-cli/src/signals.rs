@@ -533,6 +533,8 @@ mod tests {
                     _,
                     _,
                     _,
+                    _,
+                    _,
                 >::new(
                     context,
                     |manifest: &Value| {
@@ -560,7 +562,7 @@ mod tests {
                     },
                     |_: ProcessProviderRequest<'_>| serde_json::json!({"items": []}),
                     |_: &Value, _: &Value| Ok::<(), String>(()),
-                    |_: Value| ProviderResults::default(),
+                    |_: Value| ProviderResults::<Value, String>::default(),
                 );
                 let limits = ProcessProviderLimits {
                     max_frame_bytes: 4096,

@@ -63,18 +63,18 @@ pub struct ProviderLimits<'a> {
     pub kani: Option<KaniExecutionLimits<'a>>,
 }
 
-/// A typed result for one routed Kani item.
+/// A typed result for one routed provider item.
 #[derive(Debug)]
-pub struct ProviderItemResult {
+pub struct ProviderItemResult<T = KaniExecutionEvidence, E = KaniProviderFailure> {
     /// The original request index.
     pub request_index: usize,
     /// The routed backend identity.
     pub backend: Candidate,
-    /// Kani's typed evidence or the typed reason execution did not complete.
-    pub result: Result<KaniExecutionEvidence, ProviderItemFailure>,
+    /// Provider-specific typed data or the typed reason it did not complete.
+    pub result: Result<T, E>,
 }
 
-impl ProviderItemResult {
+impl ProviderItemResult<KaniExecutionEvidence, KaniProviderFailure> {
     /// Compose the terminal record for a non-falsified Kani result through
     /// CG's authoritative map. A falsification needs QSL replay first.
     pub fn terminal_record(&self) -> Result<TerminalRecord, ProviderTerminalError> {
@@ -108,9 +108,9 @@ pub enum ProviderTerminalError {
     TerminalPair(#[from] TerminalPairError),
 }
 
-/// Why one routed item did not yield Kani evidence.
+/// Why a routed Kani item did not yield evidence.
 #[derive(Debug)]
-pub enum ProviderItemFailure {
+pub enum KaniProviderFailure {
     /// Cancellation was already requested before this item's execution began.
     Cancelled(Option<CancelCause>),
     /// The item was not a Kani output or did not contain an executable harness.
@@ -135,14 +135,29 @@ pub enum ProviderItemFailure {
     Execution(KaniExecutionRefusal),
 }
 
+/// Backward-compatible name for Kani provider failures.
+///
+/// The shared result carrier now accepts provider-specific failure types, but
+/// existing callers may continue to refer to the original Kani failure type.
+pub type ProviderItemFailure = KaniProviderFailure;
+
 /// Results returned by one provider invocation, in the request's item order.
-#[derive(Debug, Default)]
-pub struct ProviderResults {
+#[derive(Debug)]
+pub struct ProviderResults<T = KaniExecutionEvidence, E = KaniProviderFailure> {
     /// One typed result for every item in the provider request.
-    pub items: Vec<ProviderItemResult>,
+    pub items: Vec<ProviderItemResult<T, E>>,
 }
 
-impl ProviderResults {
+impl<T, E> Default for ProviderResults<T, E> {
+    fn default() -> Self {
+        Self { items: Vec::new() }
+    }
+}
+
+/// Kani's typed evidence and execution refusal carrier.
+pub type KaniProviderResults = ProviderResults<KaniExecutionEvidence, KaniProviderFailure>;
+
+impl ProviderResults<KaniExecutionEvidence, KaniProviderFailure> {
     /// Serialize these provider items with QSL's canonical `quire-outcome/1`
     /// document. This covers only the items in `self`; it is not a complete
     /// per-request outcome. Items that require replay or lack execution
@@ -186,7 +201,7 @@ pub trait Provider {
         request: &ProviderRequest<'_>,
         limits: &ProviderLimits<'_>,
         cancel: &Cancel,
-    ) -> ProviderResults;
+    ) -> KaniProviderResults;
 }
 
 /// The linked Kani provider, using CG's executor without reclassifying its
@@ -208,7 +223,7 @@ impl KaniProvider {
         request: &ProviderRequest<'_>,
         limits: &ProviderLimits<'_>,
         cancel: &Cancel,
-    ) -> ProviderResults {
+    ) -> KaniProviderResults {
         let mut items = Vec::with_capacity(request.items.len());
         for item in request.items {
             let result = run_kani_item(item, &self.manifest.identity, limits.kani, cancel);
@@ -233,7 +248,7 @@ impl Provider for KaniProvider {
         request: &ProviderRequest<'_>,
         limits: &ProviderLimits<'_>,
         cancel: &Cancel,
-    ) -> ProviderResults {
+    ) -> KaniProviderResults {
         self.run_items(request, limits, cancel)
     }
 }
@@ -243,7 +258,7 @@ fn run_kani_item(
     expected_identity: &str,
     limits: Option<KaniExecutionLimits<'_>>,
     cancel: &Cancel,
-) -> Result<KaniExecutionEvidence, ProviderItemFailure> {
+) -> Result<KaniExecutionEvidence, KaniProviderFailure> {
     let has_harness = matches!(
         &item.output,
         KindOutput::Kani {
@@ -263,7 +278,7 @@ fn run_kani_item(
         ..
     } = &item.output
     else {
-        return Err(ProviderItemFailure::NoExecutableHarness);
+        return Err(KaniProviderFailure::NoExecutableHarness);
     };
     ensure_matching_ceilings(limits.ceilings, harness.identity.ceilings)?;
     execute_kani_obligation(&KaniExecutionRequest {
@@ -272,17 +287,17 @@ fn run_kani_item(
         crate_directory: limits.crate_directory,
         target_directory: limits.target_directory,
     })
-    .map_err(ProviderItemFailure::Execution)
+    .map_err(KaniProviderFailure::Execution)
 }
 
 fn ensure_matching_ceilings(
     supplied: quire_contract_codegen::ProofCeilings,
     generated: quire_contract_codegen::ProofCeilings,
-) -> Result<(), ProviderItemFailure> {
+) -> Result<(), KaniProviderFailure> {
     if supplied == generated {
         Ok(())
     } else {
-        Err(ProviderItemFailure::LimitsMismatch {
+        Err(KaniProviderFailure::LimitsMismatch {
             supplied,
             generated,
         })
@@ -295,20 +310,20 @@ fn validate_kani_item<'a>(
     has_harness: bool,
     limits: Option<KaniExecutionLimits<'a>>,
     cancel: &Cancel,
-) -> Result<KaniExecutionLimits<'a>, ProviderItemFailure> {
+) -> Result<KaniExecutionLimits<'a>, KaniProviderFailure> {
     if expected_identity != actual_identity {
-        return Err(ProviderItemFailure::UnexpectedBackend {
+        return Err(KaniProviderFailure::UnexpectedBackend {
             expected: expected_identity.to_owned(),
             actual: actual_identity.to_owned(),
         });
     }
     if cancel.poll() {
-        return Err(ProviderItemFailure::Cancelled(cancel.cause()));
+        return Err(KaniProviderFailure::Cancelled(cancel.cause()));
     }
     if !has_harness {
-        return Err(ProviderItemFailure::NoExecutableHarness);
+        return Err(KaniProviderFailure::NoExecutableHarness);
     }
-    limits.ok_or(ProviderItemFailure::MissingExecutionLimits)
+    limits.ok_or(KaniProviderFailure::MissingExecutionLimits)
 }
 
 #[cfg(test)]
@@ -328,7 +343,7 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        KaniExecutionLimits, KaniProvider, ProviderItemFailure, ProviderItemResult, ProviderLimits,
+        KaniExecutionLimits, KaniProvider, KaniProviderFailure, ProviderItemResult, ProviderLimits,
         ProviderManifest, ProviderOutcomeError, ProviderRequest, ProviderResults,
         ProviderTerminalError,
     };
@@ -387,6 +402,72 @@ mod tests {
 
     fn no_limits() -> ProviderLimits<'static> {
         ProviderLimits { kani: None }
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct NonKaniResult {
+        outcome: &'static str,
+        detail: u32,
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct NonKaniFailure {
+        code: &'static str,
+    }
+
+    /// Trace: FR-005-AC-6, FR-005-AC-9.
+    #[test]
+    fn shared_provider_carrier_preserves_non_kani_data_and_failures() {
+        let empty: ProviderResults<NonKaniResult, NonKaniFailure> = ProviderResults::default();
+        assert!(empty.items.is_empty());
+
+        let results: ProviderResults<NonKaniResult, NonKaniFailure> = ProviderResults {
+            items: vec![
+                ProviderItemResult {
+                    request_index: 12,
+                    backend: Candidate {
+                        identity: "agent-ix/provider/model-checker".to_owned(),
+                    },
+                    result: Ok(NonKaniResult {
+                        outcome: "measured",
+                        detail: 17,
+                    }),
+                },
+                ProviderItemResult {
+                    request_index: 19,
+                    backend: Candidate {
+                        identity: "agent-ix/provider/model-checker".to_owned(),
+                    },
+                    result: Err(NonKaniFailure {
+                        code: "resource-unavailable",
+                    }),
+                },
+            ],
+        };
+
+        assert_eq!(results.items[0].request_index, 12);
+        assert_eq!(
+            results.items[0].backend.identity,
+            "agent-ix/provider/model-checker"
+        );
+        assert_eq!(
+            results.items[0].result,
+            Ok(NonKaniResult {
+                outcome: "measured",
+                detail: 17,
+            })
+        );
+        assert_eq!(results.items[1].request_index, 19);
+        assert_eq!(
+            results.items[1].backend.identity,
+            "agent-ix/provider/model-checker"
+        );
+        assert_eq!(
+            results.items[1].result,
+            Err(NonKaniFailure {
+                code: "resource-unavailable",
+            })
+        );
     }
 
     fn routed_item(
@@ -598,7 +679,7 @@ mod tests {
             backend: Candidate {
                 identity: "agent-ix/provider/kani".to_owned(),
             },
-            result: Err(ProviderItemFailure::NoExecutableHarness),
+            result: Err(KaniProviderFailure::NoExecutableHarness),
         };
         assert_eq!(
             item.terminal_record().expect_err("there is no evidence"),
@@ -617,7 +698,7 @@ mod tests {
         let cancelled = provider.run_items(&request, &no_limits(), &cancel);
         assert!(matches!(
             cancelled.items[0].result,
-            Err(ProviderItemFailure::Cancelled(Some(CancelCause::Requested)))
+            Err(KaniProviderFailure::Cancelled(Some(CancelCause::Requested)))
         ));
 
         let mismatched = routed_item("agent-ix/provider/other", None);
@@ -625,7 +706,7 @@ mod tests {
         let results = provider.run_items(&request, &no_limits(), &Cancel::new());
         assert!(matches!(
             results.items[0].result,
-            Err(ProviderItemFailure::UnexpectedBackend { .. })
+            Err(KaniProviderFailure::UnexpectedBackend { .. })
         ));
     }
 
@@ -638,7 +719,7 @@ mod tests {
         let missing_limits = provider.run_items(&request, &no_limits(), &Cancel::new());
         assert!(matches!(
             missing_limits.items[0].result,
-            Err(ProviderItemFailure::MissingExecutionLimits)
+            Err(KaniProviderFailure::MissingExecutionLimits)
         ));
 
         let without_harness = routed_item("agent-ix/provider/kani", None);
@@ -646,7 +727,7 @@ mod tests {
         let missing_harness = provider.run_items(&request, &no_limits(), &Cancel::new());
         assert!(matches!(
             missing_harness.items[0].result,
-            Err(ProviderItemFailure::NoExecutableHarness)
+            Err(KaniProviderFailure::NoExecutableHarness)
         ));
     }
 
@@ -681,7 +762,7 @@ mod tests {
             let results = provider().run_items(&request, &limits, &Cancel::new());
             assert!(matches!(
                 results.items[0].result,
-                Err(ProviderItemFailure::LimitsMismatch {
+                Err(KaniProviderFailure::LimitsMismatch {
                     supplied: actual_supplied,
                     generated: actual_generated,
                 }) if actual_supplied == supplied && actual_generated == generated

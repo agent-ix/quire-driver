@@ -70,10 +70,11 @@ pub use process_provider::{
     ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
 };
 pub use provider::{
-    KaniExecutionLimits, KaniProvider, Provider, ProviderItemFailure, ProviderItemResult,
-    ProviderLimits, ProviderOutcomeError, ProviderRequest, ProviderResults, ProviderTerminalError,
+    KaniExecutionLimits, KaniProvider, KaniProviderFailure, KaniProviderResults, Provider,
+    ProviderItemFailure, ProviderItemResult, ProviderLimits, ProviderOutcomeError, ProviderRequest,
+    ProviderResults, ProviderTerminalError,
 };
-pub use quire_contract_codegen::ProofCeilings;
+pub use quire_contract_codegen::{Candidate, ProofCeilings};
 pub use refusal::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
 pub use registry::{
     build_linked_providers, build_registry, AdmittedRegistry, LinkedProviders, ProviderManifest,
