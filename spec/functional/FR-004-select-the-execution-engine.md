@@ -37,12 +37,17 @@ execution outcome unchanged when evaluation uses the supplied environment.
 QSL outcomes for absent context depend on the operation: an absent lookup may
 produce `Undefined` under QSL FR-090, while an unresolved population identity
 produces QSL's typed refusal under FR-089. The driver SHALL NOT supply a
-default environment or derive context from display text or package bytes.
+missing value for the public library request or derive context from display
+text or package bytes. Since the current CLI invocation exposes no
+object-context input, its handler SHALL explicitly supply an empty
+`ObjectEnvironment` as that caller's policy.
 
 ## Inputs
 
 - An execution request and optional `--engine` value.
-- The caller-owned typed QSL `ObjectEnvironment` for the execution request.
+- The caller-owned typed QSL `ObjectEnvironment` for a public library request;
+  the current CLI supplies an empty environment under its explicit caller
+  policy because it exposes no object-context input.
 - The execution engines linked into the binary.
 
 ## Outputs
@@ -62,12 +67,16 @@ default environment or derive context from display text or package bytes.
 - The driver execution boundary SHALL require the caller-owned
   `ObjectEnvironment`; it SHALL pass the same value unchanged to QSL
   `spine::run` for the selected interpreter.
+- The public library request SHALL not synthesize or default its required
+  `ObjectEnvironment`. The current CLI handler SHALL explicitly pass an empty
+  `ObjectEnvironment` under its caller policy because the CLI exposes no
+  object-context input.
 - The driver SHALL preserve QSL's actual typed outcome when an object lookup
   is absent, including QSL's `Undefined` outcome where FR-090 specifies it.
 - If a population argument names an identity with no binding in the supplied
   environment, the driver SHALL return QSL's existing typed refusal unchanged,
   as specified by FR-089-AC-4.
-- The driver SHALL NOT create a default environment.
+- A public library request SHALL NOT default its required environment.
 - The driver SHALL NOT infer object context from display text or package
   bytes.
 - The driver SHALL NOT replace QSL's typed refusal with a different outcome.
@@ -81,9 +90,10 @@ default environment or derive context from display text or package bytes.
 | FR-004-AC-3 | A recognized engine absent from the binary is refused before any stage with category unsupported; no other engine runs, and process status equals QSL's category exit function. | Test (TC-011) |
 | FR-004-AC-4 | When the selected engine returns unsupported or a typed preparation failure, that result is returned and no other engine is invoked. | Test (TC-011) |
 | FR-004-AC-5 | The public execution request carries the caller-owned typed QSL `ObjectEnvironment`, and the selected interpreter passes that same value unchanged to QSL `spine::run`. | Test |
-| FR-004-AC-6 | Given a function whose result depends on object context, a nonempty caller environment produces the QSL result for that context and differs from the result with an empty environment; the driver derives no context and supplies no default. | Test |
+| FR-004-AC-6 | Given a function whose result depends on object context, a nonempty caller environment produces the QSL result for that context and differs from the result with an empty environment; the public library request derives no context or default. | Test |
 | FR-004-AC-7 | Given a QSL-defined absent object lookup whose QSL result is `Undefined`, the driver returns that `Undefined` outcome unchanged and does not replace it with a refusal or another outcome. | Test |
 | FR-004-AC-8 | Given a population argument whose identity has no binding in the caller-supplied environment, the driver returns QSL's existing typed refusal unchanged, as required by QSL FR-089-AC-4. | Test |
+| FR-004-AC-9 | The current CLI handler explicitly supplies an empty `ObjectEnvironment` as its caller policy because its invocation surface has no object-context input; public library callers still must supply the required environment themselves. | Inspection (TC-011) |
 
 ## Dependencies
 

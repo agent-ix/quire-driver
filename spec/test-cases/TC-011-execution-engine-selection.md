@@ -12,11 +12,12 @@ relationships:
 
 Verify the `--engine` default, closed set, unavailable-engine refusal and
 no-substitution behavior. Also verify that the selected interpreter receives
-the caller-owned `ObjectEnvironment` unchanged and preserves QSL's actual
-outcome when object context is absent, including both QSL-defined `Undefined`
-and typed-refusal cases.
+the caller-owned `ObjectEnvironment` unchanged for public library requests,
+preserves QSL's actual outcome when object context is absent, including both
+QSL-defined `Undefined` and typed-refusal cases, and explicitly applies the
+current CLI's empty-environment caller policy.
 
-Scope: FR-004-AC-1 through FR-004-AC-8.
+Scope: FR-004-AC-1 through FR-004-AC-9.
 
 ## Test Procedure
 
@@ -28,14 +29,18 @@ Scope: FR-004-AC-1 through FR-004-AC-8.
    `qsl_replay::spine::run` using the same source, call and limits. Cross-engine
    non-substitution remains unverified until a second engine or injectable
    engine seam is available.
-5. Through the public execution request, run a function whose result depends
-   on an object supplied in a nonempty caller-owned `ObjectEnvironment`; run
-   the same call with an empty environment and compare both driver outcomes
-   with direct QSL runs using those exact environments.
-6. Run a function with a population argument whose identity has no binding in
+5. Inspect `quire-cli/src/cli.rs`: confirm the CLI invocation exposes no
+   object-context input and its run handler explicitly supplies an empty
+   `ObjectEnvironment` to the public execution request.
+6. Through the public library execution request, run a function whose result
+   depends on an object supplied in a nonempty caller-owned
+   `ObjectEnvironment`; run the same call with an empty environment and
+   compare both driver outcomes with direct QSL runs using those exact
+   environments.
+7. Run a function with a population argument whose identity has no binding in
    the caller-supplied environment; compare the driver's typed refusal with
    direct QSL, as specified by QSL FR-089-AC-4.
-7. Run a `lookup<T>(p, r) absent undefined` query whose bound population has
+8. Run a `lookup<T>(p, r) absent undefined` query whose bound population has
    no matching key; compare the driver's `Undefined` outcome with direct QSL,
    as specified by QSL FR-090.
 
@@ -48,6 +53,9 @@ Test locations: `src/execute.rs`, `quire-cli/src/cli.rs`, and
 - An unknown name is refused before any stage with QSL's refusal category.
 - A recognized but unavailable engine is refused before any stage with exit
   status selected by QSL's category exit function and category unsupported.
+- The CLI run handler explicitly supplies an empty environment under its
+  caller policy; the public library request requires its caller to provide an
+  environment, and the nonempty public-library case is tested separately.
 - The linked interpreter's typed preparation refusal matches direct QSL
   output. No cross-engine invocation claim is made until a second engine or
   injectable seam is available.
