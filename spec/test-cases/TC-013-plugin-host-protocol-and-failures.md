@@ -119,7 +119,8 @@ evidence.
 Test location: planned `quire-cli` FR-331 hello/request adapter tests and
 driver/provider composition tests. IR-672 PR3 covers the hello/admission and
 request DTO stages. Result conversion and settlement use explicit typed input
-fixtures and remain held for the IR-677 carrier and QSL result-mapping APIs;
+fixtures; the shared carrier preserves generic typed results, while settlement
+remains held for QSL result-mapping APIs;
 end-to-end negotiation and settlement also require CG IR-629.
 
 ## Expected Results

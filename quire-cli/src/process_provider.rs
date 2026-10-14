@@ -306,6 +306,7 @@ mod tests {
         }
     }
 
+    /// Trace: FR-005-AC-6.
     #[test]
     fn host_adapter_returns_admitted_descriptor_and_shutdown_diagnostics() {
         let conversion_called = Arc::new(AtomicBool::new(false));

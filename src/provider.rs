@@ -135,6 +135,12 @@ pub enum KaniProviderFailure {
     Execution(KaniExecutionRefusal),
 }
 
+/// Backward-compatible name for Kani provider failures.
+///
+/// The shared result carrier now accepts provider-specific failure types, but
+/// existing callers may continue to refer to the original Kani failure type.
+pub type ProviderItemFailure = KaniProviderFailure;
+
 /// Results returned by one provider invocation, in the request's item order.
 #[derive(Debug)]
 pub struct ProviderResults<T = KaniExecutionEvidence, E = KaniProviderFailure> {
