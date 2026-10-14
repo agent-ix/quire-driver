@@ -337,12 +337,20 @@ mod tests {
             RunRefusal::Cancelled(CancelCause::Requested)
         ));
         assert_eq!(format!("{refusal:?}"), format!("{expected_refusal:?}"));
-        let expected_bytes = expected_document.to_bytes().expect("QSL encodes cancellation");
-        assert_eq!(document.to_bytes().expect("driver returns QSL document"), expected_bytes);
+        let expected_bytes = expected_document
+            .to_bytes()
+            .expect("QSL encodes cancellation");
+        assert_eq!(
+            document.to_bytes().expect("driver returns QSL document"),
+            expected_bytes
+        );
 
         let failure = ExecutionFailure::Run { refusal, document };
         assert_eq!(
-            failure.into_document().to_bytes().expect("failure returns QSL document"),
+            failure
+                .into_document()
+                .to_bytes()
+                .expect("failure returns QSL document"),
             expected_bytes
         );
     }
