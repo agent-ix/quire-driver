@@ -396,8 +396,7 @@ mod tests {
         // An empty request is intentional while CG IR-629 has no process
         // BackendKind; this adapter test cannot claim routed Process items.
         let package = crate::test_support::emitted_package();
-        let manifest = crate::manifest_snapshot::retain_wire_bytes(linked.manifest_snapshot())
-            .expect("linked manifest snapshot retains canonical bytes");
+        let manifest = linked.manifest_snapshot();
         let request = ProcessProviderRequest {
             emitted_package: &package,
             deadline_ms: 4096,
@@ -489,8 +488,7 @@ mod tests {
                 .origin(),
             ProviderOrigin::Process
         );
-        let manifest = crate::manifest_snapshot::retain_wire_bytes(linked.manifest_snapshot())
-            .expect("linked manifest snapshot retains canonical bytes");
+        let manifest = linked.manifest_snapshot();
         assert_eq!(manifest.len(), 1);
         let retained_wire = manifest[0]
             .wire

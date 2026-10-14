@@ -53,6 +53,9 @@ pub enum DriverRefusal {
     /// CG generation refused the routed items as a whole.
     #[error("CG generation refused the routed items: {}", generation_message(.0))]
     Generation(RoutedGenerationError),
+    /// A linked provider's admitted manifest could not be encoded canonically.
+    #[error("linked provider manifest could not be encoded: {0}")]
+    ManifestEncoding(quire_canonical::Error),
     /// An upstream answer broke an invariant the driver relies on. Not a
     /// refusal of the input.
     #[error("internal fault: {0}")]
@@ -114,6 +117,9 @@ pub enum DriverFault {
         /// The admitted `package_id` digest.
         admitted: String,
     },
+    /// QSL admitted a linked manifest whose advertised pair was incomplete.
+    #[error("QSL admitted a linked manifest with an incomplete advertised pair")]
+    AdmittedManifestMissingLabel,
     /// A routed item names a node the checked package does not hold.
     /// Every item's node comes from `CheckedPackage::graph().requirements()`,
     /// and `checked` is IR's own admission of the bytes that same package
@@ -204,6 +210,10 @@ impl DriverRefusal {
             }
             Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
             Self::Generation(error) => generation_code(error).as_str().to_owned(),
+            Self::ManifestEncoding(error) if manifest_encoding_exhausted(error) => {
+                Code::ResourceExhausted.as_str().to_owned()
+            }
+            Self::ManifestEncoding(_) => Code::RuntimeInvariant.as_str().to_owned(),
             Self::Fault(_) => Code::RuntimeInvariant.as_str().to_owned(),
         }
     }
@@ -213,6 +223,9 @@ impl DriverRefusal {
         match self {
             Self::EmptyBackendIdentity(_) => DriverStage::Registry,
             Self::Registration(_) => DriverStage::Registry,
+            Self::ManifestEncoding(_) | Self::Fault(DriverFault::AdmittedManifestMissingLabel) => {
+                DriverStage::Registry
+            }
             Self::Compile(refusal) => DriverStage::Compile(refusal.stage()),
             Self::Cancelled { stage, .. } => DriverStage::Compile(*stage),
             Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
@@ -249,6 +262,10 @@ impl DriverRefusal {
                 Code::ResourceExhausted => OutcomeKind::Limit,
                 _ => OutcomeKind::Refused,
             },
+            Self::ManifestEncoding(error) if manifest_encoding_exhausted(error) => {
+                OutcomeKind::Limit
+            }
+            Self::ManifestEncoding(_) => OutcomeKind::Fault,
             Self::Registration(_)
             | Self::Compile(_)
             | Self::UnknownBackend { .. }
@@ -256,6 +273,13 @@ impl DriverRefusal {
             Self::Fault(_) => OutcomeKind::Fault,
         }
     }
+}
+
+fn manifest_encoding_exhausted(error: &quire_canonical::Error) -> bool {
+    matches!(
+        error,
+        quire_canonical::Error::Limit(_) | quire_canonical::Error::Allocation { .. }
+    )
 }
 
 /// The catalog code of a generation refusal. The driver routes each item
