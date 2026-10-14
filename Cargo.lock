@@ -1390,7 +1390,6 @@ name = "quire-cache"
 version = "0.1.0"
 dependencies = [
  "libc",
- "qsl-foundation",
  "qsl-route",
  "quire-canonical",
  "quire-driver",
@@ -1428,7 +1427,6 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "ix-cli-kit",
- "qsl-cst",
  "qsl-foundation",
  "qsl-package",
  "qsl-replay",
@@ -1436,8 +1434,6 @@ dependencies = [
  "qsl-semantics",
  "quire-cache",
  "quire-canonical",
- "quire-contract-codegen",
- "quire-contract-model",
  "quire-driver",
  "quire-exact",
  "quire-plugin-host",
@@ -1465,7 +1461,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-codegen"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#f1c8fa9f0ea6bb938ce1be2fdb32fd1de7b9806f"
+source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#5d54a0b1ad9ff6e2073f4372ab44750cb40c6a12"
 dependencies = [
  "command-fds",
  "num-bigint",
@@ -1540,7 +1536,6 @@ dependencies = [
  "quire-contract-codegen",
  "quire-contract-model",
  "quire-exact",
- "quire-semantic-value",
  "serde",
  "serde_json",
  "thiserror",
