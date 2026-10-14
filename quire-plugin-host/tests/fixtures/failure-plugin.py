@@ -97,6 +97,42 @@ with open(sys.argv[5], 'wb') as marker:
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+if mode in ("cpu-reaped-child", "cpu-escaped-child"):
+    go, ready, done, reaped, child_cpu, child_pid, plugin_cpu, plugin_pid = sys.argv[2:10]
+    escaped = mode == "cpu-escaped-child"
+    child_seconds = 0.050 if mode == "cpu-reaped-child" else 0.500
+    child_helper = (
+        "import os, sys, time\n"
+        "go, ready, done, cpu_path, pid_path = sys.argv[1:6]\n"
+        "with open(pid_path, 'w') as output: output.write(str(os.getpid()))\n"
+        "open(ready, 'w').close()\n"
+        "while not os.path.exists(go): time.sleep(0.001)\n"
+        f"started = time.process_time(); target = {child_seconds}\n"
+        f"checkpoint = {0.100 if escaped else child_seconds}\n"
+        "recorded = False\n"
+        "while True:\n"
+        "    elapsed = time.process_time() - started\n"
+        "    if not recorded and elapsed >= checkpoint:\n"
+        "        with open(cpu_path, 'w') as output: output.write(str(int(elapsed * 1000000)))\n"
+        "        recorded = True\n"
+        "    if elapsed >= target: break\n"
+        "open(done, 'w').close()\n"
+        + ("time.sleep(60)\n" if escaped else "")
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", child_helper, go, ready, done, child_cpu, child_pid],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=escaped,
+    )
+    with open(plugin_pid, "w") as output:
+        output.write(str(os.getpid()))
+    deadline = time.monotonic() + 3
+    while not os.path.exists(ready) and time.monotonic() < deadline:
+        time.sleep(0.001)
+    if not os.path.exists(ready):
+        raise SystemExit(7)
 if mode == "request-marker":
     with open(sys.argv[2] + ".ready", "wb") as ready:
         ready.write(b"waiting")
@@ -129,6 +165,42 @@ if mode == "stderr":
     sys.stderr.flush()
 
 request = read_frame()
+if mode in ("cpu-reaped-child", "cpu-escaped-child"):
+    go, _ready, done, reaped, _child_cpu, _child_pid, plugin_cpu, _plugin_pid = sys.argv[2:10]
+    with open(go, "w") as signal:
+        signal.write("go")
+    if mode == "cpu-reaped-child":
+        deadline = time.monotonic() + 3
+        while not os.path.exists(done) and time.monotonic() < deadline:
+            time.sleep(0.001)
+        if not os.path.exists(done):
+            raise SystemExit(8)
+        child.wait()
+        open(reaped, "w").close()
+        started = time.process_time()
+        recorded = False
+        while True:
+            elapsed = time.process_time() - started
+            if not recorded and elapsed >= 0.250:
+                with open(plugin_cpu, "w") as output:
+                    output.write(str(int(elapsed * 1000000)))
+                recorded = True
+            if elapsed >= 0.350:
+                break
+    else:
+        started = time.process_time()
+        recorded = False
+        while True:
+            elapsed = time.process_time() - started
+            if not recorded and elapsed >= 0.100:
+                with open(plugin_cpu, "w") as output:
+                    output.write(str(int(elapsed * 1000000)))
+                recorded = True
+            if elapsed >= 0.500:
+                break
+        time.sleep(60)
+    write_frame({"protocol": protocol, "id": request["id"], "kind": "result", "body": {"identity": "agent-ix/provider/test", "items": request["body"]["items"]}})
+    raise SystemExit(0)
 if mode == "escaped-descendant-memory":
     with open(sys.argv[7], "wb") as marker:
         marker.write(b"request")
