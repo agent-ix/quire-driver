@@ -101,15 +101,24 @@ impl ProviderItemResult<KaniExecutionEvidence, KaniProviderFailure> {
             TerminalValue::Incomplete(cause) => {
                 Ok(TerminalRecord::incomplete(request_index, backend, cause))
             }
-            TerminalValue::Failed => Ok(TerminalRecord::failed(request_index, backend)),
             TerminalValue::Inconclusive(cause) => {
                 Ok(TerminalRecord::inconclusive(request_index, backend, cause))
             }
-            TerminalValue::Proved { .. }
-            | TerminalValue::Tested
-            | TerminalValue::Refuted
-            | TerminalValue::Declined { .. }
-            | TerminalValue::Unsupported(_) => Err(ProviderTerminalError::UnsupportedTerminalValue),
+            TerminalValue::Failed => Ok(TerminalRecord::failed(request_index, backend)),
+            TerminalValue::Tested => Ok(TerminalRecord::tested(request_index, backend)),
+            TerminalValue::Declined { cause, code } => Ok(TerminalRecord::declined(
+                request_index,
+                backend,
+                cause,
+                code,
+            )),
+            TerminalValue::Unsupported(cause) => {
+                Ok(TerminalRecord::unsupported(request_index, backend, cause))
+            }
+            TerminalValue::Proved { .. } => Err(ProviderTerminalError::UnsupportedProofBasis),
+            TerminalValue::Refuted => {
+                Err(ProviderTerminalError::ReplayUnavailableForScalarObligation)
+            }
         }
     }
 }
@@ -124,6 +133,10 @@ pub enum ProviderTerminalError {
     /// the locked CG API; no settlement is guessed.
     #[error("scalar replay is unavailable for terminal settlement")]
     ReplayUnavailableForScalarObligation,
+    /// QSL has no backend-bearing constructor for a non-Kani proof basis or
+    /// non-certified proof in this scalar Kani execution path.
+    #[error("Kani proof basis has no backend-bearing QSL constructor")]
+    UnsupportedProofBasis,
     /// CG rejected the outcome/settlement pair.
     #[error(transparent)]
     TerminalPair(#[from] TerminalPairError),

@@ -30,13 +30,14 @@ use qsl_route::{Candidate, ManifestDigest, RegistrationCause};
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_contract_codegen::{
     generate_routed, BackendKind, BackendProviderEnvelope, Candidates, Cause, ClaimDisposition,
-    DerivedDomain, Disposition, EnvelopeRefusal, GenerationContexts, ItemSettlement, KaniForm,
-    KaniGenerationContext, KindOutput, ObligationDisposition, ProofCeilings, RoutedGeneration,
-    RoutedGenerationError, RoutedGenerationItem, UnsupportedObligation,
+    ContractRequestPosition, DerivedDomain, Disposition, EnvelopeRefusal, GenerationContexts,
+    ItemSettlement, KaniForm, KaniGenerationContext, KindOutput, ObligationDisposition,
+    ProofCeilings, RoutedGeneration, RoutedGenerationError, RoutedGenerationItem,
+    UnsupportedObligation,
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageV2,
+    CheckedPackageV2, ContractPackageV1,
 };
 use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
@@ -248,6 +249,8 @@ struct Recorder {
     source_provision: RefCell<Option<Vec<(SourceIdentity, String)>>>,
     /// The exact typed E5 evidence supplied to IR's reader.
     read_evidence: RefCell<Option<CheckedPackageEvidence>>,
+    /// Exact E7 lowered package and request-position projection passed to CG.
+    generation_input: RefCell<Option<(ContractPackageV1, Vec<ContractRequestPosition>)>>,
 }
 
 impl Recorder {
@@ -267,6 +270,13 @@ impl Recorder {
             .borrow()
             .clone()
             .expect("E5 received E4 source provision")
+    }
+
+    fn generation_input(&self) -> (ContractPackageV1, Vec<ContractRequestPosition>) {
+        self.generation_input
+            .borrow()
+            .clone()
+            .expect("generation was called")
     }
 }
 
@@ -351,14 +361,16 @@ impl Upstream for Recorder {
 
     fn generate(
         &self,
-        package: &CheckedPackageV2,
+        package: &quire_contract_model::ContractPackageV1,
+        positions: &[quire_contract_codegen::ContractRequestPosition],
         routed: &[RoutedGenerationItem],
         contexts: &GenerationContexts<'_>,
     ) -> Result<RoutedGeneration, RoutedGenerationError> {
         self.calls.borrow_mut().push(Call::Generate {
             items: routed.len(),
         });
-        QslCg.generate(package, routed, contexts)
+        *self.generation_input.borrow_mut() = Some((package.clone(), positions.to_vec()));
+        QslCg.generate(package, positions, routed, contexts)
     }
 }
 
@@ -798,6 +810,15 @@ fn kani_candidate(driven: &Driven) -> quire_contract_codegen::Candidate {
     }
 }
 
+fn direct_generation(
+    recorder: &Recorder,
+    routed: &[RoutedGenerationItem],
+    contexts: &GenerationContexts<'_>,
+) -> Result<RoutedGeneration, RoutedGenerationError> {
+    let (package, positions) = recorder.generation_input();
+    generate_routed(&package, &positions, routed, contexts)
+}
+
 /// FR-001-AC-2 (TC-002): a registered `BackendId` with no CG kind refuses
 /// the run with `invalid_capability`/`unknown-backend`, naming every
 /// unconverted id in bytewise order, and nothing is negotiated or routed.
@@ -904,8 +925,8 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     // Step 7 is CG's own `generate_routed` over the routed item, with its
     // request index, IR node, wire backend and kind.
     let backend = kani_candidate(&driven);
-    let expected = generate_routed(
-        &checked,
+    let expected = direct_generation(
+        &recorder,
         &[RoutedGenerationItem {
             request_index: 0,
             node_id: neg.clone(),
@@ -1201,8 +1222,8 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
     );
 
     let backend = kani_candidate(&driven);
-    let expected = generate_routed(
-        &checked,
+    let expected = direct_generation(
+        &recorder,
         &[RoutedGenerationItem {
             request_index: 0,
             node_id: add,
@@ -1233,8 +1254,9 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
+    let recorder = Recorder::default();
     let driven = drive(
-        &QslCg,
+        &recorder,
         two_param_input(&packages),
         &registry,
         None,
@@ -1243,8 +1265,8 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
     .expect("the run completes");
 
     let backend = kani_candidate(&driven);
-    let expected = generate_routed(
-        &checked,
+    let expected = direct_generation(
+        &recorder,
         &[RoutedGenerationItem {
             request_index: 0,
             node_id: add,
@@ -1326,8 +1348,9 @@ fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
+    let recorder = Recorder::default();
     let driven = drive(
-        &QslCg,
+        &recorder,
         two_param_input(&packages),
         &registry,
         None,
@@ -1450,8 +1473,8 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
     let backend = kani_candidate(&driven);
     // Occurrence order (`+`'s node digest sorts before `>`'s): the `+` is
     // request index 0, the guard `>` is request index 1.
-    let expected = generate_routed(
-        &checked,
+    let expected = direct_generation(
+        &recorder,
         &[
             RoutedGenerationItem {
                 request_index: 0,
@@ -1657,8 +1680,8 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
     // disagree with whatever CG derives for the `=` node instead.
     let neg = expression_by_identity(&driven.checked, "quire.op.integer.negate");
     let backend = kani_candidate(&driven);
-    let expected = generate_routed(
-        &driven.checked,
+    let expected = direct_generation(
+        &recorder,
         &[RoutedGenerationItem {
             request_index: 1,
             node_id: neg,
@@ -2074,8 +2097,8 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
     // item alone, over the same package -- the underivable `=` sibling
     // leaks into neither.
     let backend = kani_candidate(&driven);
-    let alone = generate_routed(
-        &checked,
+    let alone = direct_generation(
+        &recorder,
         &[RoutedGenerationItem {
             request_index: 1,
             node_id: neg.clone(),

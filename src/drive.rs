@@ -215,6 +215,59 @@ fn generate(
             kind: item.kind.clone(),
         });
     }
+    let mut roots = Vec::new();
+    let mut positions = Vec::new();
+    for (request_index, item) in items.iter().enumerate() {
+        let application = resolve_checked_node(
+            checked.graph().nodes.iter().map(|node| &node.node_id),
+            item.node(),
+            request_index,
+        )?
+        .clone();
+        let application_occurrence =
+            contract_occurrence(checked, item.occurrence(), request_index)?;
+        let conversion = item
+            .conversion_context()
+            .map(|occurrence| contract_occurrence(checked, occurrence, request_index))
+            .transpose()?;
+        roots.push(application.clone());
+        positions.push(cg::ContractRequestPosition::DriverItem {
+            node_id: application,
+            result_selection: cg::ContractDriverResultSelection::OwnResult {
+                application: application_occurrence,
+                conversion: conversion.clone(),
+            },
+        });
+        if let Some(conversion) = conversion {
+            roots.push(conversion.node_id.clone());
+            positions.push(cg::ContractRequestPosition::ContextRoot {
+                node_id: conversion.node_id,
+            });
+        }
+    }
+    let lowered = checked.lower(&roots, &cg::routed_contract_lowering_profile());
+    let Some(contract_package) = lowered.package.wire().cloned() else {
+        if let Some(quire_contract_model::CompleteLoweringRecordV2::Failed {
+            limit_kind,
+            limit,
+            consumed,
+            ..
+        }) = lowered.records.iter().find(|record| {
+            matches!(
+                record,
+                quire_contract_model::CompleteLoweringRecordV2::Failed { .. }
+            )
+        }) {
+            return Err(DriverRefusal::LoweringLimit {
+                limit_kind: *limit_kind,
+                limit: *limit,
+                consumed: *consumed,
+            });
+        }
+        return Err(DriverRefusal::Fault(
+            DriverFault::ContractLoweringIncomplete,
+        ));
+    };
     let contexts = cg::GenerationContexts {
         kani: generation.kani.map(|kani| cg::KaniGenerationContext {
             ceilings: kani.ceilings,
@@ -223,8 +276,39 @@ fn generate(
         }),
     };
     upstream
-        .generate(checked, &generation_items, &contexts)
+        .generate(&contract_package, &positions, &generation_items, &contexts)
         .map_err(DriverRefusal::Generation)
+}
+
+fn contract_occurrence(
+    checked: &CheckedPackageV2,
+    occurrence: &qsl_foundation::source::provenance::OccurrenceKey,
+    request_index: usize,
+) -> Result<quire_contract_model::ContractOccurrenceKeyV1, DriverRefusal> {
+    let node_id = resolve_checked_node(
+        checked.graph().nodes.iter().map(|node| &node.node_id),
+        occurrence.node(),
+        request_index,
+    )?
+    .clone();
+    let role = match occurrence.origin().role().as_str() {
+        "declaration" => quire_contract_model::CheckedOccurrenceRole::Declaration,
+        "type" => quire_contract_model::CheckedOccurrenceRole::Type,
+        "expression" => quire_contract_model::CheckedOccurrenceRole::Expression,
+        "anchor" => quire_contract_model::CheckedOccurrenceRole::Anchor,
+        "claim" => quire_contract_model::CheckedOccurrenceRole::Claim,
+        "generated" => quire_contract_model::CheckedOccurrenceRole::Generated,
+        other => {
+            return Err(DriverRefusal::Fault(DriverFault::UnknownOccurrenceRole {
+                role: other.to_owned(),
+            }));
+        }
+    };
+    Ok(quire_contract_model::ContractOccurrenceKeyV1 {
+        node_id,
+        role,
+        ordinal: occurrence.origin().ordinal(),
+    })
 }
 
 /// MD-2: convert every registered `BackendId` to its CG kind, or refuse

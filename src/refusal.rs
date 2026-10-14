@@ -14,6 +14,7 @@ use quire_contract_codegen::{
     ContractScalarError, EnvelopeRefusal, KaniObligationError, OracleGenerationError,
     RoutedGenerationError,
 };
+use quire_contract_model::CheckedPackageLimit;
 use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageRefusal};
 use quire_exact::CancelCause;
 
@@ -56,6 +57,16 @@ pub enum DriverRefusal {
     /// E5: IR's reader stopped at one of its limits.
     #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
     HandoffLimit(CheckedPackageIncomplete),
+    /// E7's exact IR contract-package lowering reached its retained bound.
+    #[error("IR contract lowering reached its {limit_kind:?} limit ({consumed} over {limit})")]
+    LoweringLimit {
+        /// The limit that stopped package lowering.
+        limit_kind: CheckedPackageLimit,
+        /// The configured ceiling.
+        limit: u64,
+        /// The first denied work count or encoded byte count.
+        consumed: u64,
+    },
     /// CG generation refused the routed items as a whole.
     #[error("CG generation refused the routed items: {}", generation_message(.0))]
     Generation(RoutedGenerationError),
@@ -156,6 +167,15 @@ pub enum DriverFault {
         /// The node whose digest is ambiguous.
         node: WireNodeId,
     },
+    /// A QSL occurrence role is outside IR's closed occurrence vocabulary.
+    #[error("QSL occurrence role `{role}` has no IR occurrence role")]
+    UnknownOccurrenceRole {
+        /// The exact QSL role spelling.
+        role: String,
+    },
+    /// IR lowering did not return a package despite having no typed limit result.
+    #[error("IR lowering returned no contract package and no limit record")]
+    ContractLoweringIncomplete,
 }
 
 /// The step a [`DriverRefusal`] comes from.
@@ -231,6 +251,7 @@ impl DriverRefusal {
                 format!("invalid_capability/{cause}")
             }
             Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
+            Self::LoweringLimit { .. } => Code::ResourceExhausted.as_str().to_owned(),
             Self::Generation(error) => generation_code(error).as_str().to_owned(),
             Self::ManifestEncoding(error) if manifest_encoding_exhausted(error) => {
                 Code::ResourceExhausted.as_str().to_owned()
@@ -263,9 +284,13 @@ impl DriverRefusal {
                 DriverStage::Handoff
             }
             Self::Generation(_)
+            | Self::LoweringLimit { .. }
             | Self::Fault(DriverFault::UnknownNode { .. } | DriverFault::AmbiguousNode { .. }) => {
                 DriverStage::Generation
             }
+            Self::Fault(
+                DriverFault::UnknownOccurrenceRole { .. } | DriverFault::ContractLoweringIncomplete,
+            ) => DriverStage::Generation,
             Self::Fault(
                 DriverFault::SettlementCount { .. }
                 | DriverFault::SupportedOutsideCandidates { .. },
@@ -283,6 +308,7 @@ impl DriverRefusal {
                 OutcomeKind::Limit
             }
             Self::HandoffLimit(_) => OutcomeKind::Limit,
+            Self::LoweringLimit { .. } => OutcomeKind::Limit,
             Self::Generation(error) => match generation_code(error) {
                 Code::RuntimeInvariant => OutcomeKind::Fault,
                 Code::ResourceExhausted => OutcomeKind::Limit,

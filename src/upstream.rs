@@ -19,7 +19,8 @@ use qsl_route::Candidate;
 use quire_contract_codegen::ContractRequestPosition;
 use quire_contract_codegen::{
     generate_routed, negotiate_backend_provider, BackendDescriptor, BackendKind,
-    BackendProviderEnvelope, EnvelopeRefusal, GenerationContexts, ItemSettlement, RoutedGeneration,
+    BackendProviderEnvelope, ContractRequestPosition, EnvelopeRefusal, GenerationContexts,
+    ItemSettlement, RoutedGeneration,
     RoutedGenerationError, RoutedGenerationItem,
 };
 use quire_contract_model::{
