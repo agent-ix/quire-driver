@@ -142,6 +142,17 @@ pub enum DriverFault {
         /// The node the item names.
         node: WireNodeId,
     },
+    /// A wire node digest maps to multiple typed identities in the admitted
+    /// package, so the driver cannot choose one without guessing.
+    #[error(
+        "request item {request_index} names node {node}, which maps to multiple checked node identities"
+    )]
+    AmbiguousNode {
+        /// The item's request index.
+        request_index: usize,
+        /// The node whose digest is ambiguous.
+        node: WireNodeId,
+    },
 }
 
 /// The step a [`DriverRefusal`] comes from.
@@ -247,7 +258,8 @@ impl DriverRefusal {
             | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
                 DriverStage::Handoff
             }
-            Self::Generation(_) | Self::Fault(DriverFault::UnknownNode { .. }) => {
+            Self::Generation(_)
+            | Self::Fault(DriverFault::UnknownNode { .. } | DriverFault::AmbiguousNode { .. }) => {
                 DriverStage::Generation
             }
             Self::Fault(

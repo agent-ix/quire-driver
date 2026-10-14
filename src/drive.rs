@@ -3,19 +3,15 @@
 
 use std::collections::BTreeMap;
 
-use qsl_foundation::{BackendId, SourceIdentity};
+use qsl_foundation::SourceIdentity;
 use qsl_package::EmittedPackage;
 use qsl_replay::spine::{CheckedUnit, SpineLimits};
 use qsl_route::request::{items_from_requirements, ExtentClassification, RequirementItem};
 use qsl_route::routing::Disposition as RouteDisposition;
-use qsl_route::{Candidate, CandidateOutcome, Mode, Registry};
+use qsl_route::{BackendId, Candidate, CandidateOutcome, Mode, Registry};
 use quire_contract_codegen as cg;
 use quire_contract_codegen::{BackendKind, ItemSettlement, RoutedGeneration};
-use quire_contract_codegen::{ContractDriverResultSelection, ContractRequestPosition};
-use quire_contract_model::{
-    CheckedNodeId, CheckedOccurrenceRole, CheckedPackageV2, ContractOccurrenceKeyV1,
-    ContractPackageV1,
-};
+use quire_contract_model::{CheckedNodeId, CheckedPackageV2};
 use quire_exact::Cancel;
 
 use crate::handoff::handoff;
@@ -116,7 +112,7 @@ pub struct Driven {
 pub fn drive(
     upstream: &impl Upstream,
     input: CompileInput<'_>,
-    registry: &crate::AdmittedRegistry,
+    registry: &Registry,
     named: Option<&BackendId>,
     generation: GenerationInput<'_>,
 ) -> Result<Driven, DriverRefusal> {
@@ -145,15 +141,8 @@ pub fn drive(
 
     // T-13 order: the `route` candidate step, then every registered
     // BackendId through CG's one conversion, then E7.
-    let lowering = lower_requests(&checked, &items)?;
-    let (envelope, candidate_sets, descriptors) = envelope(
-        registry,
-        registry.manifests(),
-        &items,
-        named,
-        Some(&lowering),
-    )?;
-    let kinds = convert_backends(upstream, registry, &descriptors)?;
+    let (envelope, candidate_sets) = envelope(registry, &checked, &items, named)?;
+    let kinds = convert_backends(upstream, registry)?;
     let settlements = upstream
         .negotiate(&envelope)
         .map_err(DriverRefusal::Envelope)?;
@@ -173,7 +162,7 @@ pub fn drive(
     let routed = route_supported(upstream, &settlements, &candidate_sets, &kinds)?;
 
     // Step 7: CG generation for the routed items.
-    let generation = generate(upstream, &routed, generation, &lowering, &descriptors)?;
+    let generation = generate(upstream, &checked, &items, &routed, generation)?;
 
     Ok(Driven {
         package: checked_unit,
@@ -191,44 +180,39 @@ pub fn drive(
 /// routed means no call.
 fn generate(
     upstream: &impl Upstream,
+    checked: &CheckedPackageV2,
+    items: &[RequirementItem],
     routed: &[Routed],
     generation: GenerationInput<'_>,
-    lowering: &LoweredRequests,
-    descriptors: &BTreeMap<String, cg::BackendDescriptor>,
 ) -> Result<RoutedGeneration, DriverRefusal> {
     if routed.is_empty() {
         return Ok(RoutedGeneration::default());
     }
+    let nodes: BTreeMap<&str, &CheckedNodeId> = checked
+        .graph()
+        .nodes
+        .iter()
+        .map(|node| (node.node_id.digest.as_ref(), &node.node_id))
+        .collect();
     let mut generation_items = Vec::with_capacity(routed.len());
     for item in routed {
         let request_index = item.request_index;
-        let descriptor = descriptors
-            .get(item.candidate.id().as_str())
-            .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-        let position_index = lowering
-            .driver_position_indexes
+        let node = items
             .get(request_index)
-            .copied()
-            .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-        let position = lowering
-            .positions
-            .get(position_index)
-            .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-        let mut routed_item = cg::RoutedGenerationItem::from_descriptor(
+            .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?
+            .node();
+        let node_id = nodes
+            .get(node.to_string().as_str())
+            .ok_or(DriverRefusal::Fault(DriverFault::UnknownNode {
+                request_index,
+                node,
+            }))?;
+        generation_items.push(cg::RoutedGenerationItem {
             request_index,
-            position.node_id().clone(),
-            cg_candidate(&item.candidate),
-            descriptor,
-        )
-        .map_err(|_| DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-        if let ContractRequestPosition::DriverItem {
-            result_selection, ..
-        } = position
-        {
-            routed_item =
-                routed_item.with_scalar_selection(&lowering.contract, result_selection.clone());
-        }
-        generation_items.push(routed_item);
+            node_id: (*node_id).clone(),
+            backend: cg_candidate(&item.candidate),
+            kind: item.kind,
+        });
     }
     let contexts = cg::GenerationContexts {
         kani: generation.kani.map(|kani| cg::KaniGenerationContext {
@@ -238,137 +222,20 @@ fn generate(
         }),
     };
     upstream
-        .generate(
-            &lowering.contract,
-            &lowering.positions,
-            &generation_items,
-            &contexts,
-        )
+        .generate(checked, &generation_items, &contexts)
         .map_err(DriverRefusal::Generation)
 }
 
-struct LoweredRequests {
-    checked: CheckedPackageV2,
-    contract: ContractPackageV1,
-    positions: Vec<ContractRequestPosition>,
-    request_nodes: Vec<CheckedNodeId>,
-    driver_position_indexes: Vec<usize>,
-}
-
-fn lower_requests(
-    checked: &CheckedPackageV2,
-    items: &[RequirementItem],
-) -> Result<LoweredRequests, DriverRefusal> {
-    let by_digest: BTreeMap<&str, &CheckedNodeId> = checked
-        .graph()
-        .nodes
-        .iter()
-        .map(|node| (node.node_id.digest.as_ref(), &node.node_id))
-        .collect();
-    let mut roots = Vec::with_capacity(items.len() * 2);
-    let mut positions = Vec::with_capacity(items.len() * 2);
-    let mut request_nodes = Vec::with_capacity(items.len());
-    let mut driver_position_indexes = Vec::with_capacity(items.len());
-    for item in items {
-        let application = by_digest
-            .get(item.node().to_string().as_str())
-            .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-        let app_occurrence = checked_occurrence(checked, item.occurrence(), application)
-            .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-        roots.push((*application).clone());
-        let conversion = item
-            .conversion_context()
-            .map(|occurrence| {
-                let node = by_digest
-                    .get(occurrence.node().to_string().as_str())
-                    .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-                let key = checked_occurrence(checked, occurrence, node)
-                    .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-                Ok::<_, DriverRefusal>(((*node).clone(), key))
-            })
-            .transpose()?;
-        let result_selection = if item.kind().to_wire() == "value-validity" {
-            ContractDriverResultSelection::OwnResult {
-                application: app_occurrence,
-                conversion: conversion
-                    .as_ref()
-                    .map(|(_, conversion)| conversion.clone()),
-            }
-        } else {
-            ContractDriverResultSelection::NotApplicable
-        };
-        driver_position_indexes.push(positions.len());
-        positions.push(ContractRequestPosition::DriverItem {
-            node_id: (*application).clone(),
-            result_selection,
-        });
-        request_nodes.push((*application).clone());
-        if let Some((conversion_node, _)) = conversion {
-            roots.push(conversion_node.clone());
-            positions.push(ContractRequestPosition::ContextRoot {
-                node_id: conversion_node,
-            });
-        }
-    }
-    let lowered = checked.lower(&roots, &cg::routed_contract_lowering_profile());
-    let contract = lowered
-        .package
-        .wire()
-        .cloned()
-        .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-    if contract.wire().package.source.package_id != *checked.package_id() {
-        return Err(DriverRefusal::Fault(DriverFault::RoutingTarget));
-    }
-    Ok(LoweredRequests {
-        checked: checked.clone(),
-        contract,
-        positions,
-        request_nodes,
-        driver_position_indexes,
-    })
-}
-
-fn checked_occurrence(
-    checked: &CheckedPackageV2,
-    occurrence: &qsl_foundation::source::provenance::OccurrenceKey,
-    node_id: &CheckedNodeId,
-) -> Option<ContractOccurrenceKeyV1> {
-    let role = match occurrence.origin().role().as_str() {
-        "declaration" => CheckedOccurrenceRole::Declaration,
-        "type" => CheckedOccurrenceRole::Type,
-        "expression" => CheckedOccurrenceRole::Expression,
-        "anchor" => CheckedOccurrenceRole::Anchor,
-        "claim" => CheckedOccurrenceRole::Claim,
-        "generated" => CheckedOccurrenceRole::Generated,
-        _ => return None,
-    };
-    let ordinal = occurrence.origin().ordinal();
-    checked
-        .source_map()
-        .iter()
-        .any(|entry| &entry.node_id == node_id && entry.role == role && entry.ordinal == ordinal)
-        .then(|| ContractOccurrenceKeyV1 {
-            node_id: node_id.clone(),
-            role,
-            ordinal,
-        })
-}
-
-/// MD-2: convert every registered, projected descriptor to its CG kind, or
-/// refuse unknown linked identities in bytewise order. CG reads provider
-/// origin from its descriptor; the driver does not infer a kind from the id.
+/// MD-2: convert every registered `BackendId` to its CG kind, or refuse
+/// naming every unconverted id in bytewise order.
 fn convert_backends(
     upstream: &impl Upstream,
     registry: &Registry,
-    descriptors: &BTreeMap<String, cg::BackendDescriptor>,
 ) -> Result<BTreeMap<BackendId, BackendKind>, DriverRefusal> {
     let mut kinds = BTreeMap::new();
     let mut unconverted = Vec::new();
     for id in registry.backends() {
-        let descriptor = descriptors
-            .get(id.as_str())
-            .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-        match upstream.backend_kind(descriptor) {
+        match upstream.backend_kind(id) {
             Some(kind) => {
                 kinds.insert(id.clone(), kind);
             }
@@ -388,42 +255,21 @@ fn convert_backends(
 /// The FR-331 envelope CG negotiates over, and each item's candidates as
 /// `items_from_requirements` computed them against the registry for `named`.
 /// Types cross as their wire spellings (ADR-013 T-7).
-type EnvelopeProjection = (
-    cg::BackendProviderEnvelope,
-    Vec<Vec<Candidate>>,
-    BTreeMap<String, cg::BackendDescriptor>,
-);
-
 fn envelope(
     registry: &Registry,
-    manifests: &[crate::ProviderManifest],
+    checked: &CheckedPackageV2,
     items: &[RequirementItem],
     named: Option<&BackendId>,
-    lowering: Option<&LoweredRequests>,
-) -> Result<EnvelopeProjection, DriverRefusal> {
+) -> Result<(cg::BackendProviderEnvelope, Vec<Vec<Candidate>>), DriverRefusal> {
     let manifest = registry
         .descriptors()
-        .map(|descriptor| {
-            let retained = manifests
-                .iter()
-                .find(|manifest| {
-                    manifest.identity == descriptor.id().as_str()
-                        && manifest.manifest_digest == descriptor.manifest_digest()
-                })
-                .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-            project_descriptor(descriptor, retained)
-        })
+        .map(project_descriptor)
         .collect::<Result<Vec<_>, _>>()?;
-    let descriptors = manifest
-        .iter()
-        .cloned()
-        .map(|descriptor| (descriptor.identity.clone(), descriptor))
-        .collect();
 
     let mut request_items = Vec::with_capacity(items.len());
     let mut candidate_sets = Vec::with_capacity(items.len());
     for (request_index, item) in items.iter().enumerate() {
-        let lowering = lowering.ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
+        let extent = Some(cg_extent(item.extent()));
         let label = item.kind().to_wire();
         let kind = cg::CapabilityKind::from_label(label).map_or_else(
             || cg::RequestedKind::Unknown(label.to_owned()),
@@ -440,31 +286,10 @@ fn envelope(
             ),
         };
         candidate_sets.push(set);
-        let kani_form = if item.kind().to_wire() == "value-validity" {
-            cg::KaniForm::V2ScalarClaim {
-                package: Box::new(lowering.checked.clone()),
-                contract: Box::new(lowering.contract.clone()),
-                positions: lowering.positions.clone(),
-                request_index,
-                node_id: lowering
-                    .request_nodes
-                    .get(request_index)
-                    .cloned()
-                    .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?,
-            }
-        } else {
-            cg::KaniForm::OutsideSet {
-                package: Box::new(lowering.checked.clone()),
-                node_id: lowering
-                    .request_nodes
-                    .get(request_index)
-                    .cloned()
-                    .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?,
-            }
-        };
+        let kani_form = project_kani_form(checked, item.node(), request_index)?;
         request_items.push(cg::RequestItem {
             kind,
-            extent: Some(cg_extent(item)),
+            extent,
             named_backend: named.map(|id| id.as_str().to_owned()),
             candidates,
             kani_form,
@@ -479,8 +304,51 @@ fn envelope(
             items: request_items,
         },
         candidate_sets,
-        descriptors,
     ))
+}
+
+/// Project the admitted checked node selected by QSL into CG's typed Kani
+/// source form. The form is source evidence, never a driver classification.
+fn project_kani_form(
+    checked: &CheckedPackageV2,
+    node: qsl_foundation::digest::WireNodeId,
+    request_index: usize,
+) -> Result<cg::KaniForm, DriverRefusal> {
+    let selected = resolve_checked_node(
+        checked
+            .graph()
+            .nodes
+            .iter()
+            .map(|candidate| &candidate.node_id),
+        node,
+        request_index,
+    )?;
+    Ok(cg::KaniForm::V2ScalarClaim {
+        package: Box::new(checked.clone()),
+        node_id: selected.clone(),
+    })
+}
+
+fn resolve_checked_node<'a>(
+    nodes: impl Iterator<Item = &'a CheckedNodeId>,
+    node: qsl_foundation::digest::WireNodeId,
+    request_index: usize,
+) -> Result<&'a CheckedNodeId, DriverRefusal> {
+    let digest = node.to_string();
+    let mut matches = nodes.filter(|candidate| candidate.digest.as_ref() == digest);
+    let Some(selected) = matches.next() else {
+        return Err(DriverRefusal::Fault(DriverFault::UnknownNode {
+            request_index,
+            node,
+        }));
+    };
+    if matches.next().is_some() {
+        return Err(DriverRefusal::Fault(DriverFault::AmbiguousNode {
+            request_index,
+            node,
+        }));
+    }
+    Ok(selected)
 }
 
 /// Project one QSL registry descriptor to CG's FR-331 envelope descriptor.
@@ -490,7 +358,6 @@ fn envelope(
 /// provider bytes (QSL ADR-029 PV-1, CG FR-019-AC-15).
 fn project_descriptor(
     descriptor: &qsl_route::BackendDescriptor,
-    retained: &crate::ProviderManifest,
 ) -> Result<cg::BackendDescriptor, DriverRefusal> {
     let mut advertised = Vec::new();
     for (kind, mode) in descriptor.advertises() {
@@ -509,34 +376,83 @@ fn project_descriptor(
         qsl_route::ProviderOrigin::Process => cg::ProviderOrigin::Process,
     };
 
-    let wire = retained
-        .wire
-        .as_deref()
-        .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-    let fields: RetainedManifestFields = serde_json::from_slice(wire)
-        .map_err(|_| DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-
     Ok(cg::BackendDescriptor {
         identity: descriptor.id().as_str().to_owned(),
         advertised,
         origin,
-        domains: descriptor.domains().cloned(),
-        bounds: fields.bounds,
     })
 }
 
-#[derive(serde::Deserialize)]
-struct RetainedManifestFields {
-    #[serde(default, deserialize_with = "deserialize_present")]
-    bounds: Option<BTreeMap<String, u64>>,
-}
+#[cfg(test)]
+mod kani_form_projection_tests {
+    use qsl_foundation::digest::WireNodeId;
+    use quire_contract_model::CheckedNodeId;
 
-fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: serde::Deserialize<'de>,
-{
-    T::deserialize(deserializer).map(Some)
+    use super::resolve_checked_node;
+    use crate::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    fn checked_node(domain: &str, wire: &WireNodeId) -> CheckedNodeId {
+        CheckedNodeId {
+            domain: domain.into(),
+            digest: wire.to_string().into(),
+        }
+    }
+
+    #[test]
+    fn selected_wire_node_resolves_to_its_exact_checked_identity() {
+        let wire = WireNodeId::from_digest([7; 32]);
+        let expected = checked_node("quire.checked-semantic-node/v1", &wire);
+        let unrelated = checked_node("other-domain", &WireNodeId::from_digest([8; 32]));
+        let nodes = [unrelated, expected.clone()];
+
+        let resolved = resolve_checked_node(nodes.iter(), wire, 3)
+            .expect("the admitted package holds one exact match");
+
+        assert_eq!(resolved, &expected);
+    }
+
+    #[test]
+    fn missing_wire_node_returns_a_typed_internal_fault() {
+        let wire = WireNodeId::from_digest([9; 32]);
+        let nodes: [CheckedNodeId; 0] = [];
+
+        let refusal = resolve_checked_node(nodes.iter(), wire, 4)
+            .expect_err("a missing node cannot be guessed from its display");
+
+        assert!(matches!(
+            refusal,
+            DriverRefusal::Fault(DriverFault::UnknownNode {
+                request_index: 4,
+                node,
+            }) if node == wire
+        ));
+        assert_eq!(refusal.stage(), DriverStage::Generation);
+        assert_eq!(refusal.kind(), OutcomeKind::Fault);
+        assert_eq!(refusal.code(), "runtime_invariant");
+    }
+
+    #[test]
+    fn duplicate_wire_digest_with_distinct_domains_refuses_as_ambiguous() {
+        let wire = WireNodeId::from_digest([10; 32]);
+        let nodes = [
+            checked_node("domain-a", &wire),
+            checked_node("domain-b", &wire),
+        ];
+
+        let refusal = resolve_checked_node(nodes.iter(), wire, 5)
+            .expect_err("a digest shared by two checked identities is ambiguous");
+
+        assert!(matches!(
+            refusal,
+            DriverRefusal::Fault(DriverFault::AmbiguousNode {
+                request_index: 5,
+                node,
+            }) if node == wire
+        ));
+        assert_eq!(refusal.stage(), DriverStage::Generation);
+        assert_eq!(refusal.kind(), OutcomeKind::Fault);
+        assert_eq!(refusal.code(), "runtime_invariant");
+    }
 }
 
 /// The routing step over the `supported` settlements only.
@@ -577,10 +493,9 @@ fn route_supported(
         .zip(targets)
         .map(|(request_index, target)| {
             let candidate = target.ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-            let kind = kinds
+            let kind = *kinds
                 .get(candidate.id())
-                .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?
-                .clone();
+                .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
             Ok(Routed {
                 request_index,
                 candidate: candidate.clone(),
@@ -603,62 +518,39 @@ fn cg_mode(mode: Mode) -> cg::Mode {
     }
 }
 
-fn cg_extent(item: &RequirementItem) -> cg::ExtentClassification {
-    let extent = item.extent();
-    // `items_from_requirements` creates initial request items only. It does not
-    // call QSL's `RequestWriter::bounded_item`, so no substituted proof-bound
-    // values exist to project here; the QSL `unbounded` view supplies the exact
-    // domain set and substituted bounds remain empty.
-    let domains = item
-        .unbounded()
-        .iter()
-        .map(|(domain, kind)| cg::ExtentDomain {
-            domain: domain.clone(),
-            kind: *kind,
-        })
-        .collect();
+fn cg_extent(extent: ExtentClassification) -> cg::ExtentClassification {
     match extent {
         ExtentClassification::Bounded => cg::ExtentClassification {
             extent: cg::Mode::Bounded,
             finite_bound_available: false,
-            domains,
-            bounds: Vec::new(),
         },
         ExtentClassification::Unbounded {
             finite_bound_available,
         } => cg::ExtentClassification {
             extent: cg::Mode::Unbounded,
             finite_bound_available,
-            domains,
-            bounds: Vec::new(),
         },
     }
 }
 
 #[cfg(test)]
 mod origin_projection_tests {
-    use qsl_foundation::BackendId;
     use qsl_route::{
-        descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
-        Registry,
+        BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin, Registry,
     };
 
     use quire_contract_codegen as cg;
 
-    use super::{convert_backends, envelope, project_descriptor};
-    use crate::{ProviderManifest, QslCg};
-    use std::collections::BTreeMap;
-    use std::sync::Arc;
+    use super::{envelope, project_descriptor};
 
     fn descriptor(origin: ProviderOrigin, identity: &str) -> BackendDescriptor {
         let candidate =
             Candidate::new(BackendId::from_wire(identity).expect("identity is nonempty"));
-        descriptor_from_manifest(
+        BackendDescriptor::admit(
             candidate,
             origin,
             ManifestDigest::from_digest([7; 32]),
             [(Some("value-validity"), Some("bounded"))],
-            Some(&["integer"]),
         )
         .expect("QSL accepts the typed descriptor")
     }
@@ -671,38 +563,6 @@ mod origin_projection_tests {
         registry
     }
 
-    fn snapshot(descriptor: &BackendDescriptor) -> ProviderManifest {
-        ProviderManifest {
-            identity: descriptor.id().as_str().to_owned(),
-            manifest_digest: descriptor.manifest_digest(),
-            advertises: descriptor
-                .advertises()
-                .map(|(kind, mode)| {
-                    (
-                        Some(kind.to_wire().to_owned()),
-                        Some(mode.to_wire().to_owned()),
-                    )
-                })
-                .collect(),
-            domains: descriptor.domains().map(|domains| {
-                domains
-                    .iter()
-                    .map(|kind| kind.to_wire().to_owned())
-                    .collect()
-            }),
-            wire: Some(Arc::from(
-                serde_json::to_vec(&serde_json::json!({
-                    "backend": descriptor.id().as_str(),
-                    "advertises": descriptor.advertises().map(|(kind, mode)| serde_json::json!({
-                        "kind": kind.to_wire(), "mode": mode.to_wire()
-                    })).collect::<Vec<_>>(),
-                    "domains": descriptor.domains().map(|domains| domains.iter().map(|kind| kind.to_wire()).collect::<Vec<_>>())
-                }))
-                .expect("test descriptor encodes"),
-            )),
-        }
-    }
-
     /// Trace: FR-005-AC-5, TC-012.
     #[test]
     fn qsl_origins_project_exhaustively_without_changing_descriptor_members() {
@@ -713,12 +573,6 @@ mod origin_projection_tests {
                 .descriptors()
                 .next()
                 .expect("one linked descriptor"),
-            &snapshot(
-                linked_registry
-                    .descriptors()
-                    .next()
-                    .expect("linked descriptor"),
-            ),
         )
         .expect("linked projection succeeds");
         let process = project_descriptor(
@@ -726,12 +580,6 @@ mod origin_projection_tests {
                 .descriptors()
                 .next()
                 .expect("one process descriptor"),
-            &snapshot(
-                process_registry
-                    .descriptors()
-                    .next()
-                    .expect("process descriptor"),
-            ),
         )
         .expect("process projection succeeds");
 
@@ -744,75 +592,6 @@ mod origin_projection_tests {
         );
         assert_eq!(linked.origin, cg::ProviderOrigin::Linked);
         assert_eq!(process.origin, cg::ProviderOrigin::Process);
-        assert_eq!(linked.bounds, None);
-    }
-
-    /// Trace: FR-005-AC-17. CG classifies the same identity from the
-    /// QSL-admitted origin, while unknown linked identities still refuse.
-    #[test]
-    fn backend_kind_conversion_uses_admitted_origin() {
-        let process_registry = registry(ProviderOrigin::Process);
-        let process_qsl = process_registry
-            .descriptors()
-            .next()
-            .expect("one process descriptor");
-        let process_cg = project_descriptor(process_qsl, &snapshot(process_qsl))
-            .expect("process descriptor projects");
-        let process_kinds = convert_backends(
-            &QslCg,
-            &process_registry,
-            &BTreeMap::from([(process_cg.identity.clone(), process_cg)]),
-        )
-        .expect("QSL-admitted process origin has a CG kind");
-        assert_eq!(
-            process_kinds.get(&BackendId::from_wire("example-provider").expect("identity")),
-            Some(&cg::BackendKind::Process(cg::BackendId(
-                "example-provider".to_owned()
-            )))
-        );
-
-        let linked_registry = registry(ProviderOrigin::Linked);
-        let linked_qsl = linked_registry
-            .descriptors()
-            .next()
-            .expect("one linked descriptor");
-        let linked_cg = project_descriptor(linked_qsl, &snapshot(linked_qsl))
-            .expect("linked descriptor projects");
-        let refusal = convert_backends(
-            &QslCg,
-            &linked_registry,
-            &BTreeMap::from([(linked_cg.identity.clone(), linked_cg)]),
-        )
-        .expect_err("unknown linked identity remains unsupported");
-        assert!(matches!(
-            refusal,
-            crate::DriverRefusal::UnknownBackend { .. }
-        ));
-    }
-
-    /// Trace: FR-019-AC-15. The lossless FR-331 descriptor distinguishes a missing bounds
-    /// member from a present empty object; projection preserves both shapes.
-    #[test]
-    fn descriptor_projection_preserves_absent_and_present_empty_bounds() {
-        let registry = registry(ProviderOrigin::Linked);
-        let descriptor = registry
-            .descriptors()
-            .next()
-            .expect("registered descriptor");
-        let absent = project_descriptor(descriptor, &snapshot(descriptor)).expect("absent bounds");
-        let mut present_empty = snapshot(descriptor);
-        let mut wire: serde_json::Value =
-            serde_json::from_slice(present_empty.wire.as_deref().expect("retained wire"))
-                .expect("test wire parses");
-        wire.as_object_mut()
-            .expect("object")
-            .insert("bounds".to_owned(), serde_json::json!({}));
-        present_empty.wire = Some(Arc::from(
-            serde_json::to_vec(&wire).expect("test wire encodes"),
-        ));
-        let present = project_descriptor(descriptor, &present_empty).expect("empty bounds");
-        assert_eq!(absent.bounds, None);
-        assert_eq!(present.bounds, Some(BTreeMap::new()));
     }
 
     /// Trace: FR-005-AC-5, TC-012; every registry descriptor reaches CG once.
@@ -831,17 +610,13 @@ mod origin_projection_tests {
             ),
         ];
         let mut registry = Registry::new();
-        let mut snapshots = Vec::new();
         for (identity, qsl_origin, _) in expected {
-            let descriptor = descriptor(qsl_origin, identity);
-            snapshots.push(snapshot(&descriptor));
             registry
-                .register(descriptor)
+                .register(descriptor(qsl_origin, identity))
                 .expect("distinct descriptors register");
         }
 
-        let (envelope, _, _) =
-            envelope(&registry, &snapshots, &[], None, None).expect("envelope projects");
+        let (envelope, _) = envelope(&registry, &[], None).expect("envelope projects");
         assert_eq!(envelope.manifest.len(), registry.descriptors().count());
         let mut expected_identities: Vec<String> = expected
             .iter()
