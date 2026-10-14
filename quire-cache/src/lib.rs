@@ -666,7 +666,10 @@ mod tests {
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([digest; 32]),
-            advertises: Vec::new(),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
             domains: None,
             wire: None,
         }])
@@ -761,7 +764,10 @@ mod tests {
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
             manifest_digest: digest,
-            advertises: Vec::new(),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
             domains: None,
             wire: None,
         }])
@@ -951,7 +957,10 @@ mod tests {
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
             manifest_digest: manifest,
-            advertises: Vec::new(),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
             domains: None,
             wire: None,
         }])
@@ -998,7 +1007,10 @@ mod tests {
                 quire_driver::build_registry(&[quire_driver::ProviderManifest {
                     identity: backend.as_str().to_owned(),
                     manifest_digest: excluded_manifest,
-                    advertises: Vec::new(),
+                    advertises: vec![(
+                        Some("value-validity".to_owned()),
+                        Some("bounded".to_owned()),
+                    )],
                     domains: None,
                     wire: None,
                 }])
@@ -1031,7 +1043,10 @@ mod tests {
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([27; 32]),
-            advertises: Vec::new(),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
             domains: None,
             wire: None,
         }])
@@ -1063,7 +1078,10 @@ mod tests {
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([28; 32]),
-            advertises: Vec::new(),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
             domains: None,
             wire: None,
         }])
@@ -1175,7 +1193,10 @@ mod tests {
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
             manifest_digest: ManifestDigest::from_digest([23; 32]),
-            advertises: Vec::new(),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
             domains: None,
             wire: None,
         }])
