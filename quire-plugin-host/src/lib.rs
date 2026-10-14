@@ -722,6 +722,7 @@ where
                     return Err(PluginError::Exited(status));
                 }
             }
+            self.monitor.end_request();
             Ok(typed)
         })();
         match result {
@@ -1215,6 +1216,10 @@ impl ProcessMonitor {
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         Err(ProcessBudgetError::Unavailable)
+    }
+
+    fn end_request(&mut self) {
+        self.request_active = false;
     }
 
     fn check(&mut self, _child: &dyn ChildWrapper) -> Result<(), ProcessBudgetError> {
@@ -2129,6 +2134,48 @@ mod tests {
     }
 
     #[cfg(windows)]
+    fn windows_shutdown_cpu_fixture(
+        request_cpu: &Path,
+        shutdown_cpu: &Path,
+    ) -> (PathBuf, [OsString; 5]) {
+        let powershell =
+            PathBuf::from(std::env::var_os("SystemRoot").expect("Windows sets SystemRoot"))
+                .join("System32")
+                .join("WindowsPowerShell")
+                .join("v1.0")
+                .join("powershell.exe");
+        let request_cpu = request_cpu.to_string_lossy().replace('\'', "''");
+        let shutdown_cpu = shutdown_cpu.to_string_lossy().replace('\'', "''");
+        let script = format!(
+            "$hello=[Text.Encoding]::UTF8.GetBytes('{{\"body\":{{\"advertises\":[],\"identity\":\"agent-ix/provider/test\"}},\"id\":0,\"kind\":\"hello\",\"protocol\":\"quire.plugin-wire/v1\"}}'); \
+             $prefix=[BitConverter]::GetBytes([UInt64]$hello.Length); [Array]::Reverse($prefix); \
+             $stdout=[Console]::OpenStandardOutput(); $stdout.Write($prefix,0,8); $stdout.Write($hello,0,$hello.Length); $stdout.Flush(); \
+             $process=[Diagnostics.Process]::GetCurrentProcess(); $windowBaseline=$process.TotalProcessorTime; \
+             $stdin=[Console]::OpenStandardInput(); $prefix=New-Object byte[] 8; $offset=0; \
+             while ($offset -lt 8) {{ $read=$stdin.Read($prefix,$offset,8-$offset); if ($read -le 0) {{ exit 2 }}; $offset += $read }}; \
+             [Array]::Reverse($prefix); $remaining=[int][BitConverter]::ToUInt64($prefix,0); $buffer=New-Object byte[] 1024; \
+             while ($remaining -gt 0) {{ $read=$stdin.Read($buffer,0,[Math]::Min($buffer.Length,$remaining)); if ($read -le 0) {{ exit 2 }}; $remaining -= $read }}; \
+             while ($true) {{ $process.Refresh(); $spent=($process.TotalProcessorTime-$windowBaseline).TotalMilliseconds; if ($spent -ge 100) {{ break }}; [void]([Math]::Sqrt(123456.789)) }}; \
+             [IO.File]::WriteAllText('{request_cpu}',[string][int64]$spent); \
+             $result=[Text.Encoding]::UTF8.GetBytes('{{\"body\":{{\"identity\":\"agent-ix/provider/test\",\"items\":[\"item-1\"]}},\"id\":1,\"kind\":\"result\",\"protocol\":\"quire.plugin-wire/v1\"}}'); \
+             $resultPrefix=[BitConverter]::GetBytes([UInt64]$result.Length); [Array]::Reverse($resultPrefix); $stdout.Write($resultPrefix,0,8); $stdout.Write($result,0,$result.Length); $stdout.Flush(); \
+             if ($stdin.ReadByte() -lt 0) {{ exit 3 }}; \
+             while ($true) {{ $process.Refresh(); $total=($process.TotalProcessorTime-$windowBaseline).TotalMilliseconds; if ($total -ge 1500) {{ break }}; [void]([Math]::Sqrt(123456.789)) }}; \
+             [IO.File]::WriteAllText('{shutdown_cpu}',[string][int64]$total)"
+        );
+        (
+            powershell,
+            [
+                OsString::from("-NoLogo"),
+                OsString::from("-NonInteractive"),
+                OsString::from("-NoProfile"),
+                OsString::from("-Command"),
+                OsString::from(script),
+            ],
+        )
+    }
+
+    #[cfg(windows)]
     fn wait_for_fixture_file(path: &Path) -> bool {
         let deadline = Instant::now() + Duration::from_secs(10);
         while !path.exists() && Instant::now() < deadline {
@@ -2333,6 +2380,60 @@ mod tests {
             wait_for_windows_process_exit(pid)
                 .expect("PowerShell can query the descendant process"),
             "the CPU-burning descendant exited within the process cleanup bound"
+        );
+    }
+
+    /// Trace: FR-013-AC-8, FR-013-AC-17, TC-026; shutdown CPU is outside a completed request budget.
+    #[cfg(windows)]
+    #[test]
+    fn windows_shutdown_cpu_is_not_charged_to_completed_request() {
+        let base = ready_fixture_path();
+        let request_cpu = marker_path(&base, "request-cpu-ms");
+        let shutdown_cpu = marker_path(&base, "shutdown-cpu-ms");
+        let script = marker_path(&base, "shutdown-cpu.ps1");
+        let _files = TestFiles::new([request_cpu.clone(), shutdown_cpu.clone(), script.clone()]);
+        let (executable, arguments) = windows_shutdown_cpu_fixture(&request_cpu, &shutdown_cpu);
+        let cancel = Cancel::new();
+        let mut limits = session_limits();
+        limits.max_process_cpu_time = Some(Duration::from_secs(1));
+        limits.cancellation_grace = Duration::from_secs(4);
+        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
+            SessionStart {
+                executable: &executable,
+                arguments: &arguments,
+                limits,
+                cancel: &cancel,
+            },
+            |_manifest| Ok::<(), String>(()),
+        )
+        .expect("Windows Job Object starts and admits the plugin hello");
+
+        session
+            .request(
+                &test_request(),
+                &cancel,
+                |_manifest, _result: &TestResult| Ok::<(), String>(()),
+            )
+            .expect("request CPU remains within its one-second budget");
+        session
+            .shutdown()
+            .expect("shutdown CPU is not charged to the completed request");
+
+        let request_cpu = std::fs::read_to_string(request_cpu)
+            .expect("fixture records CPU at request completion")
+            .parse::<u64>()
+            .expect("request CPU marker is an integer");
+        let shutdown_cpu = std::fs::read_to_string(shutdown_cpu)
+            .expect("fixture records CPU after shutdown handling")
+            .parse::<u64>()
+            .expect("shutdown CPU marker is an integer");
+        assert!(
+            request_cpu < 1_000,
+            "request completed within its one-second CPU budget: {request_cpu} ms"
+        );
+        assert!(
+            shutdown_cpu > 1_000,
+            "shutdown handling exceeded the completed request's budget: {shutdown_cpu} ms"
         );
     }
 
