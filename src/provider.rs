@@ -136,10 +136,16 @@ pub enum KaniProviderFailure {
 }
 
 /// Results returned by one provider invocation, in the request's item order.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ProviderResults<T = KaniExecutionEvidence, E = KaniProviderFailure> {
     /// One typed result for every item in the provider request.
     pub items: Vec<ProviderItemResult<T, E>>,
+}
+
+impl<T, E> Default for ProviderResults<T, E> {
+    fn default() -> Self {
+        Self { items: Vec::new() }
+    }
 }
 
 /// Kani's typed evidence and execution refusal carrier.
@@ -406,6 +412,9 @@ mod tests {
     /// Trace: FR-005-AC-6, FR-005-AC-9.
     #[test]
     fn shared_provider_carrier_preserves_non_kani_data_and_failures() {
+        let empty: ProviderResults<NonKaniResult, NonKaniFailure> = ProviderResults::default();
+        assert!(empty.items.is_empty());
+
         let results: ProviderResults<NonKaniResult, NonKaniFailure> = ProviderResults {
             items: vec![
                 ProviderItemResult {
