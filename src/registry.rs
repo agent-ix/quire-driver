@@ -377,11 +377,12 @@ mod tests {
     /// Trace: FR-005-AC-16.
     #[test]
     fn linked_manifest_encoding_does_not_add_a_one_megabyte_limit() {
+        let identity = format!("agent-ix/provider/{}", "x".repeat(1_048_577));
         let provider = KaniProvider::new(ProviderManifest {
-            identity: "agent-ix/provider/large-manifest".to_owned(),
+            identity,
             manifest_digest: ManifestDigest::from_digest([5; 32]),
             advertises: Vec::new(),
-            domains: Some(vec!["x".repeat(1_048_577)]),
+            domains: None,
             wire: None,
         });
 
