@@ -11,8 +11,6 @@ use std::sync::Arc;
 
 use crate::{DriverRefusal, Provider};
 
-const LINKED_MANIFEST_MAX_BYTES: u64 = 1_048_576;
-
 #[derive(serde::Serialize, quire_canonical::FixedShape)]
 struct LinkedManifestWire<'a> {
     backend: &'a str,
@@ -254,7 +252,10 @@ fn linked_manifest_wire(manifest: &ProviderManifest) -> Result<Arc<[u8]>, Driver
     };
     let bytes = quire_canonical::to_vec(
         &descriptor,
-        quire_canonical::Limits::new(LINKED_MANIFEST_MAX_BYTES),
+        // FR-331 defines no linked-manifest byte ceiling. Linked manifests
+        // are supplied by in-process providers; do not add a smaller driver
+        // limit than the canonical encoder's representable byte range.
+        quire_canonical::Limits::new(u64::MAX),
     )
     .map_err(DriverRefusal::ManifestEncoding)?;
     Ok(Arc::from(bytes))
@@ -371,6 +372,27 @@ mod tests {
             present.wire.as_deref(),
             Some(&b"{\"advertises\":[{\"kind\":\"value-validity\",\"mode\":\"bounded\"}],\"backend\":\"agent-ix/provider/with-optional\",\"domains\":[\"integer\"]}"[..])
         );
+    }
+
+    /// Trace: FR-005-AC-16.
+    #[test]
+    fn linked_manifest_encoding_does_not_add_a_one_megabyte_limit() {
+        let provider = KaniProvider::new(ProviderManifest {
+            identity: "agent-ix/provider/large-manifest".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([5; 32]),
+            advertises: Vec::new(),
+            domains: Some(vec!["x".repeat(1_048_577)]),
+            wire: None,
+        });
+
+        let snapshot = build_linked_providers(&[&provider])
+            .expect("FR-331 has no one-megabyte linked-manifest ceiling")
+            .manifest_snapshot();
+        let wire = snapshot[0]
+            .wire
+            .as_deref()
+            .expect("registry populated canonical wire");
+        assert!(wire.len() > 1_048_576);
     }
 
     /// Trace: FR-005-AC-5.

@@ -933,4 +933,37 @@ mod tests {
             RequestStage::from_emitted(&package, &[], MAX_SAFE_INTEGER + 1, Vec::new()).is_err()
         );
     }
+
+    /// Trace: FR-005-AC-16.
+    #[test]
+    fn request_stage_refuses_missing_manifest_wire_without_reconstruction() {
+        let package = crate::test_support::emitted_package();
+        let manifest = ProviderManifest {
+            identity: "agent-ix/provider/missing-wire".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([9; 32]),
+            advertises: vec![(
+                Some("operation-contract".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: None,
+            wire: None,
+        };
+        let item = RequestItem {
+            request_index: 0,
+            kind: None,
+            claim: Value::Null,
+            extent: None,
+            backend: None,
+            candidates: Value::Null,
+            options: None,
+            reductions: None,
+            temporal: None,
+            probabilistic: None,
+        };
+
+        assert!(matches!(
+            RequestStage::from_emitted(&package, &[manifest], 100, vec![item]),
+            Err(RequestStageError::ManifestDescriptor)
+        ));
+    }
 }
