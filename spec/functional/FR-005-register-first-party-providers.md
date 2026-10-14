@@ -152,9 +152,9 @@ is specified in Behavior.
 | FR-005-AC-19 | When a plugin hello manifest has an absent or unknown kind or mode, the driver preserves QSL's typed per-registration `invalid_capability` refusal. | Planned (TC-013; QSL registry admission) |
 
 Current implementation status: the linked Kani adapter is the only Provider
-execution adapter, and its `ProviderLimits` and result carriers are
-Kani-specific. IR-677 generalizes the result carrier; it does not add a second
-terminal vocabulary. Callers provide `ProofCeilings`
+execution adapter; the shared result carriers accept provider-specific typed
+success and failure values. IR-677 generalized the shared result carrier; it
+did not add a second terminal vocabulary. Callers provide `ProofCeilings`
 (`memory_bytes` and `wall_clock`) during generation and execution; the driver
 requires equality with the generated harness identity, and CG uses that
 embedded value for bounded execution (CG FR-028). Cancellation is checked
@@ -167,7 +167,7 @@ TC-012 while the execution slice remains Linked-only.
 ## Dependencies
 
 - CG FR-017 and FR-028 for Kani execution evidence and proof ceilings.
-- QSL ADR-029 PV-1 and PV-3 (the current driver carriers are Kani-only);
+- QSL ADR-029 PV-1 and PV-3 for provider registration and execution boundaries;
   QSL FR-075 and FR-288 for registry identity and provider-manifest
   registration; QSL-654 for per-registration domain admission and refusal.
 - FR-006 defines the driver-owned process-provider seam; FR-013 defines the
