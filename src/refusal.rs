@@ -126,6 +126,9 @@ pub enum DriverFault {
     /// QSL admitted a linked manifest whose advertised pair was incomplete.
     #[error("QSL admitted a linked manifest with an incomplete advertised pair")]
     AdmittedManifestMissingLabel,
+    /// A registered descriptor has no retained FR-331 manifest source.
+    #[error("registered descriptor has no retained manifest source")]
+    AdmittedManifestMissing,
     /// A routed item names a node the checked package does not hold.
     /// Every item's node comes from `CheckedPackage::graph().requirements()`,
     /// and `checked` is IR's own admission of the bytes that same package
@@ -243,9 +246,10 @@ impl DriverRefusal {
             Self::EmptyBackendIdentity(_) => DriverStage::Registry,
             Self::EmptyLinkedManifestAdvertisements => DriverStage::Registry,
             Self::Registration(_) => DriverStage::Registry,
-            Self::ManifestEncoding(_) | Self::Fault(DriverFault::AdmittedManifestMissingLabel) => {
-                DriverStage::Registry
-            }
+            Self::ManifestEncoding(_)
+            | Self::Fault(
+                DriverFault::AdmittedManifestMissingLabel | DriverFault::AdmittedManifestMissing,
+            ) => DriverStage::Registry,
             Self::Compile(refusal) => DriverStage::Compile(refusal.stage()),
             Self::Cancelled { stage, .. } => DriverStage::Compile(*stage),
             Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
@@ -531,7 +535,8 @@ mod tests {
     };
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
-    use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+    use super::{oracle_code, DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+    use qsl_foundation::Code;
 
     #[test]
     fn empty_backend_identity_preserves_qsl_code_and_category() {

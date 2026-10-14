@@ -11,10 +11,10 @@ use qsl_replay::{
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum LimitError {
     /// QSL recognizes the setting, but this operation does not expose it.
-    #[error("limit setting `{setting}` is unavailable for the `run` operation")]
+    #[error("limit setting `{setting:?}` is unavailable for the `run` operation")]
     OperationUnavailable {
         /// The recognized setting absent from the operation's bounds.
-        setting: Setting,
+        setting: SettingName,
     },
 }
 
@@ -40,6 +40,7 @@ impl LimitOverrides {
             spine: *limits,
             ..CallerLimits::default()
         };
+        let mut caller_accounting = AccountingLimits(*accounting);
         for (setting, value) in &self.0 {
             match setting {
                 SettingName::Stage(setting) => {
@@ -141,7 +142,7 @@ mod tests {
         assert_eq!(
             overrides.apply_to(&mut limits, &mut call),
             Err(LimitError::OperationUnavailable {
-                setting: Setting::ExploreStates,
+                setting: SettingName::Stage(Setting::ExploreStates),
             })
         );
         assert_eq!(limits, before);
@@ -224,7 +225,7 @@ mod tests {
         assert_eq!(
             overrides.apply_to(&mut limits, &mut call),
             Err(LimitError::OperationUnavailable {
-                setting: Setting::ExploreStates,
+                setting: SettingName::Stage(Setting::ExploreStates),
             })
         );
     }

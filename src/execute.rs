@@ -225,6 +225,8 @@ mod tests {
         }
     }
 
+    static EMPTY_OBJECTS: LazyLock<ObjectEnvironment> = LazyLock::new(ObjectEnvironment::default);
+    static CANCEL: LazyLock<Cancel> = LazyLock::new(Cancel::new);
     static EMPTY_PACKAGES: LazyLock<BTreeMap<[u8; 32], Vec<u8>>> = LazyLock::new(BTreeMap::new);
     static NO_DEPENDENCIES: LazyLock<DependencyInput> = LazyLock::new(DependencyInput::default);
     static EMPTY_OBJECT_ENVIRONMENT: LazyLock<ObjectEnvironment> =
@@ -264,6 +266,40 @@ mod tests {
                 .expect("QSL encodes direct run document")
         );
         assert_eq!(result.document.category(), Category::Success);
+    }
+
+    /// Trace: IR-788 FR-004-AC-5 and TC-011. The public caller's non-empty
+    /// unresolved-reference policy reaches QSL unchanged.
+    #[test]
+    fn caller_object_environment_is_forwarded_unchanged() {
+        let objects = ObjectEnvironment::default().with_unresolved_references();
+        assert!(objects.references_are_unresolved());
+        let mut request = request(ExecutionEngine::Interpreter, SpineLimits::default());
+        request.objects = &objects;
+
+        let expected = qsl_replay::spine::run(
+            request.source.clone(),
+            request.path,
+            request.bytes,
+            request.packages,
+            request.dependencies,
+            request.limits,
+            &request.call,
+            &objects,
+            request.cancel,
+        )
+        .expect("the direct QSL run completes");
+        let actual = execute(request).expect("the public driver run completes");
+        assert_eq!(actual.package_id, expected.0);
+        let expected_bytes = OutcomeDocument::from_call(&expected.1)
+            .to_bytes()
+            .expect("QSL serializes the direct result");
+        assert_eq!(
+            actual
+                .outcome_bytes()
+                .expect("QSL serializes the driver result"),
+            expected_bytes
+        );
     }
 
     /// Trace: FR-004-AC-3, unavailable engines are unsupported before work.

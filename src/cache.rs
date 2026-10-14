@@ -253,6 +253,7 @@ where
 mod tests {
     use std::cell::Cell;
 
+    use qsl_foundation::BackendId;
     use serde_json::Value;
 
     use super::{
@@ -365,6 +366,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         }])
         .expect("manifest is admitted");
@@ -453,6 +455,7 @@ mod tests {
                     Some("bounded".to_owned()),
                 )],
                 domains: Some(vec!["integer".to_owned()]),
+                bounds: None,
                 wire: None,
             },
             crate::ProviderManifest {
@@ -463,6 +466,7 @@ mod tests {
                     Some("bounded".to_owned()),
                 )],
                 domains: Some(vec!["integer".to_owned()]),
+                bounds: None,
                 wire: None,
             },
         ])
@@ -506,6 +510,7 @@ mod tests {
             manifest_digest: qsl_route::ManifestDigest::from_digest([3; 32]),
             advertises: Vec::new(),
             domains: None,
+            bounds: None,
             wire: None,
         }]);
         assert!(registration.is_err());

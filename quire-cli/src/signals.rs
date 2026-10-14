@@ -559,6 +559,7 @@ mod tests {
                                 manifest_digest: digest,
                                 advertises: Vec::new(),
                                 domains: None,
+                                bounds: None,
                                 wire: None,
                             },
                         ))

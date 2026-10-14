@@ -115,6 +115,8 @@ fn machine_run_writes_the_canonical_qsl_outcome() {
 
     let packages = std::collections::BTreeMap::new();
     let dependencies = DependencyInput::default();
+    let objects = ObjectEnvironment::default();
+    let cancel = Cancel::new();
     let source_bytes = std::fs::read(SOURCE).expect("read source fixture");
     let request = ExecutionRequest {
         source: SourceIdentity::new("quire", SOURCE, "filesystem", "current"),

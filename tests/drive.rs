@@ -19,13 +19,14 @@ use std::thread;
 use std::time::Duration;
 
 use qsl_foundation::diagnostic::Category;
+use qsl_foundation::BackendId;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, package, parse, select, CheckedUnit, CompileRefusal, DependencyInput, EmittedUnit,
     LockEvidence, PackageLimits, ParseRequest, SpineLimits, SpineStage,
 };
 use qsl_route::routing::Disposition as RouteDisposition;
-use qsl_route::{BackendId, Candidate, ManifestDigest, RegistrationCause};
+use qsl_route::{Candidate, ManifestDigest, RegistrationCause};
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_contract_codegen::{
     generate_routed, BackendKind, BackendProviderEnvelope, Candidates, Cause, ClaimDisposition,
@@ -370,6 +371,7 @@ fn manifest(identity: &str, digest: u8, kinds: &[&str]) -> ProviderManifest {
             .map(|kind| (Some((*kind).to_owned()), Some("bounded".to_owned())))
             .collect(),
         domains: None,
+        bounds: None,
         wire: None,
     }
 }

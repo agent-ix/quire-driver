@@ -288,6 +288,7 @@ impl ManifestStage {
                     .map(|pair| (pair.kind.clone(), pair.mode.clone()))
                     .collect(),
                 domains: shape.domains,
+                bounds: shape.bounds,
                 wire: Some(Arc::<[u8]>::from(canonical_wire)),
             },
         })
@@ -1011,6 +1012,10 @@ mod tests {
             .descriptor()
             .domains()
             .is_some_and(|domains| domains.contains(&qsl_foundation::bound::DomainKind::Integer)));
+        assert_eq!(
+            admitted.manifest().bounds.as_ref(),
+            Some(&BTreeMap::from([("max_states".to_owned(), 8)]))
+        );
     }
 
     #[test]
@@ -1200,7 +1205,8 @@ mod tests {
         let retained_value = serde_json::json!({
             "backend":"agent-ix/provider/test",
             "advertises":[{"kind":"operation-contract", "mode":"bounded"}],
-            "domains":["integer"]
+            "domains":["integer"],
+            "bounds":{"max_states":8}
         });
         let retained_wire = Arc::<[u8]>::from(
             quire_canonical::to_vec(&retained_value, quire_canonical::Limits::new(4096))
@@ -1214,6 +1220,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: Some(BTreeMap::from([("max_states".to_owned(), 8)])),
             wire: Some(Arc::clone(&retained_wire)),
         };
         let linked_provider = quire_driver::KaniProvider::new(ProviderManifest {
@@ -1224,6 +1231,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["recursive".to_owned()]),
+            bounds: None,
             wire: None,
         });
         let linked_manifests = quire_driver::build_linked_providers(&[&linked_provider])
@@ -1304,6 +1312,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: None,
+            bounds: None,
             wire: None,
         };
         let item = RequestItem {
@@ -1523,6 +1532,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         }])
         .expect("the non-matching provider is admitted");

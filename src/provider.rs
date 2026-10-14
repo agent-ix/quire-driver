@@ -560,6 +560,7 @@ mod tests {
                     .try_into()
                     .expect("valid harness symbol"),
                 arguments: Vec::new(),
+                inferred_operands: Vec::new(),
                 solver: KaniSolver::Cadical,
                 unwind: 1,
                 options: Vec::new(),
@@ -576,6 +577,7 @@ mod tests {
             manifest_digest: ManifestDigest::from_digest([1; 32]),
             advertises: Vec::new(),
             domains: None,
+            bounds: None,
             wire: None,
         })
     }

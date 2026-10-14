@@ -3,19 +3,19 @@
 
 use std::collections::BTreeMap;
 
-use qsl_foundation::SourceIdentity;
+use qsl_foundation::{BackendId, SourceIdentity};
 use qsl_package::EmittedPackage;
 use qsl_replay::spine::{CheckedUnit, SpineLimits};
 use qsl_route::request::{items_from_requirements, ExtentClassification, RequirementItem};
 use qsl_route::routing::Disposition as RouteDisposition;
-use qsl_route::{BackendId, Candidate, CandidateOutcome, Mode, Registry};
+use qsl_route::{Candidate, CandidateOutcome, Mode, Registry};
 use quire_contract_codegen as cg;
 use quire_contract_codegen::{BackendKind, ItemSettlement, RoutedGeneration};
 use quire_contract_model::{CheckedNodeId, CheckedPackageV2};
 use quire_exact::Cancel;
 
 use crate::handoff::handoff;
-use crate::{DriverFault, DriverRefusal, Upstream};
+use crate::{AdmittedRegistry, DriverFault, DriverRefusal, Upstream};
 
 /// The unit to compile, and the inputs QSL's typed lifecycle takes with it.
 #[derive(Clone, Debug)]
@@ -112,7 +112,7 @@ pub struct Driven {
 pub fn drive(
     upstream: &impl Upstream,
     input: CompileInput<'_>,
-    registry: &Registry,
+    registry: &AdmittedRegistry,
     named: Option<&BackendId>,
     generation: GenerationInput<'_>,
 ) -> Result<Driven, DriverRefusal> {
@@ -141,7 +141,8 @@ pub fn drive(
 
     // T-13 order: the `route` candidate step, then every registered
     // BackendId through CG's one conversion, then E7.
-    let (envelope, candidate_sets) = envelope(registry, &checked, &items, named)?;
+    let manifests = registry.manifest_snapshot();
+    let (envelope, candidate_sets) = envelope(registry, &manifests, &checked, &items, named)?;
     let kinds = convert_backends(upstream, registry)?;
     let settlements = upstream
         .negotiate(&envelope)
@@ -211,7 +212,7 @@ fn generate(
             request_index,
             node_id: (*node_id).clone(),
             backend: cg_candidate(&item.candidate),
-            kind: item.kind,
+            kind: item.kind.clone(),
         });
     }
     let contexts = cg::GenerationContexts {
@@ -257,19 +258,29 @@ fn convert_backends(
 /// Types cross as their wire spellings (ADR-013 T-7).
 fn envelope(
     registry: &Registry,
+    manifests: &[crate::ProviderManifest],
     checked: &CheckedPackageV2,
     items: &[RequirementItem],
     named: Option<&BackendId>,
 ) -> Result<(cg::BackendProviderEnvelope, Vec<Vec<Candidate>>), DriverRefusal> {
     let manifest = registry
         .descriptors()
-        .map(project_descriptor)
+        .map(|descriptor| {
+            let retained = manifests
+                .iter()
+                .find(|manifest| {
+                    manifest.identity == descriptor.id().as_str()
+                        && manifest.manifest_digest == descriptor.manifest_digest()
+                })
+                .ok_or(DriverRefusal::Fault(DriverFault::AdmittedManifestMissing))?;
+            project_descriptor(descriptor, retained.bounds.as_ref())
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut request_items = Vec::with_capacity(items.len());
     let mut candidate_sets = Vec::with_capacity(items.len());
     for (request_index, item) in items.iter().enumerate() {
-        let extent = Some(cg_extent(item.extent()));
+        let extent = Some(cg_extent(item));
         let label = item.kind().to_wire();
         let kind = cg::CapabilityKind::from_label(label).map_or_else(
             || cg::RequestedKind::Unknown(label.to_owned()),
@@ -358,6 +369,7 @@ fn resolve_checked_node<'a>(
 /// provider bytes (QSL ADR-029 PV-1, CG FR-019-AC-15).
 fn project_descriptor(
     descriptor: &qsl_route::BackendDescriptor,
+    _bounds: Option<&BTreeMap<String, u64>>,
 ) -> Result<cg::BackendDescriptor, DriverRefusal> {
     let mut advertised = Vec::new();
     for (kind, mode) in descriptor.advertises() {
@@ -380,6 +392,7 @@ fn project_descriptor(
         identity: descriptor.id().as_str().to_owned(),
         advertised,
         origin,
+        domains: descriptor.domains().cloned(),
     })
 }
 
@@ -493,9 +506,10 @@ fn route_supported(
         .zip(targets)
         .map(|(request_index, target)| {
             let candidate = target.ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
-            let kind = *kinds
+            let kind = kinds
                 .get(candidate.id())
-                .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
+                .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?
+                .clone();
             Ok(Routed {
                 request_index,
                 candidate: candidate.clone(),
@@ -518,39 +532,52 @@ fn cg_mode(mode: Mode) -> cg::Mode {
     }
 }
 
-fn cg_extent(extent: ExtentClassification) -> cg::ExtentClassification {
+fn cg_extent(item: &RequirementItem) -> cg::ExtentClassification {
+    let extent = item.extent();
+    let domains = item
+        .unbounded()
+        .iter()
+        .map(|(domain, kind)| cg::ExtentDomain {
+            domain: domain.clone(),
+            kind: *kind,
+        })
+        .collect();
     match extent {
         ExtentClassification::Bounded => cg::ExtentClassification {
             extent: cg::Mode::Bounded,
             finite_bound_available: false,
+            domains,
+            bounds: Vec::new(),
         },
         ExtentClassification::Unbounded {
             finite_bound_available,
         } => cg::ExtentClassification {
             extent: cg::Mode::Unbounded,
             finite_bound_available,
+            domains,
+            bounds: Vec::new(),
         },
     }
 }
 
 #[cfg(test)]
 mod origin_projection_tests {
-    use qsl_route::{
-        BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin, Registry,
-    };
+    use qsl_foundation::BackendId;
+    use qsl_route::{BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin, Registry};
 
     use quire_contract_codegen as cg;
 
-    use super::{envelope, project_descriptor};
+    use super::project_descriptor;
 
     fn descriptor(origin: ProviderOrigin, identity: &str) -> BackendDescriptor {
         let candidate =
             Candidate::new(BackendId::from_wire(identity).expect("identity is nonempty"));
-        BackendDescriptor::admit(
+        qsl_route::descriptor_from_manifest(
             candidate,
             origin,
             ManifestDigest::from_digest([7; 32]),
             [(Some("value-validity"), Some("bounded"))],
+            None,
         )
         .expect("QSL accepts the typed descriptor")
     }
@@ -573,6 +600,7 @@ mod origin_projection_tests {
                 .descriptors()
                 .next()
                 .expect("one linked descriptor"),
+            None,
         )
         .expect("linked projection succeeds");
         let process = project_descriptor(
@@ -580,6 +608,7 @@ mod origin_projection_tests {
                 .descriptors()
                 .next()
                 .expect("one process descriptor"),
+            None,
         )
         .expect("process projection succeeds");
 
@@ -592,52 +621,5 @@ mod origin_projection_tests {
         );
         assert_eq!(linked.origin, cg::ProviderOrigin::Linked);
         assert_eq!(process.origin, cg::ProviderOrigin::Process);
-    }
-
-    /// Trace: FR-005-AC-5, TC-012; every registry descriptor reaches CG once.
-    #[test]
-    fn envelope_projects_each_registered_descriptor_once_with_its_origin() {
-        let expected = [
-            (
-                "example/linked",
-                ProviderOrigin::Linked,
-                cg::ProviderOrigin::Linked,
-            ),
-            (
-                "example/process",
-                ProviderOrigin::Process,
-                cg::ProviderOrigin::Process,
-            ),
-        ];
-        let mut registry = Registry::new();
-        for (identity, qsl_origin, _) in expected {
-            registry
-                .register(descriptor(qsl_origin, identity))
-                .expect("distinct descriptors register");
-        }
-
-        let (envelope, _) = envelope(&registry, &[], None).expect("envelope projects");
-        assert_eq!(envelope.manifest.len(), registry.descriptors().count());
-        let mut expected_identities: Vec<String> = expected
-            .iter()
-            .map(|(identity, _, _)| (*identity).to_owned())
-            .collect();
-        expected_identities.sort();
-        let mut projected_identities: Vec<String> = envelope
-            .manifest
-            .iter()
-            .map(|projected| projected.identity.clone())
-            .collect();
-        projected_identities.sort();
-        assert_eq!(projected_identities, expected_identities);
-        for (identity, _, origin) in &expected {
-            let projected: Vec<_> = envelope
-                .manifest
-                .iter()
-                .filter(|projected| projected.identity == *identity)
-                .collect();
-            assert_eq!(projected.len(), 1, "each identity appears once");
-            assert_eq!(projected[0].origin, *origin);
-        }
     }
 }

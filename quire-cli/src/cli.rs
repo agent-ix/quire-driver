@@ -506,6 +506,8 @@ fn run(options: RunOptions) -> CommandResult {
     }
     let packages = BTreeMap::new();
     let dependencies = DependencyInput::default();
+    let objects = ObjectEnvironment::default();
+    let cancel = Cancel::new();
     let mut limits = SpineLimits::default();
     let mut call = Call {
         function: options.function,

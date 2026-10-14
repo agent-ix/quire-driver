@@ -673,6 +673,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         }])
         .expect("test manifest is admitted");
@@ -771,6 +772,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         }])
         .expect("descriptor is admitted");
@@ -964,6 +966,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         }])
         .expect("manifest is admitted");
@@ -1014,6 +1017,7 @@ mod tests {
                         Some("bounded".to_owned()),
                     )],
                     domains: Some(vec!["integer".to_owned()]),
+                    bounds: None,
                     wire: None,
                 }])
                 .expect("excluded descriptor is admitted");
@@ -1050,6 +1054,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         }])
         .expect("descriptor is admitted");
@@ -1085,6 +1090,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         }])
         .expect("descriptor is admitted");
@@ -1200,6 +1206,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         }])
         .expect("descriptor is admitted");
