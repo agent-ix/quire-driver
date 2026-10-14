@@ -416,6 +416,10 @@ where
         #[cfg(unix)]
         command.wrap(process_wrap::std::ProcessGroup::leader());
         #[cfg(windows)]
+        // Keep the Windows Job Object's kill-on-close behavior enabled even if the
+        // host exits before it can run its explicit process-tree cleanup.
+        command.wrap(process_wrap::std::KillOnDrop);
+        #[cfg(windows)]
         command.wrap(process_wrap::std::JobObject);
         let mut child = command
             .spawn()
