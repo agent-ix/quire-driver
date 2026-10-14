@@ -22,6 +22,11 @@ pub enum DriverRefusal {
     /// A provider manifest supplied QSL's typed empty-identity refusal.
     #[error(transparent)]
     EmptyBackendIdentity(EmptyBackendIdentity),
+    /// A linked provider manifest cannot produce an FR-331 descriptor because
+    /// it advertises no capabilities. No QSL cause exists for this schema
+    /// shape, so the refusal carries only the base catalog code.
+    #[error("linked FR-331 manifest must advertise at least one capability")]
+    EmptyLinkedManifestAdvertisements,
     /// A provider manifest did not register. Every refusal, ordered by
     /// backend identity then manifest digest.
     #[error("{} backend registration(s) refused", .0.len())]
@@ -178,6 +183,7 @@ impl DriverRefusal {
     pub fn qsl_category(&self) -> Option<Category> {
         match self {
             Self::EmptyBackendIdentity(refusal) => Some(refusal.category()),
+            Self::EmptyLinkedManifestAdvertisements => Some(Category::Refusal),
             Self::Cancelled { cause, .. } => {
                 // `StageFailure::Cancelled` has a category independent of
                 // its refusal payload. `LimitExceeded` satisfies the generic
@@ -198,6 +204,7 @@ impl DriverRefusal {
     pub fn code(&self) -> String {
         match self {
             Self::EmptyBackendIdentity(refusal) => refusal.code().as_str().to_owned(),
+            Self::EmptyLinkedManifestAdvertisements => "invalid_capability".to_owned(),
             Self::Cancelled { .. } => Code::Cancelled.as_str().to_owned(),
             Self::Registration(refusals) => refusals.first().map_or_else(
                 || "invalid_capability".to_owned(),
@@ -222,6 +229,7 @@ impl DriverRefusal {
     pub fn stage(&self) -> DriverStage {
         match self {
             Self::EmptyBackendIdentity(_) => DriverStage::Registry,
+            Self::EmptyLinkedManifestAdvertisements => DriverStage::Registry,
             Self::Registration(_) => DriverStage::Registry,
             Self::ManifestEncoding(_) | Self::Fault(DriverFault::AdmittedManifestMissingLabel) => {
                 DriverStage::Registry
@@ -252,6 +260,7 @@ impl DriverRefusal {
     pub fn kind(&self) -> OutcomeKind {
         match self {
             Self::EmptyBackendIdentity(_) => OutcomeKind::Refused,
+            Self::EmptyLinkedManifestAdvertisements => OutcomeKind::Refused,
             Self::Cancelled { .. } => OutcomeKind::Cancelled,
             Self::Compile(refusal) if refusal.code() == Code::StageLimitExceeded => {
                 OutcomeKind::Limit

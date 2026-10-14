@@ -64,7 +64,9 @@ Scope: FR-005-AC-1 through FR-005-AC-11 and FR-005-AC-16.
     Verify `build_registry` retains canonical FR-331 bytes, includes present
     optional members and omits absent ones. Pass a retained manifest with
     `wire: None` directly to the FR-331 request adapter and verify it refuses
-    rather than reconstructing the descriptor.
+    rather than reconstructing the descriptor. Verify a supplied `wire` value
+    is retained byte-for-byte, and an empty advertised-capability list is
+    refused before the registry can emit a descriptor.
 
 Test location: `src/registry.rs`, `src/drive.rs`, `src/provider.rs`,
 `quire-cli/src/backend_provider.rs`, `quire-cli/src/process_provider.rs`, and

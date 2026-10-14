@@ -359,7 +359,10 @@ mod tests {
         let registry = crate::build_registry(&[crate::ProviderManifest {
             identity: identity.to_owned(),
             manifest_digest: qsl_route::ManifestDigest::from_digest(digest),
-            advertises: Vec::new(),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
             domains: None,
             wire: None,
         }])
@@ -444,14 +447,20 @@ mod tests {
             crate::ProviderManifest {
                 identity: first.as_str().to_owned(),
                 manifest_digest: qsl_route::ManifestDigest::from_digest([1; 32]),
-                advertises: Vec::new(),
+                advertises: vec![(
+                    Some("value-validity".to_owned()),
+                    Some("bounded".to_owned()),
+                )],
                 domains: None,
                 wire: None,
             },
             crate::ProviderManifest {
                 identity: second.as_str().to_owned(),
                 manifest_digest: qsl_route::ManifestDigest::from_digest([2; 32]),
-                advertises: Vec::new(),
+                advertises: vec![(
+                    Some("value-validity".to_owned()),
+                    Some("bounded".to_owned()),
+                )],
                 domains: None,
                 wire: None,
             },
