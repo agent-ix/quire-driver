@@ -30,6 +30,19 @@ use thiserror::Error;
 pub const PROTOCOL: &str = "quire.plugin-wire/v1";
 const WORKER_CLEANUP_LIMIT: Duration = Duration::from_secs(1);
 
+fn wrap_plugin_command(command: Command) -> CommandWrap {
+    let mut command = CommandWrap::from(command);
+    #[cfg(unix)]
+    command.wrap(process_wrap::std::ProcessGroup::leader());
+    #[cfg(windows)]
+    // Keep the Windows Job Object's kill-on-close behavior enabled even if the
+    // host exits before it can run its explicit process-tree cleanup.
+    command.wrap(process_wrap::std::KillOnDrop);
+    #[cfg(windows)]
+    command.wrap(process_wrap::std::JobObject);
+    command
+}
+
 /// Caller-controlled per-frame and per-run byte ceilings from ADR-029 PL-3.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrameLimits {
@@ -412,15 +425,7 @@ where
                 .stderr(Stdio::piped());
             command
         };
-        let mut command = CommandWrap::from(command);
-        #[cfg(unix)]
-        command.wrap(process_wrap::std::ProcessGroup::leader());
-        #[cfg(windows)]
-        // Keep the Windows Job Object's kill-on-close behavior enabled even if the
-        // host exits before it can run its explicit process-tree cleanup.
-        command.wrap(process_wrap::std::KillOnDrop);
-        #[cfg(windows)]
-        command.wrap(process_wrap::std::JobObject);
+        let mut command = wrap_plugin_command(command);
         let mut child = command
             .spawn()
             .map_err(|error| PluginError::from_spawn(start.executable, error))?;
@@ -1684,6 +1689,8 @@ pub enum FrameError {
     reason = "a failed assertion is the test failure report"
 )]
 mod tests {
+    #[cfg(windows)]
+    use super::wrap_plugin_command;
     use super::{
         spawn_writer, write_frame_control, Envelope, FrameError, FrameLimits, FrameReader,
         FrameWriter, Kind, PluginError, PluginSession, ProcessBudgetError, RunLimits, SessionStart,
@@ -1695,6 +1702,8 @@ mod tests {
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
     use std::process::Command;
+    #[cfg(windows)]
+    use std::process::Stdio;
     use std::thread;
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -1853,6 +1862,156 @@ mod tests {
                 .expect("system time is after epoch")
                 .as_nanos()
         ))
+    }
+
+    #[cfg(windows)]
+    fn job_object_fixture_paths() -> (PathBuf, PathBuf) {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time is after epoch")
+            .as_nanos();
+        let stem = format!(
+            "quire-plugin-host-job-object-{}-{suffix}",
+            std::process::id()
+        );
+        (
+            std::env::temp_dir().join(format!("{stem}.ready")),
+            std::env::temp_dir().join(format!("{stem}.stop")),
+        )
+    }
+
+    /// Subprocess helper: keep a descendant alive while the production wrapper owns its parent.
+    #[cfg(windows)]
+    #[test]
+    fn windows_job_object_wrapper_child_helper() {
+        let Ok(ready) = std::env::var("QUIRE_PLUGIN_HOST_JOB_OBJECT_READY") else {
+            return;
+        };
+        let stop = std::env::var("QUIRE_PLUGIN_HOST_JOB_OBJECT_STOP")
+            .expect("the parent supplies the cleanup marker");
+        let mut descendant = Command::new(std::env::current_exe().expect("test executable path"))
+            .args([
+                "--exact",
+                "tests::windows_job_object_descendant_helper",
+                "--nocapture",
+            ])
+            .env("QUIRE_PLUGIN_HOST_JOB_OBJECT_READY", &ready)
+            .env("QUIRE_PLUGIN_HOST_JOB_OBJECT_STOP", &stop)
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("spawn descendant test process");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !Path::new(&ready).exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        if !Path::new(&ready).exists() {
+            let _ = descendant.kill();
+            let _ = descendant.wait();
+            panic!("descendant did not reach its synchronized live point");
+        }
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(15);
+        while !Path::new(&stop).exists() && Instant::now() < cleanup_deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        if Path::new(&stop).exists() {
+            let _ = descendant.kill();
+            let _ = descendant.wait();
+        } else {
+            let _ = descendant.kill();
+            let _ = descendant.wait();
+            panic!("outer test did not release the subprocess fixture");
+        }
+    }
+
+    /// Subprocess helper: remain alive until the parent test requests fallback cleanup.
+    #[cfg(windows)]
+    #[test]
+    fn windows_job_object_descendant_helper() {
+        let Ok(ready) = std::env::var("QUIRE_PLUGIN_HOST_JOB_OBJECT_READY") else {
+            return;
+        };
+        let stop = std::env::var("QUIRE_PLUGIN_HOST_JOB_OBJECT_STOP")
+            .expect("the parent supplies the cleanup marker");
+        std::fs::write(ready, b"ready").expect("publish descendant readiness");
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !Path::new(&stop).exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(Path::new(&stop).exists(), "outer test releases descendant");
+    }
+
+    /// Trace: FR-013-AC-14, TC-026; dropping the production wrapper closes its Job Object and
+    /// terminates both the plugin process and a descendant that inherited the output pipe.
+    #[cfg(windows)]
+    #[test]
+    fn windows_job_object_kill_on_drop_terminates_plugin_and_descendant() {
+        let (ready, stop) = job_object_fixture_paths();
+        let executable = std::env::current_exe().expect("test executable path");
+        let mut command = Command::new(executable);
+        command
+            .args([
+                "--exact",
+                "tests::windows_job_object_wrapper_child_helper",
+                "--nocapture",
+            ])
+            .env("QUIRE_PLUGIN_HOST_JOB_OBJECT_READY", &ready)
+            .env("QUIRE_PLUGIN_HOST_JOB_OBJECT_STOP", &stop)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut wrapped = wrap_plugin_command(command);
+        let mut child = wrapped.spawn().expect("spawn wrapped plugin fixture");
+        let stdout = child
+            .stdout()
+            .take()
+            .expect("capture inherited descendant pipe");
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let reader = thread::spawn(move || {
+            let mut output = Vec::new();
+            let mut stdout = std::io::BufReader::new(stdout);
+            let result = std::io::Read::read_to_end(&mut stdout, &mut output);
+            let _ = finished_tx.send(result.map(|_| output));
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !ready.exists() && Instant::now() < deadline {
+            if child.try_wait().expect("check plugin fixture").is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        if !ready.exists() {
+            let _ = std::fs::write(&stop, b"cleanup");
+            let _ = child.start_kill();
+            let _ = child.wait();
+            let _ = finished_rx.recv_timeout(Duration::from_secs(2));
+            let _ = reader.join();
+            let _ = std::fs::remove_file(&ready);
+            let _ = std::fs::remove_file(&stop);
+            panic!("plugin and descendant did not reach the synchronized live point");
+        }
+
+        drop(child);
+        let exited_before_cleanup = finished_rx.recv_timeout(Duration::from_secs(3));
+        let closed_before_fallback = matches!(&exited_before_cleanup, Ok(Ok(_)));
+        if !closed_before_fallback {
+            // The child helper watches this marker and kills its descendant. This fallback keeps
+            // a failed regression from leaving either process alive on the test machine.
+            let _ = std::fs::write(&stop, b"cleanup");
+        }
+        let cleanup_result = if !closed_before_fallback {
+            finished_rx.recv_timeout(Duration::from_secs(3))
+        } else {
+            exited_before_cleanup
+        };
+        let _ = reader.join();
+        let _ = std::fs::remove_file(&ready);
+        let _ = std::fs::remove_file(&stop);
+        assert!(
+            matches!(cleanup_result, Ok(Ok(_))) && closed_before_fallback,
+            "plugin and descendant must close the inherited pipe when the owning wrapper drops"
+        );
     }
 
     struct StopEscapedFixture {
