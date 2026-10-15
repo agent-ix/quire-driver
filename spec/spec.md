@@ -243,8 +243,9 @@ remain planned. IR-606 adapted the orchestrator to current upstream lifecycle AP
 IR-607 through IR-610 deliver the remaining CLI, options, providers, cache,
 AOT and proof execution chain. IR-609 separates driver/cache integration
 (FR-007, TC-014) from the downstream cache implementation (FR-012,
-TC-020..TC-022). The final process-backend mapping in IR-609 remains gated on
-the QSL-637 registry-origin API and CG IR-629 (spec merged, code pending).
+TC-020..TC-022). Process-origin backend-kind projection now uses CG's
+origin-aware descriptor conversion and the QSL registry origin; process-provider
+dispatch and settlement remain gated on their routed-request and result APIs.
 The `quire-cli` adapter supplies plugin hello manifests to the QSL registry
 builder, which admits them and assigns `Process` origin; the driver passes its
 registry descriptors unchanged to CG negotiation. The driver does not

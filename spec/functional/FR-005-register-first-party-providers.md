@@ -114,10 +114,11 @@ is specified in Behavior.
   `BackendId` withdraws that identity (QSL FR-075-AC-4/AC-7 and QSL-637).
 - The driver SHALL preserve a caller-supplied `Process` origin, descriptor
   identity and advertised pairs when registering a process descriptor and
-  projecting it to CG unchanged. After CG IR-629 implements the public
-  conversion specified by FR-019/FR-022, the driver SHALL call that conversion
-  and CG SHALL construct `BackendKind::Process` from the supplied origin. The
-  driver SHALL NOT construct the kind or map backend identity to it.
+  projecting it to CG unchanged. When preparing descriptors for negotiation,
+  the driver SHALL call
+  CG's `BackendKind::from_descriptor`, which constructs
+  `BackendKind::Process` from the supplied origin. The driver SHALL NOT
+  construct the kind or map backend identity to it.
 - When a plugin hello manifest contains invalid domains, the `quire-cli` host
   hello admitter SHALL pass the domain labels to QSL descriptor admission and
   preserve QSL-654's typed
@@ -147,7 +148,7 @@ is specified in Behavior.
 | FR-005-AC-14 | The driver-owned `AdmittedRegistry` retains one lossless `ProviderManifest` carrier for each registered candidate. | Planned (TC-013) |
 | FR-005-AC-15 | The `quire-cli` adapter converts each process hello DTO losslessly into the retained `ProviderManifest` carrier at admission. | Planned (TC-013) |
 | FR-005-AC-16 | When building the registry for a linked provider, the driver populates its `ProviderManifest` carrier from that provider's FR-331 manifest; optional members absent from the manifest remain absent. | Test (TC-012; `src/registry.rs` verifies canonical bytes, optional-member absence, caller-supplied wire preservation, and refusal of empty advertisements; `quire-cli/src/backend_provider.rs::request_stage_refuses_missing_manifest_wire_without_reconstruction` verifies the adapter refuses a missing wire descriptor) |
-| FR-005-AC-17 | After CG IR-629 implements the public conversion specified by FR-019/FR-022, the driver calls that conversion and CG constructs `BackendKind::Process` from the supplied `Process` origin; the driver does not construct the kind or map backend identity to it. | Planned (TC-012, TC-013; CG IR-629) |
+| FR-005-AC-17 | Before negotiation, the driver projects each QSL registry descriptor through CG's `BackendKind::from_descriptor` and CG constructs `BackendKind::Process` from the supplied `Process` origin; the driver does not construct the kind or map backend identity to it. | Test (TC-012; `src/drive.rs::backend_kind_conversion_uses_admitted_origin` verifies equal identities classify by their QSL-admitted origin and an unknown Linked identity remains refused) |
 | FR-005-AC-18 | When a plugin hello manifest contains invalid domains, the driver passes the labels to QSL descriptor admission and preserves QSL-654's per-registration `invalid_capability` refusal with cause `invalid-domains`; the driver does not validate domains or construct the refusal. | Planned (TC-013; QSL-654) |
 | FR-005-AC-19 | When a plugin hello manifest has an absent or unknown kind or mode, the driver preserves QSL's typed per-registration `invalid_capability` refusal. | Planned (TC-013; QSL registry admission) |
 
@@ -160,9 +161,10 @@ requires equality with the generated harness identity, and CG uses that
 embedded value for bounded execution (CG FR-028). Cancellation is checked
 between routed items. CG's current `execute_kani_obligation` API accepts no
 cancellation handle, so an already-running harness continues until the
-generated identity's `wall_clock` ceiling. Process-origin plugin admission and backend-kind mapping
-remain follow-up work; the QSL-to-CG descriptor projection is covered by
-TC-012 while the execution slice remains Linked-only.
+generated identity's `wall_clock` ceiling. Process-origin plugin admission,
+routed execution and settlement remain follow-up work; the QSL-to-CG
+descriptor projection is covered by TC-012. The first-party execution path
+remains Linked-only.
 
 ## Dependencies
 

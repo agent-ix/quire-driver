@@ -55,9 +55,10 @@ and FR-006-AC-5 through FR-006-AC-23.
    `invalid_capability` with cause `invalid-domains`;
    the driver does not validate domains or construct that refusal. Verify
    descriptor identity, advertised pairs and supplied origin are passed to CG
-   unchanged (FR-005-AC-5). The future conversion to `BackendKind::Process` is
-   planned for CG IR-629; the driver does not construct that kind or map
-   backend identity to it.
+   unchanged (FR-005-AC-5). Verify the driver passes the projected descriptor
+   to CG's `BackendKind::from_descriptor`; CG constructs `BackendKind::Process`
+   from the supplied origin. TC-012 covers this conversion. The driver does not
+   construct that kind or infer it from backend identity.
 
 4. Use each of the 13 Kani result rows in QSpec FR-331-AC-20's Kani results
    table as a conversion case. For each row, compare the typed result fields
@@ -105,8 +106,9 @@ and FR-006-AC-5 through FR-006-AC-23.
 
 The separate host implementation's PL-1 through PL-7 conformance is verified
 by [TC-023](./TC-023-plugin-session-and-admission.md) through
-[TC-026](./TC-026-plugin-resource-bounds-and-cleanup.md). CG IR-629 is required
-for end-to-end process negotiation and settlement. The current
+[TC-026](./TC-026-plugin-resource-bounds-and-cleanup.md). The driver now uses
+CG IR-629's origin-aware descriptor conversion. End-to-end process-provider
+dispatch and settlement remain planned. The current
 `RoutedItemOutput` does not carry the full FR-331 request item or deadline. The
 IR-629 routed-request seam must expose the original request index, claim and
 occurrence, kind, extent/bounds, selected backend and candidates, plus the
@@ -120,7 +122,8 @@ driver/provider composition tests. IR-672 PR3 covers the hello/admission and
 request DTO stages. Result conversion and settlement use explicit typed input
 fixtures; the shared carrier preserves generic typed results, while settlement
 remains held for QSL result-mapping APIs;
-end-to-end negotiation and settlement also require CG IR-629.
+end-to-end process-provider dispatch and settlement remain planned under
+IR-672 and the QSL result-mapping dependencies.
 
 ## Expected Results
 

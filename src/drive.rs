@@ -150,7 +150,7 @@ pub fn drive(
         named,
         Some(&lowering),
     )?;
-    let kinds = convert_backends(upstream, registry)?;
+    let kinds = convert_backends(upstream, registry, &descriptors)?;
     let settlements = upstream
         .negotiate(&envelope)
         .map_err(DriverRefusal::Envelope)?;
@@ -350,16 +350,21 @@ fn checked_occurrence(
         })
 }
 
-/// MD-2: convert every registered `BackendId` to its CG kind, or refuse
-/// naming every unconverted id in bytewise order.
+/// MD-2: convert every registered, projected descriptor to its CG kind, or
+/// refuse unknown linked identities in bytewise order. CG reads provider
+/// origin from its descriptor; the driver does not infer a kind from the id.
 fn convert_backends(
     upstream: &impl Upstream,
     registry: &Registry,
+    descriptors: &BTreeMap<String, cg::BackendDescriptor>,
 ) -> Result<BTreeMap<BackendId, BackendKind>, DriverRefusal> {
     let mut kinds = BTreeMap::new();
     let mut unconverted = Vec::new();
     for id in registry.backends() {
-        match upstream.backend_kind(id) {
+        let descriptor = descriptors
+            .get(id.as_str())
+            .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?;
+        match upstream.backend_kind(descriptor) {
             Some(kind) => {
                 kinds.insert(id.clone(), kind);
             }
@@ -636,8 +641,8 @@ mod origin_projection_tests {
 
     use quire_contract_codegen as cg;
 
-    use super::{envelope, project_descriptor};
-    use crate::ProviderManifest;
+    use super::{convert_backends, envelope, project_descriptor};
+    use crate::{ProviderManifest, QslCg};
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
@@ -736,6 +741,49 @@ mod origin_projection_tests {
         assert_eq!(linked.origin, cg::ProviderOrigin::Linked);
         assert_eq!(process.origin, cg::ProviderOrigin::Process);
         assert_eq!(linked.bounds, None);
+    }
+
+    /// Trace: FR-005-AC-17. CG classifies the same identity from the
+    /// QSL-admitted origin, while unknown linked identities still refuse.
+    #[test]
+    fn backend_kind_conversion_uses_admitted_origin() {
+        let process_registry = registry(ProviderOrigin::Process);
+        let process_qsl = process_registry
+            .descriptors()
+            .next()
+            .expect("one process descriptor");
+        let process_cg = project_descriptor(process_qsl, &snapshot(process_qsl))
+            .expect("process descriptor projects");
+        let process_kinds = convert_backends(
+            &QslCg,
+            &process_registry,
+            &BTreeMap::from([(process_cg.identity.clone(), process_cg)]),
+        )
+        .expect("QSL-admitted process origin has a CG kind");
+        assert_eq!(
+            process_kinds.get(&BackendId::from_wire("example-provider").expect("identity")),
+            Some(&cg::BackendKind::Process(cg::BackendId(
+                "example-provider".to_owned()
+            )))
+        );
+
+        let linked_registry = registry(ProviderOrigin::Linked);
+        let linked_qsl = linked_registry
+            .descriptors()
+            .next()
+            .expect("one linked descriptor");
+        let linked_cg = project_descriptor(linked_qsl, &snapshot(linked_qsl))
+            .expect("linked descriptor projects");
+        let refusal = convert_backends(
+            &QslCg,
+            &linked_registry,
+            &BTreeMap::from([(linked_cg.identity.clone(), linked_cg)]),
+        )
+        .expect_err("unknown linked identity remains unsupported");
+        assert!(matches!(
+            refusal,
+            crate::DriverRefusal::UnknownBackend { .. }
+        ));
     }
 
     /// Trace: FR-019-AC-15. The lossless FR-331 descriptor distinguishes a missing bounds

@@ -15,7 +15,7 @@ preflight refusals, CG-owned terminal mapping, and the generic result carrier
 used by non-Kani providers. Full routed invocation and process-provider
 terminal integration remain planned.
 
-Scope: FR-005-AC-1 through FR-005-AC-11 and FR-005-AC-16.
+Scope: FR-005-AC-1 through FR-005-AC-11, FR-005-AC-16 and FR-005-AC-17.
 
 ## Test Procedure
 
@@ -45,14 +45,13 @@ Scope: FR-005-AC-1 through FR-005-AC-11 and FR-005-AC-16.
    `src/drive.rs`: build separate QSL registries with otherwise equal `kani`
    descriptors, one `Linked` and one `Process`, then verify their CG
    descriptor projections preserve identity, advertised pairs and the supplied
-   origin. This test covers descriptor projection only. CG's construction of
-   `BackendKind::Process` from that origin remains pending under IR-629; the
-   driver does not map the backend identity to a CG kind. The Linked-origin half of
+   origin. Then verify the driver's pre-negotiation conversion calls CG's
+   `BackendKind::from_descriptor`: the same unknown identity is refused when
+   Linked and becomes `Process(identity)` when Process. The driver does not
+   construct that kind or infer it from identity. The Linked-origin half of
    FR-005-AC-1 is tested in `src/registry.rs`. Process-origin plugin hello
    registration through the `quire-cli` process-provider adapter remains
-   planned. `quire-cli` supplies plugin hello manifests to the QSL registry
-   builder. CG IR-629 is spec-merged but its process backend-kind code is
-   pending; the origin projection itself is covered by the driver test.
+   planned.
 
 9. Verify the Kani output's terminal is the one produced by CG's
    `run_terminal_value`; the driver does not derive a terminal from evidence or
@@ -100,9 +99,9 @@ invocation and process-provider terminal integration remain planned.
   accepts no cancellation handle, so an already-running harness continues
   until its identity's `wall_clock` ceiling.
 - Process-origin plugin admission remains planned with plugin-host work. The
-  test covers projection of the supplied origin into CG's descriptor; CG's
-  construction of `BackendKind::Process` remains pending under IR-629. The
-  driver does not construct CG process kinds from provider manifest bytes.
+  test covers projection of the supplied origin into CG's descriptor and CG's
+  `BackendKind::from_descriptor` classifies the descriptor from that origin.
+  The driver does not construct CG process kinds from provider manifest bytes.
 - Linked registry admission retains canonical FR-331 bytes. Present optional
   members survive and absent members remain absent; the FR-331 request adapter
   refuses `wire: None` rather than reconstructing a manifest.
