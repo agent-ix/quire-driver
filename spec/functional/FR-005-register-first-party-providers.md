@@ -115,7 +115,7 @@ is specified in Behavior.
 - The driver SHALL preserve a caller-supplied `Process` origin, descriptor
   identity and advertised pairs when registering a process descriptor and
   projecting it to CG unchanged. When preparing descriptors for negotiation,
-the driver SHALL call
+  the driver SHALL call
   CG's `BackendKind::from_descriptor`, which constructs
   `BackendKind::Process` from the supplied origin. The driver SHALL NOT
   construct the kind or map backend identity to it.
