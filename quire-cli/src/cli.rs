@@ -9,10 +9,13 @@ use std::process::ExitCode;
 
 use ix_cli_kit::exit::{caller_exit_code, RESERVED_COMMAND_NOT_FOUND};
 use ix_cli_kit::streams::{self, Diagnostics};
+use qsl_cst::format::{format_with_limits, FormatLimits, FormatRefusal};
+use qsl_foundation::diagnostic::Staged;
 use qsl_foundation::diagnostic::{Category, Code};
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
-    default_accounting, Call, CallArgument, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
+    check, default_accounting, package, parse, select, Call, CallArgument, DependencyInput,
+    LockEvidence, PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use quire_driver::{
@@ -214,6 +217,130 @@ struct RunOptions {
     engine: ExecutionEngine,
 }
 
+struct CompileOptions {
+    path: String,
+}
+
+struct CheckOptions {
+    path: String,
+}
+
+struct ParseOptions {
+    path: String,
+}
+
+struct FormatOptions {
+    path: String,
+}
+
+impl FormatOptions {
+    fn parse(arguments: &[OsString]) -> Result<Self, String> {
+        let mut positionals = Vec::new();
+        let mut index = 0;
+        while index < arguments.len() {
+            let argument = arguments[index]
+                .to_str()
+                .ok_or_else(|| "format arguments must be valid UTF-8".to_owned())?;
+            if argument == "--format" {
+                index += 2;
+                continue;
+            }
+            if argument.starts_with('-') {
+                return Err(format!("unknown format option `{argument}`"));
+            }
+            positionals.push(argument.to_owned());
+            index += 1;
+        }
+        if positionals.len() != 1 {
+            return Err("format requires exactly one source path".to_owned());
+        }
+        Ok(Self {
+            path: positionals.remove(0),
+        })
+    }
+}
+
+impl ParseOptions {
+    fn parse(arguments: &[OsString]) -> Result<Self, String> {
+        let mut positionals = Vec::new();
+        let mut index = 0;
+        while index < arguments.len() {
+            let argument = arguments[index]
+                .to_str()
+                .ok_or_else(|| "parse arguments must be valid UTF-8".to_owned())?;
+            if argument == "--format" {
+                index += 2;
+                continue;
+            }
+            if argument.starts_with('-') {
+                return Err(format!("unknown parse option `{argument}`"));
+            }
+            positionals.push(argument.to_owned());
+            index += 1;
+        }
+        if positionals.len() != 1 {
+            return Err("parse requires exactly one source path".to_owned());
+        }
+        Ok(Self {
+            path: positionals.remove(0),
+        })
+    }
+}
+
+impl CompileOptions {
+    fn parse(arguments: &[OsString]) -> Result<Self, String> {
+        let mut positionals = Vec::new();
+        let mut index = 0;
+        while index < arguments.len() {
+            let argument = arguments[index]
+                .to_str()
+                .ok_or_else(|| "compile arguments must be valid UTF-8".to_owned())?;
+            if argument == "--format" {
+                index += 2;
+                continue;
+            }
+            if argument.starts_with('-') {
+                return Err(format!("unknown compile option `{argument}`"));
+            }
+            positionals.push(argument.to_owned());
+            index += 1;
+        }
+        if positionals.len() != 1 {
+            return Err("compile requires exactly one source path".to_owned());
+        }
+        Ok(Self {
+            path: positionals.remove(0),
+        })
+    }
+}
+
+impl CheckOptions {
+    fn parse(arguments: &[OsString]) -> Result<Self, String> {
+        let mut positionals = Vec::new();
+        let mut index = 0;
+        while index < arguments.len() {
+            let argument = arguments[index]
+                .to_str()
+                .ok_or_else(|| "check arguments must be valid UTF-8".to_owned())?;
+            if argument == "--format" {
+                index += 2;
+                continue;
+            }
+            if argument.starts_with('-') {
+                return Err(format!("unknown check option `{argument}`"));
+            }
+            positionals.push(argument.to_owned());
+            index += 1;
+        }
+        if positionals.len() != 1 {
+            return Err("check requires exactly one source path".to_owned());
+        }
+        Ok(Self {
+            path: positionals.remove(0),
+        })
+    }
+}
+
 impl RunOptions {
     fn parse(arguments: &[OsString]) -> Result<Self, String> {
         let mut positionals = Vec::new();
@@ -303,6 +430,7 @@ struct CommandResult {
     category: Category,
     document: Option<OutcomeDocument>,
     diagnostic: Option<String>,
+    text_output: Option<String>,
 }
 
 impl CommandResult {
@@ -311,6 +439,7 @@ impl CommandResult {
             category: document.category(),
             document: Some(document),
             diagnostic: None,
+            text_output: None,
         }
     }
 
@@ -319,18 +448,32 @@ impl CommandResult {
             category,
             document: None,
             diagnostic: Some(message.into()),
+            text_output: None,
+        }
+    }
+
+    fn formatted(document: OutcomeDocument, text_output: Option<String>) -> Self {
+        Self {
+            category: document.category(),
+            document: Some(document),
+            diagnostic: None,
+            text_output,
         }
     }
 
     /// An input refusal raised before QSL runs, recorded with QSL's native code.
-    fn input_refusal(message: impl Into<String>) -> Self {
-        Self::catalog_failure(Code::InvalidRequest, message)
+    fn input_refusal(operation: Operation, message: impl Into<String>) -> Self {
+        Self::catalog_failure_for(operation, Code::InvalidRequest, message)
     }
 
     fn catalog_failure(code: Code, message: impl Into<String>) -> Self {
+        Self::catalog_failure_for(Operation::Execute, code, message)
+    }
+
+    fn catalog_failure_for(operation: Operation, code: Code, message: impl Into<String>) -> Self {
         let message = message.into();
         Self::document(
-            OutcomeDocument::new(Operation::Execute, None, code.category()).with_diagnostics(vec![
+            OutcomeDocument::new(operation, None, code.category()).with_diagnostics(vec![
                 OutcomeDiagnostic::new(None, code.as_str(), None, message.clone()),
             ]),
         )
@@ -370,7 +513,7 @@ fn run(options: RunOptions) -> CommandResult {
         accounting: default_accounting(DEFAULT_WORK_UNITS),
     };
     if let Err(error) = options.limits.apply_to(&mut limits, &mut call) {
-        return CommandResult::input_refusal(error.to_string());
+        return CommandResult::input_refusal(Operation::Execute, error.to_string());
     }
     let bytes = match read_source(&options.path, limits.source.source_bytes) {
         Ok(bytes) => bytes,
@@ -397,6 +540,125 @@ fn run(options: RunOptions) -> CommandResult {
     }
 }
 
+/// Compile one source through QSL's typed spine and serialize its package outcome.
+fn compile(options: CompileOptions) -> CommandResult {
+    let limits = SpineLimits::default();
+    let bytes = match read_source(&options.path, limits.source.source_bytes) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let message = format!("could not read source {}: {error}", options.path);
+            return CommandResult::catalog_failure_for(Operation::Package, Code::IoError, message);
+        }
+    };
+    let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
+    let dependencies = DependencyInput::default();
+    let packages = BTreeMap::new();
+    let cancel = Cancel::new();
+    let result = parse(
+        &ParseRequest {
+            source: &source,
+            path: &options.path,
+            bytes: &bytes,
+        },
+        limits.source,
+        &cancel,
+    )
+    .and_then(|parsed| {
+        select(parsed.value(), &packages, limits.model, &cancel).and_then(|models| {
+            check(
+                parsed.value(),
+                models.value(),
+                &dependencies,
+                &LockEvidence::default(),
+                limits,
+                &cancel,
+            )
+            .and_then(|checked| package(checked.value(), PackageLimits::default(), &cancel))
+        })
+    });
+    CommandResult::document(OutcomeDocument::from_package(&result))
+}
+
+/// Check one source through QSL's typed front-end and serialize its S4 outcome.
+fn check_source(options: CheckOptions) -> CommandResult {
+    let limits = SpineLimits::default();
+    let bytes = match read_source(&options.path, limits.source.source_bytes) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let message = format!("could not read source {}: {error}", options.path);
+            return CommandResult::catalog_failure_for(Operation::Check, Code::IoError, message);
+        }
+    };
+    let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
+    let packages = BTreeMap::new();
+    let cancel = Cancel::new();
+    let result = parse(
+        &ParseRequest {
+            source: &source,
+            path: &options.path,
+            bytes: &bytes,
+        },
+        limits.source,
+        &cancel,
+    )
+    .and_then(|parsed| {
+        select(parsed.value(), &packages, limits.model, &cancel).and_then(|models| {
+            check(
+                parsed.value(),
+                models.value(),
+                &DependencyInput::default(),
+                &LockEvidence::default(),
+                limits,
+                &cancel,
+            )
+        })
+    });
+    CommandResult::document(OutcomeDocument::from_check(&result))
+}
+
+/// Parse one source through QSL and serialize its typed parse outcome.
+fn parse_source(options: ParseOptions) -> CommandResult {
+    let limits = SpineLimits::default();
+    let bytes = match read_source(&options.path, limits.source.source_bytes) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let message = format!("could not read source {}: {error}", options.path);
+            return CommandResult::catalog_failure_for(Operation::Parse, Code::IoError, message);
+        }
+    };
+    let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
+    let result = parse(
+        &ParseRequest {
+            source: &source,
+            path: &options.path,
+            bytes: &bytes,
+        },
+        limits.source,
+        &Cancel::new(),
+    );
+    CommandResult::document(OutcomeDocument::from_parse(&result))
+}
+
+/// Format one parsed source through QSL and retain its typed outcome.
+fn format_source(options: FormatOptions) -> CommandResult {
+    let limits = qsl_cst::Limits::default();
+    let bytes = match read_source(&options.path, limits.source_bytes) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let message = format!("could not read source {}: {error}", options.path);
+            return CommandResult::catalog_failure_for(Operation::Format, Code::IoError, message);
+        }
+    };
+    let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
+    let cancel = Cancel::new();
+    let result = qsl_cst::parse_with_cancel(source, &options.path, &bytes, limits, &cancel)
+        .map_err(FormatRefusal::DiagnosedSource)
+        .and_then(|parsed| format_with_limits(&parsed, FormatLimits::default()).map(Staged::new));
+    let document = OutcomeDocument::from_format(&result);
+    let text_output = result.ok().map(Staged::into_value);
+    CommandResult::formatted(document, text_output)
+}
+
 /// Read at most one byte beyond the caller's source limit. Passing that
 /// sentinel byte to QSL preserves its typed source-limit refusal while
 /// keeping the CLI's input buffer bounded by the configured limit.
@@ -412,14 +674,50 @@ fn read_source(path: &str, source_limit: usize) -> std::io::Result<Vec<u8>> {
 /// Dispatch the root verb while preserving its QSL-owned result category.
 fn dispatch(
     verb: Verb,
-    _format: OutputFormat,
+    format: OutputFormat,
     raw_arguments: &[OsString],
     _signals: crate::signals::SignalContext,
 ) -> CommandResult {
     if verb == Verb::Run {
         return match RunOptions::parse(raw_arguments) {
+            Ok(_options) if format == OutputFormat::Text => {
+                text_rendering_unavailable(Operation::Execute, "run")
+            }
             Ok(options) => run(options),
-            Err(error) => CommandResult::input_refusal(error),
+            Err(error) => CommandResult::input_refusal(Operation::Execute, error),
+        };
+    }
+    if verb == Verb::Compile {
+        return match CompileOptions::parse(raw_arguments) {
+            Ok(_options) if format == OutputFormat::Text => {
+                text_rendering_unavailable(Operation::Package, "compile")
+            }
+            Ok(options) => compile(options),
+            Err(error) => CommandResult::input_refusal(Operation::Package, error),
+        };
+    }
+    if verb == Verb::Check {
+        return match CheckOptions::parse(raw_arguments) {
+            Ok(_options) if format == OutputFormat::Text => {
+                text_rendering_unavailable(Operation::Check, "check")
+            }
+            Ok(options) => check_source(options),
+            Err(error) => CommandResult::input_refusal(Operation::Check, error),
+        };
+    }
+    if verb == Verb::Parse {
+        return match ParseOptions::parse(raw_arguments) {
+            Ok(_options) if format == OutputFormat::Text => {
+                text_rendering_unavailable(Operation::Parse, "parse")
+            }
+            Ok(options) => parse_source(options),
+            Err(error) => CommandResult::input_refusal(Operation::Parse, error),
+        };
+    }
+    if verb == Verb::Format {
+        return match FormatOptions::parse(raw_arguments) {
+            Ok(options) => format_source(options),
+            Err(error) => CommandResult::input_refusal(Operation::Format, error),
         };
     }
     if raw_arguments
@@ -442,7 +740,23 @@ fn dispatch(
         category: Category::Unsupported,
         document: None,
         diagnostic: None,
+        text_output: None,
     }
+}
+
+/// Refuse a text selection whose QSL outcome renderer is not available.
+/// Machine mode remains fully QSL-serialized; the diagnostic includes the
+/// native QSL code because text mode has no outcome-document renderer.
+fn text_rendering_unavailable(operation: Operation, verb: &str) -> CommandResult {
+    let code = Code::UnimplementedCapability;
+    CommandResult::catalog_failure_for(
+        operation,
+        code,
+        format!(
+            "text rendering for `{verb}` is unavailable ({})",
+            code.as_str()
+        ),
+    )
 }
 
 /// Emit one result document with the kit's canonical JSON and stream APIs.
@@ -454,6 +768,9 @@ fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
         return result.category;
     };
     if format != OutputFormat::Json {
+        if let Some(text) = &result.text_output {
+            return write_primary_output(text.as_bytes(), "formatted source", result.category);
+        }
         return result.category;
     }
     match ix_cli_kit::json::encode_canonical(document, false) {
@@ -518,7 +835,7 @@ mod outcome_tests {
 
     use super::{process_exit_code, write_diagnostic, write_result_diagnostics, CommandResult};
 
-    /// Trace: FR-002-AC-2; one QSL exit function preserves its numeric results.
+    /// Trace: FR-002-AC-2, FR-002-AC-4; one QSL exit result reaches process exit unchanged through the kit.
     #[test]
     fn process_code_is_qsl_category_exit_code_without_remapping() {
         let expected = [0, 10, 10, 20, 21, 22, 22, 30];

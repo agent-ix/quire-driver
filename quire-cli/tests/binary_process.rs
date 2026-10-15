@@ -54,13 +54,53 @@ fn expected_document_bytes(code: Code, message: &str) -> Vec<u8> {
 #[test]
 fn run_without_engine_executes_with_the_interpreter() {
     let output = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes"])
+        .args(["run", SOURCE, "yes", "--format", "json"])
         .output()
         .expect("run quire");
     assert_eq!(
         output.status.code(),
         Some(i32::from(Category::Success.exit_code()))
     );
+}
+
+/// Trace: FR-002-AC-13; unsupported QSL text renderers refuse before lifecycle execution.
+#[test]
+fn unavailable_text_renderers_return_typed_unsupported_refusals() {
+    let cases = [
+        vec!["parse", "missing-text-renderer.qsl"],
+        vec!["check", "missing-text-renderer.qsl"],
+        vec!["compile", "missing-text-renderer.qsl"],
+        vec!["run", "missing-text-renderer.qsl", "yes"],
+    ];
+
+    for arguments in cases {
+        let verb = arguments[0];
+        for suffix in [vec![], vec!["--format", "text"]] {
+            let output = Command::new(QUIRE)
+                .args(arguments.iter().copied().chain(suffix.iter().copied()))
+                .output()
+                .expect("run quire with unavailable typed text rendering");
+            assert_eq!(
+                output.status.code(),
+                Some(i32::from(Category::Unsupported.exit_code())),
+                "{verb} {suffix:?}"
+            );
+            assert!(output.stdout.is_empty(), "{verb} {suffix:?}");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("unimplemented_capability"),
+                "{verb} {suffix:?}: {stderr}"
+            );
+            assert!(
+                stderr.contains(&format!("text rendering for `{verb}`")),
+                "{verb} {suffix:?}: {stderr}"
+            );
+            assert!(
+                !stderr.contains("could not read source"),
+                "{verb}: {stderr}"
+            );
+        }
+    }
 }
 
 /// Trace: FR-002-AC-3, FR-002-AC-9; JSON is the unchanged QSL outcome encoded by the kit.
@@ -229,7 +269,15 @@ fn an_unknown_engine_is_a_refusal() {
 #[test]
 fn checking_work_limit_changes_the_call_outcome() {
     let exhausted = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--limit", "s3.work_units=0"])
+        .args([
+            "run",
+            SOURCE,
+            "yes",
+            "--limit",
+            "s3.work_units=0",
+            "--format",
+            "json",
+        ])
         .output()
         .expect("run with exhausted work limit");
     assert_eq!(
@@ -238,7 +286,15 @@ fn checking_work_limit_changes_the_call_outcome() {
     );
 
     let sufficient = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--limit", "s3.work_units=1000"])
+        .args([
+            "run",
+            SOURCE,
+            "yes",
+            "--limit",
+            "s3.work_units=1000",
+            "--format",
+            "json",
+        ])
         .output()
         .expect("run with sufficient work limit");
     assert_eq!(
@@ -277,7 +333,15 @@ fn bare_work_units_limit_reaches_qsl_call_accounting() {
 #[test]
 fn lifecycle_stage_limit_uses_incomplete_exit_code() {
     let output = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--limit", "s1.input_bytes=1"])
+        .args([
+            "run",
+            SOURCE,
+            "yes",
+            "--limit",
+            "s1.input_bytes=1",
+            "--format",
+            "json",
+        ])
         .output()
         .expect("run with an exhausted source-byte limit");
     assert_eq!(
@@ -288,7 +352,7 @@ fn lifecycle_stage_limit_uses_incomplete_exit_code() {
     let source_bytes = std::fs::read(SOURCE).expect("read fixture to set exact source bound");
     let bound = format!("s1.input_bytes={}", source_bytes.len());
     let raised = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--limit", &bound])
+        .args(["run", SOURCE, "yes", "--limit", &bound, "--format", "json"])
         .output()
         .expect("run with the source bound raised to the fixture length");
     assert_eq!(
@@ -419,11 +483,24 @@ fn reserved_exit_code_uses_internal_failure_fallback() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("reserved code 5"), "{format}: {stderr}");
         assert!(stderr.contains("fallback code 30"), "{format}: {stderr}");
-        assert_eq!(
-            stderr.as_ref(),
-            "driver exit mapping rejected result 5 (reserved code 5); using fallback code 30.\n",
-            "{format}"
+        assert!(
+            stderr.contains(
+                "driver exit mapping rejected result 5 (reserved code 5); using fallback code 30."
+            ),
+            "{format}: {stderr}"
         );
+        if format == "json" {
+            assert_eq!(
+                stderr.as_ref(),
+                "driver exit mapping rejected result 5 (reserved code 5); using fallback code 30.\n",
+                "{format}"
+            );
+        } else {
+            assert!(
+                stderr.contains("unimplemented_capability"),
+                "{format}: {stderr}"
+            );
+        }
     }
 
     #[cfg(unix)]
@@ -439,11 +516,13 @@ fn reserved_exit_code_uses_internal_failure_fallback() {
 #[test]
 fn default_binary_does_not_enable_the_test_exit_seam() {
     let output = Command::new(QUIRE)
-        .args(["check", "--format", "json", "missing-source.qsl"])
+        .args(["check", SOURCE, "--format", "json"])
         .env("TC018_CASE", "reserved-exit")
         .output()
         .expect("run the default-feature quire binary");
-    assert_eq!(output.status.code(), Some(21));
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.status.code(), Some(0));
+    let document: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("check writes a QSL outcome");
+    assert_eq!(document["operation"], "check");
     assert!(output.stderr.is_empty());
 }

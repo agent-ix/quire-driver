@@ -478,6 +478,7 @@ mod tests {
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
+    /// Trace: FR-002-AC-7; active plugin-session signals clean up before re-raise and emit no outcome.
     #[test]
     fn plugin_session_signals_cancel_and_reap_each_active_lifecycle_stage() {
         use std::process::{Command, Stdio};

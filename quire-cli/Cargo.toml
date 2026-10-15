@@ -21,6 +21,7 @@ tc018-test-adapter = []
 [dependencies]
 base64 = "=0.22.1"
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+qsl-cst = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }

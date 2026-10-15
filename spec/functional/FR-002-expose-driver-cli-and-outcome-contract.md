@@ -13,6 +13,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-287
     type: depends_on
+  - target: ix://agent-ix/quire-spec-language/FR-298
+    type: depends_on
   - target: ix://agent-ix/quire-specification/FR-301
     type: depends_on
   - target: ix://agent-ix/ix-cli-kit/FR-008
@@ -49,7 +51,9 @@ the fallback when that function returns reserved value `5`.
 - One QSL-defined `quire-outcome/1` JSON value in machine mode, or the
   selected text rendering, except that a reserved-code mapping invariant
   failure or signal-terminated active plugin invocation writes no outcome
-  document or text result.
+  document or text result. Until QSL supplies typed outcome text rendering,
+  parse, check, compile and run text requests return the typed unsupported
+  refusal specified in AC-13 and write no stdout.
 - The exit status returned by QSL's category exit function, except that a
   reserved-code mapping invariant failure returns code `30`, and a
   signal-terminated active plugin invocation re-raises the signal after
@@ -86,6 +90,10 @@ the fallback when that function returns reserved value `5`.
   `streams` module for stream discipline.
 - When the CLI writes machine-mode outcomes, it SHALL use ix-cli-kit's `json`
   module for canonical JSON encoding.
+- When the user requests text output for parse, check, compile or run while
+  QSL's typed outcome renderer is unavailable, the CLI SHALL refuse with QSL
+  `Code::UnimplementedCapability` and SHALL NOT run the operation. Format
+  continues to use QSL's formatter text.
 - When the CLI resolves configuration values, it SHALL use ix-cli-kit's
   `config` module.
 - When the user invokes `quire --version`, the CLI SHALL report the semantic
@@ -114,10 +122,14 @@ the fallback when that function returns reserved value `5`.
 | FR-002-AC-10 | When the CLI resolves configuration values, it uses ix-cli-kit's `config` module. | Test (TC-009) |
 | FR-002-AC-11 | When invoked with `--version`, the CLI reports the semantic version declared by the `quire-cli` Cargo package. | Test (TC-009) |
 | FR-002-AC-12 | The `quire-cli` built-binary version-agreement check uses `ix_cli_kit::version::Agreement::command` to compare `CARGO_PKG_VERSION` with the output of the built `quire --version` command and requires agreement. | Test (TC-009) |
+| FR-002-AC-13 | When text rendering is unavailable for parse, check, compile or run, the CLI returns the operation-specific QSL `UnimplementedCapability` result, writes no stdout, and does not execute the requested lifecycle operation. | Test (TC-009) |
 
 ## Dependencies
 
 - QSL ADR-029 CB-1, CB-4 and CB-5; QSL FR-285, FR-286 and FR-287.
+- QSL FR-298 defines typed rendering; QSL-600/QSL-601 own its pending
+  `qsl-inspect` implementation. AC-13 specifies the driver's behavior until
+  that renderer is available.
 - QSpec FR-300 and FR-301 for the CLI output and process contract.
 - [ix-cli-kit FR-017](ix://agent-ix/ix-cli-kit/FR-017) defines the caller-owned
   exit-code pass-through; QSL ADR-029 remains authoritative for category
