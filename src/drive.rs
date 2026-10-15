@@ -138,14 +138,15 @@ pub fn drive(
         registry,
         named,
     );
+    let lowered = lower_driver_request(&checked, &items)?;
 
     // T-13 order: the `route` candidate step, then every registered
     // BackendId through CG's one conversion, then E7.
     let manifests = registry.manifest_snapshot();
-    let (envelope, candidate_sets) = envelope(registry, &manifests, &checked, &items, named)?;
-    let kinds = convert_backends(upstream, registry)?;
+    let prepared = envelope(registry, manifests, &checked, &items, named, &lowered)?;
+    let kinds = convert_backends(upstream, registry, &prepared.generation_descriptors)?;
     let settlements = upstream
-        .negotiate(&envelope)
+        .negotiate(&prepared.envelope)
         .map_err(DriverRefusal::Envelope)?;
     let in_order = settlements.len() == items.len()
         && settlements
@@ -160,10 +161,18 @@ pub fn drive(
     }
 
     // The routing step: the `supported` items, and only those.
-    let routed = route_supported(upstream, &settlements, &candidate_sets, &kinds)?;
+    let routed = route_supported(upstream, &settlements, &prepared.candidate_sets, &kinds)?;
 
     // Step 7: CG generation for the routed items.
-    let generation = generate(upstream, &checked, &items, &routed, generation)?;
+    let generation = generate(
+        upstream,
+        &checked,
+        &prepared.generation_descriptors,
+        &items,
+        &routed,
+        generation,
+        &lowered,
+    )?;
 
     Ok(Driven {
         package: checked_unit,
@@ -182,9 +191,11 @@ pub fn drive(
 fn generate(
     upstream: &impl Upstream,
     checked: &CheckedPackageV2,
+    descriptors: &[cg::BackendDescriptor],
     items: &[RequirementItem],
     routed: &[Routed],
     generation: GenerationInput<'_>,
+    lowered: &LoweredDriverRequest,
 ) -> Result<RoutedGeneration, DriverRefusal> {
     if routed.is_empty() {
         return Ok(RoutedGeneration::default());
@@ -208,15 +219,59 @@ fn generate(
                 request_index,
                 node,
             }))?;
-        generation_items.push(cg::RoutedGenerationItem {
+        let descriptor = descriptors
+            .iter()
+            .find(|descriptor| descriptor.identity == item.candidate.id().as_str())
+            .ok_or(DriverRefusal::Fault(DriverFault::AdmittedManifestMissing))?;
+        let generation_item = cg::RoutedGenerationItem::from_descriptor(
             request_index,
-            node_id: (*node_id).clone(),
-            backend: cg_candidate(&item.candidate),
-            kind: item.kind.clone(),
-        });
+            (*node_id).clone(),
+            cg_candidate(&item.candidate),
+            descriptor,
+        )
+        .map_err(|_| DriverRefusal::Fault(DriverFault::RoutingTarget))?
+        .with_scalar_selection(
+            &lowered.contract_package,
+            lowered
+                .result_selections
+                .get(request_index)
+                .cloned()
+                .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?,
+        );
+        generation_items.push(generation_item);
     }
+    let contexts = cg::GenerationContexts {
+        kani: generation.kani.map(|kani| cg::KaniGenerationContext {
+            ceilings: kani.ceilings,
+            subject_path: kani.subject_path,
+            unwind: kani.unwind,
+        }),
+    };
+    upstream
+        .generate(
+            &lowered.contract_package,
+            &lowered.positions,
+            &generation_items,
+            &contexts,
+        )
+        .map_err(DriverRefusal::Generation)
+}
+
+struct LoweredDriverRequest {
+    contract_package: quire_contract_model::ContractPackageV1,
+    positions: Vec<cg::ContractRequestPosition>,
+    result_selections: Vec<cg::ContractDriverResultSelection>,
+}
+
+/// Lower each admitted driver item and its QSL-selected result context once.
+/// The same package and positions bind CG negotiation preflight and generation.
+fn lower_driver_request(
+    checked: &CheckedPackageV2,
+    items: &[RequirementItem],
+) -> Result<LoweredDriverRequest, DriverRefusal> {
     let mut roots = Vec::new();
     let mut positions = Vec::new();
+    let mut result_selections = Vec::with_capacity(items.len());
     for (request_index, item) in items.iter().enumerate() {
         let application = resolve_checked_node(
             checked.graph().nodes.iter().map(|node| &node.node_id),
@@ -230,14 +285,16 @@ fn generate(
             .conversion_context()
             .map(|occurrence| contract_occurrence(checked, occurrence, request_index))
             .transpose()?;
+        let result_selection = cg::ContractDriverResultSelection::OwnResult {
+            application: application_occurrence,
+            conversion: conversion.clone(),
+        };
         roots.push(application.clone());
         positions.push(cg::ContractRequestPosition::DriverItem {
             node_id: application,
-            result_selection: cg::ContractDriverResultSelection::OwnResult {
-                application: application_occurrence,
-                conversion: conversion.clone(),
-            },
+            result_selection: result_selection.clone(),
         });
+        result_selections.push(result_selection);
         if let Some(conversion) = conversion {
             roots.push(conversion.node_id.clone());
             positions.push(cg::ContractRequestPosition::ContextRoot {
@@ -268,16 +325,11 @@ fn generate(
             DriverFault::ContractLoweringIncomplete,
         ));
     };
-    let contexts = cg::GenerationContexts {
-        kani: generation.kani.map(|kani| cg::KaniGenerationContext {
-            ceilings: kani.ceilings,
-            subject_path: kani.subject_path,
-            unwind: kani.unwind,
-        }),
-    };
-    upstream
-        .generate(&contract_package, &positions, &generation_items, &contexts)
-        .map_err(DriverRefusal::Generation)
+    Ok(LoweredDriverRequest {
+        contract_package,
+        positions,
+        result_selections,
+    })
 }
 
 fn contract_occurrence(
@@ -311,16 +363,22 @@ fn contract_occurrence(
     })
 }
 
-/// MD-2: convert every registered `BackendId` to its CG kind, or refuse
-/// naming every unconverted id in bytewise order.
+/// Convert every QSL-registered provider's projected descriptor to its CG
+/// kind, preserving QSL's admitted provider origin.
 fn convert_backends(
     upstream: &impl Upstream,
     registry: &Registry,
+    descriptors: &[cg::BackendDescriptor],
 ) -> Result<BTreeMap<BackendId, BackendKind>, DriverRefusal> {
     let mut kinds = BTreeMap::new();
     let mut unconverted = Vec::new();
-    for id in registry.backends() {
-        match upstream.backend_kind(id) {
+    for qsl_descriptor in registry.descriptors() {
+        let id = qsl_descriptor.id();
+        let descriptor = descriptors
+            .iter()
+            .find(|descriptor| descriptor.identity == id.as_str())
+            .ok_or(DriverRefusal::Fault(DriverFault::AdmittedManifestMissing))?;
+        match upstream.backend_kind(descriptor) {
             Some(kind) => {
                 kinds.insert(id.clone(), kind);
             }
@@ -340,13 +398,20 @@ fn convert_backends(
 /// The FR-331 envelope CG negotiates over, and each item's candidates as
 /// `items_from_requirements` computed them against the registry for `named`.
 /// Types cross as their wire spellings (ADR-013 T-7).
+struct PreparedEnvelope {
+    envelope: cg::BackendProviderEnvelope,
+    candidate_sets: Vec<Vec<Candidate>>,
+    generation_descriptors: Vec<cg::BackendDescriptor>,
+}
+
 fn envelope(
     registry: &Registry,
     manifests: &[crate::ProviderManifest],
     checked: &CheckedPackageV2,
     items: &[RequirementItem],
     named: Option<&BackendId>,
-) -> Result<(cg::BackendProviderEnvelope, Vec<Vec<Candidate>>), DriverRefusal> {
+    lowered: &LoweredDriverRequest,
+) -> Result<PreparedEnvelope, DriverRefusal> {
     let manifest = registry
         .descriptors()
         .map(|descriptor| {
@@ -381,7 +446,7 @@ fn envelope(
             ),
         };
         candidate_sets.push(set);
-        let kani_form = project_kani_form(checked, item.node(), request_index)?;
+        let kani_form = project_kani_form(checked, item.node(), request_index, lowered)?;
         request_items.push(cg::RequestItem {
             kind,
             extent,
@@ -391,15 +456,17 @@ fn envelope(
         });
     }
 
-    Ok((
-        cg::BackendProviderEnvelope {
+    let generation_descriptors = manifest.clone();
+    Ok(PreparedEnvelope {
+        envelope: cg::BackendProviderEnvelope {
             contract_version: cg::BACKEND_PROVIDER_CONTRACT.to_owned(),
             capability_vocabulary: cg::CAPABILITY_VOCABULARY.to_owned(),
             manifest,
             items: request_items,
         },
         candidate_sets,
-    ))
+        generation_descriptors,
+    })
 }
 
 /// Project the admitted checked node selected by QSL into CG's typed Kani
@@ -408,6 +475,7 @@ fn project_kani_form(
     checked: &CheckedPackageV2,
     node: qsl_foundation::digest::WireNodeId,
     request_index: usize,
+    lowered: &LoweredDriverRequest,
 ) -> Result<cg::KaniForm, DriverRefusal> {
     let selected = resolve_checked_node(
         checked
@@ -420,6 +488,9 @@ fn project_kani_form(
     )?;
     Ok(cg::KaniForm::V2ScalarClaim {
         package: Box::new(checked.clone()),
+        contract: Box::new(lowered.contract_package.clone()),
+        positions: lowered.positions.clone(),
+        request_index,
         node_id: selected.clone(),
     })
 }
@@ -453,7 +524,7 @@ fn resolve_checked_node<'a>(
 /// provider bytes (QSL ADR-029 PV-1, CG FR-019-AC-15).
 fn project_descriptor(
     descriptor: &qsl_route::BackendDescriptor,
-    _bounds: Option<&BTreeMap<String, u64>>,
+    bounds: Option<&BTreeMap<String, u64>>,
 ) -> Result<cg::BackendDescriptor, DriverRefusal> {
     let mut advertised = Vec::new();
     for (kind, mode) in descriptor.advertises() {
@@ -477,6 +548,7 @@ fn project_descriptor(
         advertised,
         origin,
         domains: descriptor.domains().cloned(),
+        bounds: bounds.cloned(),
     })
 }
 
@@ -648,6 +720,7 @@ fn cg_extent(item: &RequirementItem) -> cg::ExtentClassification {
 mod origin_projection_tests {
     use qsl_foundation::BackendId;
     use qsl_route::{BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin, Registry};
+    use std::collections::BTreeMap;
 
     use quire_contract_codegen as cg;
 
@@ -656,20 +729,21 @@ mod origin_projection_tests {
     fn descriptor(origin: ProviderOrigin, identity: &str) -> BackendDescriptor {
         let candidate =
             Candidate::new(BackendId::from_wire(identity).expect("identity is nonempty"));
+        let domains = ["integer"];
         qsl_route::descriptor_from_manifest(
             candidate,
             origin,
             ManifestDigest::from_digest([7; 32]),
             [(Some("value-validity"), Some("bounded"))],
-            None,
+            Some(&domains),
         )
         .expect("QSL accepts the typed descriptor")
     }
 
-    fn registry(origin: ProviderOrigin) -> Registry {
+    fn registry(origin: ProviderOrigin, identity: &str) -> Registry {
         let mut registry = Registry::new();
         registry
-            .register(descriptor(origin, "example-provider"))
+            .register(descriptor(origin, identity))
             .expect("one descriptor registers");
         registry
     }
@@ -677,14 +751,15 @@ mod origin_projection_tests {
     /// Trace: FR-005-AC-5, TC-012.
     #[test]
     fn qsl_origins_project_exhaustively_without_changing_descriptor_members() {
-        let linked_registry = registry(ProviderOrigin::Linked);
-        let process_registry = registry(ProviderOrigin::Process);
+        let linked_registry = registry(ProviderOrigin::Linked, "example-provider");
+        let process_registry = registry(ProviderOrigin::Process, "example-provider");
+        let linked_bounds = BTreeMap::from([("max_states".to_owned(), 8)]);
         let linked = project_descriptor(
             linked_registry
                 .descriptors()
                 .next()
                 .expect("one linked descriptor"),
-            None,
+            Some(&linked_bounds),
         )
         .expect("linked projection succeeds");
         let process = project_descriptor(
@@ -705,5 +780,49 @@ mod origin_projection_tests {
         );
         assert_eq!(linked.origin, cg::ProviderOrigin::Linked);
         assert_eq!(process.origin, cg::ProviderOrigin::Process);
+        assert_eq!(
+            linked.bounds,
+            Some(BTreeMap::from([("max_states".to_owned(), 8)]))
+        );
+        assert_eq!(process.bounds, None);
+    }
+
+    /// Trace: FR-005-AC-17, TC-013.
+    #[test]
+    fn backend_kind_uses_qsl_origin_for_the_same_identity() {
+        let linked_registry = registry(ProviderOrigin::Linked, "kani");
+        let process_registry = registry(ProviderOrigin::Process, "kani");
+        let project = |registry: &Registry| {
+            project_descriptor(
+                registry
+                    .descriptors()
+                    .next()
+                    .expect("one registered descriptor"),
+                None,
+            )
+            .expect("QSL descriptor projects into CG")
+        };
+        let linked_descriptor = project(&linked_registry);
+        let process_descriptor = project(&process_registry);
+        let id = BackendId::from_wire("kani").expect("identity is valid");
+
+        let linked = super::convert_backends(
+            &crate::upstream::QslCg,
+            &linked_registry,
+            &[linked_descriptor],
+        )
+        .expect("linked Kani maps to its built-in kind");
+        let process = super::convert_backends(
+            &crate::upstream::QslCg,
+            &process_registry,
+            &[process_descriptor],
+        )
+        .expect("process origin maps to CG's process kind");
+
+        assert_eq!(linked.get(&id), Some(&cg::BackendKind::Kani));
+        assert_eq!(
+            process.get(&id),
+            Some(&cg::BackendKind::Process(cg::BackendId("kani".to_owned())))
+        );
     }
 }
