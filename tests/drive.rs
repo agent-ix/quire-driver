@@ -345,7 +345,10 @@ impl Upstream for Recorder {
         }
     }
 
-    fn backend_kind(&self, descriptor: &cg::BackendDescriptor) -> Option<BackendKind> {
+    fn backend_kind(
+        &self,
+        descriptor: &quire_contract_codegen::BackendDescriptor,
+    ) -> Option<BackendKind> {
         self.calls
             .borrow_mut()
             .push(RecordedCall::BackendKind(descriptor.identity.clone()));
