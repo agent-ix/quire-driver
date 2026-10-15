@@ -48,3 +48,7 @@ Compared changed implementations and Trace bindings against FR-001-AC-1/12, FR-0
 | FND-002 | still-open | FR-001 and TC-005 now document `serde_json`, but QSL ADR-011 §7.1 still lists the driver crate's dependencies as “the QSL layer crates and CG.” No upstream ADR amendment or documented architecture exception resolves this remaining dependency-contract mismatch. |
 
 Artifact custody note: at PR #53 head a0a2ad65c7a799664407dcb4b32da13c4020a9f7, both committed review files were verified byte-identical to these original SR artifacts; no further artifact-content change was needed for custody.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | rejected | The QSL owner clarified that ADR-011 §6.1's driver dependency cell is exhaustive for first-party layer edges, while external general-purpose crates such as serde_json are allowed. The production serde_json use reads only the optional bounds member from retained FR-331 wire; the bytes remain the source of authority. The owner is authoring an ADR clarification. |

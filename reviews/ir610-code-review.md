@@ -48,3 +48,7 @@ Examined the complete PR diff and the changed provider, registry, execution, lim
 | FND-002 | fixed | The integration test invokes public `execute()` and observes different outcomes for the caller's unresolved-reference environment and an empty environment. |
 
 Artifact custody note: at PR #53 head a0a2ad65c7a799664407dcb4b32da13c4020a9f7, both committed review files were verified byte-identical to these original SR artifacts; no further artifact-content change was needed for custody.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | rejected | The QSL owner clarified that ADR-011 §6.1's driver dependency cell is exhaustive for first-party layer edges, while external general-purpose crates such as serde_json are allowed. The production serde_json use reads only the optional bounds member from retained FR-331 wire; the bytes remain the source of authority. The owner is authoring an ADR clarification. |
