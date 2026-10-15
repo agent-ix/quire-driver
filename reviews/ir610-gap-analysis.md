@@ -1,45 +1,50 @@
-<!-- reviewer repo=agent-ix/quire-driver visibility=private quoin=0.28.3 module=spec-artifacts-process@b82e42e893612b4b4ee94127714b4577ee893502 id=SR-6002 method=gap-analysis lang=rust pr=quire-driver#53 model=gpt-6.1-sol run=55CF0116-B2B5-4B26-A777-088EDFEBCC5C -->
+---
+id: SR-6002
+title: "Gap analysis — quire-driver PR #53"
+type: SpecReview
+analysis: gap-analysis
+scope: "agent-ix/quire-driver; complete PR #53 diff and mapped requirements"
+review_set: subset
+relationships:
+  - target: "ix://agent-ix/quire-driver/FR-001"
+    type: reviews
+  - target: "ix://agent-ix/quire-driver/FR-004"
+    type: reviews
+---
 
-| FND | Severity | Check | Summary |
+## Summary
+
+Mapped changed production paths and tests to the updated requirements and matrix. The RR-16 projection path is exercised for two occurrences, while the environment-forwarding row overstates the production coverage of its unit test; the dependency-edge test also encodes a dependency set that conflicts with the existing AC.
+
+## Verdict
+
+**CONDITIONAL** — two trace/evidence gaps remain in the changed scope.
+
+## Findings
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-001 | medium | `request_carries_the_callers_object_environment` tags FR-004-AC-5 but only passes through an injected closure that itself forwards the environment; it does not execute `execute`'s production closure, so a production forwarding regression remains green. | src/execute.rs:244-264; spec/tests.md:62 | correct-requirement-no-evidence |
+| FND-002 | medium | TC-005 now treats serde_json as an allowed normal driver edge, but FR-001-AC-1 says it is dev-only; the implementation and its dependency test therefore disagree with the normative allow-list. | tests/dependency_edges.rs:141-145; Cargo.toml:43; FR-001-AC-1 | implementation-bug-despite-evidence |
+
+## Scope
+
+Compared changed implementations and Trace bindings against FR-001-AC-1/12, FR-003-AC-1..10, FR-004-AC-1..9, the changed TC-006/010/011/013 descriptions, and `spec/tests.md`. Plan completion was not assessed. No deferred IR-610 scope was treated as delivered.
+
+## Examined scope
+
+| Unit | Path | Role | Excerpt |
 | --- | --- | --- | --- |
-| FND-001 | medium | coverage | The environment-forwarding test does not exercise the production execute closure. |
-| FND-002 | medium | soundness | TC-005's accepted normal dependency set conflicts with FR-001-AC-1. |
+| `FR-001-AC-1` | `spec/functional/FR-001-orchestrate-the-driver-steps.md` | examined | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model` and `thiserror` (`serde_json` is a dev-dependency, not a normal one), the driver's `quire-contract-model` is the one CG's IR crate depends on, CG's one QSL edge is `qsl-replay`, and the lock holds exactly one `quire-contract-model` package, so the driver's direct edge, CG's IR crate and QSL's `qsl-package` all resolve the same package id. |
+| `FR-004-AC-5` | `spec/functional/FR-004-select-the-execution-engine.md` | examined | The public execution request carries the caller-owned typed QSL `ObjectEnvironment`, and the selected interpreter passes that same value unchanged to QSL `spine::run`. |
+| `TC-011` | `spec/test-cases/TC-011-execution-engine-selection.md` | examined | Through the public library execution request, run a function whose result depends on an object supplied in a nonempty caller-owned `ObjectEnvironment`; run the same call with an empty environment and compare both driver outcomes with direct QSL runs using those exact environments. |
+| `tc_005_driver_edges_match_the_adr_011_allow_list` | `tests/dependency_edges.rs` | examined | §6.1 driver row: QSL layer crates, quire-exact (QSL's caller-owned Cancel API), CG, IR's model crate (E5's reader and `CheckedNodeId`), and thiserror and serde_json (the latter reads retained manifest bounds). |
 
-+++ [reviewer data]
+## Dispositions
 
-```yaml
-clean: false
-scope:
-  - {id: FR-001-AC-1, path: spec/functional/FR-001-orchestrate-the-driver-steps.md, role: examined, excerpt: "The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model` and `thiserror` (`serde_json` is a dev-dependency, not a normal one), the driver's `quire-contract-model` is the one CG's IR crate depends on, CG's one QSL edge is `qsl-replay`, and the lock holds exactly one `quire-contract-model` package, so the driver's direct edge, CG's IR crate and QSL's `qsl-package` all resolve the same package id."}
-  - {id: FR-004-AC-5, path: spec/functional/FR-004-select-the-execution-engine.md, role: examined, excerpt: "The public execution request carries the caller-owned typed QSL `ObjectEnvironment`, and the selected interpreter passes that same value unchanged to QSL `spine::run`."}
-  - {id: TC-011, path: spec/test-cases/TC-011-execution-engine-selection.md, role: examined, excerpt: "Through the public library execution request, run a function whose result depends on an object supplied in a nonempty caller-owned `ObjectEnvironment`; run the same call with an empty environment and compare both driver outcomes with direct QSL runs using those exact environments."}
-  - {id: tc_005_driver_edges_match_the_adr_011_allow_list, path: tests/dependency_edges.rs, role: examined, excerpt: "§6.1 driver row: QSL layer crates, quire-exact (QSL's caller-owned Cancel API), CG, IR's model crate (E5's reader and `CheckedNodeId`), and thiserror and serde_json (the latter reads retained manifest bounds)."}
-findings:
-  - fnd: FND-001
-    severity: medium
-    confidence: high
-    method: gap-analysis
-    check: coverage
-    artifact_id: FR-004-AC-5
-    related_ids: [TC-011]
-    path: src/execute.rs
-    lines: "244-264"
-    excerpt: |-
-      The public execution request carries the caller-owned typed QSL `ObjectEnvironment`, and the selected interpreter passes that same value unchanged to QSL `spine::run`.
-    finding: "The sole test tagged for AC-5 passes execute_using an injected closure that performs the forwarding itself. The production execute closure is outside the observed path, so the matrix's production-forwarding claim is unsupported."
-  - fnd: FND-002
-    severity: medium
-    confidence: high
-    method: gap-analysis
-    check: soundness
-    artifact_id: FR-001-AC-1
-    related_ids: [TC-005]
-    path: tests/dependency_edges.rs
-    lines: "141-145"
-    excerpt: |-
-      The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model` and `thiserror` (`serde_json` is a dev-dependency, not a normal one), the driver's `quire-contract-model` is the one CG's IR crate depends on, CG's one QSL edge is `qsl-replay`, and the lock holds exactly one `quire-contract-model` package, so the driver's direct edge, CG's IR crate and QSL's `qsl-package` all resolve the same package id.
-    finding: "The changed integration test explicitly admits serde_json as a direct normal driver dependency, while the AC still excludes it from normal dependencies. Updating the test's expected allow-list masks an implementation/spec conflict rather than resolving it."
-bindings: []
-```
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | `tests/drive.rs` now invokes public `execute()` with the supplied unresolved-reference environment, observes Boolean(true), and observes an error with an empty environment, so the production forwarding path is exercised. |
+| FND-002 | still-open | FR-001 and TC-005 now document `serde_json`, but QSL ADR-011 §7.1 still lists the driver crate's dependencies as “the QSL layer crates and CG.” No upstream ADR amendment or documented architecture exception resolves this remaining dependency-contract mismatch. |
 
-+++
+Artifact custody note: the two review files committed in PR #53 are not byte-identical to these original SR artifacts; they have materially different content/format and omit the original finding records and scope. The original reviewer artifacts remain authoritative in this private scratch directory pending replacement in a follow-up commit.
