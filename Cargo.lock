@@ -1537,6 +1537,7 @@ dependencies = [
  "quire-contract-codegen",
  "quire-contract-model",
  "quire-exact",
+ "quire-semantic-value",
  "serde",
  "serde_json",
  "thiserror",

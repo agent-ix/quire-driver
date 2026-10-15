@@ -200,7 +200,7 @@ mod tests {
     use qsl_semantics::model::object_environment::ObjectEnvironment;
     use quire_exact::{Cancel, CancelCause};
 
-    use super::{execute, execute_using, ExecutionEngine, ExecutionFailure, ExecutionRequest};
+    use super::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest};
 
     const UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
         profile v = \"quire.value.complete/v1\";\n\

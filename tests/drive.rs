@@ -230,7 +230,7 @@ static IMPORT_UNIT: LazyLock<String> = LazyLock::new(|| {
 
 /// One upstream call, as the driver made it.
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum Call {
+enum RecordedCall {
     Compile,
     ReadPackage,
     BackendKind(String),
@@ -256,7 +256,7 @@ struct GenerationCall {
 /// The real upstream, with a log of the calls the driver makes.
 #[derive(Default)]
 struct Recorder {
-    calls: RefCell<Vec<Call>>,
+    calls: RefCell<Vec<RecordedCall>>,
     /// When set, the IR read answers this instead of reading.
     read_answer: Option<CheckedPackageDispatchResult>,
     /// When set, `negotiate` rewrites the real settlement at this request
@@ -284,7 +284,7 @@ struct Recorder {
 }
 
 impl Recorder {
-    fn calls(&self) -> Vec<Call> {
+    fn calls(&self) -> Vec<RecordedCall> {
         self.calls.borrow().clone()
     }
 
@@ -320,7 +320,7 @@ impl Upstream for Recorder {
         limits: SpineLimits,
         cancel: &Cancel,
     ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal> {
-        self.calls.borrow_mut().push(Call::Compile);
+        self.calls.borrow_mut().push(RecordedCall::Compile);
         QslCg.compile(source, path, bytes, packages, limits, cancel)
     }
 
@@ -330,7 +330,7 @@ impl Upstream for Recorder {
         limits: CheckedPackageReadLimits,
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageDispatchResult {
-        self.calls.borrow_mut().push(Call::ReadPackage);
+        self.calls.borrow_mut().push(RecordedCall::ReadPackage);
         *self.read_evidence.borrow_mut() = Some(evidence.clone());
         *self.source_provision.borrow_mut() = Some(
             emitted
@@ -348,7 +348,7 @@ impl Upstream for Recorder {
     fn backend_kind(&self, id: &BackendId) -> Option<BackendKind> {
         self.calls
             .borrow_mut()
-            .push(Call::BackendKind(id.as_str().to_owned()));
+            .push(RecordedCall::BackendKind(id.as_str().to_owned()));
         QslCg.backend_kind(id)
     }
 
@@ -356,7 +356,7 @@ impl Upstream for Recorder {
         &self,
         envelope: &BackendProviderEnvelope,
     ) -> Result<Vec<ItemSettlement>, EnvelopeRefusal> {
-        self.calls.borrow_mut().push(Call::Negotiate {
+        self.calls.borrow_mut().push(RecordedCall::Negotiate {
             items: envelope.items.len(),
         });
         *self.envelope.borrow_mut() = Some(envelope.clone());
@@ -382,7 +382,7 @@ impl Upstream for Recorder {
             .iter()
             .filter(|d| matches!(d, RouteDisposition::Supported(_)))
             .count();
-        self.calls.borrow_mut().push(Call::Route {
+        self.calls.borrow_mut().push(RecordedCall::Route {
             supported,
             dispositions: dispositions.len(),
         });
@@ -396,7 +396,7 @@ impl Upstream for Recorder {
         routed: &[RoutedGenerationItem],
         contexts: &GenerationContexts<'_>,
     ) -> Result<RoutedGeneration, RoutedGenerationError> {
-        self.calls.borrow_mut().push(Call::Generate {
+        self.calls.borrow_mut().push(RecordedCall::Generate {
             items: routed.len(),
         });
         *self.generation.borrow_mut() = Some(GenerationCall {
@@ -434,7 +434,7 @@ fn input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
 
 /// Trace: FR-004-AC-5, FR-004-AC-6.
 #[test]
-fn public_execute_passes_the_callers_unresolved_reference_environment_to_qsl() {
+fn public_execute_passes_the_callers_object_environment_to_qsl() {
     let packages = qsl_semantics::model::intake::package_input([CANCEL_MODEL_DOCUMENT.as_bytes()]);
     let digest = packages.keys().next().expect("one model package");
     let digest_hex = digest
@@ -467,6 +467,16 @@ fn public_execute_passes_the_callers_unresolved_reference_environment_to_qsl() {
     )
     .expect("caller model package admits")
     .into_value();
+    let checked = check(
+        &parsed,
+        &admitted,
+        &DependencyInput::default(),
+        &LockEvidence::default(),
+        SpineLimits::default(),
+        &cancel,
+    )
+    .expect("model-reference function checks")
+    .into_value();
     let view = &admitted.models()[0].view;
     let (type_key, object_type) = view
         .type_identities()
@@ -483,7 +493,13 @@ fn public_execute_passes_the_callers_unresolved_reference_environment_to_qsl() {
         object_type,
         ObjectId::new("caller-object").expect("object identity is nonempty"),
     );
-    let environment = ObjectEnvironment::default().with_unresolved_references();
+    let objects = quire_semantic_value::object_closure::ObjectClosure::new(
+        checked.package().graph().scope().types(),
+        [(reference.clone(), Vec::new())],
+        &[],
+    )
+    .expect("caller object closure admits the typed object");
+    let environment = ObjectEnvironment::new(objects);
     let dependencies = DependencyInput::default();
     let limits = SpineLimits::default();
     let call = Call {
@@ -494,19 +510,6 @@ fn public_execute_passes_the_callers_unresolved_reference_environment_to_qsl() {
         }],
         accounting: default_accounting(10),
     };
-    let make_request = |object_environment: &ObjectEnvironment| ExecutionRequest {
-        source: identity.clone(),
-        path,
-        bytes: source.as_bytes(),
-        packages: &packages,
-        dependencies: &dependencies,
-        limits,
-        call: call.clone(),
-        object_environment,
-        cancel: Cancel::new(),
-        engine: ExecutionEngine::Interpreter,
-    };
-
     let direct = qsl_replay::spine::run(
         identity.clone(),
         path,
@@ -518,21 +521,44 @@ fn public_execute_passes_the_callers_unresolved_reference_environment_to_qsl() {
         &environment,
         &Cancel::new(),
     )
-    .expect("QSL admits the caller's unresolved reference");
+    .expect("QSL admits the caller's object reference");
     assert!(matches!(
         direct.1,
         CallOutcome::Completed(CallValue::Boolean(true))
     ));
 
-    let actual = execute(make_request(&environment))
-        .expect("public execute uses the caller's unresolved-reference environment");
+    let actual = execute(ExecutionRequest {
+        source: identity.clone(),
+        path,
+        bytes: source.as_bytes(),
+        packages: &packages,
+        dependencies: &dependencies,
+        limits,
+        call: call.clone(),
+        object_environment: &environment,
+        cancel: Cancel::new(),
+        engine: ExecutionEngine::Interpreter,
+    })
+    .expect("public execute passes the caller's populated object environment");
     assert!(matches!(
         actual.outcome,
         CallOutcome::Completed(CallValue::Boolean(true))
     ));
 
     let empty_environment = ObjectEnvironment::default();
-    assert!(execute(make_request(&empty_environment)).is_err());
+    assert!(execute(ExecutionRequest {
+        source: identity,
+        path,
+        bytes: source.as_bytes(),
+        packages: &packages,
+        dependencies: &dependencies,
+        limits,
+        call,
+        object_environment: &empty_environment,
+        cancel: Cancel::new(),
+        engine: ExecutionEngine::Interpreter,
+    })
+    .is_err());
 }
 
 fn cancellation_source_and_packages() -> (String, BTreeMap<[u8; 32], Vec<u8>>) {
@@ -753,7 +779,7 @@ fn tc_019_cancellation_preserves_every_stage_and_cause() {
                     cause: seen_cause,
                 } if seen_stage == stage && seen_cause == cause
             ));
-            assert_eq!(recorder.calls(), [Call::Compile]);
+            assert_eq!(recorder.calls(), [RecordedCall::Compile]);
         }
     }
 
@@ -784,7 +810,7 @@ fn tc_019_cancellation_preserves_every_stage_and_cause() {
             cause: CancelCause::Requested,
         }
     ));
-    assert_eq!(recorder.calls(), [Call::Compile]);
+    assert_eq!(recorder.calls(), [RecordedCall::Compile]);
 }
 
 /// Trace: FR-001-AC-9, FR-001-AC-10, FR-011-AC-1 (TC-019 step 4).
@@ -819,7 +845,10 @@ fn tc_019_e5_receives_source_provision_and_checked_unit_retains_bounded_root() {
     assert_eq!(driven.package.source().text(), provision[0].1);
     assert!(driven.package.source().text().len() <= limits.source.source_bytes);
     assert!(driven.package.libraries().is_empty());
-    assert_eq!(recorder.calls()[..2], [Call::Compile, Call::ReadPackage]);
+    assert_eq!(
+        recorder.calls()[..2],
+        [RecordedCall::Compile, RecordedCall::ReadPackage]
+    );
 }
 
 /// `EQ_UNIT` driven with an empty registry: its E5 package.
@@ -1053,15 +1082,16 @@ fn tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order() {
 
     let calls = recorder.calls();
     assert!(
-        !calls
-            .iter()
-            .any(|c| matches!(c, Call::Negotiate { .. } | Call::Route { .. })),
+        !calls.iter().any(|c| matches!(
+            c,
+            RecordedCall::Negotiate { .. } | RecordedCall::Route { .. }
+        )),
         "nothing is negotiated or routed after the MD-2 refusal: {calls:?}"
     );
     // Every registered id went through the conversion, once.
-    let converted: Vec<&Call> = calls
+    let converted: Vec<&RecordedCall> = calls
         .iter()
-        .filter(|c| matches!(c, Call::BackendKind(_)))
+        .filter(|c| matches!(c, RecordedCall::BackendKind(_)))
         .collect();
     assert_eq!(converted.len(), 3, "{calls:?}");
 }
@@ -1222,15 +1252,15 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     assert_eq!(
         recorder.calls(),
         [
-            Call::Compile,
-            Call::ReadPackage,
-            Call::BackendKind("kani".to_owned()),
-            Call::Negotiate { items: 1 },
-            Call::Route {
+            RecordedCall::Compile,
+            RecordedCall::ReadPackage,
+            RecordedCall::BackendKind("kani".to_owned()),
+            RecordedCall::Negotiate { items: 1 },
+            RecordedCall::Route {
                 supported: 1,
                 dispositions: 1,
             },
-            Call::Generate { items: 1 },
+            RecordedCall::Generate { items: 1 },
         ]
     );
 }
@@ -1330,9 +1360,10 @@ fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
     assert_eq!(driven.generation, RoutedGeneration::default());
     let calls = recorder.calls();
     assert!(
-        !calls
-            .iter()
-            .any(|c| matches!(c, Call::Route { .. } | Call::Generate { .. })),
+        !calls.iter().any(|c| matches!(
+            c,
+            RecordedCall::Route { .. } | RecordedCall::Generate { .. }
+        )),
         "{calls:?}"
     );
 }
@@ -1402,9 +1433,10 @@ fn tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_un
     assert!(driven.routed.is_empty());
     let calls = recorder.calls();
     assert!(
-        !calls
-            .iter()
-            .any(|c| matches!(c, Call::Route { .. } | Call::Generate { .. })),
+        !calls.iter().any(|c| matches!(
+            c,
+            RecordedCall::Route { .. } | RecordedCall::Generate { .. }
+        )),
         "{calls:?}"
     );
 }
@@ -1923,7 +1955,10 @@ fn tc_007_generation_refusals_are_typed() {
     assert_eq!(refusal.stage(), DriverStage::Generation);
     assert_eq!(refusal.code(), "invalid-request");
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
-    assert_eq!(recorder.calls().last(), Some(&Call::Generate { items: 1 }));
+    assert_eq!(
+        recorder.calls().last(),
+        Some(&RecordedCall::Generate { items: 1 })
+    );
 }
 
 /// FR-001-AC-3 (TC-003): when no item settles `supported`, `route` is not
@@ -1957,7 +1992,7 @@ fn tc_003_no_supported_item_means_no_route_call() {
         !recorder
             .calls()
             .iter()
-            .any(|c| matches!(c, Call::Route { .. })),
+            .any(|c| matches!(c, RecordedCall::Route { .. })),
         "{:?}",
         recorder.calls()
     );
@@ -2036,15 +2071,15 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
     assert_eq!(
         recorder.calls(),
         [
-            Call::Compile,
-            Call::ReadPackage,
-            Call::BackendKind("kani".to_owned()),
-            Call::Negotiate { items: 2 },
-            Call::Route {
+            RecordedCall::Compile,
+            RecordedCall::ReadPackage,
+            RecordedCall::BackendKind("kani".to_owned()),
+            RecordedCall::Negotiate { items: 2 },
+            RecordedCall::Route {
                 supported: 1,
                 dispositions: 1,
             },
-            Call::Generate { items: 1 },
+            RecordedCall::Generate { items: 1 },
         ]
     );
 }
@@ -2074,11 +2109,12 @@ fn tc_003_a_unit_with_no_scalar_applications_routes_nothing() {
     assert!(driven.routed.is_empty());
     assert_eq!(driven.generation, RoutedGeneration::default());
     let calls = recorder.calls();
-    assert!(calls.contains(&Call::Negotiate { items: 0 }));
+    assert!(calls.contains(&RecordedCall::Negotiate { items: 0 }));
     assert!(
-        !calls
-            .iter()
-            .any(|c| matches!(c, Call::Route { .. } | Call::Generate { .. })),
+        !calls.iter().any(|c| matches!(
+            c,
+            RecordedCall::Route { .. } | RecordedCall::Generate { .. }
+        )),
         "{calls:?}"
     );
 }
@@ -2107,7 +2143,7 @@ fn tc_004_command_level_refusals_are_typed() {
     assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Source));
     assert_eq!(refusal.code(), "invalid_syntax");
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
-    assert_eq!(recorder.calls(), [Call::Compile]);
+    assert_eq!(recorder.calls(), [RecordedCall::Compile]);
 
     for (limits, stage, code) in [
         {
@@ -2144,7 +2180,7 @@ fn tc_004_command_level_refusals_are_typed() {
         assert_eq!(refusal.stage(), DriverStage::Compile(stage));
         assert_eq!(refusal.code(), code);
         assert_eq!(refusal.kind(), OutcomeKind::Limit);
-        assert_eq!(recorder.calls(), [Call::Compile]);
+        assert_eq!(recorder.calls(), [RecordedCall::Compile]);
     }
 
     // Two manifests, one identity, two distinct digests: both conflict,
@@ -2311,7 +2347,10 @@ fn tc_004_e5_identity_and_refusal_are_faults() {
         assert_eq!(driven.stage(), DriverStage::Handoff);
         assert_eq!(driven.kind(), OutcomeKind::Fault);
         assert_eq!(driven.code(), "runtime_invariant");
-        assert_eq!(recorder.calls(), [Call::Compile, Call::ReadPackage]);
+        assert_eq!(
+            recorder.calls(),
+            [RecordedCall::Compile, RecordedCall::ReadPackage]
+        );
     }
 }
 
@@ -2343,7 +2382,10 @@ fn tc_006_e5_admits_text_and_rational_units() {
             driven.emitted.package_id().hex(),
             "{declaration}"
         );
-        assert_eq!(recorder.calls()[..2], [Call::Compile, Call::ReadPackage]);
+        assert_eq!(
+            recorder.calls()[..2],
+            [RecordedCall::Compile, RecordedCall::ReadPackage]
+        );
     }
 }
 
