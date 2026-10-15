@@ -30,10 +30,22 @@ def write_frame(value):
 
 
 mode, ready_path, descendant_path, plugin_path = sys.argv[1:]
+release_path = os.environ["QUIRE_PLUGIN_SIGNAL_RELEASE"]
+
+
+def wait_for_release():
+    deadline = time.monotonic() + 5
+    while not os.path.exists(release_path) and time.monotonic() < deadline:
+        time.sleep(0.001)
+    if not os.path.exists(release_path):
+        raise SystemExit(4)
+
+
 protocol = "quire.plugin-wire/v1"
 
 if mode.startswith("hello"):
     open(ready_path, "wb").close()
+    wait_for_release()
     os.kill(os.getppid(), signal.SIGINT if mode.endswith("-int") else signal.SIGTERM)
     time.sleep(2)
     open(plugin_path, "wb").close()
@@ -60,6 +72,7 @@ while True:
                 ]
             )
             open(ready_path, "wb").close()
+            wait_for_release()
             os.kill(os.getppid(), signal.SIGINT if mode.endswith("-int") else signal.SIGTERM)
             time.sleep(2)
             open(plugin_path, "wb").close()
@@ -76,6 +89,7 @@ while True:
             ]
         )
         open(ready_path, "wb").close()
+        wait_for_release()
         os.kill(os.getppid(), signal.SIGINT if mode == "request-int" else signal.SIGTERM)
         readable, _, _ = select.select([sys.stdin.buffer], [], [], 2)
         if readable:

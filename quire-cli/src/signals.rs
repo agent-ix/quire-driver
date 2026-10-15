@@ -620,12 +620,14 @@ mod tests {
             "shutdown-int",
         ] {
             let ready = root.with_extension(format!("{stage}.ready"));
+            let release = ready.with_extension("release");
             let descendant = root.with_extension(format!("{stage}.descendant"));
             let plugin_marker = root.with_extension(format!("{stage}.plugin"));
             let outcome = root.with_extension(format!("{stage}.outcome"));
             let request_cancelled = ready.with_extension("request-cancelled");
             let _cleanup = RemoveMarkers(vec![
                 ready.clone(),
+                release.clone(),
                 descendant.clone(),
                 plugin_marker.clone(),
                 outcome.clone(),
@@ -633,6 +635,7 @@ mod tests {
                 ready.with_extension("error"),
             ]);
             let _ = std::fs::remove_file(&ready);
+            let _ = std::fs::remove_file(&release);
             let _ = std::fs::remove_file(&descendant);
             let _ = std::fs::remove_file(&plugin_marker);
             let _ = std::fs::remove_file(&outcome);
@@ -645,6 +648,7 @@ mod tests {
                 ])
                     .env("QUIRE_PLUGIN_SIGNAL_STAGE", stage)
                     .env("QUIRE_PLUGIN_SIGNAL_READY", &ready)
+                .env("QUIRE_PLUGIN_SIGNAL_RELEASE", &release)
                     .env("QUIRE_PLUGIN_SIGNAL_DESCENDANT", &descendant)
                 .env("QUIRE_PLUGIN_SIGNAL_PLUGIN_MARKER", &plugin_marker)
                 .env("QUIRE_PLUGIN_SIGNAL_OUTCOME", &outcome)
@@ -652,7 +656,6 @@ mod tests {
                 .stderr(Stdio::piped())
                 .spawn()
                 .expect("spawn signal lifecycle test child");
-            let started = Instant::now();
             let deadline = Instant::now() + Duration::from_secs(5);
             while !ready.is_file() && Instant::now() < deadline {
                 if let Some(status) = child.try_wait().expect("poll test child") {
@@ -675,11 +678,15 @@ mod tests {
                     child_failure(status, &stdout, &stderr)
                 );
             }
+            let started = Instant::now();
+            std::fs::write(&release, b"signal")
+                .expect("release the ready fixture to send its signal");
+            let signal_deadline = Instant::now() + Duration::from_secs(5);
             let status = loop {
                 if let Some(status) = child.try_wait().expect("poll lifecycle child") {
                     break status;
                 }
-                if Instant::now() >= deadline {
+                if Instant::now() >= signal_deadline {
                     let _ = child.kill();
                     let status = child.wait().expect("wait for timed-out lifecycle child");
                     let (stdout, stderr) = read_child_output(&mut child);
