@@ -115,7 +115,7 @@ impl ProviderItemResult<KaniExecutionEvidence, KaniProviderFailure> {
 }
 
 /// Why a Kani item does not yet have a terminal record.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ProviderTerminalError {
     /// Kani execution returned a typed refusal instead of evidence.
     #[error("provider execution did not produce evidence")]
@@ -358,7 +358,8 @@ mod tests {
     use std::time::Duration;
 
     use qsl_replay::{
-        IncompleteCause, Operation, OutcomeDocument, OutcomeItem, OutcomeStage, TerminalValue,
+        Certification, IncompleteCause, Operation, OutcomeDocument, OutcomeItem, OutcomeStage,
+        ProofBasis, TerminalValue,
     };
     use quire_contract_codegen::{
         Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver, MemoryMechanism,
@@ -500,11 +501,12 @@ mod tests {
         identity: &str,
         harness: Option<KaniScalarObligationHarness>,
     ) -> RoutedItemOutput {
-        let checked_node = serde_json::from_value(serde_json::json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": "1".repeat(64),
-        }))
-        .expect("checked node id");
+        let checked_node: quire_contract_model::CheckedNodeId =
+            serde_json::from_value(serde_json::json!({
+                "domain": "quire.checked-semantic-node/v1",
+                "digest": "1".repeat(64),
+            }))
+            .expect("checked node id");
         let harness_symbol: quire_contract_codegen::HarnessSymbol = "generated_harness"
             .to_owned()
             .try_into()

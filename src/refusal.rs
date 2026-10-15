@@ -3,13 +3,13 @@
 //! AGE-394 (the lifecycle and CLI design) renders them; this module only types
 //! them.
 
-use qsl_foundation::Code;
 use qsl_foundation::diagnostic::InternalFault;
 use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::digest::WireNodeId;
+use qsl_foundation::{BackendId, Code, EmptyBackendIdentity};
 use qsl_replay::Category;
 use qsl_replay::spine::{CompileRefusal, SpineStage};
-use qsl_route::{BackendId, EmptyBackendIdentity, RegistrationRefusal};
+use qsl_route::RegistrationRefusal;
 use quire_contract_codegen::{
     ContractScalarError, EnvelopeRefusal, KaniObligationError, OracleGenerationError,
     RoutedGenerationError,
@@ -421,7 +421,7 @@ fn generation_message(error: &RoutedGenerationError) -> String {
             "request item {request_index} was routed to `{}` as {}, which converts to {}",
             backend.identity,
             routed.identity(),
-            converted.map_or("no kind", |kind| kind.identity())
+            converted.as_ref().map_or("no kind", |kind| kind.identity())
         ),
         RoutedGenerationError::DuplicateRequestIndex { request_index } => {
             format!("request index {request_index} is routed twice")
@@ -510,12 +510,12 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 
 #[cfg(test)]
 mod tests {
+    use qsl_foundation::EmptyBackendIdentity;
     use qsl_foundation::digest::WireNodeId;
     use qsl_replay::Category;
-    use qsl_route::EmptyBackendIdentity;
     use quire_contract_codegen::{
-        HarnessPath, HarnessSymbol, KaniObligationError, ModuleSymbol, OracleGenerationError,
-        RoutedGenerationError,
+        ContractScalarError, HarnessPath, HarnessSymbol, KaniObligationError, ModuleSymbol,
+        OracleGenerationError, RoutedGenerationError,
     };
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
