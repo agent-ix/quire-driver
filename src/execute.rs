@@ -139,7 +139,7 @@ impl ExecutionFailure {
 /// Run only the selected engine. The current binary links QSL's interpreter;
 /// AOT and JIT selections return Unsupported before compiling the source.
 pub fn execute(request: ExecutionRequest<'_>) -> Result<ExecutionResult, ExecutionFailure> {
-    execute_using(request, |request| {
+    execute_using(request, |request, object_environment| {
         qsl_replay::spine::run(
             request.source.clone(),
             request.path,
@@ -148,7 +148,7 @@ pub fn execute(request: ExecutionRequest<'_>) -> Result<ExecutionResult, Executi
             request.dependencies,
             request.limits,
             &request.call,
-            request.object_environment,
+            object_environment,
             &request.cancel,
         )
     })
@@ -156,12 +156,15 @@ pub fn execute(request: ExecutionRequest<'_>) -> Result<ExecutionResult, Executi
 
 fn execute_using(
     request: ExecutionRequest<'_>,
-    run: impl FnOnce(&ExecutionRequest<'_>) -> Result<(PackageId, CallOutcome), Box<RunRefusal>>,
+    run: impl FnOnce(
+        &ExecutionRequest<'_>,
+        &ObjectEnvironment,
+    ) -> Result<(PackageId, CallOutcome), Box<RunRefusal>>,
 ) -> Result<ExecutionResult, ExecutionFailure> {
     if request.engine != ExecutionEngine::Interpreter {
         return Err(ExecutionFailure::UnsupportedEngine(request.engine));
     }
-    let outcome = run(&request);
+    let outcome = run(&request, request.object_environment);
     let document = OutcomeDocument::from_run(&outcome);
     match outcome {
         Ok((package_id, outcome)) => Ok(ExecutionResult {
@@ -245,8 +248,8 @@ mod tests {
         let mut request = request(ExecutionEngine::Interpreter, SpineLimits::default());
         request.object_environment = &environment;
         let caller_environment = request.object_environment;
-        let result = execute_using(request, |request| {
-            assert!(std::ptr::eq(request.object_environment, caller_environment));
+        let result = execute_using(request, |request, object_environment| {
+            assert!(std::ptr::eq(object_environment, caller_environment));
             qsl_replay::spine::run(
                 request.source.clone(),
                 request.path,
@@ -255,7 +258,7 @@ mod tests {
                 request.dependencies,
                 request.limits,
                 &request.call,
-                request.object_environment,
+                object_environment,
                 &request.cancel,
             )
         })

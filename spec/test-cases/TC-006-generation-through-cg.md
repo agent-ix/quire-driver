@@ -60,22 +60,15 @@ application, in occurrence-key order.
     documents and capture the typed evidence passed to IR's E5 reader.
     Compare the reader's evidence with the supplied digest and complete
     document bytes, plus the supported root feature.
-12. Drive an admitted checked package containing a bounded integer form
-    that CG FR-019 currently marks implemented, and a separate admitted
-    package containing a valid rational scalar form selected from CG
-    FR-019/TC-030's planned status register. At the driver-to-CG negotiation
-    seam, record each request item and forward the envelope unchanged to CG.
-    Compare the typed IR tag/form structurally with the corresponding
-    requirement and node in the exact admitted checked package, matched by
-    occurrence.
-13. Using the same checked rational form, exercise three candidate controls
-    with candidate sets produced by QSL from their registered descriptors,
-    not authored by the test: (a) no candidate; (b) two valid candidates and
-    no named backend; and (c) one Kani candidate that passes candidate
-    validation but advertises `bounded` only for an unbounded item whose
-    `finite_bound_available` is true. Forward each typed item unchanged to
-    CG's public negotiation operation. Do not construct a caller-supplied CG
-    lowerability/refusal value or derive the form from display/debug text.
+12. Drive the RR-16 source in which the same integer `x + 1` occurrence is
+    selected under `[0, 10]` and `[0, 20]` result bounds. At the driver-to-CG
+    negotiation seam, record both request items and forward the envelope
+    unchanged to CG. Compare each typed IR form and context root with its
+    corresponding QSL requirement occurrence and the exact admitted package;
+    assert two routed items, two claims, and no extra item or claim for either
+    context-only root.
+13. Rational-form projection and candidate-set control vectors remain
+    planned; they are not exercised by the RR-16 integer-occurrence test.
 
 Tests: `tests/drive.rs`,
 `tc_001_tc_006_steps_run_in_order_through_generation` (steps 1 to 3),
@@ -88,7 +81,7 @@ Tests: `tests/drive.rs`,
 `tc_006_x_plus_100_in_the_return_context_is_refused_at_check` (step 9), and
 `tc_006_x_plus_100_in_a_dead_branch_retains_requires_bound` (step 10),
 `tc_006_handoff_passes_domain_package_evidence_unchanged` (step 11), and
-`rr16_conversion_context_is_forwarded_per_occurrence` (steps 12-13).
+`rr16_conversion_context_is_forwarded_per_occurrence` (step 12).
 
 ## Expected Results
 
@@ -149,16 +142,10 @@ Tests: `tests/drive.rs`,
   document under the original digest and with the original bytes, and still
   contains the supported root feature. Dropping or changing that evidence
   changes the typed value observed by the reader and fails the assertion.
-- Steps 12 and 13's captured form equals the typed form in the matched
-  admitted checked requirement/node. The bounded implemented form is settled
-  by CG according to FR-019. In step 13(a), CG settles the empty set as
-  `unsupported` with `unsupported_projection` /
-  `unsupported-requested-capability`. In step 13(b), CG settles the
-  ambiguous set as `invalid-request` with
-  `invalid_capability`/`ambiguous-backend`, naming both candidates in
-  candidate order. In step 13(c), candidate validation selects the one Kani
-  candidate, then the valid planned rational form settles with the exact typed
-  refusal in its TC-030 Planned row before the unbounded/bounded-only
-  `requires-bound` result. Altering, dropping or replacing the checked form,
-  editing a QSL-produced candidate set, or deciding lowerability/refusal in
-  the driver fails the assertion.
+- Step 12's two captured forms equal the typed forms in their matched admitted
+  requirement occurrences. Both refer to the same canonical integer-add node,
+  but retain distinct conversion contexts and `[0, 10]` / `[0, 20]` result
+  bounds. The routed envelope and claim map each contain exactly two entries;
+  neither context-only root becomes a routed item or claim.
+- Step 13's rational-form and candidate-control vectors are planned and have
+  no test backing in this TC yet.
