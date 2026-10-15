@@ -114,10 +114,11 @@ is specified in Behavior.
   `BackendId` withdraws that identity (QSL FR-075-AC-4/AC-7 and QSL-637).
 - The driver SHALL preserve a caller-supplied `Process` origin, descriptor
   identity and advertised pairs when registering a process descriptor and
-  projecting it to CG unchanged. After CG IR-629 implements the public
-  conversion specified by FR-019/FR-022, the driver SHALL call that conversion
-  and CG SHALL construct `BackendKind::Process` from the supplied origin. The
-  driver SHALL NOT construct the kind or map backend identity to it.
+  projecting it to CG unchanged. When preparing descriptors for negotiation,
+the driver SHALL call
+  CG's `BackendKind::from_descriptor`, which constructs
+  `BackendKind::Process` from the supplied origin. The driver SHALL NOT
+  construct the kind or map backend identity to it.
 - When a plugin hello manifest contains invalid domains, the `quire-cli` host
   hello admitter SHALL pass the domain labels to QSL descriptor admission and
   preserve QSL-654's typed
@@ -160,9 +161,10 @@ requires equality with the generated harness identity, and CG uses that
 embedded value for bounded execution (CG FR-028). Cancellation is checked
 between routed items. CG's current `execute_kani_obligation` API accepts no
 cancellation handle, so an already-running harness continues until the
-generated identity's `wall_clock` ceiling. Process-origin plugin admission and backend-kind mapping
-remain follow-up work; the QSL-to-CG descriptor projection is covered by
-TC-012 while the execution slice remains Linked-only.
+generated identity's `wall_clock` ceiling. Process-origin plugin admission,
+routed execution and settlement remain follow-up work; the QSL-to-CG
+descriptor projection is covered by TC-012. The first-party execution path
+remains Linked-only.
 
 ## Dependencies
 
