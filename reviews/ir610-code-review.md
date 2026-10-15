@@ -47,4 +47,4 @@ Examined the complete PR diff and the changed provider, registry, execution, lim
 | FND-001 | still-open | The driver FR/TC now documents the exception, but QSL ADR-011 §7.1 still gives the driver crate's dependency cell as “the QSL layer crates and CG.” The change does not amend or establish an exception to that architecture contract; the dependency boundary remains unresolved. |
 | FND-002 | fixed | The integration test invokes public `execute()` and observes different outcomes for the caller's unresolved-reference environment and an empty environment. |
 
-Artifact custody note: the two review files committed in PR #53 are not byte-identical to these original SR artifacts; they have materially different content/format and omit the original finding records and scope. The original reviewer artifacts remain authoritative in this private scratch directory pending replacement in a follow-up commit.
+Artifact custody note: at PR #53 head a0a2ad65c7a799664407dcb4b32da13c4020a9f7, both committed review files were verified byte-identical to these original SR artifacts; no further artifact-content change was needed for custody.
