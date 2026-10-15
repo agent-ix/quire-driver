@@ -17,6 +17,7 @@ use qsl_replay::spine::{
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use quire_driver::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides};
 use quire_exact::Cancel;
+use quire_exact::{Integer, Value};
 
 /// Pass QSL's category result through the kit without converting it to an `Outcome`.
 #[must_use]
@@ -274,11 +275,11 @@ impl RunOptions {
                 ));
             }
             let value = match value {
-                "true" => 1,
-                "false" => 0,
-                _ => value.parse::<i64>().map_err(|_| {
+                "true" => Value::Boolean(true),
+                "false" => Value::Boolean(false),
+                _ => Value::Integer(Integer::from(value.parse::<i64>().map_err(|_| {
                     format!("run argument `{argument}` is not a Boolean or integer")
-                })?,
+                })?)),
             };
             call_arguments.push(CallArgument {
                 parameter: parameter.to_owned(),

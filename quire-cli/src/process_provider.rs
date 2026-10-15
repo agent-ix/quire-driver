@@ -227,7 +227,10 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
+    use qsl_foundation::BackendId;
+    use qsl_route::{
+        descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
+    };
     use quire_driver::{
         build_linked_providers, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
         ProcessProviderSession, ProviderItemResult, ProviderManifest, ProviderRequest,
@@ -255,7 +258,7 @@ mod tests {
         let identity =
             BackendId::from_wire(&manifest.identity).map_err(|error| error.to_string())?;
         let digest = ManifestDigest::from_digest([digest; 32]);
-        let descriptor = BackendDescriptor::admit(
+        let descriptor = descriptor_from_manifest(
             Candidate::new(identity),
             origin,
             digest,

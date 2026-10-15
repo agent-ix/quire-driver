@@ -11,9 +11,13 @@ use std::sync::Arc;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
+use qsl_foundation::backend::EmptyBackendIdentity;
 use qsl_foundation::diagnostic::{category_of, CatalogCode, Category};
+use qsl_foundation::BackendId;
 use qsl_package::EmittedPackage;
-use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
+use qsl_route::{
+    descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
+};
 use quire_driver::ProviderManifest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -212,7 +216,7 @@ pub enum ManifestAdmissionError {
     },
     /// QSL refused the descriptor's backend identity.
     #[error(transparent)]
-    EmptyBackendIdentity(#[from] qsl_route::EmptyBackendIdentity),
+    EmptyBackendIdentity(#[from] EmptyBackendIdentity),
     /// QSL refused advertised labels or domain declarations with its native
     /// registration cause.
     #[error(transparent)]
@@ -259,7 +263,7 @@ impl ManifestStage {
             .domains
             .as_deref()
             .map(|domains| domains.iter().map(String::as_str).collect::<Vec<_>>());
-        let descriptor = BackendDescriptor::admit(
+        let descriptor = descriptor_from_manifest(
             Candidate::new(BackendId::from_wire(&shape.backend)?),
             ProviderOrigin::Process,
             ManifestDigest::from_digest(digest),

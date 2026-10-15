@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 quire-driver = { path = ".." }
+qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main", features = ["serde_json"] }
 qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 serde = { version = "=1.0.228", features = ["derive"] }
