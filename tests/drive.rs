@@ -1333,7 +1333,8 @@ fn tc_006_kani_form_projects_exact_package_and_selected_node() {
     );
 }
 
-/// Trace: FR-001-AC-12, QSL RR-16.
+/// Trace: FR-001-AC-12.
+/// Provenance: QSL RR-16.
 /// Two occurrences of the same addition keep their own selected narrow
 /// conversion roots through IR lowering and CG generation.
 #[test]
