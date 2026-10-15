@@ -18,10 +18,10 @@
 //!    FR-075), one item per record in occurrence-key order
 //!    (`qsl_route::request::items_from_requirements`).
 //! 4. The pre-negotiation conversion (ADR-012 §7.2, MD-2): every registered
-//!    `BackendId` goes through CG's one total conversion
-//!    (`BackendKind::from_identity`). When any has no CG kind, the run is
-//!    refused with `invalid_capability`/`unknown-backend`, naming each
-//!    unconverted id in bytewise order, and nothing is negotiated.
+//!    descriptor goes through CG's origin-aware conversion
+//!    (`BackendKind::from_descriptor`). Unknown linked identities are refused
+//!    with `invalid_capability`/`unknown-backend`, naming each unconverted id
+//!    in bytewise order; process identities retain their QSL-admitted origin.
 //! 5. E7: CG `negotiate_backend_provider` over the FR-331 envelope built
 //!    from the registry and the candidate sets.
 //! 6. The `route` routing step, after negotiation, over the items settled

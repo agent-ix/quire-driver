@@ -345,11 +345,11 @@ impl Upstream for Recorder {
         }
     }
 
-    fn backend_kind(&self, id: &BackendId) -> Option<BackendKind> {
+    fn backend_kind(&self, descriptor: &cg::BackendDescriptor) -> Option<BackendKind> {
         self.calls
             .borrow_mut()
-            .push(RecordedCall::BackendKind(id.as_str().to_owned()));
-        QslCg.backend_kind(id)
+            .push(RecordedCall::BackendKind(descriptor.identity.clone()));
+        QslCg.backend_kind(descriptor)
     }
 
     fn negotiate(

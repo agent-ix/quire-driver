@@ -9,7 +9,6 @@
 use std::collections::BTreeMap;
 
 use qsl_foundation::diagnostic::StageFailure;
-use qsl_foundation::BackendId;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, package, parse, refusal_or_fault, select, CheckedUnit, DependencyInput, EmittedUnit,
@@ -19,9 +18,9 @@ use qsl_route::routing::{route, Disposition};
 use qsl_route::Candidate;
 use quire_contract_codegen::ContractRequestPosition;
 use quire_contract_codegen::{
-    generate_routed, negotiate_backend_provider, BackendKind, BackendProviderEnvelope,
-    EnvelopeRefusal, GenerationContexts, ItemSettlement, RoutedGeneration, RoutedGenerationError,
-    RoutedGenerationItem,
+    generate_routed, negotiate_backend_provider, BackendDescriptor, BackendKind,
+    BackendProviderEnvelope, EnvelopeRefusal, GenerationContexts, ItemSettlement, RoutedGeneration,
+    RoutedGenerationError, RoutedGenerationItem,
 };
 use quire_contract_model::{
     read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
@@ -93,9 +92,9 @@ pub trait Upstream {
         evidence: &CheckedPackageEvidence,
     ) -> CheckedPackageDispatchResult;
 
-    /// CG's one total conversion from a backend identity to its closed
-    /// backend kind: `BackendKind::from_identity`.
-    fn backend_kind(&self, id: &BackendId) -> Option<BackendKind>;
+    /// CG's origin-aware conversion of the exact projected descriptor to its
+    /// closed backend kind: `BackendKind::from_descriptor`.
+    fn backend_kind(&self, descriptor: &BackendDescriptor) -> Option<BackendKind>;
 
     /// E7: `quire_contract_codegen::negotiate_backend_provider`.
     fn negotiate(
@@ -167,8 +166,8 @@ impl Upstream for QslCg {
         read_checked_package(emitted.package().bytes(), limits, evidence)
     }
 
-    fn backend_kind(&self, id: &BackendId) -> Option<BackendKind> {
-        BackendKind::from_identity(id.as_str())
+    fn backend_kind(&self, descriptor: &BackendDescriptor) -> Option<BackendKind> {
+        BackendKind::from_descriptor(descriptor)
     }
 
     fn negotiate(
