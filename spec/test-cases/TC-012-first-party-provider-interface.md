@@ -99,9 +99,9 @@ invocation and process-provider terminal integration remain planned.
   accepts no cancellation handle, so an already-running harness continues
   until its identity's `wall_clock` ceiling.
 - Process-origin plugin admission remains planned with plugin-host work. The
-  test covers projection of the supplied origin into CG's descriptor; CG's
-  construction of `BackendKind::Process` remains pending under IR-629. The
-  driver does not construct CG process kinds from provider manifest bytes.
+  test covers projection of the supplied origin into CG's descriptor and CG's
+  `BackendKind::from_descriptor` classifies the descriptor from that origin.
+  The driver does not construct CG process kinds from provider manifest bytes.
 - Linked registry admission retains canonical FR-331 bytes. Present optional
   members survive and absent members remain absent; the FR-331 request adapter
   refuses `wire: None` rather than reconstructing a manifest.
