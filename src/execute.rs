@@ -9,6 +9,7 @@ use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{Call, CallOutcome, DependencyInput, RunRefusal, SpineLimits};
 use qsl_replay::{OutcomeDocument, OutcomeWriteError};
 use qsl_semantics::library::PackageId;
+use qsl_semantics::model::object_environment::ObjectEnvironment;
 use quire_exact::Cancel;
 
 /// The engine selected for one execution request.
@@ -66,6 +67,8 @@ pub struct ExecutionRequest<'a> {
     pub limits: SpineLimits,
     /// The named function and its admitted values.
     pub call: Call,
+    /// The caller-owned object context used unchanged by QSL evaluation.
+    pub object_environment: &'a ObjectEnvironment,
     /// The caller-owned cancellation handle for this run.
     pub cancel: Cancel,
     /// Engine selection; omitted CLI selection defaults to interpreter.
@@ -136,22 +139,31 @@ impl ExecutionFailure {
 /// Run only the selected engine. The current binary links QSL's interpreter;
 /// AOT and JIT selections return Unsupported before compiling the source.
 pub fn execute(request: ExecutionRequest<'_>) -> Result<ExecutionResult, ExecutionFailure> {
+    execute_using(request, |request| {
+        qsl_replay::spine::run(
+            request.source.clone(),
+            request.path,
+            request.bytes,
+            request.packages,
+            request.dependencies,
+            request.limits,
+            &request.call,
+            request.object_environment,
+            &request.cancel,
+        )
+    })
+}
+
+fn execute_using(
+    request: ExecutionRequest<'_>,
+    run: impl FnOnce(&ExecutionRequest<'_>) -> Result<(PackageId, CallOutcome), Box<RunRefusal>>,
+) -> Result<ExecutionResult, ExecutionFailure> {
     if request.engine != ExecutionEngine::Interpreter {
         return Err(ExecutionFailure::UnsupportedEngine(request.engine));
     }
-    let run = qsl_replay::spine::run(
-        request.source,
-        request.path,
-        request.bytes,
-        request.packages,
-        request.dependencies,
-        request.limits,
-        &request.call,
-        &qsl_semantics::model::object_environment::ObjectEnvironment::default(),
-        &request.cancel,
-    );
-    let document = OutcomeDocument::from_run(&run);
-    match run {
+    let outcome = run(&request);
+    let document = OutcomeDocument::from_run(&outcome);
+    match outcome {
         Ok((package_id, outcome)) => Ok(ExecutionResult {
             package_id,
             outcome,
@@ -182,9 +194,10 @@ mod tests {
     };
     use qsl_replay::spine::{CompileRefusal, RunRefusal};
     use qsl_replay::OutcomeDocument;
+    use qsl_semantics::model::object_environment::ObjectEnvironment;
     use quire_exact::{Cancel, CancelCause};
 
-    use super::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest};
+    use super::{execute, execute_using, ExecutionEngine, ExecutionFailure, ExecutionRequest};
 
     const UNIT: &str = "language \"ix:native\" edition \"1-draft\";\n\
         profile v = \"quire.value.complete/v1\";\n\
@@ -203,6 +216,7 @@ mod tests {
                 arguments: Vec::new(),
                 accounting: default_accounting(10),
             },
+            object_environment: &EMPTY_OBJECT_ENVIRONMENT,
             cancel: Cancel::new(),
             engine,
         }
@@ -210,12 +224,42 @@ mod tests {
 
     static EMPTY_PACKAGES: LazyLock<BTreeMap<[u8; 32], Vec<u8>>> = LazyLock::new(BTreeMap::new);
     static NO_DEPENDENCIES: LazyLock<DependencyInput> = LazyLock::new(DependencyInput::default);
+    static EMPTY_OBJECT_ENVIRONMENT: LazyLock<ObjectEnvironment> =
+        LazyLock::new(ObjectEnvironment::default);
 
     /// Trace: FR-004-AC-1, default interpreter result is returned unchanged.
     #[test]
     fn interpreter_runs_the_selected_function() {
         let result = execute(request(ExecutionEngine::default(), SpineLimits::default()))
             .expect("interpreter runs");
+        assert!(matches!(
+            result.outcome,
+            CallOutcome::Completed(CallValue::Boolean(true))
+        ));
+    }
+
+    /// Trace: FR-004-AC-5, caller environment is forwarded unchanged to QSL.
+    #[test]
+    fn request_carries_the_callers_object_environment() {
+        let environment = ObjectEnvironment::default().with_unresolved_references();
+        let mut request = request(ExecutionEngine::Interpreter, SpineLimits::default());
+        request.object_environment = &environment;
+        let caller_environment = request.object_environment;
+        let result = execute_using(request, |request| {
+            assert!(std::ptr::eq(request.object_environment, caller_environment));
+            qsl_replay::spine::run(
+                request.source.clone(),
+                request.path,
+                request.bytes,
+                request.packages,
+                request.dependencies,
+                request.limits,
+                &request.call,
+                request.object_environment,
+                &request.cancel,
+            )
+        })
+        .expect("QSL runs with the caller's environment");
         assert!(matches!(
             result.outcome,
             CallOutcome::Completed(CallValue::Boolean(true))
@@ -233,7 +277,7 @@ mod tests {
             request.dependencies,
             request.limits,
             &request.call,
-            &qsl_semantics::model::object_environment::ObjectEnvironment::default(),
+            request.object_environment,
             &request.cancel,
         );
         let expected_document = OutcomeDocument::from_run(&expected_run);
@@ -285,7 +329,7 @@ mod tests {
             request.dependencies,
             request.limits,
             &request.call,
-            &qsl_semantics::model::object_environment::ObjectEnvironment::default(),
+            request.object_environment,
             &request.cancel,
         );
         let expected_document = OutcomeDocument::from_run(&expected);
@@ -321,7 +365,7 @@ mod tests {
             request.dependencies,
             request.limits,
             &request.call,
-            &qsl_semantics::model::object_environment::ObjectEnvironment::default(),
+            request.object_environment,
             &request.cancel,
         );
         let expected_document = OutcomeDocument::from_run(&expected_run);

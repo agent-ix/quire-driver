@@ -53,8 +53,9 @@ application, in occurrence-key order.
 10. Drive `function unreachable_branch using v(x: Int[0, 9]): Int[0, 10]
     pure { if x > 20 then x + 100 else 0 }`. The unit's `if` guard
     (`x > 20`) is itself a scalar comparison, so this writes two
-    requirement records: the `+` at index 0 and the guard `>` at index 1,
-    both routed to `kani`.
+    requirement records: the `+` at index 0 and the guard `>` at index 1.
+    Neither item has a selected conversion context, so both settle as
+    unsupported before routing or generation.
 11. Drive the ordinary unit with caller-supplied FR-056 domain package
     documents and capture the typed evidence passed to IR's E5 reader.
     Compare the reader's evidence with the supplied digest and complete
@@ -85,9 +86,9 @@ Tests: `tests/drive.rs`,
 `tc_006_x_plus_y_settles_supported_with_independent_argument_bounds` and
 `tc_006_x_plus_y_generation_passes_through_unchanged` (step 8),
 `tc_006_x_plus_100_in_the_return_context_is_refused_at_check` (step 9), and
-`tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable`
-(step 10), and `tc_006_handoff_passes_domain_package_evidence_unchanged`
-(step 11).
+`tc_006_x_plus_100_in_a_dead_branch_retains_requires_bound` (step 10),
+`tc_006_handoff_passes_domain_package_evidence_unchanged` (step 11), and
+`rr16_conversion_context_is_forwarded_per_occurrence` (steps 12-13).
 
 ## Expected Results
 
@@ -139,19 +140,11 @@ Tests: `tests/drive.rs`,
   step 10 reaches it.
 - Step 10's unit compiles: QSL's `Facts::walk` proves `x > 20` is never
   true over `x: Int[0, 9]` and never discharges the dead branch's
-  coercion, so the checked package still emits. The driver's output for
-  both routed items equals a direct `generate_routed` call over the same
-  two routed items (the same pass-through invariant every other
-  `tc_006_x_plus_*` test asserts). The `+` item (index 0) is
-  `Unsupported`/`ResultBoundUnreachable` (`quire.op.integer.add`, `[0,
-  10]` against reachable `[100, 109]`), with no harness: CG ignores the
-  dead `if x > 20` guard and ranges `x` over its full declared `[0, 9]`
-  domain regardless. The guard `>` item (index 1) is
-  `Unsupported`/`OperationNotRendered`: `quire.op.integer.gt` is
-  IR-confirmed, but this generator has no Kani harness renderer for any
-  family but `IntegerArithmetic`, naming the one derived domain (`x`'s own
-  `[0, 9]` bound, as an `IntegerRange`); no harness is carried for it
-  either.
+  coercion, so the checked package still emits. Neither item has a selected
+  conversion context. The add settles as
+  `Unsupported`/`ResultBoundUnreachable` (`quire.op.integer.add`, result
+  `[0, 10]`, reachable `[100, 109]`); the guard settles as
+  `Unsupported`/`OperationNotRendered`. Neither item is routed or generated.
 - Step 11's E5 evidence contains every caller-supplied domain-package
   document under the original digest and with the original bytes, and still
   contains the supported root feature. Dropping or changing that evidence

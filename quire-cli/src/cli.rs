@@ -15,7 +15,9 @@ use qsl_replay::spine::{
     default_accounting, Call, CallArgument, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
-use quire_driver::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides};
+use quire_driver::{
+    execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides, ObjectEnvironment,
+};
 use quire_exact::Cancel;
 use quire_exact::{Integer, Value};
 
@@ -386,6 +388,7 @@ fn run(options: RunOptions) -> CommandResult {
         dependencies: &dependencies,
         limits,
         call,
+        object_environment: &ObjectEnvironment::default(),
         cancel: Cancel::new(),
         engine: options.engine,
     }) {

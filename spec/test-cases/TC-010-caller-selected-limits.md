@@ -12,10 +12,8 @@ relationships:
 
 Verify that QSL parses CLI `--limit` operands, applies exposed settings to the
 selected operation, omitted values keep their defaults, and a reached limit
-remains a typed incomplete outcome. Until QSL-656 / QSL #665 lands, pinned QSL
-does not recognize the bare accounting counter names as caller-settable; when
-it lands, QSL's `parse_operands` owns name resolution and returns typed
-`SettingName` values. The driver checks stage settings against the selected
+remains a typed incomplete outcome. QSL's `parse_operands` owns name
+resolution and returns typed `SettingName` values. The driver checks stage settings against the selected
 operation's bounds and applies them with `CallerLimits::set_bound`. It applies
 accounting settings with `AccountingLimits::set_bound` to `Call.accounting`;
 accounting settings do not pass through stage bounds. The driver adds no
@@ -44,10 +42,9 @@ Scope: FR-003-AC-1 through FR-003-AC-10.
    code `invalid-request`; unknown-name, malformed and duplicate refusals
    identify their respective causes. When multiple operands are invalid,
    confirm QSL parser refusals are reported before checking whether recognized
-   settings are available to the operation. Until QSL-656 / QSL #665 lands,
-   pinned QSL treats bare accounting names such as `work_units` as unknown.
-   After it lands, pass the bare names defined by QSL FR-255 and verify QSL's
-   operand API resolves them to `SettingName::Accounting` values.
+   settings are available to the operation. Pass the bare accounting names
+   defined by QSL FR-255 and verify QSL's operand API resolves them to
+   `SettingName::Accounting` values.
 4. Apply a bare accounting operand such as `work_units=0`. Inspect that QSL
    `AccountingLimits::set_bound` changes `Call.accounting` while the stage
    limits remain unchanged, then run an input that exhausts that accounting
@@ -71,8 +68,8 @@ Test location: `src/limits.rs`, `src/execute.rs`, `quire-cli/src/cli.rs`, and
 - A QSL-recognized stage setting absent from the operation's bounds is refused with
   `invalid-request` and an operation-unavailable diagnostic, not the
   unknown-name diagnostic.
-- The driver adds no name parser, namespace or aliases. QSL-656 / QSL #665
-  enables QSL's bare accounting names defined by FR-255.
+- The driver adds no name parser, namespace or aliases. QSL owns the bare
+  accounting names defined by FR-255.
 - QSL owns platform-sized bound application; the driver adds no overflow rule.
 - The low limit returns QSL's typed `LimitExceeded`; the driver wrapper
   preserves its configured bound and `setting()` and has category

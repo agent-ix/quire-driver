@@ -11,7 +11,7 @@ use qsl_replay::spine::{
     default_accounting, Call, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
-use quire_driver::{execute, ExecutionEngine, ExecutionRequest};
+use quire_driver::{execute, ExecutionEngine, ExecutionRequest, ObjectEnvironment};
 use quire_exact::Cancel;
 
 const QUIRE: &str = env!("CARGO_BIN_EXE_quire");
@@ -88,6 +88,7 @@ fn machine_run_writes_the_canonical_qsl_outcome() {
             arguments: Vec::new(),
             accounting: default_accounting(DEFAULT_WORK_UNITS),
         },
+        object_environment: &ObjectEnvironment::default(),
         cancel: Cancel::new(),
         engine: ExecutionEngine::Interpreter,
     };

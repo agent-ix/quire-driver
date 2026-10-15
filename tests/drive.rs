@@ -1367,6 +1367,7 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
 /// driver keeps each occurrence's selected narrow adjacent to its own
 /// request position, while the canonical add remains one semantic node and
 /// neither context root becomes an extra request or claim.
+/// Trace: FR-001-AC-12.
 #[test]
 fn rr16_conversion_context_is_forwarded_per_occurrence() {
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
@@ -1732,10 +1733,10 @@ fn tc_006_x_plus_100_in_the_return_context_is_refused_at_check() {
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
 }
 
-/// FR-001-AC-6 (TC-006): QSL still emits both the guard `x > 20` and the
-/// dead-branch add `x + 100`, but neither request has a selected conversion
-/// context. CG preserves the add's typed result-bound refusal and
-/// the guard's typed unsupported result; neither is routed to generation.
+/// Trace: FR-001-AC-6.
+/// QSL emits the guard `x > 20` and dead-branch add `x + 100`, but neither
+/// item has a selected conversion context. CG preserves their typed
+/// unsupported results without routing either item to generation.
 #[test]
 fn tc_006_x_plus_100_in_a_dead_branch_retains_requires_bound() {
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
@@ -1755,15 +1756,27 @@ fn tc_006_x_plus_100_in_a_dead_branch_retains_requires_bound() {
     assert!(driven.routed.is_empty());
     assert!(driven.generation.items.is_empty());
     assert_eq!(driven.settlements.len(), 2);
-    assert!(matches!(
-        &driven.settlements[0].disposition,
-        Disposition::Unsupported {
-            cause: Cause::KaniFormRefused {
-                refusal: UnsupportedObligation::ResultBoundUnreachable { .. },
+    let Disposition::Unsupported {
+        cause:
+            Cause::KaniFormRefused {
+                refusal:
+                    UnsupportedObligation::ResultBoundUnreachable {
+                        operation_identity,
+                        lower,
+                        upper,
+                        reachable_lower,
+                        reachable_upper,
+                    },
                 ..
-            }
-        }
-    ));
+            },
+    } = &driven.settlements[0].disposition
+    else {
+        panic!("the add keeps CG's exact unreachable-result refusal");
+    };
+    assert_eq!(operation_identity, "quire.op.integer.add");
+    assert_eq!((*lower, *upper), (0, 10));
+    assert_eq!(reachable_lower, "100");
+    assert_eq!(reachable_upper, "109");
     assert!(matches!(
         &driven.settlements[1].disposition,
         Disposition::Unsupported {
