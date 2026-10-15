@@ -15,7 +15,11 @@ use qsl_replay::spine::{
     default_accounting, Call, CallArgument, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
-use quire_driver::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides};
+use quire_driver::{
+    execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides, ObjectEnvironment,
+};
+use quire_exact::Cancel;
+use quire_exact::{Integer, Value};
 
 /// Pass QSL's category result through the kit without converting it to an `Outcome`.
 #[must_use]
@@ -273,11 +277,11 @@ impl RunOptions {
                 ));
             }
             let value = match value {
-                "true" => 1,
-                "false" => 0,
-                _ => value.parse::<i64>().map_err(|_| {
+                "true" => Value::Boolean(true),
+                "false" => Value::Boolean(false),
+                _ => Value::Integer(Integer::from(value.parse::<i64>().map_err(|_| {
                     format!("run argument `{argument}` is not a Boolean or integer")
-                })?,
+                })?)),
             };
             call_arguments.push(CallArgument {
                 parameter: parameter.to_owned(),
@@ -355,17 +359,17 @@ fn write_result_diagnostics<W: Write>(result: &CommandResult, sink: &mut W) -> i
 fn run(options: RunOptions) -> CommandResult {
     if options.engine != ExecutionEngine::Interpreter {
         let failure = ExecutionFailure::UnsupportedEngine(options.engine);
-        return CommandResult::failure(failure.category(), failure.to_string());
+        return CommandResult::document(failure.into_document());
     }
     let packages = BTreeMap::new();
     let dependencies = DependencyInput::default();
     let mut limits = SpineLimits::default();
-    let call = Call {
+    let mut call = Call {
         function: options.function,
         arguments: options.arguments,
         accounting: default_accounting(DEFAULT_WORK_UNITS),
     };
-    if let Err(error) = options.limits.apply_to(&mut limits) {
+    if let Err(error) = options.limits.apply_to(&mut limits, &mut call) {
         return CommandResult::input_refusal(error.to_string());
     }
     let bytes = match read_source(&options.path, limits.source.source_bytes) {
@@ -384,10 +388,12 @@ fn run(options: RunOptions) -> CommandResult {
         dependencies: &dependencies,
         limits,
         call,
+        object_environment: &ObjectEnvironment::default(),
+        cancel: Cancel::new(),
         engine: options.engine,
     }) {
-        Ok(result) => CommandResult::document(OutcomeDocument::from_call(&result.outcome)),
-        Err(failure) => CommandResult::failure(failure.category(), failure.to_string()),
+        Ok(result) => CommandResult::document(result.document),
+        Err(failure) => CommandResult::document(failure.into_document()),
     }
 }
 
@@ -658,7 +664,10 @@ mod tests {
         assert_eq!(options.engine, ExecutionEngine::Interpreter);
         assert_eq!(
             options.limits.values(),
-            &[(qsl_foundation::Setting::S1InputBytes, 1024)]
+            &[(
+                qsl_foundation::SettingName::Stage(qsl_foundation::Setting::S1InputBytes),
+                1024
+            )]
         );
     }
 

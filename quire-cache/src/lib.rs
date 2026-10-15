@@ -9,7 +9,9 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 #[cfg(test)]
-use qsl_route::{BackendId, ManifestDigest};
+use qsl_foundation::BackendId;
+#[cfg(test)]
+use qsl_route::ManifestDigest;
 use quire_canonical::{sha256_with_domain, to_vec, Limits, Sha256Digest};
 use quire_driver::{
     Cache, CacheEligibility, CacheFault, CacheLookup, CacheOperation, CacheRequest,
@@ -670,7 +672,7 @@ mod tests {
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
             )],
-            domains: None,
+            domains: Some(vec!["integer".to_owned()]),
             wire: None,
         }])
         .expect("test manifest is admitted");
@@ -704,7 +706,7 @@ mod tests {
 
     fn admitted_request<'a>(
         registry: &'a quire_driver::AdmittedRegistry,
-        backend: &qsl_route::BackendId,
+        backend: &BackendId,
         request: &'a [u8],
     ) -> CacheRequest<'a> {
         CacheRequest::new(
@@ -768,7 +770,7 @@ mod tests {
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
             )],
-            domains: None,
+            domains: Some(vec!["integer".to_owned()]),
             wire: None,
         }])
         .expect("descriptor is admitted");
@@ -961,7 +963,7 @@ mod tests {
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
             )],
-            domains: None,
+            domains: Some(vec!["integer".to_owned()]),
             wire: None,
         }])
         .expect("manifest is admitted");
@@ -1011,7 +1013,7 @@ mod tests {
                         Some("value-validity".to_owned()),
                         Some("bounded".to_owned()),
                     )],
-                    domains: None,
+                    domains: Some(vec!["integer".to_owned()]),
                     wire: None,
                 }])
                 .expect("excluded descriptor is admitted");
@@ -1047,7 +1049,7 @@ mod tests {
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
             )],
-            domains: None,
+            domains: Some(vec!["integer".to_owned()]),
             wire: None,
         }])
         .expect("descriptor is admitted");
@@ -1082,7 +1084,7 @@ mod tests {
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
             )],
-            domains: None,
+            domains: Some(vec!["integer".to_owned()]),
             wire: None,
         }])
         .expect("descriptor is admitted");
@@ -1197,7 +1199,7 @@ mod tests {
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
             )],
-            domains: None,
+            domains: Some(vec!["integer".to_owned()]),
             wire: None,
         }])
         .expect("descriptor is admitted");

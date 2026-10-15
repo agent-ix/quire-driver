@@ -5,9 +5,8 @@ use std::collections::BTreeMap;
 
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::SpineLimits;
-use qsl_route::Registry;
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
-use quire_driver::{drive, CompileInput, GenerationInput, QslCg};
+use quire_driver::{build_registry, drive, CompileInput, GenerationInput, QslCg};
 
 pub fn emitted_package() -> qsl_package::EmittedPackage {
     emitted_package_with_source_name("process-provider-test")
@@ -39,7 +38,7 @@ fn emitted_package_with_source_name(source_name: &str) -> qsl_package::EmittedPa
     drive(
         &QslCg,
         input,
-        &Registry::new(),
+        &build_registry(&[]).expect("empty linked registry is admitted"),
         None,
         GenerationInput::default(),
     )

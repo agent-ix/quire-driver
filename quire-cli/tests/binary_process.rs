@@ -11,7 +11,8 @@ use qsl_replay::spine::{
     default_accounting, Call, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
-use quire_driver::{execute, ExecutionEngine, ExecutionRequest};
+use quire_driver::{execute, ExecutionEngine, ExecutionRequest, ObjectEnvironment};
+use quire_exact::Cancel;
 
 const QUIRE: &str = env!("CARGO_BIN_EXE_quire");
 const SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ir608-run.qsl");
@@ -87,12 +88,13 @@ fn machine_run_writes_the_canonical_qsl_outcome() {
             arguments: Vec::new(),
             accounting: default_accounting(DEFAULT_WORK_UNITS),
         },
+        object_environment: &ObjectEnvironment::default(),
+        cancel: Cancel::new(),
         engine: ExecutionEngine::Interpreter,
     };
     let result = execute(request).expect("obtain typed QSL result");
-    let expected =
-        ix_cli_kit::json::encode_canonical(&OutcomeDocument::from_call(&result.outcome), false)
-            .expect("encode typed outcome through kit");
+    let expected = ix_cli_kit::json::encode_canonical(&result.document, false)
+        .expect("encode typed outcome through kit");
     assert_eq!(output.stdout, format!("{expected}\n").as_bytes());
     let qsl_bytes = result
         .outcome_bytes()
@@ -179,7 +181,15 @@ fn non_run_verb_refuses_and_names_run_only_option() {
 fn unavailable_engines_are_not_substituted() {
     for engine in ["aot", "jit"] {
         let output = Command::new(QUIRE)
-            .args(["run", "missing-source.qsl", "yes", "--engine", engine])
+            .args([
+                "run",
+                "missing-source.qsl",
+                "yes",
+                "--engine",
+                engine,
+                "--format",
+                "json",
+            ])
             .output()
             .expect("run quire");
         assert_eq!(
@@ -190,6 +200,13 @@ fn unavailable_engines_are_not_substituted() {
         assert!(
             String::from_utf8_lossy(&output.stderr).contains(engine),
             "typed unsupported refusal names {engine}"
+        );
+        let document: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("unsupported result is QSL JSON");
+        assert_eq!(document["category"], "unsupported");
+        assert_eq!(
+            document["diagnostics"][0]["code"],
+            "unimplemented_capability"
         );
     }
 }
@@ -228,6 +245,32 @@ fn checking_work_limit_changes_the_call_outcome() {
         sufficient.status.code(),
         Some(i32::from(Category::Success.exit_code()))
     );
+}
+
+/// Trace: FR-003-AC-9, FR-003-AC-10. Bare accounting reaches QSL's call.
+#[test]
+fn bare_work_units_limit_reaches_qsl_call_accounting() {
+    let output = Command::new(QUIRE)
+        .args([
+            "run",
+            SOURCE,
+            "yes",
+            "--limit",
+            "work_units=0",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("run with a zero accounting budget");
+    assert_eq!(
+        output.status.code(),
+        Some(i32::from(Category::Incomplete.exit_code()))
+    );
+    let document: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("QSL writes an incomplete document");
+    assert_eq!(document["category"], "incomplete");
+    assert_eq!(document["result"]["kind"], "incomplete");
+    assert_eq!(document["result"]["limit"]["setting"], "work_units");
 }
 
 /// Trace: FR-003-AC-3 / TC-010, a lifecycle stage limit uses QSL's exit code.

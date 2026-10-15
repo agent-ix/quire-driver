@@ -484,7 +484,8 @@ mod tests {
         use std::thread;
         use std::time::{Duration, Instant};
 
-        use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
+        use qsl_foundation::BackendId;
+        use qsl_route::{descriptor_from_manifest, Candidate, ManifestDigest, ProviderOrigin};
         use quire_driver::{
             ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
             ProviderManifest, ProviderRequest, ProviderResults,
@@ -540,13 +541,14 @@ mod tests {
                     |manifest: &Value| {
                         let identity = manifest["identity"].as_str().ok_or("missing identity")?;
                         let digest = ManifestDigest::from_digest([4; 32]);
-                        let descriptor = BackendDescriptor::admit(
+                        let descriptor = descriptor_from_manifest(
                             Candidate::new(
                                 BackendId::from_wire(identity).map_err(|e| e.to_string())?,
                             ),
                             ProviderOrigin::Process,
                             digest,
                             Vec::<(Option<&str>, Option<&str>)>::new(),
+                            None,
                         )
                         .map_err(|e| format!("{e:?}"))?;
                         Ok((

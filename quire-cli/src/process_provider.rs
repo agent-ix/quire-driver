@@ -227,7 +227,10 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use qsl_route::{BackendDescriptor, BackendId, Candidate, ManifestDigest, ProviderOrigin};
+    use qsl_foundation::BackendId;
+    use qsl_route::{
+        descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
+    };
     use quire_driver::{
         build_linked_providers, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
         ProcessProviderSession, ProviderItemResult, ProviderManifest, ProviderRequest,
@@ -243,6 +246,8 @@ mod tests {
     struct Hello {
         identity: String,
         advertises: Vec<(Option<String>, Option<String>)>,
+        #[serde(default)]
+        domains: Option<Vec<String>>,
     }
 
     fn admit_hello(
@@ -253,7 +258,7 @@ mod tests {
         let identity =
             BackendId::from_wire(&manifest.identity).map_err(|error| error.to_string())?;
         let digest = ManifestDigest::from_digest([digest; 32]);
-        let descriptor = BackendDescriptor::admit(
+        let descriptor = descriptor_from_manifest(
             Candidate::new(identity),
             origin,
             digest,
@@ -261,13 +266,18 @@ mod tests {
                 .advertises
                 .iter()
                 .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
+            manifest
+                .domains
+                .as_deref()
+                .map(|domains| domains.iter().map(String::as_str).collect::<Vec<_>>())
+                .as_deref(),
         )
         .map_err(|error| format!("{error:?}"))?;
         let retained = ProviderManifest {
             identity: manifest.identity.clone(),
             manifest_digest: digest,
             advertises: manifest.advertises.clone(),
-            domains: None,
+            domains: manifest.domains.clone(),
             wire: None,
         };
         Ok((descriptor, retained))

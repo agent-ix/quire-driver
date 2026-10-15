@@ -3,10 +3,11 @@
 
 use std::path::Path;
 
+use qsl_foundation::BackendId;
 use qsl_package::EmittedPackage;
 use qsl_replay::{
-    Operation, OutcomeDocument, OutcomeItem, OutcomeStage, OutcomeWriteError, RequestIndex,
-    TerminalRecord,
+    Certification, Operation, OutcomeDocument, OutcomeItem, OutcomeStage, OutcomeWriteError,
+    ProofBasis, RequestIndex, TerminalRecord, TerminalValue,
 };
 use quire_contract_codegen::{
     execute_kani_obligation, run_terminal_value, Candidate, KaniExecutableHarness,
@@ -86,15 +87,35 @@ impl ProviderItemResult<KaniExecutionEvidence, KaniProviderFailure> {
             return Err(ProviderTerminalError::ReplayUnavailableForScalarObligation);
         }
         let value = run_terminal_value(&evidence.outcome, evidence.success_checks, None)?;
-        Ok(TerminalRecord::new(
-            RequestIndex::new(self.request_index),
-            value,
-        ))
+        let request_index = RequestIndex::new(self.request_index);
+        let backend = BackendId::new(self.backend.identity.clone());
+        match value {
+            TerminalValue::Proved {
+                basis: ProofBasis::Checks { success_checks },
+                certification: Certification::Certified,
+            } => Ok(TerminalRecord::proved(
+                request_index,
+                backend,
+                success_checks,
+            )),
+            TerminalValue::Incomplete(cause) => {
+                Ok(TerminalRecord::incomplete(request_index, backend, cause))
+            }
+            TerminalValue::Failed => Ok(TerminalRecord::failed(request_index, backend)),
+            TerminalValue::Inconclusive(cause) => {
+                Ok(TerminalRecord::inconclusive(request_index, backend, cause))
+            }
+            TerminalValue::Proved { .. }
+            | TerminalValue::Tested
+            | TerminalValue::Refuted
+            | TerminalValue::Declined { .. }
+            | TerminalValue::Unsupported(_) => Err(ProviderTerminalError::UnsupportedTerminalValue),
+        }
     }
 }
 
 /// Why a Kani item does not yet have a terminal record.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ProviderTerminalError {
     /// Kani execution returned a typed refusal instead of evidence.
     #[error("provider execution did not produce evidence")]
@@ -106,6 +127,9 @@ pub enum ProviderTerminalError {
     /// CG rejected the outcome/settlement pair.
     #[error(transparent)]
     TerminalPair(#[from] TerminalPairError),
+    /// CG produced a value for which QSL has no matching provider constructor.
+    #[error("CG produced a terminal value not supported by the provider record API")]
+    UnsupportedTerminalValue,
 }
 
 /// Why a routed Kani item did not yield evidence.
@@ -282,8 +306,9 @@ fn run_kani_item(
     };
     ensure_matching_ceilings(limits.ceilings, harness.identity.ceilings)?;
     execute_kani_obligation(&KaniExecutionRequest {
+        cancel,
         installation: limits.installation,
-        harness: KaniExecutableHarness::from(harness),
+        harness: KaniExecutableHarness::from(&**harness),
         crate_directory: limits.crate_directory,
         target_directory: limits.target_directory,
     })
@@ -333,7 +358,8 @@ mod tests {
     use std::time::Duration;
 
     use qsl_replay::{
-        IncompleteCause, Operation, OutcomeDocument, OutcomeItem, OutcomeStage, TerminalValue,
+        Certification, IncompleteCause, Operation, OutcomeDocument, OutcomeItem, OutcomeStage,
+        ProofBasis, TerminalValue,
     };
     use quire_contract_codegen::{
         Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver, MemoryMechanism,
@@ -350,10 +376,11 @@ mod tests {
     use qsl_route::ManifestDigest;
     use quire_contract_codegen::KaniInstallation;
     use quire_contract_codegen::{
-        Artifact, KaniExecutionEvidence, KaniScalarObligationHarness, KindOutput,
-        ObligationDisposition, ObligationRecord, ObligationSubject, RoutedItemOutput,
+        AdmittedItemAccounting, Artifact, KaniExecutionEvidence, KaniScalarObligationHarness,
+        KindOutput, ObligationDisposition, ObligationRecord, ObligationSubject, RoutedItemOutput,
         ScalarObligationIdentity,
     };
+    use quire_contract_model::ContractFeatureRecordV1;
 
     fn result(outcome: KaniRunOutcome) -> ProviderItemResult {
         result_at(4, outcome)
@@ -474,11 +501,12 @@ mod tests {
         identity: &str,
         harness: Option<KaniScalarObligationHarness>,
     ) -> RoutedItemOutput {
-        let checked_node = serde_json::from_value(serde_json::json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": "1".repeat(64),
-        }))
-        .expect("checked node id");
+        let checked_node: quire_contract_model::CheckedNodeId =
+            serde_json::from_value(serde_json::json!({
+                "domain": "quire.checked-semantic-node/v1",
+                "digest": "1".repeat(64),
+            }))
+            .expect("checked node id");
         let harness_symbol: quire_contract_codegen::HarnessSymbol = "generated_harness"
             .to_owned()
             .try_into()
@@ -489,18 +517,24 @@ mod tests {
                 identity: identity.to_owned(),
             },
             output: KindOutput::Kani {
-                record: ObligationRecord {
+                record: Box::new(ObligationRecord {
                     request_index: 0,
                     kind: None,
                     subject: ObligationSubject::CheckedNode {
-                        node_id: checked_node,
+                        node_id: checked_node.clone(),
                         source_map: Vec::new(),
                     },
                     disposition: ObligationDisposition::Supported {
                         harness_symbol: harness_symbol.clone(),
                     },
+                }),
+                harness: harness.map(Box::new),
+            },
+            admitted: AdmittedItemAccounting {
+                record: ContractFeatureRecordV1::Lowered {
+                    node_id: checked_node,
                 },
-                harness,
+                occurrences: Vec::new(),
             },
         }
     }
@@ -529,6 +563,7 @@ mod tests {
                 solver: KaniSolver::Cadical,
                 unwind: 1,
                 options: Vec::new(),
+                inferred_operands: Vec::new(),
             },
             rust: Artifact::new("generated.rs", ""),
             record: Artifact::new("record.json", "{}"),
@@ -571,8 +606,18 @@ mod tests {
             .expect("verified evidence maps without replay");
         assert_eq!(terminal.request_index().get(), 4);
         assert_eq!(
+            terminal
+                .backend()
+                .expect("provider record carries backend")
+                .as_str(),
+            "agent-ix/provider/kani"
+        );
+        assert_eq!(
             terminal.value(),
-            &TerminalValue::Proved { success_checks: 3 }
+            &TerminalValue::Proved {
+                basis: ProofBasis::Checks { success_checks: 3 },
+                certification: Certification::Certified,
+            }
         );
 
         let vacuous = result(KaniRunOutcome::CoverUnsatisfied {
@@ -583,7 +628,10 @@ mod tests {
         .expect("CG maps an unsatisfied cover to a vacuous proof");
         assert_eq!(
             vacuous.value(),
-            &TerminalValue::Proved { success_checks: 0 }
+            &TerminalValue::Proved {
+                basis: ProofBasis::Checks { success_checks: 0 },
+                certification: Certification::Certified,
+            }
         );
 
         let timed_out = result(KaniRunOutcome::Inconclusive {
@@ -737,9 +785,7 @@ mod tests {
         let generated = ceilings();
         let item = routed_item("agent-ix/provider/kani", Some(harness()));
         let request = ProviderRequest::new(std::slice::from_ref(&item));
-        let installation = KaniInstallation {
-            launcher: PathBuf::from("unused-cg-launcher"),
-        };
+        let installation = KaniInstallation::new(PathBuf::from("unused-cg-launcher"));
         let mismatches = [
             ProofCeilings {
                 memory_bytes: NonZeroU64::new(2048).expect("positive memory ceiling"),

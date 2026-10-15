@@ -50,9 +50,8 @@ and FR-006-AC-5 through FR-006-AC-23.
    registered candidate. Convert the process hello DTO losslessly into that
    carrier; populate linked-provider carriers from their FR-331 manifests and
    do not synthesize absent optional members. An absent or unknown kind/mode
-   reaches QSL and remains its typed `invalid_capability` refusal. When
-   QSL-654 supplies the domain-aware admission API, have the `quire-cli` host
-   hello admitter pass domain labels to QSL and verify it returns
+   reaches QSL and remains its typed `invalid_capability` refusal. Have the
+   `quire-cli` host hello admitter pass domain labels to QSL and verify it returns
    `invalid_capability` with cause `invalid-domains`;
    the driver does not validate domains or construct that refusal. Verify
    descriptor identity, advertised pairs and supplied origin are passed to CG

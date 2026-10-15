@@ -6,12 +6,13 @@
 use qsl_foundation::diagnostic::InternalFault;
 use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::digest::WireNodeId;
-use qsl_foundation::Code;
+use qsl_foundation::{BackendId, Code, EmptyBackendIdentity};
 use qsl_replay::spine::{CompileRefusal, SpineStage};
 use qsl_replay::Category;
-use qsl_route::{BackendId, EmptyBackendIdentity, RegistrationRefusal};
+use qsl_route::RegistrationRefusal;
 use quire_contract_codegen::{
-    EnvelopeRefusal, KaniObligationError, OracleGenerationError, RoutedGenerationError,
+    ContractScalarError, EnvelopeRefusal, KaniObligationError, OracleGenerationError,
+    RoutedGenerationError,
 };
 use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageRefusal};
 use quire_exact::CancelCause;
@@ -303,6 +304,8 @@ fn manifest_encoding_exhausted(error: &quire_canonical::Error) -> bool {
 /// them).
 fn generation_code(error: &RoutedGenerationError) -> Code {
     match error {
+        RoutedGenerationError::ScalarSelectionMismatch { .. }
+        | RoutedGenerationError::Package(_) => Code::InvalidRequest,
         RoutedGenerationError::BackendKindDisagrees { .. }
         | RoutedGenerationError::DuplicateRequestIndex { .. }
         | RoutedGenerationError::DuplicateHarness { .. }
@@ -312,20 +315,32 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
         RoutedGenerationError::Kani(KaniObligationError::TooManyItems { .. }) => {
             Code::ResourceExhausted
         }
+        RoutedGenerationError::ContractScalar(ContractScalarError::Request(_)) => {
+            Code::InvalidRequest
+        }
+        RoutedGenerationError::ContractScalar(ContractScalarError::Oracle(oracle)) => {
+            oracle_code(oracle)
+        }
         RoutedGenerationError::MissingKindContext { .. }
         | RoutedGenerationError::Kani(
             KaniObligationError::InvalidSubjectPath | KaniObligationError::InvalidUnwind { .. },
         ) => Code::InvalidRequest,
-        RoutedGenerationError::Oracle(oracle) => oracle_code(oracle),
     }
 }
 
 /// The catalog code of a whole-generation FR-014 oracle failure.
 fn oracle_code(error: &OracleGenerationError) -> Code {
     match error {
-        OracleGenerationError::SourceTooLarge { .. } => Code::ResourceExhausted,
+        OracleGenerationError::SourceTooLarge { .. }
+        | OracleGenerationError::ArtifactTooLarge { .. }
+        | OracleGenerationError::ArtifactCountExceeded { .. }
+        | OracleGenerationError::BundleTooLarge { .. } => Code::ResourceExhausted,
+        OracleGenerationError::PackageRequest(_)
+        | OracleGenerationError::ContractPackageUnavailable
+        | OracleGenerationError::InvalidTypeResolutionWorkLimit => Code::InvalidRequest,
         OracleGenerationError::ClaimMapSerialization
         | OracleGenerationError::LocationMapSerialization
+        | OracleGenerationError::InvalidPlanState
         | OracleGenerationError::UnknownRuntimeVariant { .. } => Code::RuntimeInvariant,
     }
 }
@@ -356,6 +371,7 @@ fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
         CompileRefusal::Source(_)
         | CompileRefusal::Forms { .. }
         | CompileRefusal::Intake { .. }
+        | CompileRefusal::OperationClause { .. }
         | CompileRefusal::Assembly { .. }
         | CompileRefusal::Emit(_)
         | CompileRefusal::Omitted(_) => None,
@@ -381,6 +397,21 @@ fn join(backends: &[BackendId]) -> String {
 
 fn generation_message(error: &RoutedGenerationError) -> String {
     match error {
+        RoutedGenerationError::ScalarSelectionMismatch { request_index } => {
+            format!("request item {request_index} did not match its admitted scalar selection")
+        }
+        RoutedGenerationError::Package(error) => {
+            format!("the admitted package request was inconsistent: {error:?}")
+        }
+        RoutedGenerationError::ContractScalar(ContractScalarError::Request(error)) => {
+            format!("the scalar package request was inconsistent: {error:?}")
+        }
+        RoutedGenerationError::ContractScalar(ContractScalarError::Oracle(error)) => {
+            format!(
+                "the derived claim map failed to generate: {}",
+                oracle_message(error)
+            )
+        }
         RoutedGenerationError::BackendKindDisagrees {
             request_index,
             backend,
@@ -390,7 +421,7 @@ fn generation_message(error: &RoutedGenerationError) -> String {
             "request item {request_index} was routed to `{}` as {}, which converts to {}",
             backend.identity,
             routed.identity(),
-            converted.map_or("no kind", |kind| kind.identity())
+            converted.as_ref().map_or("no kind", |kind| kind.identity())
         ),
         RoutedGenerationError::DuplicateRequestIndex { request_index } => {
             format!("request index {request_index} is routed twice")
@@ -410,19 +441,36 @@ fn generation_message(error: &RoutedGenerationError) -> String {
         RoutedGenerationError::Kani(error) => {
             format!("the Kani arm refused: {}", kani_message(error))
         }
-        RoutedGenerationError::Oracle(error) => {
-            format!(
-                "the derived claim map failed to generate: {}",
-                oracle_message(error)
-            )
-        }
     }
 }
 
 fn oracle_message(error: &OracleGenerationError) -> String {
     match error {
-        OracleGenerationError::SourceTooLarge { bytes } => {
-            format!("the generated source is {bytes} byte(s), over the ceiling")
+        OracleGenerationError::PackageRequest(error) => {
+            format!("the admitted package request was inconsistent: {error:?}")
+        }
+        OracleGenerationError::ContractPackageUnavailable => {
+            "the lowered record has no admitted Contract IR package".to_owned()
+        }
+        OracleGenerationError::SourceTooLarge {
+            bytes,
+            limit,
+            setting,
+        } => {
+            format!("the generated source is {bytes} byte(s), over {setting} limit {limit}")
+        }
+        OracleGenerationError::InvalidTypeResolutionWorkLimit => {
+            "the configured type-resolution work limit cannot represent its first denied count"
+                .to_owned()
+        }
+        OracleGenerationError::ArtifactTooLarge { bytes, limit } => {
+            format!("generated artifact size {bytes} exceeds publication limit {limit}")
+        }
+        OracleGenerationError::ArtifactCountExceeded { count, limit } => {
+            format!("generated artifact count {count} exceeds publication limit {limit}")
+        }
+        OracleGenerationError::BundleTooLarge { bytes, limit } => {
+            format!("generated bundle size {bytes} exceeds publication limit {limit}")
         }
         OracleGenerationError::ClaimMapSerialization => {
             "the claim map could not be serialized".to_owned()
@@ -432,6 +480,9 @@ fn oracle_message(error: &OracleGenerationError) -> String {
         }
         OracleGenerationError::UnknownRuntimeVariant { enum_name } => {
             format!("Contract Runtime's `{enum_name}` yielded an unknown variant")
+        }
+        OracleGenerationError::InvalidPlanState => {
+            "the validated oracle plan violated a rendering invariant".to_owned()
         }
     }
 }
@@ -460,11 +511,11 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 #[cfg(test)]
 mod tests {
     use qsl_foundation::digest::WireNodeId;
+    use qsl_foundation::EmptyBackendIdentity;
     use qsl_replay::Category;
-    use qsl_route::EmptyBackendIdentity;
     use quire_contract_codegen::{
-        HarnessPath, HarnessSymbol, KaniObligationError, ModuleSymbol, OracleGenerationError,
-        RoutedGenerationError,
+        ContractScalarError, HarnessPath, HarnessSymbol, KaniObligationError, ModuleSymbol,
+        OracleGenerationError, RoutedGenerationError,
     };
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
@@ -496,11 +547,17 @@ mod tests {
                 "CG generation refused the routed items: Kani harness `subject::proof` is emitted more than once",
             ),
             (
-                RoutedGenerationError::KaniRecordCountMismatch { records: 1, items: 2 },
+                RoutedGenerationError::KaniRecordCountMismatch {
+                    records: 1,
+                    items: 2,
+                },
                 "CG generation refused the routed items: Kani returned 1 record(s) for 2 item(s)",
             ),
             (
-                RoutedGenerationError::KaniDuplicatePositionOutOfRange { first_index: 3, items: 2 },
+                RoutedGenerationError::KaniDuplicatePositionOutOfRange {
+                    first_index: 3,
+                    items: 2,
+                },
                 "CG generation refused the routed items: Kani duplicate position 3 is outside 2 item(s)",
             ),
         ] {
@@ -549,17 +606,17 @@ mod tests {
         // IR-294: a whole-generation FR-014 oracle failure the driver never
         // produces is still an internal fault, not a refusal: an unknown
         // Contract Runtime variant and a claim-map serialization failure.
-        let fault = DriverRefusal::Generation(RoutedGenerationError::Oracle(
-            OracleGenerationError::UnknownRuntimeVariant {
+        let fault = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(
+            ContractScalarError::Oracle(OracleGenerationError::UnknownRuntimeVariant {
                 enum_name: "IntegerDomain",
-            },
+            }),
         ));
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.code(), "runtime_invariant");
         assert_eq!(fault.stage(), DriverStage::Generation);
 
-        let fault = DriverRefusal::Generation(RoutedGenerationError::Oracle(
-            OracleGenerationError::ClaimMapSerialization,
+        let fault = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(
+            ContractScalarError::Oracle(OracleGenerationError::ClaimMapSerialization),
         ));
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.code(), "runtime_invariant");
@@ -601,8 +658,12 @@ mod tests {
 
         // IR-294: an oversized generated oracle source is a limit, the same
         // as the Kani item ceiling.
-        let limit = DriverRefusal::Generation(RoutedGenerationError::Oracle(
-            OracleGenerationError::SourceTooLarge { bytes: 1 },
+        let limit = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(
+            ContractScalarError::Oracle(OracleGenerationError::SourceTooLarge {
+                bytes: 2,
+                limit: 1,
+                setting: "cg.scalar.source_bytes",
+            }),
         ));
         assert_eq!(limit.kind(), OutcomeKind::Limit);
         assert_eq!(limit.code(), "resource_exhausted");
