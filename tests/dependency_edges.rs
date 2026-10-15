@@ -139,9 +139,9 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     assert_eq!(graph.package(&graph.root).name, "quire-driver");
 
     // §6.1 driver row: QSL layer crates, quire-exact (QSL's caller-owned
-    // Cancel API), CG, IR's model crate (E5's reader and `CheckedNodeId`), and
-    // thiserror and serde_json (the latter reads retained manifest bounds).
-    // Never the QSL root crate.
+    // Cancel API), CG, IR's model crate (E5's reader and `CheckedNodeId`),
+    // serde, serde_json (FR-331 bounds projection) and thiserror. Never the
+    // QSL root crate.
     let direct: BTreeSet<&str> = graph
         .deps_of(&graph.root)
         .map(|p| p.name.as_str())

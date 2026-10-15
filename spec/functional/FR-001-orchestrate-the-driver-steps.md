@@ -152,16 +152,20 @@ the admitted package only at the `package_id` E4 emitted.
   Under the current empty `DependencyInput`, it retains no library source,
   and its retained root-source bytes do not exceed
   `SpineLimits.source.source_bytes`.
-- The driver's normal and build dependencies SHALL be the QSL layer crates,
-  CG, IR's model crate `quire-contract-model` (at the revision CG's IR crate
-  uses) and `thiserror` (QSL ADR-011 §6.1 driver row). The cache boundary is
-  specified separately in FR-001-AC-11 and FR-012.
+- The driver's normal and build dependencies SHALL be exactly
+  `qsl-foundation`, `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`,
+  `quire-exact`, `quire-contract-codegen`, `quire-contract-model`,
+  `quire-canonical`, `serde`, `serde_json` and `thiserror`. The direct
+  `serde_json` edge is required to project FR-331's optional `bounds` member
+  from the retained caller wire into CG's typed descriptor; the driver
+  preserves the wire snapshot and does not define a parallel FR-331 schema.
+  The cache boundary is specified separately in FR-001-AC-11 and FR-012.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-001-AC-1 | The driver's dependency edges match the QSL ADR-011 §6.1 allow-list and §7.1 crate graph: its normal and build dependencies are QSL layer crates, CG, `quire-contract-model` and `thiserror` (`serde_json` is a dev-dependency, not a normal one), the driver's `quire-contract-model` is the one CG's IR crate depends on, CG's one QSL edge is `qsl-replay`, and the lock holds exactly one `quire-contract-model` package, so the driver's direct edge, CG's IR crate and QSL's `qsl-package` all resolve the same package id. | Test (TC-005) |
+| FR-001-AC-1 | The driver's normal and build dependency set matches QSL ADR-011 §6.1 and the specified driver-layer exceptions: it contains exactly `qsl-foundation`, `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`, `quire-exact`, `quire-contract-codegen`, `quire-contract-model`, `quire-canonical`, `serde`, `serde_json` and `thiserror`; `serde_json` is required for production projection of FR-331's retained optional `bounds` member. The driver's `quire-contract-model` is the one CG's IR crate depends on, CG's one QSL edge is `qsl-replay`, and the lock holds exactly one `quire-contract-model` package, so the driver's direct edge, CG's IR crate and QSL's `qsl-package` all resolve the same package id. | Test (TC-005) |
 | FR-001-AC-2 | A run whose registry holds a `BackendId` with no CG kind refuses before any negotiation, with `invalid_capability`/`unknown-backend` and the unconverted ids in bytewise order. | Test (TC-002) |
 | FR-001-AC-3 | `route` is called only after negotiation, and only for `supported` items. | Test (TC-003) |
 | FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the E5 read, the candidate step, conversion, negotiation, routing, generation. | Test (TC-001) |
@@ -203,10 +207,9 @@ CG's derived claim map in its output.
 E5's evidence is the caller's domain package documents and the root feature
 of QSL's pinned `DefinitionLock`. The driver supplies no artifact-byte or
 artifact-digest evidence: IR no longer checks staleness against artifact
-digests. `serde_json` is only a dev-dependency: this
-crate's own tests use it to assert wire shapes (settlement dispositions,
-the derived claim map) and to parse `cargo metadata`'s JSON
-(`tests/dependency_edges.rs`).
+digests. Production `serde_json` use reads the optional FR-331 `bounds`
+member from the retained manifest wire for CG projection; tests also use it
+to assert wire shapes and parse `cargo metadata`'s JSON.
 
 CG's Kani arm derives each routed node's operand and result bound roles
 from what the node itself names (IR-298, IR-302): an operand's bound is

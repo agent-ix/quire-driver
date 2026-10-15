@@ -241,34 +241,6 @@ mod tests {
         ));
     }
 
-    /// Trace: FR-004-AC-5, caller environment is forwarded unchanged to QSL.
-    #[test]
-    fn request_carries_the_callers_object_environment() {
-        let environment = ObjectEnvironment::default().with_unresolved_references();
-        let mut request = request(ExecutionEngine::Interpreter, SpineLimits::default());
-        request.object_environment = &environment;
-        let caller_environment = request.object_environment;
-        let result = execute_using(request, |request, object_environment| {
-            assert!(std::ptr::eq(object_environment, caller_environment));
-            qsl_replay::spine::run(
-                request.source.clone(),
-                request.path,
-                request.bytes,
-                request.packages,
-                request.dependencies,
-                request.limits,
-                &request.call,
-                object_environment,
-                &request.cancel,
-            )
-        })
-        .expect("QSL runs with the caller's environment");
-        assert!(matches!(
-            result.outcome,
-            CallOutcome::Completed(CallValue::Boolean(true))
-        ));
-    }
-
     #[test]
     fn execute_result_uses_qsl_outcome_document_serializer() {
         let request = request(ExecutionEngine::default(), SpineLimits::default());

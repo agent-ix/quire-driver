@@ -22,8 +22,9 @@ use qsl_foundation::diagnostic::Category;
 use qsl_foundation::BackendId;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
-    check, package, parse, select, CheckedUnit, CompileRefusal, DependencyInput, EmittedUnit,
-    LockEvidence, PackageLimits, ParseRequest, SpineLimits, SpineStage,
+    check, default_accounting, package, parse, select, Call, CallArgument, CallOutcome, CallValue,
+    CheckedUnit, CompileRefusal, DependencyInput, EmittedUnit, LockEvidence, PackageLimits,
+    ParseRequest, SpineLimits, SpineStage,
 };
 use qsl_route::request::items_from_requirements;
 use qsl_route::routing::Disposition as RouteDisposition;
@@ -40,11 +41,12 @@ use quire_contract_model::{
     CheckedPackageReadLimits, CheckedPackageV2, ContractPackageV1,
 };
 use quire_driver::{
-    build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
-    GenerationInput, KaniInput, KaniProvider, OutcomeKind, Provider, ProviderItemFailure,
-    ProviderLimits, ProviderManifest, ProviderRequest, QslCg, Upstream,
+    build_registry, drive, execute, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
+    ExecutionEngine, ExecutionRequest, GenerationInput, KaniInput, KaniProvider, ObjectEnvironment,
+    OutcomeKind, Provider, ProviderItemFailure, ProviderLimits, ProviderManifest, ProviderRequest,
+    QslCg, Upstream,
 };
-use quire_exact::{Cancel, CancelCause};
+use quire_exact::{Cancel, CancelCause, ObjectId, ObjectReference, Value};
 
 /// A unit: the `ix:native` header, the `v` profile selecting QSL's own
 /// `DefinitionLock` root row (read from QSL, never copied here), then `body`.
@@ -428,6 +430,109 @@ fn input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
         limits: SpineLimits::default(),
         cancel: Cancel::new(),
     }
+}
+
+/// Trace: FR-004-AC-5, FR-004-AC-6.
+#[test]
+fn public_execute_passes_the_callers_unresolved_reference_environment_to_qsl() {
+    let packages = qsl_semantics::model::intake::package_input([CANCEL_MODEL_DOCUMENT.as_bytes()]);
+    let digest = packages.keys().next().expect("one model package");
+    let digest_hex = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let source = unit(&format!(
+        "model M = \"driver/cancellation-model\" version \"1.0.0\" digest \"sha256-jcs:{digest_hex}\";\n\
+         function keep using v(x: M::Thing): Boolean pure {{ true }}\n"
+    ));
+    let identity = SourceIdentity::new("agent-ix", "driver-test", "object-environment", "1");
+    let path = "environment.native";
+    let cancel = Cancel::new();
+    let parsed = parse(
+        &ParseRequest {
+            source: &identity,
+            path,
+            bytes: source.as_bytes(),
+        },
+        SpineLimits::default().source,
+        &cancel,
+    )
+    .expect("model source parses")
+    .into_value();
+    let admitted = select(
+        &parsed,
+        &packages,
+        qsl_semantics::model::accounting::ModelNormalizationLimits::default(),
+        &cancel,
+    )
+    .expect("caller model package admits")
+    .into_value();
+    let view = &admitted.models()[0].view;
+    let (type_key, object_type) = view
+        .type_identities()
+        .iter()
+        .find(|(key, _)| key.node.rsplit('/').next() == Some("Thing"))
+        .map(|(key, identity)| (key, *identity))
+        .expect("Thing is declared");
+    let universe = view
+        .object_universe_of(type_key)
+        .expect("Thing has an object universe")
+        .identity();
+    let reference = ObjectReference::new(
+        universe,
+        object_type,
+        ObjectId::new("caller-object").expect("object identity is nonempty"),
+    );
+    let environment = ObjectEnvironment::default().with_unresolved_references();
+    let dependencies = DependencyInput::default();
+    let limits = SpineLimits::default();
+    let call = Call {
+        function: "keep".to_owned(),
+        arguments: vec![CallArgument {
+            parameter: "x".to_owned(),
+            value: Value::Reference(reference),
+        }],
+        accounting: default_accounting(10),
+    };
+    let make_request = |object_environment: &ObjectEnvironment| ExecutionRequest {
+        source: identity.clone(),
+        path,
+        bytes: source.as_bytes(),
+        packages: &packages,
+        dependencies: &dependencies,
+        limits,
+        call: call.clone(),
+        object_environment,
+        cancel: Cancel::new(),
+        engine: ExecutionEngine::Interpreter,
+    };
+
+    let direct = qsl_replay::spine::run(
+        identity.clone(),
+        path,
+        source.as_bytes(),
+        &packages,
+        &dependencies,
+        limits,
+        &call,
+        &environment,
+        &Cancel::new(),
+    )
+    .expect("QSL admits the caller's unresolved reference");
+    assert!(matches!(
+        direct.1,
+        CallOutcome::Completed(CallValue::Boolean(true))
+    ));
+
+    let actual = execute(make_request(&environment))
+        .expect("public execute uses the caller's unresolved-reference environment");
+    assert!(matches!(
+        actual.outcome,
+        CallOutcome::Completed(CallValue::Boolean(true))
+    ));
+
+    let empty_environment = ObjectEnvironment::default();
+    assert!(execute(make_request(&empty_environment)).is_err());
 }
 
 fn cancellation_source_and_packages() -> (String, BTreeMap<[u8; 32], Vec<u8>>) {
