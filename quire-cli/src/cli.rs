@@ -808,6 +808,10 @@ pub(super) fn entrypoint() -> ExitCode {
             );
             let exit_result = category_exit_result(result.category);
             if exit_result == RESERVED_COMMAND_NOT_FOUND {
+                if format == OutputFormat::Text {
+                    let mut stderr = io::stderr().lock();
+                    let _ = write_result_diagnostics(&result, &mut stderr);
+                }
                 process_exit_code(result.category)
             } else {
                 process_exit_code(emit_result(&result, format))
