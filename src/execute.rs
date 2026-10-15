@@ -147,6 +147,7 @@ pub fn execute(request: ExecutionRequest<'_>) -> Result<ExecutionResult, Executi
         request.dependencies,
         request.limits,
         &request.call,
+        &qsl_semantics::model::object_environment::ObjectEnvironment::default(),
         &request.cancel,
     );
     let document = OutcomeDocument::from_run(&run);
@@ -232,6 +233,7 @@ mod tests {
             request.dependencies,
             request.limits,
             &request.call,
+            &qsl_semantics::model::object_environment::ObjectEnvironment::default(),
             &request.cancel,
         );
         let expected_document = OutcomeDocument::from_run(&expected_run);
@@ -283,6 +285,7 @@ mod tests {
             request.dependencies,
             request.limits,
             &request.call,
+            &qsl_semantics::model::object_environment::ObjectEnvironment::default(),
             &request.cancel,
         );
         let expected_document = OutcomeDocument::from_run(&expected);
@@ -318,6 +321,7 @@ mod tests {
             request.dependencies,
             request.limits,
             &request.call,
+            &qsl_semantics::model::object_environment::ObjectEnvironment::default(),
             &request.cancel,
         );
         let expected_document = OutcomeDocument::from_run(&expected_run);

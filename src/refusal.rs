@@ -7,8 +7,8 @@ use qsl_foundation::diagnostic::InternalFault;
 use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::{BackendId, Code, EmptyBackendIdentity};
-use qsl_replay::Category;
 use qsl_replay::spine::{CompileRefusal, SpineStage};
+use qsl_replay::Category;
 use qsl_route::RegistrationRefusal;
 use quire_contract_codegen::{
     ContractScalarError, EnvelopeRefusal, KaniObligationError, OracleGenerationError,
@@ -510,8 +510,8 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 
 #[cfg(test)]
 mod tests {
-    use qsl_foundation::EmptyBackendIdentity;
     use qsl_foundation::digest::WireNodeId;
+    use qsl_foundation::EmptyBackendIdentity;
     use qsl_replay::Category;
     use quire_contract_codegen::{
         ContractScalarError, HarnessPath, HarnessSymbol, KaniObligationError, ModuleSymbol,

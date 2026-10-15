@@ -54,7 +54,9 @@ pub(crate) fn handoff(
 fn evidence(input: &CompileInput<'_>) -> CheckedPackageEvidence {
     let mut evidence = CheckedPackageEvidence::new();
     for (digest, document) in input.packages {
-        evidence.insert_domain_package_document(hex(digest), document.as_slice());
+        evidence
+            .insert_domain_package_document(hex(digest), document.as_slice())
+            .expect("the input map supplies one document per digest");
     }
     let lock = DefinitionLock::pinned();
     let root = lock.entry(CatalogRole::Root);

@@ -9,13 +9,15 @@
 use std::collections::BTreeMap;
 
 use qsl_foundation::diagnostic::StageFailure;
+use qsl_foundation::BackendId;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, package, parse, refusal_or_fault, select, CheckedUnit, DependencyInput, EmittedUnit,
     FrontEndFailure, LockEvidence, PackageLimits, ParseRequest, SpineLimits, SpineStage,
 };
 use qsl_route::routing::{route, Disposition};
-use qsl_route::{BackendId, Candidate};
+use qsl_route::Candidate;
+use quire_contract_codegen::ContractRequestPosition;
 use quire_contract_codegen::{
     generate_routed, negotiate_backend_provider, BackendKind, BackendProviderEnvelope,
     EnvelopeRefusal, GenerationContexts, ItemSettlement, RoutedGeneration, RoutedGenerationError,
@@ -23,7 +25,7 @@ use quire_contract_codegen::{
 };
 use quire_contract_model::{
     read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
-    CheckedPackageReadLimits, CheckedPackageV2,
+    CheckedPackageReadLimits, ContractPackageV1,
 };
 use quire_exact::Cancel;
 
@@ -108,7 +110,8 @@ pub trait Upstream {
     /// `quire_contract_codegen::generate_routed`.
     fn generate(
         &self,
-        package: &CheckedPackageV2,
+        package: &ContractPackageV1,
+        positions: &[ContractRequestPosition],
         routed: &[RoutedGenerationItem],
         contexts: &GenerationContexts<'_>,
     ) -> Result<RoutedGeneration, RoutedGenerationError>;
@@ -181,11 +184,12 @@ impl Upstream for QslCg {
 
     fn generate(
         &self,
-        package: &CheckedPackageV2,
+        package: &ContractPackageV1,
+        positions: &[ContractRequestPosition],
         routed: &[RoutedGenerationItem],
         contexts: &GenerationContexts<'_>,
     ) -> Result<RoutedGeneration, RoutedGenerationError> {
-        generate_routed(package, routed, contexts)
+        generate_routed(package, positions, routed, contexts)
     }
 }
 
@@ -211,7 +215,7 @@ mod tests {
     fn lifecycle_faults_retain_details_and_operation_stage() {
         for (operation, expected_stage) in OPERATIONS {
             let expected = InternalFault::new("S3", "test-invariant");
-            let refusal = driver_refusal(StageFailure::Fault(expected), operation);
+            let refusal = driver_refusal(StageFailure::Fault(expected.clone()), operation);
             assert_eq!(refusal.code(), "runtime_invariant");
             assert_eq!(refusal.kind(), OutcomeKind::Fault);
             assert_eq!(refusal.stage(), DriverStage::Compile(expected_stage));

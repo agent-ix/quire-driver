@@ -10,9 +10,9 @@ use qsl_replay::{
     ProofBasis, RequestIndex, TerminalRecord, TerminalValue,
 };
 use quire_contract_codegen::{
-    Candidate, KaniExecutableHarness, KaniExecutionEvidence, KaniExecutionRefusal,
-    KaniExecutionRequest, KaniInstallation, KaniRunOutcome, KindOutput, RoutedItemOutput,
-    TerminalPairError, execute_kani_obligation, run_terminal_value,
+    execute_kani_obligation, run_terminal_value, Candidate, KaniExecutableHarness,
+    KaniExecutionEvidence, KaniExecutionRefusal, KaniExecutionRequest, KaniInstallation,
+    KaniRunOutcome, KindOutput, RoutedItemOutput, TerminalPairError,
 };
 use quire_exact::{Cancel, CancelCause};
 

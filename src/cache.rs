@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! The driver-owned cache boundary (FR-007).
 
-use qsl_route::{BackendId, ManifestDigest};
+use qsl_foundation::BackendId;
+use qsl_route::ManifestDigest;
 
 /// A cache-eligible operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -354,8 +355,8 @@ mod tests {
     fn registry(
         identity: &str,
         digest: [u8; 32],
-    ) -> (crate::AdmittedRegistry, qsl_route::BackendId) {
-        let backend = qsl_route::BackendId::from_wire(identity).expect("valid id");
+    ) -> (crate::AdmittedRegistry, qsl_foundation::BackendId) {
+        let backend = qsl_foundation::BackendId::from_wire(identity).expect("valid id");
         let registry = crate::build_registry(&[crate::ProviderManifest {
             identity: identity.to_owned(),
             manifest_digest: qsl_route::ManifestDigest::from_digest(digest),
@@ -363,7 +364,7 @@ mod tests {
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
             )],
-            domains: None,
+            domains: Some(vec!["integer".to_owned()]),
             wire: None,
         }])
         .expect("manifest is admitted");
@@ -372,7 +373,7 @@ mod tests {
 
     fn request<'a>(
         registry: &'a crate::AdmittedRegistry,
-        backend: &qsl_route::BackendId,
+        backend: &qsl_foundation::BackendId,
     ) -> CacheRequest<'a> {
         CacheRequest::new(
             CacheOperation::Prove,
@@ -441,8 +442,8 @@ mod tests {
     /// Unit check that the request builder selects the matching admitted descriptor (FR-007-AC-1).
     #[test]
     fn selecting_each_admitted_backend_uses_its_matching_descriptor() {
-        let first = qsl_route::BackendId::from_wire("first").expect("valid id");
-        let second = qsl_route::BackendId::from_wire("second").expect("valid id");
+        let first = qsl_foundation::BackendId::from_wire("first").expect("valid id");
+        let second = qsl_foundation::BackendId::from_wire("second").expect("valid id");
         let registry = crate::build_registry(&[
             crate::ProviderManifest {
                 identity: first.as_str().to_owned(),
@@ -451,7 +452,7 @@ mod tests {
                     Some("value-validity".to_owned()),
                     Some("bounded".to_owned()),
                 )],
-                domains: None,
+                domains: Some(vec!["integer".to_owned()]),
                 wire: None,
             },
             crate::ProviderManifest {
@@ -461,7 +462,7 @@ mod tests {
                     Some("value-validity".to_owned()),
                     Some("bounded".to_owned()),
                 )],
-                domains: None,
+                domains: Some(vec!["integer".to_owned()]),
                 wire: None,
             },
         ])
@@ -499,7 +500,7 @@ mod tests {
     /// Builder check only; provider-dispatch refusal-to-cache integration remains planned (FR-007-AC-6).
     #[test]
     fn cache_request_rejects_backend_outside_admitted_registry() {
-        let backend = qsl_route::BackendId::from_wire("kani").expect("valid id");
+        let backend = qsl_foundation::BackendId::from_wire("kani").expect("valid id");
         let registration = crate::build_registry(&[crate::ProviderManifest {
             identity: String::new(),
             manifest_digest: qsl_route::ManifestDigest::from_digest([3; 32]),
