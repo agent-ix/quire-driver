@@ -831,7 +831,7 @@ mod tests {
     #[test]
     fn kani_item_preflight_preserves_cancellation_and_backend_mismatch() {
         let provider = provider();
-        let item = routed_item("agent-ix/provider/kani");
+        let item = routed_item("kani");
         let request = ProviderRequest::new(std::slice::from_ref(&item));
         let cancel = Cancel::new();
         cancel.cancel(CancelCause::Requested);
@@ -862,7 +862,7 @@ mod tests {
             Err(KaniProviderFailure::MissingExecutionLimits)
         ));
 
-        let without_harness = routed_item("agent-ix/provider/kani");
+        let without_harness = routed_item("kani");
         let request = ProviderRequest::new(std::slice::from_ref(&without_harness));
         let missing_harness = provider.run_items(&request, &no_limits(), &Cancel::new());
         assert!(matches!(
