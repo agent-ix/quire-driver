@@ -12,12 +12,16 @@ use std::sync::Arc;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use qsl_foundation::backend::EmptyBackendIdentity;
+use qsl_foundation::bound::DomainKind;
 use qsl_foundation::diagnostic::{category_of, CatalogCode, Category};
 use qsl_foundation::BackendId;
 use qsl_package::EmittedPackage;
+use qsl_route::request::RequirementItem;
+use qsl_route::CandidateOutcome;
 use qsl_route::{
     descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
 };
+use quire_driver::Driven;
 use quire_driver::ProviderManifest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -321,9 +325,58 @@ pub enum RequestStageError {
     /// A retained manifest snapshot could not be reconstructed as JSON.
     #[error("a retained FR-331 manifest descriptor is invalid")]
     ManifestDescriptor,
+    /// A QSL request index cannot be represented by the FR-331 integer contract.
+    #[error("a QSL request index cannot be represented by FR-331")]
+    QslRequestIndex,
+    /// A routed provider is absent from the retained registry manifest.
+    #[error("the routed backend is absent from the retained FR-331 manifest")]
+    RoutedBackendMissing,
+    /// The routed backend is not in that request item's QSL candidate set.
+    #[error("the routed backend is absent from the QSL candidate outcome")]
+    RoutedBackendOutsideCandidates,
+    /// The request index does not identify exactly one QSL-produced item.
+    #[error("the routed request index has no matching QSL request item")]
+    MissingQslRequestItem,
 }
 
 impl RequestStage {
+    /// Build one process-provider request from the routed items, the exact
+    /// QSL request items used for CG negotiation, and the retained registry
+    /// manifest.
+    ///
+    /// This is the production bridge from the driver's E4/E5 result to the
+    /// FR-331 writer. Candidate wire values are projected from QSL outcomes;
+    /// they are not reconstructed from CG dispositions.
+    pub fn from_driven(
+        driven: &Driven,
+        backend: &qsl_foundation::BackendId,
+        manifest: &[ProviderManifest],
+        deadline_ms: u64,
+    ) -> Result<Self, RequestStageError> {
+        if !manifest
+            .iter()
+            .any(|entry| entry.identity == backend.as_str())
+        {
+            return Err(RequestStageError::RoutedBackendMissing);
+        }
+
+        let items = driven
+            .generation
+            .items
+            .iter()
+            .filter(|generated| generated.backend.identity == backend.as_str())
+            .map(|generated| {
+                let item = driven
+                    .request_items
+                    .iter()
+                    .find(|item| item.index().get() == generated.request_index)
+                    .ok_or(RequestStageError::MissingQslRequestItem)?;
+                RequestItem::from_qsl(item, backend)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Self::from_emitted(&driven.emitted, manifest, deadline_ms, items)
+    }
+
     /// Build the wire request from an emitted package and typed routed inputs.
     ///
     /// `package_id` is copied from the emitter's `EmittedPackage`; the driver
@@ -478,7 +531,7 @@ pub struct RequestItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend: Option<String>,
     /// Registry candidate set supplied by CG routing.
-    pub candidates: Value,
+    pub candidates: CandidateWire,
     /// Backend options supplied by the caller's request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<Value>,
@@ -491,6 +544,126 @@ pub struct RequestItem {
     /// Probabilistic selections supplied by the caller's request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub probabilistic: Option<Value>,
+}
+
+/// QSL's computed candidate outcome in the FR-331 request representation.
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum CandidateWire {
+    /// A candidate set, ordered by QSL's bytewise backend ordering.
+    Set {
+        /// Candidate backend identities in QSL's computed order.
+        backends: Vec<String>,
+    },
+    /// The request named a backend absent from the admitted registry.
+    UnknownBackend {
+        /// The backend identity QSL found to be unknown.
+        backend: String,
+    },
+}
+
+impl RequestItem {
+    /// Project one QSL-produced item without re-deriving its claim,
+    /// classification, named backend, or candidate result.
+    fn from_qsl(
+        item: &RequirementItem,
+        routed_backend: &qsl_foundation::BackendId,
+    ) -> Result<Self, RequestStageError> {
+        let request_index =
+            u64::try_from(item.index().get()).map_err(|_| RequestStageError::QslRequestIndex)?;
+        let origin = item.occurrence().origin();
+        let claim = serde_json::json!({
+            "node": {
+                "domain": "quire.checked-semantic-node/v1",
+                "digest": item.node().to_string(),
+            },
+            "occurrence": {
+                "role": origin.role().as_str(),
+                "ordinal": origin.ordinal(),
+            },
+        });
+        let candidates = match item.candidates() {
+            CandidateOutcome::Candidates(set) => {
+                if !set
+                    .candidates()
+                    .iter()
+                    .any(|candidate| candidate.id() == routed_backend)
+                {
+                    return Err(RequestStageError::RoutedBackendOutsideCandidates);
+                }
+                CandidateWire::Set {
+                    backends: set
+                        .candidates()
+                        .iter()
+                        .map(|candidate| candidate.id().as_str().to_owned())
+                        .collect(),
+                }
+            }
+            CandidateOutcome::UnknownBackend(_) => {
+                return Err(RequestStageError::RoutedBackendOutsideCandidates);
+            }
+        };
+        let extent = match item.extent() {
+            qsl_route::request::ExtentClassification::Bounded => {
+                Some(Extent::Bounded { bounds: Vec::new() })
+            }
+            qsl_route::request::ExtentClassification::Unbounded {
+                finite_bound_available,
+            } => Some(Extent::Unbounded {
+                domains: item
+                    .unbounded()
+                    .iter()
+                    .map(|(key, kind)| {
+                        let domain = match key {
+                            qsl_foundation::bound::DomainKey::Node { node, path } => {
+                                DomainKey::Node {
+                                    node: node.to_string(),
+                                    path: path.to_vec(),
+                                }
+                            }
+                            qsl_foundation::bound::DomainKey::Population {
+                                member_type,
+                                ordinal,
+                            } => DomainKey::Population {
+                                member_type: member_type.to_string(),
+                                ordinal: *ordinal,
+                            },
+                        };
+                        ExtentDomain {
+                            domain,
+                            kind: domain_kind(*kind),
+                        }
+                    })
+                    .collect(),
+                finite_bound_available,
+            }),
+        };
+
+        Ok(Self {
+            request_index,
+            kind: Some(item.kind().to_wire().to_owned()),
+            claim,
+            extent,
+            backend: Some(routed_backend.as_str().to_owned()),
+            candidates,
+            options: None,
+            reductions: None,
+            temporal: None,
+            probabilistic: None,
+        })
+    }
+}
+
+fn domain_kind(kind: DomainKind) -> ExtentDomainKind {
+    match kind {
+        DomainKind::Collection => ExtentDomainKind::Collection,
+        DomainKind::Population => ExtentDomainKind::Population,
+        DomainKind::Integer => ExtentDomainKind::Integer,
+        DomainKind::Recursive => ExtentDomainKind::Recursive,
+        DomainKind::Quantity => ExtentDomainKind::Quantity,
+        DomainKind::Loop => ExtentDomainKind::Loop,
+        DomainKind::InfiniteTrace => ExtentDomainKind::InfiniteTrace,
+    }
 }
 
 /// FR-331 finite or unbounded extent. Proof bounds stay under `extent.bounds`.
@@ -650,6 +823,14 @@ pub enum ProvisionDigestDomain {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use qsl_foundation::SourceIdentity;
+    use qsl_replay::spine::SpineLimits;
+    use qsl_semantics::value::{CatalogRole, DefinitionLock};
+    use quire_driver::{build_registry, drive, CompileInput, GenerationInput, KaniInput, QslCg};
+    use quire_exact::Cancel;
+    use std::collections::BTreeMap;
+    use std::num::NonZeroU64;
+    use std::time::Duration;
 
     fn hello(kind: Value, mode: Value) -> ManifestStage {
         ManifestStage {
@@ -853,7 +1034,9 @@ mod tests {
                 }],
             }),
             backend: Some("agent-ix/provider/test".to_owned()),
-            candidates: serde_json::json!({"type": "set", "backends": ["agent-ix/provider/test"]}),
+            candidates: CandidateWire::Set {
+                backends: vec!["agent-ix/provider/test".to_owned()],
+            },
             options: None,
             reductions: None,
             temporal: Some(TemporalRequest {
@@ -989,7 +1172,9 @@ mod tests {
             claim: Value::Null,
             extent: None,
             backend: None,
-            candidates: Value::Null,
+            candidates: CandidateWire::Set {
+                backends: Vec::new(),
+            },
             options: None,
             reductions: None,
             temporal: None,
@@ -999,6 +1184,175 @@ mod tests {
         assert!(matches!(
             RequestStage::from_emitted(&package, &[manifest], 100, vec![item]),
             Err(RequestStageError::ManifestDescriptor)
+        ));
+    }
+
+    /// Trace: FR-006-AC-5, FR-006-AC-6, FR-006-AC-7, FR-006-AC-8, FR-006-AC-11.
+    #[test]
+    fn driven_request_serializes_the_routed_qsl_candidate_and_emitted_package() {
+        let definition_lock = DefinitionLock::pinned();
+        let root = definition_lock.entry(CatalogRole::Root);
+        let source_text = format!(
+            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\nfunction negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
+            root.identity
+        );
+        let packages = BTreeMap::new();
+        let linked = ProviderManifest {
+            identity: "kani".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([21; 32]),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: Some(vec!["integer".to_owned()]),
+            wire: None,
+        };
+        let registry = build_registry(&[linked]).expect("the linked manifest is admitted");
+        let source = SourceIdentity::new("agent-ix", "ir813", "git", "1");
+        let input = CompileInput {
+            source,
+            path: "ir813.native",
+            bytes: source_text.as_bytes(),
+            packages: &packages,
+            limits: SpineLimits::default(),
+            cancel: Cancel::new(),
+        };
+        let driven = drive(
+            &QslCg,
+            input,
+            &registry,
+            None,
+            GenerationInput {
+                kani: Some(KaniInput {
+                    ceilings: quire_driver::ProofCeilings {
+                        memory_bytes: NonZeroU64::new(64 * 1024 * 1024)
+                            .expect("memory ceiling is positive"),
+                        wall_clock: Duration::from_secs(30),
+                    },
+                    subject_path: "crate::subject",
+                    unwind: 1,
+                }),
+            },
+        )
+        .expect("QSL emits the source and CG negotiates, routes and generates the item");
+
+        assert_eq!(driven.request_items.len(), 1);
+        assert_eq!(driven.settlements.len(), 1);
+        assert_eq!(driven.settlements[0].request_index, 0);
+        assert_eq!(driven.routed.len(), 1);
+        assert_eq!(driven.routed[0].backend().as_str(), "kani");
+        assert_eq!(driven.generation.items.len(), 1);
+
+        let backend = qsl_foundation::BackendId::new("kani");
+        let stage = RequestStage::from_driven(&driven, &backend, registry.manifests(), 250)
+            .expect("the production writer selects this provider's routed QSL item");
+        let wire = serde_json::to_value(stage).expect("FR-331 stage serializes");
+        let package_id = driven.emitted.package_id().record();
+        assert_eq!(
+            URL_SAFE_NO_PAD
+                .decode(wire["request"]["package"].as_str().expect("package string"))
+                .expect("package uses base64url"),
+            driven.emitted.bytes()
+        );
+        assert_eq!(wire["request"]["package_id"]["digest"], package_id.hex());
+        assert_eq!(
+            wire["request"]["package_id"]["domain"],
+            package_id.domain().as_str()
+        );
+        assert_eq!(wire["request"]["items"].as_array().unwrap().len(), 1);
+        assert_eq!(wire["request"]["items"][0]["request_index"], 0);
+        assert_eq!(
+            wire["request"]["items"][0]["backend"],
+            driven.generation.items[0].backend.identity
+        );
+        match driven.request_items[0].candidates() {
+            CandidateOutcome::Candidates(set) => {
+                let candidate_ids = set
+                    .candidates()
+                    .iter()
+                    .map(|candidate| candidate.id().as_str())
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    wire["request"]["items"][0]["candidates"]["backends"],
+                    serde_json::json!(candidate_ids)
+                );
+                assert_eq!(
+                    candidate_ids,
+                    [driven.generation.items[0].backend.identity.as_str()]
+                );
+            }
+            CandidateOutcome::UnknownBackend(_) => {
+                panic!("a routed item must originate in a QSL candidate set")
+            }
+        }
+        assert_eq!(
+            wire["request"]["items"][0]["request_index"],
+            driven.generation.items[0].request_index
+        );
+        assert_eq!(
+            wire["request"]["deadline_ms"], 250,
+            "the supplied deadline is serialized unchanged"
+        );
+        let retained: Value = serde_json::from_slice(
+            registry.manifests()[0]
+                .wire
+                .as_deref()
+                .expect("production registry retains manifest wire"),
+        )
+        .expect("retained manifest is JSON");
+        assert_eq!(wire["manifest"][0], retained);
+    }
+
+    /// Trace: FR-006-AC-1, FR-006-AC-11.
+    #[test]
+    fn unsupported_qsl_candidate_does_not_create_a_process_request() {
+        let definition_lock = DefinitionLock::pinned();
+        let root = definition_lock.entry(CatalogRole::Root);
+        let source_text = format!(
+            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\nfunction negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
+            root.identity
+        );
+        let packages = BTreeMap::new();
+        let registry = build_registry(&[ProviderManifest {
+            identity: "kani".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([22; 32]),
+            advertises: vec![(
+                Some("operation-contract".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: Some(vec!["integer".to_owned()]),
+            wire: None,
+        }])
+        .expect("the non-matching provider is admitted");
+        let driven = drive(
+            &QslCg,
+            CompileInput {
+                source: SourceIdentity::new("agent-ix", "ir813", "git", "1"),
+                path: "ir813.native",
+                bytes: source_text.as_bytes(),
+                packages: &packages,
+                limits: SpineLimits::default(),
+                cancel: Cancel::new(),
+            },
+            &registry,
+            None,
+            GenerationInput::default(),
+        )
+        .expect("QSL and CG return an unsupported disposition for the empty candidate set");
+
+        assert!(matches!(
+            driven.request_items[0].candidates(),
+            CandidateOutcome::Candidates(set) if set.candidates().is_empty()
+        ));
+        assert!(driven.routed.is_empty());
+        assert!(matches!(
+            RequestStage::from_driven(
+                &driven,
+                &qsl_foundation::BackendId::new("kani"),
+                registry.manifests(),
+                250,
+            ),
+            Err(RequestStageError::EmptyRequest)
         ));
     }
 }
