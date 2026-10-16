@@ -523,7 +523,7 @@ pub struct RequestItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     /// QSpec locus, supplied by the driver's original request item.
-    pub claim: Value,
+    pub claim: RequestClaim,
     /// Classification and proof bounds supplied by CG's routed item.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extent: Option<Extent>,
@@ -544,6 +544,33 @@ pub struct RequestItem {
     /// Probabilistic selections supplied by the caller's request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub probabilistic: Option<Value>,
+}
+
+/// QSpec-owned semantic claim carried by one request item.
+#[derive(Clone, Debug, Serialize)]
+pub struct RequestClaim {
+    /// Stable identity of the checked semantic node.
+    pub node: RequestClaimNode,
+    /// Source occurrence that distinguishes repeated uses of the same node.
+    pub occurrence: RequestClaimOccurrence,
+}
+
+/// Checked-node identity in the FR-331 wire format.
+#[derive(Clone, Debug, Serialize)]
+pub struct RequestClaimNode {
+    /// QSpec checked-node identity domain.
+    pub domain: &'static str,
+    /// Canonical checked-node digest.
+    pub digest: String,
+}
+
+/// QSL source occurrence identity in the FR-331 wire format.
+#[derive(Clone, Debug, Serialize)]
+pub struct RequestClaimOccurrence {
+    /// QSL occurrence role.
+    pub role: String,
+    /// Zero-based ordinal within that role.
+    pub ordinal: u64,
 }
 
 /// QSL's computed candidate outcome in the FR-331 request representation.
@@ -572,16 +599,16 @@ impl RequestItem {
         let request_index =
             u64::try_from(item.index().get()).map_err(|_| RequestStageError::QslRequestIndex)?;
         let origin = item.occurrence().origin();
-        let claim = serde_json::json!({
-            "node": {
-                "domain": "quire.checked-semantic-node/v1",
-                "digest": item.node().to_string(),
+        let claim = RequestClaim {
+            node: RequestClaimNode {
+                domain: "quire.checked-semantic-node/v1",
+                digest: item.node().to_string(),
             },
-            "occurrence": {
-                "role": origin.role().as_str(),
-                "ordinal": origin.ordinal(),
+            occurrence: RequestClaimOccurrence {
+                role: origin.role().as_str().to_owned(),
+                ordinal: origin.ordinal(),
             },
-        });
+        };
         let candidates = match item.candidates() {
             CandidateOutcome::Candidates(set) => {
                 if !set
@@ -827,17 +854,19 @@ mod tests {
     use qsl_replay::spine::SpineLimits;
     use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_contract_codegen as cg;
-    use quire_driver::{build_registry, drive, CompileInput, GenerationInput, KaniInput, QslCg};
+    use quire_driver::{
+        build_linked_providers, build_registry, drive, CompileInput, GenerationInput, QslCg,
+    };
     use quire_driver::{DriverRefusal, Upstream};
     use quire_exact::Cancel;
     use std::cell::Cell;
     use std::collections::BTreeMap;
-    use std::num::NonZeroU64;
-    use std::time::Duration;
 
     #[derive(Default)]
     struct RouteRecorder {
         calls: Cell<usize>,
+        unsupported_at: Vec<usize>,
+        supported_at: Option<(usize, String)>,
     }
 
     impl Upstream for RouteRecorder {
@@ -876,7 +905,28 @@ mod tests {
             &self,
             envelope: &cg::BackendProviderEnvelope,
         ) -> Result<Vec<cg::ItemSettlement>, cg::EnvelopeRefusal> {
-            QslCg.negotiate(envelope)
+            let mut settlements = QslCg.negotiate(envelope)?;
+            for index in &self.unsupported_at {
+                if let Some(settlement) = settlements.get_mut(*index) {
+                    let kind = settlement
+                        .kind
+                        .expect("a value-validity item settles with a kind");
+                    settlement.disposition = cg::Disposition::Unsupported {
+                        cause: cg::Cause::UnsupportedRequestedCapability {
+                            kind,
+                            backend: None,
+                        },
+                    };
+                }
+            }
+            if let Some((index, backend)) = &self.supported_at {
+                if let Some(settlement) = settlements.get_mut(*index) {
+                    settlement.disposition = cg::Disposition::Supported {
+                        backend: backend.clone(),
+                    };
+                }
+            }
+            Ok(settlements)
         }
 
         fn route<'d>(
@@ -910,6 +960,21 @@ mod tests {
             })
             .into()],
         }
+    }
+
+    fn process_admission(identity: &str) -> AdmittedManifest {
+        ManifestStage {
+            contract_version: CONTRACT_VERSION.to_owned(),
+            capability_vocabulary: Some(CAPABILITY_VOCABULARY.to_owned()),
+            manifest: vec![serde_json::json!({
+                "backend": identity,
+                "advertises": [{ "kind": "value-validity", "mode": "bounded" }],
+                "domains": ["integer"]
+            })
+            .into()],
+        }
+        .admit_process(4096)
+        .expect("QSL admits the process hello")
     }
 
     /// Trace: FR-005-AC-15.
@@ -1089,7 +1154,16 @@ mod tests {
         let item = RequestItem {
             request_index: 3,
             kind: Some("operation-contract".to_owned()),
-            claim: serde_json::json!({"node": {}, "occurrence": {}}),
+            claim: RequestClaim {
+                node: RequestClaimNode {
+                    domain: "quire.checked-semantic-node/v1",
+                    digest: "test-node".to_owned(),
+                },
+                occurrence: RequestClaimOccurrence {
+                    role: "test".to_owned(),
+                    ordinal: 0,
+                },
+            },
             extent: Some(Extent::Bounded {
                 bounds: vec![ProofBound {
                     domain: DomainKey::Population {
@@ -1235,7 +1309,16 @@ mod tests {
         let item = RequestItem {
             request_index: 0,
             kind: None,
-            claim: Value::Null,
+            claim: RequestClaim {
+                node: RequestClaimNode {
+                    domain: "quire.checked-semantic-node/v1",
+                    digest: "test-node".to_owned(),
+                },
+                occurrence: RequestClaimOccurrence {
+                    role: "test".to_owned(),
+                    ordinal: 0,
+                },
+            },
             extent: None,
             backend: None,
             candidates: CandidateWire::Set {
@@ -1259,21 +1342,23 @@ mod tests {
         let definition_lock = DefinitionLock::pinned();
         let root = definition_lock.entry(CatalogRole::Root);
         let source_text = format!(
-            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\nfunction negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
+            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\nfunction eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\nfunction negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
             root.identity
         );
         let packages = BTreeMap::new();
-        let linked = ProviderManifest {
-            identity: "kani".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([21; 32]),
-            advertises: vec![(
-                Some("value-validity".to_owned()),
-                Some("bounded".to_owned()),
-            )],
-            domains: Some(vec!["integer".to_owned()]),
-            wire: None,
-        };
-        let registry = build_registry(&[linked]).expect("the linked manifest is admitted");
+        let mut registry = build_linked_providers(&[]).expect("the empty linked registry builds");
+        let admitted = [
+            process_admission("agent-ix/plugin/alpha"),
+            process_admission("agent-ix/plugin/zeta"),
+        ];
+        registry
+            .register_admitted(
+                admitted
+                    .iter()
+                    .map(|admitted| (admitted.descriptor().clone(), admitted.manifest().clone())),
+            )
+            .expect("both process descriptors join the QSL registry");
+        let manifests = registry.manifest_snapshot();
         let source = SourceIdentity::new("agent-ix", "ir813", "git", "1");
         let input = CompileInput {
             source,
@@ -1283,40 +1368,55 @@ mod tests {
             limits: SpineLimits::default(),
             cancel: Cancel::new(),
         };
+        let upstream = RouteRecorder {
+            // Keep the real QSL candidate data, but make the first two
+            // settlement unsupported so the writer is exercised at a nonzero
+            // index. This is a test seam, not production negotiation.
+            unsupported_at: vec![0],
+            supported_at: Some((1, "agent-ix/plugin/alpha".to_owned())),
+            ..RouteRecorder::default()
+        };
         let driven = drive(
-            &QslCg,
+            &upstream,
             input,
-            &registry,
+            registry.registry(),
             None,
-            GenerationInput {
-                kani: Some(KaniInput {
-                    ceilings: quire_driver::ProofCeilings {
-                        memory_bytes: NonZeroU64::new(64 * 1024 * 1024)
-                            .expect("memory ceiling is positive"),
-                        wall_clock: Duration::from_secs(30),
-                    },
-                    subject_path: "crate::subject",
-                    unwind: 1,
-                }),
-            },
+            GenerationInput::default(),
         )
-        .expect("QSL emits the source and CG negotiates, routes and generates the item");
+        .expect("QSL emits two items and the test seam routes the supported one");
 
-        assert_eq!(driven.request_items.len(), 1);
-        assert_eq!(driven.settlements.len(), 1);
-        let request_index = driven.request_items[0].index().get();
-        assert_eq!(driven.settlements[0].request_index, request_index);
+        assert_eq!(driven.request_items.len(), 2);
+        assert_eq!(driven.settlements.len(), 2);
+        let request_index = 1;
+        assert_eq!(driven.request_items[0].index().get(), 0);
+        assert_eq!(driven.request_items[1].index().get(), request_index);
+        assert!(serde_json::to_value(&driven.settlements[0].disposition)
+            .is_ok_and(|disposition| disposition["disposition"] == "unsupported"));
+        let unsupported = driven
+            .settlements
+            .iter()
+            .find(|settlement| settlement.request_index == 0)
+            .expect("the first request item is retained");
+        assert!(serde_json::to_value(&unsupported.disposition)
+            .is_ok_and(|disposition| disposition["disposition"] == "unsupported"));
+        let settlement = driven
+            .settlements
+            .iter()
+            .find(|settlement| settlement.request_index == request_index)
+            .expect("the supported settlement retains request index 1");
+        assert_eq!(settlement.request_index, request_index);
+        let disposition = serde_json::to_value(&settlement.disposition)
+            .expect("the typed settlement disposition serializes");
+        assert_eq!(disposition["disposition"], "supported", "{disposition:?}");
         assert_eq!(driven.routed.len(), 1);
         assert_eq!(driven.routed[0].request_index, request_index);
-        assert_eq!(driven.routed[0].backend().as_str(), "kani");
+        assert_eq!(driven.routed[0].backend().as_str(), "agent-ix/plugin/alpha");
         assert_eq!(driven.generation.items.len(), 1);
         assert_eq!(driven.generation.items[0].request_index, request_index);
-        let disposition = serde_json::to_value(&driven.settlements[0].disposition)
-            .expect("the typed settlement disposition serializes");
-        assert_eq!(disposition["disposition"], "supported");
+        assert_eq!(upstream.calls.get(), 1, "the one supported item is routed");
 
-        let backend = qsl_foundation::BackendId::new("kani");
-        let stage = RequestStage::from_driven(&driven, &backend, registry.manifests(), 250)
+        let backend = driven.routed[0].backend();
+        let stage = RequestStage::from_driven(&driven, backend, &manifests, 250)
             .expect("the production writer selects this provider's routed QSL item");
         let wire = serde_json::to_value(stage).expect("FR-331 stage serializes");
         let package_id = driven.emitted.package_id().record();
@@ -1337,7 +1437,28 @@ mod tests {
             wire["request"]["items"][0]["backend"],
             driven.generation.items[0].backend.identity
         );
-        match driven.request_items[0].candidates() {
+        let qsl_item = driven
+            .request_items
+            .iter()
+            .find(|item| item.index().get() == request_index)
+            .expect("the routed QSL item is retained");
+        assert_eq!(
+            wire["request"]["items"][0]["claim"]["node"]["domain"],
+            "quire.checked-semantic-node/v1"
+        );
+        assert_eq!(
+            wire["request"]["items"][0]["claim"]["node"]["digest"],
+            qsl_item.node().to_string()
+        );
+        assert_eq!(
+            wire["request"]["items"][0]["claim"]["occurrence"]["role"],
+            qsl_item.occurrence().origin().role().as_str()
+        );
+        assert_eq!(
+            wire["request"]["items"][0]["claim"]["occurrence"]["ordinal"],
+            qsl_item.occurrence().origin().ordinal()
+        );
+        match qsl_item.candidates() {
             CandidateOutcome::Candidates(set) => {
                 let candidate_ids = set
                     .candidates()
@@ -1350,7 +1471,7 @@ mod tests {
                 );
                 assert_eq!(
                     candidate_ids,
-                    [driven.generation.items[0].backend.identity.as_str()]
+                    ["agent-ix/plugin/alpha", "agent-ix/plugin/zeta"]
                 );
             }
             CandidateOutcome::UnknownBackend(_) => {
@@ -1363,7 +1484,7 @@ mod tests {
             "the supplied deadline is serialized unchanged"
         );
         let retained: Value = serde_json::from_slice(
-            registry.manifests()[0]
+            manifests[0]
                 .wire
                 .as_deref()
                 .expect("production registry retains manifest wire"),
@@ -1372,7 +1493,7 @@ mod tests {
         assert_eq!(wire["manifest"][0], retained);
     }
 
-    /// Trace: FR-006-AC-1, FR-006-AC-11.
+    /// Trace: IR-813-AC-5.
     #[test]
     fn unsupported_qsl_candidate_does_not_create_a_process_request() {
         let definition_lock = DefinitionLock::pinned();
