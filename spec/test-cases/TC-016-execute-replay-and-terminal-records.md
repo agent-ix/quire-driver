@@ -15,7 +15,7 @@ Verify the available proved-provider terminal path uses QSL's canonical
 for every requested item, including the routed scalar observation producer
 and report-claim guard, remains planned.
 
-Scope: FR-009-AC-1 through FR-009-AC-11.
+Scope: FR-009-AC-1 through FR-009-AC-12.
 
 ## Test Procedure
 
@@ -46,6 +46,20 @@ surfaces that refusal unchanged and creates no local mapping. A
 caller-supplied outcome/digest echo or regenerated artifact is not a valid
 positive case.
 
+For the scalar-limit provenance mismatch case, retain original limits `L0`,
+then deliberately send the native request with different limits `L1`. Use a
+receipt whose CG attestation says the request supplied `L1`, the meter used
+`L1`, and the receipt returns `L1`; this is a valid receipt for the request,
+not a fabricated or mutated receipt. Verify that the driver compares `L1` with
+its private `L0`, rejects the completion, and does not invoke QSL replay,
+settle an item, or create a terminal. For this successful receipt, assert
+`DriverRefusal::Fault(DriverFault::NativeExecutionLimitsMismatch)`, stage
+`DriverStage::Replay`, code `runtime_invariant`, and outcome kind `Fault`. Also
+verify that an upstream typed completion refusal, when actually returned, is
+preserved unchanged. The successful-receipt mismatch test remains planned
+until the driver implements this contract; it must not manufacture an
+upstream refusal.
+
 Test location: `src/provider.rs`; full prove/replay integration remains
 planned.
 
@@ -67,9 +81,18 @@ planned.
   per requested item, including unsupported and incomplete items. A
   request-level typed refusal before settlement has no per-item terminal
   record guarantee.
-- For missing or mismatched artifact/context/native evidence, the upstream
-  typed completion refusal is preserved and QSL evaluation, settlement, and
-  terminal creation do not occur.
+- Missing or mismatched retained context or authentic native-observation
+  evidence prevents QSL replay evaluation, settlement, and terminal creation.
+  Preserve an upstream typed completion refusal unchanged only when the
+  upstream operation actually returns one.
+- When a successful CG receipt consistently attests request, metered, and
+  returned native limits `L1`, but the driver's privately retained original
+  limits are `L0` and differ from `L1`, the driver rejects the completion
+  before QSL replay, settlement, or terminal creation. It returns
+  `DriverRefusal::Fault(DriverFault::NativeExecutionLimitsMismatch)` at
+  `DriverStage::Replay`, with code `runtime_invariant` and outcome kind `Fault`;
+  it does not manufacture or attribute this driver-owned fault to an upstream
+  typed refusal.
 - After the public CG FR-032 binding converter exists, an absent replay report
   or a report whose `claim()` differs from the exact claim sent returns CG's
   typed binding refusal without replay settlement or terminal creation; the

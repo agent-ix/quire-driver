@@ -75,11 +75,23 @@ replay context through QSL evaluation and report handling.
   before QSL evaluates the observation. The retained `ReplayLimits` remain
   bound to the exact replay request context; they do not change native
   execution limits.
-- If the required retained context or an authentic observation is absent or
-  mismatched, the driver SHALL preserve the upstream typed completion refusal
-  and SHALL NOT invoke QSL replay evaluation or create a replay settlement or
-  terminal record. The exact refusal variant remains governed by the upstream
-  typed API; this requirement allocates no new refusal mapping.
+- When the driver receives a native receipt, the driver SHALL compare the
+  receipt's attested `ScalarLimits` with the original `ScalarLimits` in its
+  private retained context. The receipt's attestation covers the limit supplied
+  to the native request, used by the meter, and returned by the receipt, as
+  required by the CG producer contract.
+- The driver SHALL return
+  `DriverRefusal::Fault(DriverFault::NativeExecutionLimitsMismatch)` at the
+  new `DriverStage::Replay` stage, with code `runtime_invariant` and outcome
+  kind `Fault`, when a successful CG receipt consistently attests request,
+  metered, and returned limits `L1` but the private retained context contains
+  different original limits `L0`.
+- The driver SHALL stop before QSL replay evaluation when required retained
+  context or an authentic observation is absent or mismatched.
+- The driver SHALL create no replay settlement or terminal record for missing
+  or mismatched retained context or observation.
+- When an upstream operation returns a typed completion refusal, the
+  driver SHALL preserve that refusal unchanged.
 - For scalar parity, the driver SHALL pass each QSL report and its exact sent
   claim through CG's binding converter; that converter compares
   `report.claim()` for every outcome before accepting the report for settlement.
@@ -109,11 +121,12 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-4 | The terminal result is composed by CG's FR-331 mapping from both the provider result and replay result; the driver introduces no second mapping. | Partial (TC-016 proves QSL serialization for an available CG terminal; replay-combined settlement remains planned) |
 | FR-009-AC-5 | When a proof request reaches per-item settlement, the outcome contains exactly one FR-331 terminal record for every requested item, including unsupported and incomplete items; a request-level typed refusal before per-item settlement is governed by its refusal contract and has no per-item terminal-record guarantee. | Partial (TC-016 serializes available provider terminals through QSL; full per-item replay accounting remains planned) |
 | FR-009-AC-6 | For routed scalar replay, the driver retains one context binding the exact proved generated artifact and emitted package to the scalar identity, occurrence, ordered operands, original `ScalarLimits` and `ReplayLimits`, and exact QSL claim and replay context; it sends the retained `ReplayLimits` in that QSL request, executes the artifact with the retained scalar inputs and `ScalarLimits`, and retains the actual typed native outcome. | Planned (TC-016; IR-773 S6b producer) |
-| FR-009-AC-7 | The driver verifies QSL's native-observation digest against the actual typed outcome it obtained by executing the exact proved artifact with the retained operands and original `ScalarLimits`, and binds that observation and the exact replay request, including its original `ReplayLimits`, to the artifact's canonical proof-content identity before QSL evaluates the observation; missing or mismatched context or observation preserves the upstream typed completion refusal and produces no QSL replay evaluation, settlement, or terminal record. | Planned (TC-016; IR-773 producer, IR-631 replay-conversion consumer, IR-610 E9 integration) |
+| FR-009-AC-7 | The driver verifies QSL's native-observation digest against the actual typed outcome it obtained by executing the exact proved artifact with the retained operands and original `ScalarLimits`, binds that observation and exact replay request to the artifact's canonical proof-content identity, and compares the CG receipt's attested request/meter/receipt `ScalarLimits` with its privately retained original before QSL evaluates the observation; missing or mismatched context or observation prevents QSL replay evaluation, settlement, and terminal creation. The driver preserves an upstream typed completion refusal unchanged when the upstream operation returns one. | Planned (TC-016; IR-773 producer, IR-631 replay-conversion consumer, IR-610 E9 integration) |
 | FR-009-AC-8 | For scalar parity, the CG-owned binding converter compares `report.claim()` with the exact claim sent for every report outcome; an absent report or mismatch yields CG FR-032's typed binding refusal with no settlement, which the driver surfaces unchanged and never turns into a terminal. This path remains planned until CG exports the public scalar binding converter; the driver adds no refusal mapping. | Planned (TC-016; IR-610 consumer slice and public CG converter API) |
 | FR-009-AC-9 | Each scalar operator-parity report outcome is converted only through CG FR-032's typed settlement conversion of the QSL FR-357 report; `Agrees`, `Diverged`, `GeneratedFault`, `RefusedInput`, `Incomplete`, and other typed refusal outcomes retain the meanings those contracts define. | Planned (TC-016; IR-610 consumer slice and reviewed CG API) |
 | FR-009-AC-10 | Predicate/function replay that disagrees or completes without reproducing a provider counterexample settles as `inconclusive` with its replay-parity cause. | Planned (TC-016; full replay path) |
 | FR-009-AC-11 | No scalar operator-parity report settles as `refuted`. | Planned (TC-016; IR-610 consumer slice and reviewed CG API) |
+| FR-009-AC-12 | If CG returns a successful native-execution receipt that consistently attests request, metered, and returned `ScalarLimits` `L1` while the private retained context contains different original limits `L0`, the driver returns `DriverRefusal::Fault(DriverFault::NativeExecutionLimitsMismatch)` at the new `DriverStage::Replay` stage, with code `runtime_invariant` and outcome kind `Fault`, before QSL replay evaluation; no replay evaluation, settlement, or terminal record is created. An upstream typed completion refusal, when returned, is preserved unchanged. | Planned (TC-016; IR-773 S6b producer) |
 
 ## Dependencies
 
