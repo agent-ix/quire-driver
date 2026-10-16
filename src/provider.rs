@@ -389,13 +389,13 @@ mod tests {
         ProviderTerminalError,
     };
     use qsl_route::ManifestDigest;
+    use quire_contract_codegen::routed_contract_lowering_profile;
     use quire_contract_codegen::KaniInstallation;
     use quire_contract_codegen::{
         AdmittedItemAccounting, Artifact, KaniExecutionEvidence, KaniScalarObligationHarness,
         KindOutput, ObligationDisposition, ObligationRecord, ObligationSubject, RoutedItemOutput,
         ScalarObligationIdentity,
     };
-    use quire_contract_codegen::routed_contract_lowering_profile;
     use quire_contract_model::{
         CheckedNodeId, CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2,
         CheckedPackageV2ReadResult,
