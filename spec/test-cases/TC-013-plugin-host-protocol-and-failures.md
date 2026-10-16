@@ -24,11 +24,17 @@ and FR-006-AC-5 through FR-006-AC-23.
 
 1. Build an emitted package and retain one lossless FR-331 manifest DTO in the
    driver's registry record for every linked and process candidate. Have the
-   driver compose the full registered-candidate snapshot and supply it with
-   the package, its package identity and the caller's deadline to the process
-   seam. Use CG's routed output/routing seam for each request index, claim
-   locus and kind, extent/bounds, selected backend, candidates and any
-   temporal subject proof bounds.
+   driver compose the full registered-candidate snapshot. For each constructed
+   request item, serialize request index, claim locus, kind, extent/bounds and
+   candidate set from the corresponding retained QSL
+   `RequirementItem`/`CandidateOutcome`, using the same request data used to
+   build typed CG negotiation; take the selected backend from CG's routed
+   output. Supply the snapshot and constructed request data with the package,
+   its package identity and caller's deadline to the adapter serialization
+   check. This step checks field ownership and serialization only; it does not
+   imply that the driver dispatches negotiated work through the Process seam,
+   which remains planned under IR-629. Temporal subject proof bounds remain
+   sourced as specified in FR-006.
 2. Have the `quire-cli` adapter serialize the request through the typed FR-331
    adapter. Verify `package`
    contains the emitted package's RFC 8785 bytes as unpadded base64url,
