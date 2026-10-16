@@ -94,6 +94,7 @@ mod tests {
             function: "run".to_owned(),
             arguments: Vec::new(),
             accounting: default_accounting(100),
+            supplied: qsl_semantics::value::supplied::SuppliedLimits::default(),
         }
     }
 

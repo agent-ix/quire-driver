@@ -2166,7 +2166,7 @@ fn tc_004_e5_identity_and_refusal_are_faults() {
             (
                 CheckedPackageDispatchResult::Refused(_),
                 DriverRefusal::Fault(DriverFault::HandoffRefused(refused)),
-            ) => assert_eq!(refused, &refusal),
+            ) => assert_eq!(refused.as_ref(), &refusal),
             _ => panic!("unexpected refusal {driven:?} for {answer:?}"),
         }
         assert_eq!(driven.stage(), DriverStage::Handoff);

@@ -333,6 +333,8 @@ pub fn build_linked_providers<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use qsl_foundation::BackendId;
     use qsl_route::{descriptor_from_manifest, Candidate, ManifestDigest, ProviderOrigin};
 

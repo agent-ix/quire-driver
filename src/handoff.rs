@@ -27,7 +27,9 @@ pub(crate) fn handoff(
         match upstream.read_package(emitted, CheckedPackageReadLimits::bounded(), &evidence) {
             CheckedPackageDispatchResult::AdmittedV2(package) => *package,
             CheckedPackageDispatchResult::Refused(refusal) => {
-                return Err(DriverRefusal::Fault(DriverFault::HandoffRefused(refusal)))
+                return Err(DriverRefusal::Fault(DriverFault::HandoffRefused(Box::new(
+                    refusal,
+                ))))
             }
             CheckedPackageDispatchResult::Incomplete(incomplete) => {
                 return Err(DriverRefusal::HandoffLimit(incomplete))

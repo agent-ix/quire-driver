@@ -18,6 +18,7 @@ use qsl_replay::spine::{
     LockEvidence, PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
+use qsl_semantics::value::supplied::SuppliedLimits;
 use quire_driver::{
     execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides, ObjectEnvironment,
 };
@@ -506,13 +507,12 @@ fn run(options: RunOptions) -> CommandResult {
     }
     let packages = BTreeMap::new();
     let dependencies = DependencyInput::default();
-    let objects = ObjectEnvironment::default();
-    let cancel = Cancel::new();
     let mut limits = SpineLimits::default();
     let mut call = Call {
         function: options.function,
         arguments: options.arguments,
         accounting: default_accounting(DEFAULT_WORK_UNITS),
+        supplied: SuppliedLimits::default(),
     };
     if let Err(error) = options.limits.apply_to(&mut limits, &mut call) {
         return CommandResult::input_refusal(Operation::Execute, error.to_string());

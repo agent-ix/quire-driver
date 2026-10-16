@@ -218,6 +218,7 @@ mod tests {
                 function: "yes".to_owned(),
                 arguments: Vec::new(),
                 accounting: default_accounting(10),
+                supplied: qsl_semantics::value::supplied::SuppliedLimits::default(),
             },
             object_environment: &EMPTY_OBJECT_ENVIRONMENT,
             cancel: Cancel::new(),
@@ -225,8 +226,6 @@ mod tests {
         }
     }
 
-    static EMPTY_OBJECTS: LazyLock<ObjectEnvironment> = LazyLock::new(ObjectEnvironment::default);
-    static CANCEL: LazyLock<Cancel> = LazyLock::new(Cancel::new);
     static EMPTY_PACKAGES: LazyLock<BTreeMap<[u8; 32], Vec<u8>>> = LazyLock::new(BTreeMap::new);
     static NO_DEPENDENCIES: LazyLock<DependencyInput> = LazyLock::new(DependencyInput::default);
     static EMPTY_OBJECT_ENVIRONMENT: LazyLock<ObjectEnvironment> =
@@ -275,7 +274,7 @@ mod tests {
         let objects = ObjectEnvironment::default().with_unresolved_references();
         assert!(objects.references_are_unresolved());
         let mut request = request(ExecutionEngine::Interpreter, SpineLimits::default());
-        request.objects = &objects;
+        request.object_environment = &objects;
 
         let expected = qsl_replay::spine::run(
             request.source.clone(),
@@ -286,7 +285,7 @@ mod tests {
             request.limits,
             &request.call,
             &objects,
-            request.cancel,
+            &request.cancel,
         )
         .expect("the direct QSL run completes");
         let actual = execute(request).expect("the public driver run completes");

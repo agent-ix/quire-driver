@@ -366,16 +366,20 @@ fn validate_kani_item<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::num::NonZeroU64;
     use std::path::{Path, PathBuf};
     use std::sync::LazyLock;
     use std::time::Duration;
 
+    use qsl_foundation::SourceIdentity;
+    use qsl_replay::spine::SpineLimits;
     use qsl_replay::{
         compile_package, Certification, DependencyInput, IncompleteCause, Operation,
-        OutcomeDocument, OutcomeItem, OutcomeStage, ProofBasis, ReplayLimits, SourceIdentity,
-        StageLimits, TerminalValue,
+        OutcomeDocument, OutcomeItem, OutcomeStage, ProofBasis, ReplayLimits, StageLimits,
+        TerminalValue,
     };
+    use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_contract_codegen::{
         Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver, MemoryMechanism,
         MemoryObservation, ProofCeilings, SymbolicArgumentBounds, SymbolicBounds,
@@ -388,13 +392,13 @@ mod tests {
         ProviderManifest, ProviderOutcomeError, ProviderRequest, ProviderResults,
         ProviderTerminalError,
     };
+    use crate::{CompileInput, GenerationInput, KaniInput};
     use qsl_route::ManifestDigest;
     use quire_contract_codegen::routed_contract_lowering_profile;
     use quire_contract_codegen::KaniInstallation;
     use quire_contract_codegen::{
-        AdmittedItemAccounting, Artifact, KaniExecutionEvidence, KaniScalarObligationHarness,
-        KindOutput, ObligationDisposition, ObligationRecord, ObligationSubject, RoutedItemOutput,
-        ScalarObligationIdentity,
+        AdmittedItemAccounting, KaniExecutionEvidence, KindOutput, ObligationDisposition,
+        ObligationRecord, ObligationSubject, RoutedItemOutput,
     };
     use quire_contract_model::{
         CheckedNodeId, CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2,
@@ -580,15 +584,9 @@ mod tests {
         );
     }
 
-    fn routed_item(
-        identity: &str,
-        mut harness: Option<KaniScalarObligationHarness>,
-    ) -> RoutedItemOutput {
+    fn routed_item(identity: &str) -> RoutedItemOutput {
         let (checked_node, admitted) = &*REAL_ADMISSION;
         let checked_node = checked_node.clone();
-        if let Some(harness) = &mut harness {
-            harness.identity.node_id = checked_node.clone();
-        }
         let harness_symbol: quire_contract_codegen::HarnessSymbol = "generated_harness"
             .to_owned()
             .try_into()
@@ -611,40 +609,56 @@ mod tests {
                         harness_symbol: harness_symbol.clone(),
                     },
                 }),
-                harness: harness.map(Box::new),
+                harness: None,
             },
         }
     }
 
-    fn harness() -> KaniScalarObligationHarness {
-        let node_id = serde_json::from_value(serde_json::json!({
-            "domain": "quire.checked-semantic-node/v1",
-            "digest": "1".repeat(64),
-        }))
-        .expect("checked node id");
-        KaniScalarObligationHarness {
-            identity: ScalarObligationIdentity {
-                ceilings: ceilings(),
-                node_id,
-                operation_identity: "agent-ix/op/add".to_owned(),
-                oracle_symbol: "oracle".to_owned(),
-                module_symbol: "generated_module"
-                    .to_owned()
-                    .try_into()
-                    .expect("valid module symbol"),
-                harness_symbol: "generated_harness"
-                    .to_owned()
-                    .try_into()
-                    .expect("valid harness symbol"),
-                arguments: Vec::new(),
-                inferred_operands: Vec::new(),
-                solver: KaniSolver::Cadical,
-                unwind: 1,
-                options: Vec::new(),
+    fn generated_routed_item() -> RoutedItemOutput {
+        let lock = DefinitionLock::pinned();
+        let root = lock.entry(CatalogRole::Root);
+        let source = format!(
+            "language \"ix:native\" edition \"1-draft\";\n\
+             profile v = \"{}\";\n\
+             function f using v(x: Int[0, 9]): Int[0, 10] pure {{ x + 1 }}\n",
+            root.identity
+        );
+        let packages = BTreeMap::new();
+        let registry = crate::build_registry(&[ProviderManifest {
+            identity: "agent-ix/provider/kani".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([1; 32]),
+            advertises: vec![(Some("value-validity".into()), Some("bounded".into()))],
+            domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
+            wire: None,
+        }])
+        .expect("the real Kani provider manifest is admitted");
+        crate::drive(
+            &crate::QslCg,
+            CompileInput {
+                source: SourceIdentity::new("driver-test", "provider.native", "git", "fixture"),
+                path: "provider.native",
+                bytes: source.as_bytes(),
+                packages: &packages,
+                limits: SpineLimits::default(),
+                cancel: Cancel::new(),
             },
-            rust: Artifact::new("generated.rs", ""),
-            record: Artifact::new("record.json", "{}"),
-        }
+            &registry,
+            None,
+            GenerationInput {
+                kani: Some(KaniInput {
+                    ceilings: ceilings(),
+                    subject_path: "crate::subject",
+                    unwind: 1,
+                }),
+            },
+        )
+        .expect("the real driver and CG generation produce a Kani harness")
+        .generation
+        .items
+        .into_iter()
+        .next()
+        .expect("one generated Kani item")
     }
 
     fn provider() -> KaniProvider {
@@ -817,7 +831,7 @@ mod tests {
     #[test]
     fn kani_item_preflight_preserves_cancellation_and_backend_mismatch() {
         let provider = provider();
-        let item = routed_item("agent-ix/provider/kani", None);
+        let item = routed_item("agent-ix/provider/kani");
         let request = ProviderRequest::new(std::slice::from_ref(&item));
         let cancel = Cancel::new();
         cancel.cancel(CancelCause::Requested);
@@ -827,7 +841,7 @@ mod tests {
             Err(KaniProviderFailure::Cancelled(Some(CancelCause::Requested)))
         ));
 
-        let mismatched = routed_item("agent-ix/provider/other", None);
+        let mismatched = routed_item("agent-ix/provider/other");
         let request = ProviderRequest::new(std::slice::from_ref(&mismatched));
         let results = provider.run_items(&request, &no_limits(), &Cancel::new());
         assert!(matches!(
@@ -840,7 +854,7 @@ mod tests {
     #[test]
     fn kani_item_preflight_reports_missing_limits_and_harness() {
         let provider = provider();
-        let with_harness = routed_item("agent-ix/provider/kani", Some(harness()));
+        let with_harness = generated_routed_item();
         let request = ProviderRequest::new(std::slice::from_ref(&with_harness));
         let missing_limits = provider.run_items(&request, &no_limits(), &Cancel::new());
         assert!(matches!(
@@ -848,7 +862,7 @@ mod tests {
             Err(KaniProviderFailure::MissingExecutionLimits)
         ));
 
-        let without_harness = routed_item("agent-ix/provider/kani", None);
+        let without_harness = routed_item("agent-ix/provider/kani");
         let request = ProviderRequest::new(std::slice::from_ref(&without_harness));
         let missing_harness = provider.run_items(&request, &no_limits(), &Cancel::new());
         assert!(matches!(
@@ -861,7 +875,7 @@ mod tests {
     #[test]
     fn kani_execution_refuses_limits_that_differ_from_generated_identity() {
         let generated = ceilings();
-        let item = routed_item("agent-ix/provider/kani", Some(harness()));
+        let item = generated_routed_item();
         let request = ProviderRequest::new(std::slice::from_ref(&item));
         let installation = KaniInstallation::new(PathBuf::from("unused-cg-launcher"));
         let mismatches = [

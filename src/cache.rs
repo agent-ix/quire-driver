@@ -253,7 +253,6 @@ where
 mod tests {
     use std::cell::Cell;
 
-    use qsl_foundation::BackendId;
     use serde_json::Value;
 
     use super::{

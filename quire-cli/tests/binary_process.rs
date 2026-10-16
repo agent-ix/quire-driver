@@ -11,6 +11,7 @@ use qsl_replay::spine::{
     default_accounting, Call, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
+use qsl_semantics::value::supplied::SuppliedLimits;
 use quire_driver::{execute, ExecutionEngine, ExecutionRequest, ObjectEnvironment};
 use quire_exact::Cancel;
 
@@ -115,8 +116,6 @@ fn machine_run_writes_the_canonical_qsl_outcome() {
 
     let packages = std::collections::BTreeMap::new();
     let dependencies = DependencyInput::default();
-    let objects = ObjectEnvironment::default();
-    let cancel = Cancel::new();
     let source_bytes = std::fs::read(SOURCE).expect("read source fixture");
     let request = ExecutionRequest {
         source: SourceIdentity::new("quire", SOURCE, "filesystem", "current"),
@@ -129,6 +128,7 @@ fn machine_run_writes_the_canonical_qsl_outcome() {
             function: "yes".to_owned(),
             arguments: Vec::new(),
             accounting: default_accounting(DEFAULT_WORK_UNITS),
+            supplied: SuppliedLimits::default(),
         },
         object_environment: &ObjectEnvironment::default(),
         cancel: Cancel::new(),

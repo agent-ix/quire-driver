@@ -125,7 +125,7 @@ pub enum DriverFault {
     RoutingTarget,
     /// IR's reader refused the bytes QSL's E4 emitter just wrote.
     #[error("IR refused the emitted checked package: {:?}", .0.code)]
-    HandoffRefused(CheckedPackageRefusal),
+    HandoffRefused(Box<CheckedPackageRefusal>),
     /// IR admitted the bytes at a `package_id` other than the emitted one.
     #[error("IR admitted package {admitted}, not the emitted {emitted}")]
     PackageIdMismatch {
@@ -561,8 +561,7 @@ mod tests {
     };
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
-    use super::{oracle_code, DriverFault, DriverRefusal, DriverStage, OutcomeKind};
-    use qsl_foundation::Code;
+    use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
 
     #[test]
     fn empty_backend_identity_preserves_qsl_code_and_category() {
