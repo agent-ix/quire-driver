@@ -47,6 +47,12 @@ must not yield an accepted receipt or reach QSL replay, settlement, or terminal
 creation. This mapping and producer scenario remain planned until the public
 typed API exists; do not manufacture a mapping for the test.
 
+The required mapping depends on QSL-818 for binding named `CallArgument` values
+to the selected scalar operand occurrence/order, and IR-832 for the typed
+declared-name accessor on checked parameter nodes. Until both public APIs exist,
+the mapping scenario is not executable and remains planned; AC-6 and AC-7 also
+remain planned.
+
 After that mapping exists, send the retained `ReplayLimits` unchanged in the
 QSL replay request, execute the artifact with the retained scalar inputs and
 `ScalarLimits`, and authenticate that same artifact's actual typed native
