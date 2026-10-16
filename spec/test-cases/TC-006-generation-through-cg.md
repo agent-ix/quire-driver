@@ -78,10 +78,12 @@ application, in occurrence-key order.
     lowerability/refusal value or derive the form from display/debug text.
 14. Drive the RR-16 source with `g(p: Int[0, 10])`, `h(q: Int[0, 20])`, and
     `f(x: Int[0, 9]) { g(x + 1) and h(x + 1) }`, with Kani registered.
-    Compare each QSL requirement's exact application occurrence and direct
-    narrow occurrence with the driver's alternating `[add, narrow]` roots;
-    verify the shared add node produces two routed items and the two narrow
-    roots remain attached to their original occurrences through CG generation.
+    Compare each typed form and context root with its corresponding QSL
+    requirement occurrence and the exact admitted package. Verify each QSL
+    requirement's exact application occurrence and direct narrow occurrence
+    with the driver's alternating `[add, narrow]` roots; the shared add node
+    produces two routed items and the two narrow roots remain attached to
+    their original occurrences through CG generation.
 
 Tests: `tests/drive.rs`,
 `tc_001_tc_006_steps_run_in_order_through_generation` (steps 1 to 3),
