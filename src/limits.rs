@@ -40,19 +40,22 @@ impl LimitOverrides {
             spine: *limits,
             ..CallerLimits::default()
         };
-        let mut caller_accounting = AccountingLimits(*accounting);
         for (setting, value) in &self.0 {
             match setting {
                 SettingName::Stage(setting) => {
                     if !available.contains(setting) {
-                        return Err(LimitError::OperationUnavailable { setting: *setting });
+                        return Err(LimitError::OperationUnavailable {
+                            setting: SettingName::Stage(*setting),
+                        });
                     }
                     // `bounds()` and `set_bound()` are the paired QSL API for
                     // the selected operation; an exposed setting must be writable.
                     let updated = caller_limits.set_bound(*setting, *value);
                     debug_assert!(updated, "QSL bound listed by bounds() must be settable");
                     if !updated {
-                        return Err(LimitError::OperationUnavailable { setting: *setting });
+                        return Err(LimitError::OperationUnavailable {
+                            setting: SettingName::Stage(*setting),
+                        });
                     }
                 }
                 SettingName::Accounting(setting) => {
