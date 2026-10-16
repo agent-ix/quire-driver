@@ -15,7 +15,7 @@ Verify the available proved-provider terminal path uses QSL's canonical
 for every requested item, including the routed scalar observation producer
 and report-claim guard, remains planned.
 
-Scope: FR-009-AC-1 through FR-009-AC-12.
+Scope: FR-009-AC-1 through FR-009-AC-13.
 
 ## Test Procedure
 
@@ -31,8 +31,30 @@ conversion, settlement, or terminal creation. The
 qualification must retain the exact generated artifact/package, scalar
 identity/occurrence, ordered operands, original `ScalarLimits` and
 `ReplayLimits`, and original QSL claim/replay context as one execution
-context. It must send the retained `ReplayLimits` unchanged in the QSL replay
-request, execute the artifact with the retained scalar inputs and
+context. Before a positive native execution can be qualified, provide a
+public typed mapping from one selected `ExecutionRequest.call` and its named
+`CallArgument` values to one exact QSL requirement occurrence and checked
+scalar application, yielding the concrete values in the matching CG
+`ScalarObligationIdentity.arguments` order. Exercise a call whose argument
+vector order differs from CG's generated operand order, and two distinct
+requirement occurrences sharing one expression node; the mapping must bind the
+selected occurrence rather than use the expression node alone. Confirm that
+`ScalarLimits` L0 comes from the accounting limits of that same selected call
+received by the producer. No positional zip of the QSL and CG vectors, inferred
+occurrence, caller-authored operand list, or limits from a different call is a
+valid positive case. Missing, ambiguous, or mismatched call/occurrence binding
+must not yield an accepted receipt or reach QSL replay, settlement, or terminal
+creation. This mapping and producer scenario remain planned until the public
+typed API exists; do not manufacture a mapping for the test.
+
+The required mapping depends on QSL-818 for binding named `CallArgument` values
+to the selected scalar operand occurrence/order, and IR-832 for the typed
+declared-name accessor on checked parameter nodes. Until both public APIs exist,
+the mapping scenario is not executable and remains planned; AC-6 and AC-7 also
+remain planned.
+
+After that mapping exists, send the retained `ReplayLimits` unchanged in the
+QSL replay request, execute the artifact with the retained scalar inputs and
 `ScalarLimits`, and authenticate that same artifact's actual typed native
 outcome before QSL evaluation. The oracle compares the retained and sent
 `ReplayLimits` for equality. It must reject missing or mismatched evidence
