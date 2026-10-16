@@ -77,9 +77,12 @@ settlement path used for first-party providers.
 - The `quire-cli` adapter SHALL copy the `deadline_ms` supplied in the caller's
   process-provider request into the FR-331 request. It SHALL NOT add
   request-level `domains` or `limits`.
-- The `quire-cli` adapter SHALL source each serialized item from CG's routed
-  output and routing request: request index, claim locus and kind,
-  extent/bounds, selected backend and candidate set.
+- The `quire-cli` adapter SHALL serialize each item's request index, claim
+  locus, kind, extent/bounds and candidate set from the corresponding retained
+  QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to
+  build typed CG negotiation. CG's routed output SHALL supply the selected
+  backend. The adapter SHALL NOT treat the routed output as the source of the
+  QSL-owned item fields.
 - The `quire-cli` adapter SHALL place temporal proof bounds under
   `items[].temporal.subject.proof_bounds`. The current CG routed output does
   not retain all these fields; their projection is a named integration gap for
@@ -148,9 +151,9 @@ settlement path used for first-party providers.
 | FR-006-AC-7 | The `quire-cli` adapter serializes `package_id` from the same `EmittedPackage` value as the encoded package bytes. | Planned (TC-013) |
 | FR-006-AC-8 | The `quire-cli` adapter serializes `deadline_ms` equal to the caller-supplied process-provider deadline. | Planned (TC-013) |
 | FR-006-AC-9 | The `quire-cli` adapter serializes a request without top-level `domains` or `limits` members. | Planned (TC-013) |
-| FR-006-AC-10 | The `quire-cli` adapter serializes each item's request index, claim locus and kind from CG's routed output. | Planned (TC-013; full source projection awaits IR-629) |
-| FR-006-AC-11 | The `quire-cli` adapter serializes each item's selected backend and candidate set from CG's routed output. | Planned (TC-013; full source projection awaits IR-629) |
-| FR-006-AC-12 | The `quire-cli` adapter serializes each item's extent and bounds from CG's routed output. | Planned (TC-013; full source projection awaits IR-629; QSL proof-bound kind emission remains pending) |
+| FR-006-AC-10 | The `quire-cli` adapter serializes each item's request index, claim locus and kind from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation. | Planned (TC-013; full source projection awaits IR-629) |
+| FR-006-AC-11 | The `quire-cli` adapter serializes each item's selected backend from CG's routed output and its candidate set from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation. | Planned (TC-013; full source projection awaits IR-629) |
+| FR-006-AC-12 | The `quire-cli` adapter serializes each item's extent and bounds from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation. | Planned (TC-013; full source projection awaits IR-629; QSL proof-bound kind emission remains pending) |
 | FR-006-AC-13 | The `quire-cli` adapter serializes each item's temporal proof bounds under `items[].temporal.subject.proof_bounds`. | Planned (TC-013; full source projection awaits IR-629) |
 | FR-006-AC-14 | The driver's shared settlement path preserves a plugin `declined` result's typed code in QSL `TerminalValue::Declined { code }`. | Planned (TC-013) |
 | FR-006-AC-15 | A validated result without a specified QSL terminal mapping remains typed and unmapped in the driver's shared settlement path. | Planned (TC-013; IR-677 and QSL result-mapping APIs) |
