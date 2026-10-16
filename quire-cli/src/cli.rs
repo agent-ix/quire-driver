@@ -989,7 +989,7 @@ mod tests {
             options.limits.values(),
             &[(
                 qsl_foundation::SettingName::Stage(qsl_foundation::Setting::S1InputBytes),
-                1024
+                1024,
             )]
         );
     }

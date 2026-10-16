@@ -509,7 +509,7 @@ mod tests {
             identity: String::new(),
             manifest_digest: qsl_route::ManifestDigest::from_digest([3; 32]),
             advertises: Vec::new(),
-            domains: None,
+            domains: Some(vec!["integer".to_owned()]),
             bounds: None,
             wire: None,
         }]);

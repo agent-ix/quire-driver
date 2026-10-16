@@ -434,7 +434,10 @@ mod tests {
                 .expect("checked expression node")
                 .node_id
                 .clone();
-            let lowered = checked.lower(&[node_id.clone()], &routed_contract_lowering_profile());
+            let lowered = checked.lower(
+                std::slice::from_ref(&node_id),
+                &routed_contract_lowering_profile(),
+            );
             let package = lowered
                 .package
                 .wire()

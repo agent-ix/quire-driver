@@ -11,7 +11,7 @@ use qsl_replay::{
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum LimitError {
     /// QSL recognizes the setting, but this operation does not expose it.
-    #[error("limit setting `{setting:?}` is unavailable for the `run` operation")]
+    #[error("limit setting `{}` is unavailable for the `run` operation", setting.name())]
     OperationUnavailable {
         /// The recognized setting absent from the operation's bounds.
         setting: SettingName,

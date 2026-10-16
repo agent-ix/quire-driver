@@ -36,7 +36,7 @@ struct AdvertisedPairWire<'a> {
 /// registration path instead (ADR-029 PV-1).
 ///
 /// The `advertises` pairs are the manifest's `(kind, mode)` labels exactly
-/// as it states them; `route` admits them (`BackendDescriptor::admit`), so an
+/// as it states them; QSL admits them through `descriptor_from_manifest`, so an
 /// absent or unknown label refuses the registration.
 /// Optional `domains` labels are passed to that same QSL admission call; QSL
 /// owns boundable-kind and mode/domain consistency refusals.
@@ -197,7 +197,7 @@ impl Deref for AdmittedRegistry {
 /// observed, not a diff against the registry's prior state, so it can
 /// repeat a conflict an earlier call in this same loop already reported.
 /// Rather than accumulate those (and dedup them by hand), this collects
-/// only the vocabulary refusals `BackendDescriptor::admit` produces during
+/// only the vocabulary refusals `descriptor_from_manifest` produces during
 /// the loop, then reads every duplicate-backend conflict once, after the
 /// loop, from `Registry::refusals` -- the registry's own stable, deduped
 /// account of every identity conflict it currently holds.
@@ -482,7 +482,7 @@ mod tests {
             identity: "agent-ix/provider/empty-advertisements".to_owned(),
             manifest_digest: ManifestDigest::from_digest([6; 32]),
             advertises: Vec::new(),
-            domains: None,
+            domains: Some(vec!["integer".to_owned()]),
             bounds: None,
             wire: None,
         };

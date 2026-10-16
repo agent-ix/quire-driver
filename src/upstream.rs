@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use qsl_foundation::diagnostic::StageFailure;
-use qsl_foundation::{BackendId, SourceIdentity};
+use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, package, parse, refusal_or_fault, select, CheckedUnit, DependencyInput, EmittedUnit,
     FrontEndFailure, LockEvidence, PackageLimits, ParseRequest, SpineLimits, SpineStage,

@@ -25,6 +25,7 @@ qsl-cst = { git = "https://github.com/agent-ix/quire-spec-language", branch = "m
 qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
+qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 ix-cli-kit = { git = "https://github.com/agent-ix/ix-cli-kit", branch = "main" }
 # IR-609 composes the user-facing CLI with its separately bounded cache.
 quire-cache = { path = "../quire-cache" }
