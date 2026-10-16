@@ -90,6 +90,9 @@ pub struct Driven {
     pub checked: CheckedPackageV2,
     /// CG's settlement of every requested item, in request order.
     pub settlements: Vec<ItemSettlement>,
+    /// The exact QSL-produced request items used to construct the CG envelope.
+    /// The CLI serializes these same values into the FR-331 process request.
+    pub request_items: Vec<RequirementItem>,
     /// Every item settled `supported`, with its routed backend, in request
     /// order.
     pub routed: Vec<Routed>,
@@ -177,6 +180,7 @@ pub fn drive(
         emitted,
         checked,
         settlements,
+        request_items: items,
         routed,
         generation,
     })

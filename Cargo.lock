@@ -1436,6 +1436,8 @@ dependencies = [
  "qsl-semantics",
  "quire-cache",
  "quire-canonical",
+ "quire-contract-codegen",
+ "quire-contract-model",
  "quire-driver",
  "quire-exact",
  "quire-plugin-host",
