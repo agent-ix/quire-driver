@@ -33,6 +33,11 @@ replay context through QSL evaluation and report handling.
   generated artifact and emitted package, scalar identity and occurrence,
   ordered operands, original `ScalarLimits` and `ReplayLimits`, and the
   original QSL claim and replay context.
+- For a routed scalar native execution, the selected `ExecutionRequest.call`,
+  the exact QSL requirement occurrence and checked scalar application, and a
+  typed mapping that binds that call's named arguments to the CG scalar
+  identity's ordered arguments. The original scalar limits are the accounting
+  limits on that same call.
 - The actual typed native outcome produced by executing that retained artifact
   for the retained scalar inputs, and QSL's report for the original claim.
 
@@ -48,6 +53,21 @@ replay context through QSL evaluation and report handling.
 
 - The driver SHALL pass the generated request and its exact emitted package
   to the selected provider.
+- For routed scalar native execution, the driver SHALL obtain the concrete
+  operand vector through a typed mapping that binds one selected
+  `ExecutionRequest.call` and its named `CallArgument` values to one exact QSL
+  requirement occurrence and checked scalar application, and orders the
+  resulting values according to the corresponding CG
+  `ScalarObligationIdentity.arguments`. The driver SHALL retain that call,
+  occurrence, application and mapping as one context. It SHALL use the
+  `ScalarLimits` from that same call's accounting as the original `ScalarLimits`
+  for the context. It SHALL NOT pair QSL call arguments with CG arguments by
+  vector position, infer an occurrence from an expression node alone, or
+  substitute limits from another call or context. A mapping or binding that is
+  absent or ambiguous is missing retained context under FR-009-AC-7; it cannot
+  produce an accepted native receipt or proceed to QSL replay evaluation,
+  settlement, or terminal creation. This mapping API and producer behavior
+  remain planned until a public typed contract exists.
 - The driver SHALL preserve the provider's typed result.
 - For predicate/function counterexamples, when QSL replay reproduces the
   counterexample, the driver SHALL settle that item as `refuted`.
@@ -127,6 +147,7 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-10 | Predicate/function replay that disagrees or completes without reproducing a provider counterexample settles as `inconclusive` with its replay-parity cause. | Planned (TC-016; full replay path) |
 | FR-009-AC-11 | No scalar operator-parity report settles as `refuted`. | Planned (TC-016; IR-610 consumer slice and reviewed CG API) |
 | FR-009-AC-12 | If CG returns a successful native-execution receipt that consistently attests request, metered, and returned `ScalarLimits` `L1` while the private retained context contains different original limits `L0`, the driver returns `DriverRefusal::Fault(DriverFault::NativeExecutionLimitsMismatch)` at the new `DriverStage::Replay` stage, with code `runtime_invariant` and outcome kind `Fault`, before QSL replay evaluation; no replay evaluation, settlement, or terminal record is created. An upstream typed completion refusal, when returned, is preserved unchanged. | Planned (TC-016; IR-773 S6b producer) |
+| FR-009-AC-13 | For routed scalar native execution, the driver obtains concrete operands from a typed, provenance-preserving mapping of one selected `ExecutionRequest.call` to one exact QSL requirement occurrence and checked scalar application, with values ordered by the matching CG `ScalarObligationIdentity.arguments`; the original `ScalarLimits` come from that same call's accounting. Positional zipping, expression-node-only occurrence matching, and limits from another call are not valid mappings. If the mapping or exact binding is absent or ambiguous, it is missing retained context under FR-009-AC-7 and cannot produce an accepted native receipt or proceed to QSL replay evaluation, settlement, or terminal creation. | Planned (TC-016; IR-773 producer contract/API) |
 
 ## Dependencies
 
