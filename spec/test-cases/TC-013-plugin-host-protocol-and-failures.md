@@ -116,12 +116,15 @@ by [TC-023](./TC-023-plugin-session-and-admission.md) through
 CG IR-629's origin-aware descriptor conversion. End-to-end process-provider
 dispatch and settlement remain planned. The current
 `RoutedItemOutput` does not carry the full FR-331 request item or deadline. The
-IR-629 routed-request seam must expose the original request index, claim and
-occurrence, kind, extent/bounds, selected backend and candidates, plus the
-request deadline. FR-331 specifies the proof-bound `kind`; QSL-654 owns the
-pending QSL emitter support for writing it. These missing source fields are
-tracked integration gaps; the test must not synthesize them from unrelated provider
-evidence.
+adapter's request index, claim locus, kind, extent/bounds and candidate set
+come from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`,
+using the same request data used to build typed CG negotiation; the selected
+backend comes from CG's routed output. IR-629 still owns end-to-end Process
+dispatch and integration of those sources with the request deadline. Temporal
+subject proof bounds remain a projection gap as stated in FR-006. FR-331
+specifies the proof-bound `kind`; QSL-654 owns the pending QSL emitter support
+for writing it. The test must not synthesize QSL-owned item fields from
+unrelated provider evidence.
 
 Test location: planned `quire-cli` FR-331 hello/request adapter tests and
 driver/provider composition tests. IR-672 PR3 covers the hello/admission and
@@ -136,9 +139,11 @@ IR-672 and the QSL result-mapping dependencies.
 - Request fields are serialized by the `quire-cli` adapter from their named
   owners: `package` and `package_id` from
   the same `EmittedPackage`; `manifest` from the driver's registered-candidate
-  records; `deadline_ms` from the caller's process-provider request; and item
-  request index, claim locus, kind, extent/bounds, selected backend and
-  candidates from CG's routed output/routing seam.
+  records; `deadline_ms` from the caller's process-provider request; each
+  item's request index, claim locus, kind, extent/bounds and candidate set from
+  the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using
+  the same request data used to build typed CG negotiation; and its selected
+  backend from CG's routed output.
 - The driver composes the manifest snapshot from one retained DTO in each
   registered-candidate record; the adapter does not reconstruct or add
   members.
