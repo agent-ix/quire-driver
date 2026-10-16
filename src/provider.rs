@@ -625,7 +625,7 @@ mod tests {
         );
         let packages = BTreeMap::new();
         let registry = crate::build_registry(&[ProviderManifest {
-            identity: "agent-ix/provider/kani".to_owned(),
+            identity: "kani".to_owned(),
             manifest_digest: ManifestDigest::from_digest([1; 32]),
             advertises: vec![(Some("value-validity".into()), Some("bounded".into()))],
             domains: Some(vec!["integer".to_owned()]),
@@ -663,7 +663,7 @@ mod tests {
 
     fn provider() -> KaniProvider {
         KaniProvider::new(ProviderManifest {
-            identity: "agent-ix/provider/kani".to_owned(),
+            identity: "kani".to_owned(),
             manifest_digest: ManifestDigest::from_digest([1; 32]),
             advertises: Vec::new(),
             domains: None,

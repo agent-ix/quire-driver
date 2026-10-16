@@ -286,13 +286,12 @@ mod tests {
             &request.call,
             &objects,
             &request.cancel,
-        )
-        .expect("the direct QSL run completes");
+        );
+        let expected_document = OutcomeDocument::from_run(&expected);
         let actual = execute(request).expect("the public driver run completes");
-        assert_eq!(actual.package_id, expected.0);
-        let expected_bytes = OutcomeDocument::from_call(&expected.1)
+        let expected_bytes = expected_document
             .to_bytes()
-            .expect("QSL serializes the direct result");
+            .expect("QSL serializes the direct run result");
         assert_eq!(
             actual
                 .outcome_bytes()
