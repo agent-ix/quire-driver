@@ -826,11 +826,77 @@ mod tests {
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::SpineLimits;
     use qsl_semantics::value::{CatalogRole, DefinitionLock};
+    use quire_contract_codegen as cg;
     use quire_driver::{build_registry, drive, CompileInput, GenerationInput, KaniInput, QslCg};
+    use quire_driver::{DriverRefusal, Upstream};
     use quire_exact::Cancel;
+    use std::cell::Cell;
     use std::collections::BTreeMap;
     use std::num::NonZeroU64;
     use std::time::Duration;
+
+    #[derive(Default)]
+    struct RouteRecorder {
+        calls: Cell<usize>,
+    }
+
+    impl Upstream for RouteRecorder {
+        fn compile(
+            &self,
+            source: qsl_foundation::SourceIdentity,
+            path: &str,
+            bytes: &[u8],
+            packages: &BTreeMap<[u8; 32], Vec<u8>>,
+            limits: SpineLimits,
+            cancel: &Cancel,
+        ) -> Result<
+            (
+                qsl_replay::spine::CheckedUnit,
+                qsl_replay::spine::EmittedUnit,
+            ),
+            DriverRefusal,
+        > {
+            QslCg.compile(source, path, bytes, packages, limits, cancel)
+        }
+
+        fn read_package(
+            &self,
+            emitted: &qsl_replay::spine::EmittedUnit,
+            limits: quire_contract_model::CheckedPackageReadLimits,
+            evidence: &quire_contract_model::CheckedPackageEvidence,
+        ) -> quire_contract_model::CheckedPackageDispatchResult {
+            QslCg.read_package(emitted, limits, evidence)
+        }
+
+        fn backend_kind(&self, descriptor: &cg::BackendDescriptor) -> Option<cg::BackendKind> {
+            QslCg.backend_kind(descriptor)
+        }
+
+        fn negotiate(
+            &self,
+            envelope: &cg::BackendProviderEnvelope,
+        ) -> Result<Vec<cg::ItemSettlement>, cg::EnvelopeRefusal> {
+            QslCg.negotiate(envelope)
+        }
+
+        fn route<'d>(
+            &self,
+            dispositions: &'d [qsl_route::routing::Disposition],
+        ) -> Vec<Option<&'d qsl_route::Candidate>> {
+            self.calls.set(self.calls.get() + 1);
+            QslCg.route(dispositions)
+        }
+
+        fn generate(
+            &self,
+            package: &quire_contract_model::ContractPackageV1,
+            positions: &[cg::ContractRequestPosition],
+            routed: &[cg::RoutedGenerationItem],
+            contexts: &cg::GenerationContexts<'_>,
+        ) -> Result<cg::RoutedGeneration, cg::RoutedGenerationError> {
+            QslCg.generate(package, positions, routed, contexts)
+        }
+    }
 
     fn hello(kind: Value, mode: Value) -> ManifestStage {
         ManifestStage {
@@ -1238,10 +1304,16 @@ mod tests {
 
         assert_eq!(driven.request_items.len(), 1);
         assert_eq!(driven.settlements.len(), 1);
-        assert_eq!(driven.settlements[0].request_index, 0);
+        let request_index = driven.request_items[0].index().get();
+        assert_eq!(driven.settlements[0].request_index, request_index);
         assert_eq!(driven.routed.len(), 1);
+        assert_eq!(driven.routed[0].request_index, request_index);
         assert_eq!(driven.routed[0].backend().as_str(), "kani");
         assert_eq!(driven.generation.items.len(), 1);
+        assert_eq!(driven.generation.items[0].request_index, request_index);
+        let disposition = serde_json::to_value(&driven.settlements[0].disposition)
+            .expect("the typed settlement disposition serializes");
+        assert_eq!(disposition["disposition"], "supported");
 
         let backend = qsl_foundation::BackendId::new("kani");
         let stage = RequestStage::from_driven(&driven, &backend, registry.manifests(), 250)
@@ -1260,7 +1332,7 @@ mod tests {
             package_id.domain().as_str()
         );
         assert_eq!(wire["request"]["items"].as_array().unwrap().len(), 1);
-        assert_eq!(wire["request"]["items"][0]["request_index"], 0);
+        assert_eq!(wire["request"]["items"][0]["request_index"], request_index);
         assert_eq!(
             wire["request"]["items"][0]["backend"],
             driven.generation.items[0].backend.identity
@@ -1285,10 +1357,7 @@ mod tests {
                 panic!("a routed item must originate in a QSL candidate set")
             }
         }
-        assert_eq!(
-            wire["request"]["items"][0]["request_index"],
-            driven.generation.items[0].request_index
-        );
+        assert_eq!(wire["request"]["items"][0]["request_index"], request_index);
         assert_eq!(
             wire["request"]["deadline_ms"], 250,
             "the supplied deadline is serialized unchanged"
@@ -1324,8 +1393,9 @@ mod tests {
             wire: None,
         }])
         .expect("the non-matching provider is admitted");
+        let upstream = RouteRecorder::default();
         let driven = drive(
-            &QslCg,
+            &upstream,
             CompileInput {
                 source: SourceIdentity::new("agent-ix", "ir813", "git", "1"),
                 path: "ir813.native",
@@ -1344,6 +1414,15 @@ mod tests {
             driven.request_items[0].candidates(),
             CandidateOutcome::Candidates(set) if set.candidates().is_empty()
         ));
+        assert!(driven.settlements.iter().all(|settlement| {
+            serde_json::to_value(&settlement.disposition)
+                .is_ok_and(|disposition| disposition["disposition"] == "unsupported")
+        }));
+        assert_eq!(
+            upstream.calls.get(),
+            0,
+            "unsupported items skip the route seam"
+        );
         assert!(driven.routed.is_empty());
         assert!(matches!(
             RequestStage::from_driven(
