@@ -81,16 +81,18 @@ planned.
   per requested item, including unsupported and incomplete items. A
   request-level typed refusal before settlement has no per-item terminal
   record guarantee.
-- For missing or mismatched artifact/context/native evidence, the upstream
-  typed completion refusal is preserved and QSL evaluation, settlement, and
-  terminal creation do not occur.
-- If the receipt consistently attests a changed native request limit that
-  differs from the privately retained original, the driver rejects it before
-  QSL replay, settlement, or terminal creation. A successful receipt produces
+- Missing or mismatched retained context or authentic native-observation
+  evidence prevents QSL replay evaluation, settlement, and terminal creation.
+  Preserve an upstream typed completion refusal unchanged only when the
+  upstream operation actually returns one.
+- When a successful CG receipt consistently attests request, metered, and
+  returned native limits `L1`, but the driver's privately retained original
+  limits are `L0` and differ from `L1`, the driver rejects the completion
+  before QSL replay, settlement, or terminal creation. It returns
   `DriverRefusal::Fault(DriverFault::NativeExecutionLimitsMismatch)` at
-  `DriverStage::Replay`, with code `runtime_invariant` and outcome kind `Fault`.
-  If an upstream typed completion refusal exists, the driver preserves it
-  unchanged.
+  `DriverStage::Replay`, with code `runtime_invariant` and outcome kind `Fault`;
+  it does not manufacture or attribute this driver-owned fault to an upstream
+  typed refusal.
 - After the public CG FR-032 binding converter exists, an absent replay report
   or a report whose `claim()` differs from the exact claim sent returns CG's
   typed binding refusal without replay settlement or terminal creation; the
