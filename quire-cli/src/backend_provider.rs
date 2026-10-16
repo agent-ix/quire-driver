@@ -1336,7 +1336,7 @@ mod tests {
         ));
     }
 
-    /// Trace: FR-006-AC-5, FR-006-AC-6, FR-006-AC-7, FR-006-AC-8, FR-006-AC-11.
+    /// Trace: FR-006-AC-5, FR-006-AC-6, FR-006-AC-7, FR-006-AC-8, FR-006-AC-10, FR-006-AC-11.
     #[test]
     fn driven_request_serializes_the_routed_qsl_candidate_and_emitted_package() {
         let definition_lock = DefinitionLock::pinned();
@@ -1405,6 +1405,15 @@ mod tests {
             .find(|settlement| settlement.request_index == request_index)
             .expect("the supported settlement retains request index 1");
         assert_eq!(settlement.request_index, request_index);
+        let qsl_item = driven
+            .request_items
+            .iter()
+            .find(|item| item.index().get() == request_index)
+            .expect("the routed QSL item is retained");
+        assert_eq!(
+            settlement.kind.map(|kind| kind.label()),
+            Some(qsl_item.kind().to_wire())
+        );
         let disposition = serde_json::to_value(&settlement.disposition)
             .expect("the typed settlement disposition serializes");
         assert_eq!(disposition["disposition"], "supported", "{disposition:?}");
@@ -1437,11 +1446,10 @@ mod tests {
             wire["request"]["items"][0]["backend"],
             driven.generation.items[0].backend.identity
         );
-        let qsl_item = driven
-            .request_items
-            .iter()
-            .find(|item| item.index().get() == request_index)
-            .expect("the routed QSL item is retained");
+        assert_eq!(
+            wire["request"]["items"][0]["kind"],
+            qsl_item.kind().to_wire()
+        );
         assert_eq!(
             wire["request"]["items"][0]["claim"]["node"]["domain"],
             "quire.checked-semantic-node/v1"
@@ -1457,6 +1465,10 @@ mod tests {
         assert_eq!(
             wire["request"]["items"][0]["claim"]["occurrence"]["ordinal"],
             qsl_item.occurrence().origin().ordinal()
+        );
+        assert_eq!(
+            wire["request"]["items"][0]["kind"],
+            qsl_item.kind().to_wire()
         );
         match qsl_item.candidates() {
             CandidateOutcome::Candidates(set) => {
