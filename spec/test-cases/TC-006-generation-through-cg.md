@@ -60,7 +60,7 @@ application, in occurrence-key order.
     documents and capture the typed evidence passed to IR's E5 reader.
     Compare the reader's evidence with the supplied digest and complete
     document bytes, plus the supported root feature.
-12. Drive an admitted checked package containing a bounded integer form
+12. Planned; not exercised by the current test suite: drive an admitted checked package containing a bounded integer form
     that CG FR-019 currently marks implemented, and a separate admitted
     package containing a valid rational scalar form selected from CG
     FR-019/TC-030's planned status register. At the driver-to-CG negotiation
@@ -68,7 +68,7 @@ application, in occurrence-key order.
     Compare the typed IR tag/form structurally with the corresponding
     requirement and node in the exact admitted checked package, matched by
     occurrence.
-13. Using the same checked rational form, exercise three candidate controls
+13. Planned; not exercised by the current test suite: using the same checked rational form, exercise three candidate controls
     with candidate sets produced by QSL from their registered descriptors,
     not authored by the test: (a) no candidate; (b) two valid candidates and
     no named backend; and (c) one Kani candidate that passes candidate
@@ -85,11 +85,11 @@ application, in occurrence-key order.
     produces two routed items and the two narrow roots remain attached to
     their original occurrences through CG generation.
 
-Tests: `tests/drive.rs`,
+Tests currently exercised: `tests/drive.rs`,
 `tc_001_tc_006_steps_run_in_order_through_generation` (steps 1 to 3),
 `tc_006_x_plus_1_generation_passes_through_unchanged` (step 4),
 `tc_006_e5_admits_text_and_rational_units` (step 5),
-`tc_006_an_underivable_node_settles_unsupported_and_its_sibling_is_unaffected`
+`tc_006_typed_form_refusal_preserves_supported_sibling`
 (step 6), `tc_006_x_plus_1_settles_supported` (step 7),
 `tc_006_x_plus_y_settles_supported_with_independent_argument_bounds` and
 `tc_006_x_plus_y_generation_passes_through_unchanged` (step 8),
@@ -99,7 +99,15 @@ Tests: `tests/drive.rs`,
 (step 11), and `tc_006_rr16_preserves_each_occurrence_conversion_context`
 (step 14).
 
+The exact-node resolver cases are unit-tested in `src/drive.rs`:
+`selected_wire_node_resolves_to_its_exact_checked_identity`,
+`missing_wire_node_returns_a_typed_internal_fault`, and
+`duplicate_wire_digest_with_distinct_domains_refuses_as_ambiguous`.
+
 ## Expected Results
+
+Steps 12 and 13 below describe planned evidence only; no current test exercises
+the rational projection or candidate-control cases.
 
 - The admitted package's `package_id` digest is the emitted `package_id`,
   and it equals step 1's package.
@@ -158,19 +166,20 @@ Tests: `tests/drive.rs`,
   document under the original digest and with the original bytes, and still
   contains the supported root feature. Dropping or changing that evidence
   changes the typed value observed by the reader and fails the assertion.
-- Steps 12 and 13's captured form equals the typed form in the matched
-  admitted checked requirement/node. The bounded implemented form is settled
-  by CG according to FR-019. In step 13(a), CG settles the empty set as
+- Planned expectations for steps 12 and 13 (not currently exercised): future
+  tests will compare the captured form with the typed form in the matched
+  admitted checked requirement/node. The bounded implemented form should be
+  settled by CG according to FR-019. For step 13(a), the expected CG result is
   `unsupported` with `unsupported_projection` /
-  `unsupported-requested-capability`. In step 13(b), CG settles the
-  ambiguous set as `invalid-request` with
-  `invalid_capability`/`ambiguous-backend`, naming both candidates in
-  candidate order. In step 13(c), candidate validation selects the one Kani
-  candidate, then the valid planned rational form settles with the exact typed
-  refusal in its TC-030 Planned row before the unbounded/bounded-only
-  `requires-bound` result. Altering, dropping or replacing the checked form,
-  editing a QSL-produced candidate set, or deciding lowerability/refusal in
-  the driver fails the assertion.
+  `unsupported-requested-capability`. For step 13(b), the expected result is
+  `invalid-request` with `invalid_capability`/`ambiguous-backend`, naming both
+  candidates in candidate order. For step 13(c), candidate validation should
+  select the one Kani candidate, then the valid planned rational form should
+  settle with the exact typed refusal in its TC-030 Planned row before the
+  unbounded/bounded-only `requires-bound` result. These future tests should
+  fail if the driver alters, drops or replaces the checked form, edits a
+  QSL-produced candidate set, or decides lowerability/refusal itself. No
+  current test asserts these planned outcomes.
 - Step 14's application and conversion occurrence keys match QSL's two
   requirement records exactly. Lowering positions are `[DriverItem(add,
   narrow-1), ContextRoot(narrow-1), DriverItem(add, narrow-2),

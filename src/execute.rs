@@ -267,7 +267,7 @@ mod tests {
         assert_eq!(result.document.category(), Category::Success);
     }
 
-    /// Trace: IR-788 FR-004-AC-5 and TC-011. The public caller's non-empty
+    /// Trace: FR-004-AC-5, TC-011. The public caller's non-empty
     /// unresolved-reference policy reaches QSL unchanged.
     #[test]
     fn caller_object_environment_is_forwarded_unchanged() {

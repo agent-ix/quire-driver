@@ -567,6 +567,7 @@ mod kani_form_projection_tests {
         }
     }
 
+    /// Trace: FR-001-AC-12, TC-006.
     #[test]
     fn selected_wire_node_resolves_to_its_exact_checked_identity() {
         let wire = WireNodeId::from_digest([7; 32]);
@@ -580,6 +581,7 @@ mod kani_form_projection_tests {
         assert_eq!(resolved, &expected);
     }
 
+    /// Trace: FR-001-AC-12, TC-006.
     #[test]
     fn missing_wire_node_returns_a_typed_internal_fault() {
         let wire = WireNodeId::from_digest([9; 32]);
@@ -600,6 +602,7 @@ mod kani_form_projection_tests {
         assert_eq!(refusal.code(), "runtime_invariant");
     }
 
+    /// Trace: FR-001-AC-12, TC-006.
     #[test]
     fn duplicate_wire_digest_with_distinct_domains_refuses_as_ambiguous() {
         let wire = WireNodeId::from_digest([10; 32]);
