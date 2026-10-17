@@ -54,14 +54,19 @@ the mapping scenario is not executable and remains planned; AC-6 and AC-7 also
 remain planned.
 
 After that mapping exists, send the retained `ReplayLimits` unchanged in the
-QSL replay request, execute the artifact with the retained scalar inputs and
-`ScalarLimits`, and authenticate that same artifact's actual typed native
-outcome before QSL evaluation. The oracle compares the retained and sent
-`ReplayLimits` for equality. It must reject missing or mismatched evidence
-without invoking QSL or creating settlement. The report-claim mismatch case
-remains planned until CG exports its FR-032 public scalar binding converter:
-then pass every report
-outcome through that converter, verify it compares `report.claim()` with the
+QSL replay request and execute the artifact with the retained scalar inputs
+and `ScalarLimits`. Recompute QSL FR-357's artifact-only `sha256-jcs`
+`DigestRecord` from every staged `(path, bytes)` entry exposed by the CG
+receipt, then compare it with the receipt's attested proof-content identity.
+Check driver-owned staged entries against retained originals; the opaque CG
+receipt attests that CG-generated runner entries are part of the immutable
+snapshot CG executed. The digest preimage excludes operands, limits, and the
+native outcome, which is carried separately as the claim. The oracle compares
+the retained and sent `ReplayLimits` for equality. It must reject missing or
+mismatched evidence without invoking QSL or creating settlement. The
+report-claim mismatch case remains planned until CG exports its FR-032 public
+scalar binding converter: then pass every report outcome through that
+converter, verify it compares `report.claim()` with the
 exact claim sent, and assert that an absent report or mismatch returns CG's
 typed binding refusal without settlement or terminal creation. The driver
 surfaces that refusal unchanged and creates no local mapping. A
