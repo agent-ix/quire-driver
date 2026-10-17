@@ -32,6 +32,9 @@ settlement path used for first-party providers.
 ## Inputs
 
 - The caller-named plugin executable path.
+- Explicit process-provider configuration supplied to the `quire-cli`
+  composition: the caller-named executable path, its arguments and
+  `ProcessProviderLimits`.
 - The admitted provider manifest, negotiated provider identity and routed
   request items.
 - The emitted checked-package bytes and provider limits.
@@ -57,6 +60,12 @@ settlement path used for first-party providers.
   lifecycle and failure contract. It SHALL use FR-331's provider envelope and
   QSL-owned typed terminal values; it SHALL NOT define a second wire format or
   infer terminal categories from provider-specific evidence or diagnostics.
+- The `quire-cli` composition SHALL pass explicit process-provider
+  configuration to the seam, consisting of the caller-named executable path,
+  executable arguments and `ProcessProviderLimits`. It SHALL NOT select these
+  values from hidden defaults or ambient environment state. The current `run`
+  caller input has no defined source for this configuration; no CLI syntax or
+  caller-input contract for selecting it is specified yet.
 - The `quire-cli` adapter SHALL start the host session with the caller-named
   executable path, pass the once-admitted descriptor returned by the host hello
   admitter to the driver's existing registry without re-admitting it or
@@ -142,8 +151,8 @@ settlement path used for first-party providers.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the caller-named executable path, one `EmittedPackage` value, the caller-supplied deadline, the registered-candidate manifest snapshot and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Planned (TC-013, TC-028; process invocation awaits IR-629) |
-| FR-006-AC-2 | Validated typed results returned through the process-provider seam enter the same driver proof settlement path as first-party provider results when QSL defines their terminal mapping; results without a current QSL mapping remain typed and unmapped, while unrelated routed items retain their own results. | Planned (TC-013; IR-629, IR-677, QSL-490 and QSL-655) |
+| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with explicit process-provider configuration (caller-named executable path, arguments and `ProcessProviderLimits`), one `EmittedPackage` value, the caller-supplied deadline, the registered-candidate manifest snapshot and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Planned (TC-013, TC-028; caller-input source is undefined, and process invocation awaits IR-629) |
+| FR-006-AC-2 | Validated typed results returned through the process-provider seam enter the same driver proof settlement path as first-party provider results when QSL defines their terminal mapping; results without a current QSL mapping remain typed and unmapped, while unrelated routed items retain their own results. | Planned (TC-013; no end-to-end claim from an injected boundary; IR-629, IR-677, QSL-490 and QSL-655) |
 | FR-006-AC-3 | Before normal CLI command termination, the adapter requests graceful shutdown of every active plugin session; on Linux and macOS, if `RunLimits.cancellation_grace` expires first, the process tree terminates and cleanup completes within one second. The merged Windows host force-terminates the Job Object through `terminate_tree`/`terminate_job`; native Windows evidence remains planned. Kill-on-close is separately planned under IR-674. | Test (TC-028) |
 | FR-006-AC-4 | On Linux or macOS, handled SIGINT or SIGTERM while a plugin session is starting, running or shutting down requests cancellation through the caller-owned QSL handle, waits for settlement or `RunLimits.cancellation_grace` expiry, and cleans up the plugin process tree before the CLI restores the default disposition and re-raises the signal. No QSL cancellation cause is claimed; with no active session, the platform's default signal disposition is retained. | Test (TC-028) |
 | FR-006-AC-5 | The driver composes the request manifest snapshot from the lossless FR-331 DTO retained in each registered-candidate registry record, covering linked and process providers; the `quire-cli` adapter serializes that snapshot without reconstructing or adding members. | Planned (TC-013) |

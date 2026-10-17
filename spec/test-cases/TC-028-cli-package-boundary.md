@@ -50,6 +50,11 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4 and FR-014-AC-5.
    second registry. Confirm it connects the descriptor to the process-provider
    seam. End-to-end provider routing remains blocked on CG IR-629; this
    admission-boundary check uses an adapter fixture.
+   Separately inspect the `run` input in `quire-cli/src/cli.rs`: record whether
+   a caller can supply explicit process-provider configuration containing an
+   executable path, arguments and `ProcessProviderLimits`. The current input
+   has no such field or defined caller source. An injected internal boundary
+   does not establish end-to-end caller configuration or claim FR-006-AC-1/2.
 7. On Linux and macOS, using an adapter fixture independent of CG routing and
    a plugin fixture that starts a descendant which remains alive, let a request finish
    normally. Confirm the CLI closes the session and the process tree exits
