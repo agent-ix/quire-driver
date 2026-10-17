@@ -7,6 +7,7 @@ use qsl_route::{
     descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
     RegistrationRefusal, Registry,
 };
+use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -18,6 +19,8 @@ struct LinkedManifestWire<'a> {
     advertises: Vec<AdvertisedPairWire<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     domains: Option<&'a Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bounds: Option<&'a BTreeMap<String, u64>>,
 }
 
 #[derive(serde::Serialize, quire_canonical::FixedShape)]
@@ -33,7 +36,7 @@ struct AdvertisedPairWire<'a> {
 /// registration path instead (ADR-029 PV-1).
 ///
 /// The `advertises` pairs are the manifest's `(kind, mode)` labels exactly
-/// as it states them; `route` admits them (`BackendDescriptor::admit`), so an
+/// as it states them; QSL admits them through `descriptor_from_manifest`, so an
 /// absent or unknown label refuses the registration.
 /// Optional `domains` labels are passed to that same QSL admission call; QSL
 /// owns boundable-kind and mode/domain consistency refusals.
@@ -47,6 +50,8 @@ pub struct ProviderManifest {
     pub advertises: Vec<(Option<String>, Option<String>)>,
     /// FR-331 domains retained for linked projection or process admission.
     pub domains: Option<Vec<String>>,
+    /// FR-331 run-limit defaults retained for linked projection or process admission.
+    pub bounds: Option<BTreeMap<String, u64>>,
     /// RFC 8785 bytes of the complete retained FR-331 descriptor.
     pub wire: Option<Arc<[u8]>>,
 }
@@ -60,6 +65,14 @@ pub struct ProviderManifest {
 pub struct AdmittedRegistry {
     registry: Registry,
     manifests: Vec<ProviderManifest>,
+}
+
+impl AdmittedRegistry {
+    /// Retained FR-331 descriptors paired with each admitted QSL descriptor.
+    #[must_use]
+    pub fn manifest_snapshot(&self) -> &[ProviderManifest] {
+        &self.manifests
+    }
 }
 
 /// The QSL registry and linked providers admitted from the same manifest set.
@@ -184,7 +197,7 @@ impl Deref for AdmittedRegistry {
 /// observed, not a diff against the registry's prior state, so it can
 /// repeat a conflict an earlier call in this same loop already reported.
 /// Rather than accumulate those (and dedup them by hand), this collects
-/// only the vocabulary refusals `BackendDescriptor::admit` produces during
+/// only the vocabulary refusals `descriptor_from_manifest` produces during
 /// the loop, then reads every duplicate-backend conflict once, after the
 /// loop, from `Registry::refusals` -- the registry's own stable, deduped
 /// account of every identity conflict it currently holds.
@@ -265,6 +278,7 @@ fn linked_manifest_wire(manifest: &ProviderManifest) -> Result<Arc<[u8]>, Driver
         backend: &manifest.identity,
         advertises,
         domains: manifest.domains.as_ref(),
+        bounds: manifest.bounds.as_ref(),
     };
     let bytes = quire_canonical::to_vec(
         &descriptor,
@@ -319,6 +333,8 @@ pub fn build_linked_providers<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use qsl_foundation::BackendId;
     use qsl_route::{descriptor_from_manifest, Candidate, ManifestDigest, ProviderOrigin};
 
@@ -335,6 +351,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         })
     }
@@ -373,6 +390,7 @@ mod tests {
                 Some("unbounded".to_owned()),
             )],
             domains: None,
+            bounds: None,
             wire: None,
         });
         let present_optional = KaniProvider::new(ProviderManifest {
@@ -383,6 +401,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: Some(BTreeMap::from([("max_states".to_owned(), 8)])),
             wire: None,
         });
 
@@ -404,7 +423,7 @@ mod tests {
         );
         assert_eq!(
             present.wire.as_deref(),
-            Some(&b"{\"advertises\":[{\"kind\":\"value-validity\",\"mode\":\"bounded\"}],\"backend\":\"agent-ix/provider/with-optional\",\"domains\":[\"integer\"]}"[..])
+            Some(&b"{\"advertises\":[{\"kind\":\"value-validity\",\"mode\":\"bounded\"}],\"backend\":\"agent-ix/provider/with-optional\",\"bounds\":{\"max_states\":8},\"domains\":[\"integer\"]}"[..])
         );
     }
 
@@ -422,6 +441,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: Some(std::sync::Arc::clone(&wire)),
         });
 
@@ -443,6 +463,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         });
 
@@ -463,7 +484,8 @@ mod tests {
             identity: "agent-ix/provider/empty-advertisements".to_owned(),
             manifest_digest: ManifestDigest::from_digest([6; 32]),
             advertises: Vec::new(),
-            domains: None,
+            domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         };
 
@@ -491,6 +513,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: None,
+            bounds: None,
             wire: None,
         };
         let crate::DriverRefusal::Registration(refusals) =
@@ -534,6 +557,7 @@ mod tests {
                         Some("bounded".to_owned()),
                     )],
                     domains: Some(vec!["integer".to_owned()]),
+                    bounds: None,
                     wire: None,
                 },
             )])
@@ -583,6 +607,7 @@ mod tests {
                             Some("bounded".to_owned()),
                         )],
                         domains: Some(vec!["integer".to_owned()]),
+                        bounds: None,
                         wire: None,
                     },
                 ),
@@ -606,6 +631,7 @@ mod tests {
                             Some("bounded".to_owned()),
                         )],
                         domains: Some(vec!["integer".to_owned()]),
+                        bounds: None,
                         wire: None,
                     },
                 ),
@@ -678,6 +704,7 @@ mod tests {
                             Some("bounded".to_owned()),
                         )],
                         domains: Some(vec!["integer".to_owned()]),
+                        bounds: None,
                         wire: None,
                     },
                 ),
@@ -691,6 +718,7 @@ mod tests {
                             Some("bounded".to_owned()),
                         )],
                         domains: Some(vec!["integer".to_owned()]),
+                        bounds: None,
                         wire: None,
                     },
                 ),

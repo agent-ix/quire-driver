@@ -16,11 +16,10 @@ use qsl_replay::spine::{
 };
 use qsl_route::routing::{route, Disposition};
 use qsl_route::Candidate;
-use quire_contract_codegen::ContractRequestPosition;
 use quire_contract_codegen::{
     generate_routed, negotiate_backend_provider, BackendDescriptor, BackendKind,
-    BackendProviderEnvelope, EnvelopeRefusal, GenerationContexts, ItemSettlement, RoutedGeneration,
-    RoutedGenerationError, RoutedGenerationItem,
+    BackendProviderEnvelope, ContractRequestPosition, EnvelopeRefusal, GenerationContexts,
+    ItemSettlement, RoutedGeneration, RoutedGenerationError, RoutedGenerationItem,
 };
 use quire_contract_model::{
     read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,

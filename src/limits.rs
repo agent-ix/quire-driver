@@ -11,10 +11,10 @@ use qsl_replay::{
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum LimitError {
     /// QSL recognizes the setting, but this operation does not expose it.
-    #[error("limit setting `{setting}` is unavailable for the `run` operation")]
+    #[error("limit setting `{}` is unavailable for the `run` operation", setting.name())]
     OperationUnavailable {
         /// The recognized setting absent from the operation's bounds.
-        setting: Setting,
+        setting: SettingName,
     },
 }
 
@@ -44,14 +44,18 @@ impl LimitOverrides {
             match setting {
                 SettingName::Stage(setting) => {
                     if !available.contains(setting) {
-                        return Err(LimitError::OperationUnavailable { setting: *setting });
+                        return Err(LimitError::OperationUnavailable {
+                            setting: SettingName::Stage(*setting),
+                        });
                     }
                     // `bounds()` and `set_bound()` are the paired QSL API for
                     // the selected operation; an exposed setting must be writable.
                     let updated = caller_limits.set_bound(*setting, *value);
                     debug_assert!(updated, "QSL bound listed by bounds() must be settable");
                     if !updated {
-                        return Err(LimitError::OperationUnavailable { setting: *setting });
+                        return Err(LimitError::OperationUnavailable {
+                            setting: SettingName::Stage(*setting),
+                        });
                     }
                 }
                 SettingName::Accounting(setting) => {
@@ -90,6 +94,7 @@ mod tests {
             function: "run".to_owned(),
             arguments: Vec::new(),
             accounting: default_accounting(100),
+            supplied: qsl_semantics::value::supplied::SuppliedLimits::default(),
         }
     }
 
@@ -141,7 +146,7 @@ mod tests {
         assert_eq!(
             overrides.apply_to(&mut limits, &mut call),
             Err(LimitError::OperationUnavailable {
-                setting: Setting::ExploreStates,
+                setting: SettingName::Stage(Setting::ExploreStates),
             })
         );
         assert_eq!(limits, before);
@@ -224,7 +229,7 @@ mod tests {
         assert_eq!(
             overrides.apply_to(&mut limits, &mut call),
             Err(LimitError::OperationUnavailable {
-                setting: Setting::ExploreStates,
+                setting: SettingName::Stage(Setting::ExploreStates),
             })
         );
     }

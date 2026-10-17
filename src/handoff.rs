@@ -21,13 +21,15 @@ pub(crate) fn handoff(
     input: &CompileInput<'_>,
     emitted: &EmittedUnit,
 ) -> Result<CheckedPackageV2, DriverRefusal> {
-    let evidence = evidence(input);
+    let evidence = evidence(input)?;
     let emitted_package = emitted.package();
     let package =
         match upstream.read_package(emitted, CheckedPackageReadLimits::bounded(), &evidence) {
             CheckedPackageDispatchResult::AdmittedV2(package) => *package,
             CheckedPackageDispatchResult::Refused(refusal) => {
-                return Err(DriverRefusal::Fault(DriverFault::HandoffRefused(refusal)))
+                return Err(DriverRefusal::Fault(DriverFault::HandoffRefused(Box::new(
+                    refusal,
+                ))))
             }
             CheckedPackageDispatchResult::Incomplete(incomplete) => {
                 return Err(DriverRefusal::HandoffLimit(incomplete))
@@ -51,7 +53,7 @@ pub(crate) fn handoff(
 ///
 /// No artifact-byte or artifact-digest evidence is supplied; IR no longer
 /// checks the package for staleness against artifact digests.
-fn evidence(input: &CompileInput<'_>) -> CheckedPackageEvidence {
+fn evidence(input: &CompileInput<'_>) -> Result<CheckedPackageEvidence, DriverRefusal> {
     let mut evidence = CheckedPackageEvidence::new();
     for (digest, document) in input.packages {
         evidence
@@ -61,5 +63,5 @@ fn evidence(input: &CompileInput<'_>) -> CheckedPackageEvidence {
     let lock = DefinitionLock::pinned();
     let root = lock.entry(CatalogRole::Root);
     evidence.support_feature(root.identity);
-    evidence
+    Ok(evidence)
 }

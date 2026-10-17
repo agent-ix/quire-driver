@@ -218,6 +218,7 @@ mod tests {
                 function: "yes".to_owned(),
                 arguments: Vec::new(),
                 accounting: default_accounting(10),
+                supplied: qsl_semantics::value::supplied::SuppliedLimits::default(),
             },
             object_environment: &EMPTY_OBJECT_ENVIRONMENT,
             cancel: Cancel::new(),
@@ -264,6 +265,39 @@ mod tests {
                 .expect("QSL encodes direct run document")
         );
         assert_eq!(result.document.category(), Category::Success);
+    }
+
+    /// Trace: FR-004-AC-5, TC-011. The public caller's non-empty
+    /// unresolved-reference policy reaches QSL unchanged.
+    #[test]
+    fn caller_object_environment_is_forwarded_unchanged() {
+        let objects = ObjectEnvironment::default().with_unresolved_references();
+        assert!(objects.references_are_unresolved());
+        let mut request = request(ExecutionEngine::Interpreter, SpineLimits::default());
+        request.object_environment = &objects;
+
+        let expected = qsl_replay::spine::run(
+            request.source.clone(),
+            request.path,
+            request.bytes,
+            request.packages,
+            request.dependencies,
+            request.limits,
+            &request.call,
+            &objects,
+            &request.cancel,
+        );
+        let expected_document = OutcomeDocument::from_run(&expected);
+        let actual = execute(request).expect("the public driver run completes");
+        let expected_bytes = expected_document
+            .to_bytes()
+            .expect("QSL serializes the direct run result");
+        assert_eq!(
+            actual
+                .outcome_bytes()
+                .expect("QSL serializes the driver result"),
+            expected_bytes
+        );
     }
 
     /// Trace: FR-004-AC-3, unavailable engines are unsupported before work.

@@ -176,7 +176,7 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-9 | The same caller-owned `Cancel` handle is passed to QSL `parse`, `select`, `check` and `package`; cancellation returns `DriverRefusal::Cancelled` with QSL's stage and cause, and the driver adds no category or exit mapping. | Test (TC-019) |
 | FR-001-AC-10 | E5 receives the E4 `EmittedUnit` source provision; the returned `Driven` contains no `EmittedUnit`, retains the `CheckedUnit` root source for diagnostic loci, retains no library source under the current empty `DependencyInput`, and retains no more root-source bytes than `SpineLimits.source.source_bytes`. | Test (TC-019) |
 | FR-001-AC-11 | The normal/build dependency closure rooted at `quire-driver` contains no `quire-cache` package. | Test (TC-005) |
-| FR-001-AC-12 | For each request item, the driver's CG negotiation input carries the typed IR tag/form projected from the admitted checked requirement and node named by that same item's QSL requirement record; no caller-computed lowerability/refusal or display/debug-derived form substitutes for the checked form. | Test (TC-006) |
+| FR-001-AC-12 | For each request item, the driver's CG negotiation input carries the typed IR tag/form projected from the admitted checked requirement and node named by that same item's QSL requirement record; generation preserves that item's exact application occurrence and direct conversion-context occurrence as ordered lowering roots, including when several items share one application node. No caller-computed lowerability/refusal or display/debug-derived form substitutes for the checked form. | Test (TC-006) |
 
 ## Dependencies
 

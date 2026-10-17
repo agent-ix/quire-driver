@@ -278,6 +278,7 @@ mod tests {
             manifest_digest: digest,
             advertises: manifest.advertises.clone(),
             domains: manifest.domains.clone(),
+            bounds: None,
             wire: None,
         };
         Ok((descriptor, retained))

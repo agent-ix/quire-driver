@@ -14,6 +14,7 @@ use quire_contract_codegen::{
     ContractScalarError, EnvelopeRefusal, KaniObligationError, OracleGenerationError,
     RoutedGenerationError,
 };
+use quire_contract_model::CheckedPackageLimit;
 use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageRefusal};
 use quire_exact::CancelCause;
 
@@ -56,6 +57,16 @@ pub enum DriverRefusal {
     /// E5: IR's reader stopped at one of its limits.
     #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
     HandoffLimit(CheckedPackageIncomplete),
+    /// E7's exact IR contract-package lowering reached its retained bound.
+    #[error("IR contract lowering reached its {limit_kind:?} limit ({consumed} over {limit})")]
+    LoweringLimit {
+        /// The limit that stopped package lowering.
+        limit_kind: CheckedPackageLimit,
+        /// The configured ceiling.
+        limit: u64,
+        /// The first denied work count or encoded byte count.
+        consumed: u64,
+    },
     /// CG generation refused the routed items as a whole.
     #[error("CG generation refused the routed items: {}", generation_message(.0))]
     Generation(RoutedGenerationError),
@@ -114,7 +125,7 @@ pub enum DriverFault {
     RoutingTarget,
     /// IR's reader refused the bytes QSL's E4 emitter just wrote.
     #[error("IR refused the emitted checked package: {:?}", .0.code)]
-    HandoffRefused(CheckedPackageRefusal),
+    HandoffRefused(Box<CheckedPackageRefusal>),
     /// IR admitted the bytes at a `package_id` other than the emitted one.
     #[error("IR admitted package {admitted}, not the emitted {emitted}")]
     PackageIdMismatch {
@@ -126,6 +137,9 @@ pub enum DriverFault {
     /// QSL admitted a linked manifest whose advertised pair was incomplete.
     #[error("QSL admitted a linked manifest with an incomplete advertised pair")]
     AdmittedManifestMissingLabel,
+    /// A registered descriptor has no retained FR-331 manifest source.
+    #[error("registered descriptor has no retained manifest source")]
+    AdmittedManifestMissing,
     /// A routed item names a node the checked package does not hold.
     /// Every item's node comes from `CheckedPackage::graph().requirements()`,
     /// and `checked` is IR's own admission of the bytes that same package
@@ -142,6 +156,26 @@ pub enum DriverFault {
         /// The node the item names.
         node: WireNodeId,
     },
+    /// A wire node digest maps to multiple typed identities in the admitted
+    /// package, so the driver cannot choose one without guessing.
+    #[error(
+        "request item {request_index} names node {node}, which maps to multiple checked node identities"
+    )]
+    AmbiguousNode {
+        /// The item's request index.
+        request_index: usize,
+        /// The node whose digest is ambiguous.
+        node: WireNodeId,
+    },
+    /// A QSL occurrence role is outside IR's closed occurrence vocabulary.
+    #[error("QSL occurrence role `{role}` has no IR occurrence role")]
+    UnknownOccurrenceRole {
+        /// The exact QSL role spelling.
+        role: String,
+    },
+    /// IR lowering did not return a package despite having no typed limit result.
+    #[error("IR lowering returned no contract package and no limit record")]
+    ContractLoweringIncomplete,
 }
 
 /// The step a [`DriverRefusal`] comes from.
@@ -217,6 +251,7 @@ impl DriverRefusal {
                 format!("invalid_capability/{cause}")
             }
             Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
+            Self::LoweringLimit { .. } => Code::ResourceExhausted.as_str().to_owned(),
             Self::Generation(error) => generation_code(error).as_str().to_owned(),
             Self::ManifestEncoding(error) if manifest_encoding_exhausted(error) => {
                 Code::ResourceExhausted.as_str().to_owned()
@@ -232,9 +267,10 @@ impl DriverRefusal {
             Self::EmptyBackendIdentity(_) => DriverStage::Registry,
             Self::EmptyLinkedManifestAdvertisements => DriverStage::Registry,
             Self::Registration(_) => DriverStage::Registry,
-            Self::ManifestEncoding(_) | Self::Fault(DriverFault::AdmittedManifestMissingLabel) => {
-                DriverStage::Registry
-            }
+            Self::ManifestEncoding(_)
+            | Self::Fault(
+                DriverFault::AdmittedManifestMissingLabel | DriverFault::AdmittedManifestMissing,
+            ) => DriverStage::Registry,
             Self::Compile(refusal) => DriverStage::Compile(refusal.stage()),
             Self::Cancelled { stage, .. } => DriverStage::Compile(*stage),
             Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
@@ -247,9 +283,14 @@ impl DriverRefusal {
             | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
                 DriverStage::Handoff
             }
-            Self::Generation(_) | Self::Fault(DriverFault::UnknownNode { .. }) => {
+            Self::Generation(_)
+            | Self::LoweringLimit { .. }
+            | Self::Fault(DriverFault::UnknownNode { .. } | DriverFault::AmbiguousNode { .. }) => {
                 DriverStage::Generation
             }
+            Self::Fault(
+                DriverFault::UnknownOccurrenceRole { .. } | DriverFault::ContractLoweringIncomplete,
+            ) => DriverStage::Generation,
             Self::Fault(
                 DriverFault::SettlementCount { .. }
                 | DriverFault::SupportedOutsideCandidates { .. },
@@ -267,6 +308,7 @@ impl DriverRefusal {
                 OutcomeKind::Limit
             }
             Self::HandoffLimit(_) => OutcomeKind::Limit,
+            Self::LoweringLimit { .. } => OutcomeKind::Limit,
             Self::Generation(error) => match generation_code(error) {
                 Code::RuntimeInvariant => OutcomeKind::Fault,
                 Code::ResourceExhausted => OutcomeKind::Limit,

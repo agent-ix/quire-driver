@@ -365,6 +365,7 @@ mod tests {
                 Some("bounded".to_owned()),
             )],
             domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         }])
         .expect("manifest is admitted");
@@ -453,6 +454,7 @@ mod tests {
                     Some("bounded".to_owned()),
                 )],
                 domains: Some(vec!["integer".to_owned()]),
+                bounds: None,
                 wire: None,
             },
             crate::ProviderManifest {
@@ -463,6 +465,7 @@ mod tests {
                     Some("bounded".to_owned()),
                 )],
                 domains: Some(vec!["integer".to_owned()]),
+                bounds: None,
                 wire: None,
             },
         ])
@@ -505,7 +508,8 @@ mod tests {
             identity: String::new(),
             manifest_digest: qsl_route::ManifestDigest::from_digest([3; 32]),
             advertises: Vec::new(),
-            domains: None,
+            domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
             wire: None,
         }]);
         assert!(registration.is_err());

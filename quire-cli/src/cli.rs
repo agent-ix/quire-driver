@@ -18,6 +18,7 @@ use qsl_replay::spine::{
     LockEvidence, PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
+use qsl_semantics::value::supplied::SuppliedLimits;
 use quire_driver::{
     execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides, ObjectEnvironment,
 };
@@ -511,6 +512,7 @@ fn run(options: RunOptions) -> CommandResult {
         function: options.function,
         arguments: options.arguments,
         accounting: default_accounting(DEFAULT_WORK_UNITS),
+        supplied: SuppliedLimits::default(),
     };
     if let Err(error) = options.limits.apply_to(&mut limits, &mut call) {
         return CommandResult::input_refusal(Operation::Execute, error.to_string());
@@ -987,7 +989,7 @@ mod tests {
             options.limits.values(),
             &[(
                 qsl_foundation::SettingName::Stage(qsl_foundation::Setting::S1InputBytes),
-                1024
+                1024,
             )]
         );
     }
