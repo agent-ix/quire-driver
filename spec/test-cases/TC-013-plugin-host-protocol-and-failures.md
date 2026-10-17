@@ -33,7 +33,10 @@ and FR-006-AC-5 through FR-006-AC-23.
    its package identity and caller's deadline to the adapter serialization
    check. This step checks field ownership and serialization only; it does not
    imply that the driver dispatches negotiated work through the Process seam,
-   which remains planned under IR-629. Temporal subject proof bounds remain
+   which remains planned under IR-629. The production `run` input currently
+   has no caller-named executable or process-provider configuration source.
+   An injected internal seam alone does not verify production caller
+   configuration or complete FR-006-AC-1/2. Temporal subject proof bounds remain
    sourced as specified in FR-006.
 2. Have the `quire-cli` adapter serialize the request through the typed FR-331
    adapter. Verify `package`
@@ -132,7 +135,9 @@ request DTO stages. Result conversion and settlement use explicit typed input
 fixtures; the shared carrier preserves generic typed results, while settlement
 remains held for QSL result-mapping APIs;
 end-to-end process-provider dispatch and settlement remain planned under
-IR-672 and the QSL result-mapping dependencies.
+IR-672 and the QSL result-mapping dependencies. FR-006-AC-14 through AC-23
+remain unclaimed for terminal settlement pending QSL-655; this test does not
+define or infer terminal mappings.
 
 ## Expected Results
 

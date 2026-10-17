@@ -56,6 +56,14 @@ cache, and process-provider adapter using `quire-plugin-host`.
 - The `quire-cli` package SHALL own the argument parser in
   `quire-cli/src/cli.rs`, with the binary entry point in
   `quire-cli/src/main.rs`.
+- The `quire-cli` composition in `quire-cli/src/cli.rs` SHALL own the
+  process-provider configuration input passed into FR-006 composition. That
+  configuration SHALL explicitly contain the caller-named executable path,
+  executable arguments and `ProcessProviderLimits`; the composition SHALL NOT
+  select them from hidden defaults or ambient environment state. The current
+  `run` input accepts source path, function, arguments, limits and engine, and
+  has no caller-named executable or process-provider configuration input. The
+  caller-input source for this configuration is not yet defined.
 - CLI contract and binary process-boundary tests and their fixtures SHALL
   reside in the `quire-cli` package.
 
