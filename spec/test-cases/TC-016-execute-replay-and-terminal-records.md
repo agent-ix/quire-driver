@@ -58,6 +58,11 @@ QSL replay request and execute the artifact with the retained scalar inputs
 and `ScalarLimits`. Recompute QSL FR-357's artifact-only `sha256-jcs`
 `DigestRecord` from every staged `(path, bytes)` entry exposed by the CG
 receipt, then compare it with the receipt's attested proof-content identity.
+Use the same record version, digest domain, and mapping defined by the merged
+IR-846 contract for
+both values; do not compare records until that mapping is available. Preserve
+upstream typed completion refusals according to the merged IR-847 refusal
+classification contract.
 Check driver-owned staged entries against retained originals; the opaque CG
 receipt attests that CG-generated runner entries are part of the immutable
 snapshot CG executed. The digest preimage excludes operands, limits, and the
