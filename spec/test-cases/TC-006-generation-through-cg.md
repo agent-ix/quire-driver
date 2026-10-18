@@ -13,7 +13,8 @@ relationships:
 Verify the E5 hand-off and step 7 against the real QSL, IR and CG
 functions. Kani is not run; generation only produces its output.
 
-Scope: FR-001-AC-6 through FR-001-AC-8, and FR-001-AC-12.
+Scope: FR-001-AC-6 through FR-001-AC-8, and FR-001-AC-12 through
+FR-001-AC-16.
 
 ## Test Procedure
 
@@ -84,6 +85,34 @@ application, in occurrence-key order.
     with the driver's alternating `[add, narrow]` roots; the shared add node
     produces two routed items and the two narrow roots remain attached to
     their original occurrences through CG generation.
+15. Planned production-path regression: pass the RR-16 QSL source through the
+    driver's scalar-generation composition with the actual `Call` for `f`
+    (`x = 3`), its `ObjectEnvironment`, and the caller's `Cancel`. Verify that
+    QSL compiles/emits the package once, IR admits those exact emitted bytes,
+    and the driver binds each selected `RequirementItem` using its exact
+    occurrence key and the same `Call`. Check that the two bindings retain
+    distinct occurrence keys for the shared `add` node, each returns
+    `[3, 1]` in QSL operand order, and each sidecar entry is keyed by its
+    corresponding request index. No argument/operand positional zip or
+    node-only occurrence lookup is used.
+16. For step 15, inspect the complete CG position vector in FR-330 accounting
+    order. It contains every original request item as a `DriverItem`, with
+    its exact application and conversion result selection, and the matching
+    narrow as a `ContextRoot`; the root does not become another routed item,
+    claim, or output. CG receives the exact admitted `ContractPackageV1`, that
+    position vector, the routed items and generation context. Verify two CG
+    outputs retain their own request indices and direct-narrow selections,
+    while the driver sidecar retains the exact QSL `Call`, occurrence and
+    bound operands for each.
+17. Planned negative controls on the same production boundary: a source with
+    no selected scalar item performs no scalar binding or native execution
+    and selects no fallback; a QSL item with no conversion context supplies
+    no conversion root; a call/occurrence function mismatch preserves QSL's
+    typed `BindRefusal` without an accepted scalar context; and an admitted
+    package/position mismatch preserves the owning IR/CG typed refusal or the
+    driver's typed `runtime_invariant` fault. No native execution or replay
+    follows a failed join. These cases use the production boundary, not a
+    test-only resolver.
 
 Tests currently exercised: `tests/drive.rs`,
 `tc_001_tc_006_steps_run_in_order_through_generation` (steps 1 to 3),
@@ -186,3 +215,19 @@ the rational projection or candidate-control cases.
   ContextRoot(narrow-2)]`; the application occurrences and narrow roots
   differ, the add node is shared, and CG returns exactly the two routed items
   without swapping their contexts.
+- Planned expectations for steps 15 through 17: the production boundary binds
+  both QSL occurrences through `bind_scalar_operands` and retains each result
+  beside the CG output under the matching request index. Both values are
+  `[3, 1]`, while the occurrence and direct-narrow context remain distinct.
+  The complete position vector contains no request-index shift from context
+  roots, and CG produces no routed item or claim for either root. A legitimate
+  `None` conversion context adds no root. A missing or mismatched call,
+  occurrence, admitted package or position yields its owning typed refusal or
+  driver `runtime_invariant` fault before native execution or replay; no
+  default occurrence, context or operand order is selected.
+
+The production call-to-CG regression in steps 15 and 16 verifies only the
+QSL binding, IR lowering and CG generation composition. It does not establish
+IR-773's same-artifact native execution, receipt authentication, replay
+settlement or FR-331 terminal behavior; those remain separately planned in
+TC-016.
