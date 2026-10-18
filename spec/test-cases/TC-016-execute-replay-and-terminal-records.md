@@ -62,7 +62,9 @@ Use the same record version, digest domain, and mapping defined by the merged
 IR-846 contract for
 both values; do not compare records until that mapping is available. Preserve
 upstream typed completion refusals according to the merged IR-847 refusal
-classification contract.
+classification contract. Request/meter/returned `ScalarLimits` attestation is
+owned by the CG API tracked in IR-857; until it is available, this comparison
+and AC-7 remain planned.
 Check driver-owned staged entries against retained originals; the opaque CG
 receipt attests that CG-generated runner entries are part of the immutable
 snapshot CG executed. The digest preimage excludes operands, limits, and the
