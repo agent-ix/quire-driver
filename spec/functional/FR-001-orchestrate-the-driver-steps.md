@@ -67,6 +67,11 @@ the admitted package only at the `package_id` E4 emitted.
   handle through `parse`, `select`, `check` and `package`; the caller may
   cancel it from another thread while a stage runs. QSL owns polling and
   returns the typed cancellation failure.
+- For scalar proof generation, the caller's existing typed QSL `Call`, its
+  `ObjectEnvironment`, and the same caller-owned `Cancel` handle, supplied
+  with the compile input as one driver-library operation. This is an internal
+  library composition input; it adds no CLI syntax. The driver does not accept
+  a second caller-built package for this call.
 
 ## Outputs
 
@@ -117,6 +122,56 @@ the admitted package only at the `package_id` E4 emitted.
   before CG is called.
 - The driver SHALL call CG generation only after routing, only for routed
   items, and not at all when nothing is routed.
+- For scalar proof generation, the driver library SHALL accept the caller's
+  exact QSL `Call`, `ObjectEnvironment`, and `Cancel` with the compile input
+  as one production composition operation. This operation SHALL use the QSL
+  compiled/emitted package and the IR-admitted view of those same emitted
+  bytes. It SHALL NOT rebuild a call or package, re-emit a package for
+  binding, or admit a second package.
+- For each routed scalar item selected for native proof, the driver SHALL join
+  the QSL `RequirementItem` to the corresponding CG driver item by its
+  `request_index` and exact QSL `OccurrenceKey`. It SHALL call QSL's
+  `bind_scalar_operands` with that same request's compiled/emitted package,
+  unchanged `Call`, the selected item's exact function/application/occurrence,
+  `ObjectEnvironment`, and `Cancel`. It SHALL retain QSL's typed binding
+  result and ordered bound operands in a driver-owned per-item context keyed
+  by `request_index`. Operand values SHALL follow QSL's bound operand order,
+  which is the corresponding CG `ScalarObligationIdentity.arguments` order;
+  operand source and ordinal data remain attached to those values. The
+  `ScalarLimits` retained for later native execution SHALL come from that
+  same `Call`'s accounting. The driver SHALL NOT zip argument and operand
+  vectors by position, select an occurrence by node ID alone, or take limits
+  from another call.
+- The driver SHALL construct CG's complete request-position vector in the
+  admitted FR-330 accounting order. Each original driver request item
+  contributes one CG `DriverItem` position with its exact admitted node and
+  scalar result selection, whether or not routing later selects it; a direct
+  conversion occurrence selected by that QSL item
+  contributes its own `ContextRoot` position. A `ContextRoot` is not a routed
+  item and SHALL create no backend settlement, claim, or output item. A QSL
+  item with no conversion context uses no conversion root; the driver SHALL
+  not choose a different context. The position's driver index counts only
+  `DriverItem` entries; context roots do not shift request indices. CG
+  receives only its admitted `ContractPackageV1`, complete position vector,
+  routed items, and generation contexts. The QSL `Call` and bound operands
+  remain in the driver's per-item context and are not added to CG's API.
+- When no scalar item is selected for routed native proof, the driver SHALL
+  skip scalar binding and native execution. It SHALL select no fallback item
+  or synthesize a scalar request.
+- When QSL binding reports a missing or ambiguous call/occurrence as a typed
+  `RunRefusal` or `BindRefusal`, the driver SHALL preserve that refusal
+  unchanged. It SHALL stop the scalar generation composition before native
+  execution.
+- The driver SHALL preserve the owning QSL/IR/CG typed refusal when a required
+  conversion context is missing or ambiguous.
+- The driver SHALL treat `None` as a valid conversion context only when that
+  exact QSL item has no conversion context; the driver SHALL add no conversion
+  root in that case.
+- When the admitted package, request position, or routed item disagree, the
+  driver SHALL preserve the owning IR/CG typed refusal. A driver-detected join
+  invariant failure SHALL be a typed `runtime_invariant` fault before native
+  execution or replay. No path may guess a call, occurrence, context root, or
+  operand order.
 - A routed item whose kind has no context refuses the run with
   `invalid-request`. CG's other generation refusals map to `invalid-request`
   (a malformed Kani context), a limit refusal (`resource_exhausted`, the
@@ -177,6 +232,10 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-10 | E5 receives the E4 `EmittedUnit` source provision; the returned `Driven` contains no `EmittedUnit`, retains the `CheckedUnit` root source for diagnostic loci, retains no library source under the current empty `DependencyInput`, and retains no more root-source bytes than `SpineLimits.source.source_bytes`. | Test (TC-019) |
 | FR-001-AC-11 | The normal/build dependency closure rooted at `quire-driver` contains no `quire-cache` package. | Test (TC-005) |
 | FR-001-AC-12 | For each request item, the driver's CG negotiation input carries the typed IR tag/form projected from the admitted checked requirement and node named by that same item's QSL requirement record; generation preserves that item's exact application occurrence and direct conversion-context occurrence as ordered lowering roots, including when several items share one application node. No caller-computed lowerability/refusal or display/debug-derived form substitutes for the checked form. | Test (TC-006) |
+| FR-001-AC-13 | The driver's internal scalar-generation composition receives the caller's unchanged QSL `Call`, `ObjectEnvironment`, and `Cancel` with the request's compile input. QSL binding and IR admission use the package produced by that same request: the exact emitted bytes are admitted once and are not reconstructed or re-admitted. The generated result remains associated with that call and admitted package in the driver library. | Test (TC-006) |
+| FR-001-AC-14 | For each routed scalar item selected for native proof, the driver joins the QSL item and CG driver item by request index and exact `OccurrenceKey`, then uses QSL `bind_scalar_operands` on that call's package and exact function/application/occurrence. Bound operands remain in QSL order, matching the CG scalar identity's argument order, with their argument source and ordinal; `ScalarLimits` come from the same call's accounting. Two occurrences on one node remain distinct. No positional zip or node-only occurrence selection is permitted. | Test (TC-006) |
+| FR-001-AC-15 | CG receives only its existing admitted `ContractPackageV1`, complete FR-330 position vector, routed items, and generation contexts. The position vector retains one `DriverItem` per original request item, in driver-index order, and a separate `ContextRoot` for each selected direct conversion occurrence; context roots create no route, claim, or generated item and do not advance driver indices. The exact QSL call and bound operands remain in a driver-owned sidecar keyed by request index. | Test (TC-006) |
+| FR-001-AC-16 | No selected scalar item means no scalar binding or native execution and no fallback selection. QSL's typed missing/ambiguous call or occurrence refusal is preserved unchanged. A missing/ambiguous required conversion context preserves its owning QSL/IR/CG typed refusal; `None` is valid only when the exact QSL item has no conversion context. An admitted-package/request-position/routed-item mismatch preserves the owning IR/CG typed refusal, or is a driver `runtime_invariant` fault when the driver detects an inconsistent join. Each case stops before native execution or replay and invents no call, occurrence, context root, or operand order. | Test (TC-006) |
 
 ## Dependencies
 
@@ -185,7 +244,12 @@ the admitted package only at the `package_id` E4 emitted.
   step, routing step).
 - CG `BackendKind::from_descriptor`,
   `negotiate_backend_provider` and `generate_routed` (CG FR-022,
-  IR-293, IR-294, IR-298, IR-300, IR-302).
+  FR-330, IR-293, IR-294, IR-298, IR-300, IR-302).
+- QSL FR-367's `bind_scalar_operands` contract for binding the admitted call's
+  named values to one exact scalar application occurrence; IR FR-049's
+  context-only lowering roots; and CG's typed `ContractRequestPosition`
+  accounting. These APIs retain their owning QSL, IR and CG semantics. The
+  driver owns only the request-index/occurrence join and the per-item context.
 - IR `quire-contract-model`: `read_checked_package`, `CheckedPackageV2`,
   `CheckedNodeId`.
 - [CG FR-019](ix://agent-ix/quire-contract-codegen/FR-019) defines the typed
@@ -197,7 +261,9 @@ the admitted package only at the `package_id` E4 emitted.
 
 ## Status
 
-Steps 1 to 7 and the E5 hand-off are implemented.
+Steps 1 to 7 and the E5 hand-off are implemented. The scalar call-to-routed-
+generation composition in FR-001-AC-13 through FR-001-AC-16 remains planned;
+it is a driver-library boundary, not a CLI extension or a QSL/CG API change.
 
 The Kani claim map is derived by CG from the package and the routed node
 alone (IR-294); the caller supplies no claim map, and the driver surfaces

@@ -24,38 +24,27 @@ the bytes with QSL's `OutcomeDocument::settled` over
 `OutcomeItem::from_terminal`. Verify that a falsified scalar without replay
 remains a typed error and produces no guessed outcome.
 
-The scalar producer/replay scenarios below remain planned. IR-773 owns the
+The scalar producer/replay scenarios below remain planned. IR-879 owns the
+production driver composition that binds a real QSL call to its exact selected
+requirement occurrence, retains the ordered operands and context beside the CG
+output, and supplies CG's existing admitted package and complete request
+positions. TC-006 verifies that prerequisite through the production generation
+path; it does not qualify native execution or a receipt. IR-773 owns the
 same-artifact producer; IR-631 consumes its receipt for replay conversion, and
 IR-610 owns later E9 integration. The producer does not perform replay
-conversion, settlement, or terminal creation. The
-qualification must retain the exact generated artifact/package, scalar
-identity/occurrence, ordered operands, original `ScalarLimits` and
-`ReplayLimits`, and original QSL claim/replay context as one execution
-context. Before a positive native execution can be qualified, provide a
-public typed mapping from one selected `ExecutionRequest.call` and its named
-`CallArgument` values to one exact QSL requirement occurrence and checked
-scalar application, yielding the concrete values in the matching CG
-`ScalarObligationIdentity.arguments` order. Exercise a call whose argument
-vector order differs from CG's generated operand order, and two distinct
-requirement occurrences sharing one expression node; the mapping must bind the
-selected occurrence rather than use the expression node alone. Confirm that
-`ScalarLimits` L0 comes from the accounting limits of that same selected call
-received by the producer. No positional zip of the QSL and CG vectors, inferred
-occurrence, caller-authored operand list, or limits from a different call is a
-valid positive case. Missing, ambiguous, or mismatched call/occurrence binding
-must not yield an accepted receipt or reach QSL replay, settlement, or terminal
-creation. This mapping and producer scenario remain planned until the public
-typed API exists; do not manufacture a mapping for the test.
+conversion, settlement, or terminal creation. Its later qualification must
+retain the exact generated artifact/package, scalar identity/occurrence,
+ordered operands, original `ScalarLimits` and `ReplayLimits`, and original QSL
+claim/replay context as one execution context. No positional zip of QSL and CG
+vectors, inferred occurrence, caller-authored operand list, or limits from a
+different call is a valid positive case. Missing, ambiguous, or mismatched
+call/occurrence binding must not yield an accepted receipt or reach QSL replay,
+settlement, or terminal creation. The production composition and the producer
+qualification remain planned until each owning slice is implemented.
 
-The required mapping depends on QSL-818 for binding named `CallArgument` values
-to the selected scalar operand occurrence/order, and IR-832 for the typed
-declared-name accessor on checked parameter nodes. Until both public APIs exist,
-the mapping scenario is not executable and remains planned; AC-6 and AC-7 also
-remain planned.
-
-After that mapping exists, send the retained `ReplayLimits` unchanged in the
-QSL replay request and execute the artifact with the retained scalar inputs
-and `ScalarLimits`. Recompute QSL FR-357's artifact-only `sha256-jcs`
+When IR-773 adds the native producer after the production mapping exists,
+send the retained `ReplayLimits` unchanged in the QSL replay request and execute
+the artifact with the retained scalar inputs and `ScalarLimits`. Recompute QSL FR-357's artifact-only `sha256-jcs`
 `DigestRecord` from every staged `(path, bytes)` entry exposed by the CG
 receipt, then compare it with the receipt's attested proof-content identity.
 Use the same record version, digest domain, and mapping defined by the merged
@@ -94,8 +83,9 @@ preserved unchanged. The successful-receipt mismatch test remains planned
 until the driver implements this contract; it must not manufacture an
 upstream refusal.
 
-Test location: `src/provider.rs`; full prove/replay integration remains
-planned.
+The production QSL-call-to-CG-generation prerequisite is covered by TC-006.
+Test location for native receipt and settlement qualification: `src/provider.rs`;
+full prove/replay integration remains planned.
 
 ## Expected Results
 
