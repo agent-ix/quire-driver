@@ -24,6 +24,11 @@ driver SHALL not send the package's unbound item set to CG.
   package and determine which requested items it binds.
 - The driver SHALL submit only those bound items to CG's negotiation and
   generation operations.
+- The driver SHALL build the CG request from the bound results of the QSL
+  export's per-item partition (QSL FR-307: each requested item is either a
+  bound result, with an empty binding set when the item references no model
+  element, or a refusal). A refused item SHALL contribute nothing to the
+  request, and the driver SHALL return its refusal to the caller unchanged.
 - Where a required binding is absent, the driver SHALL preserve the typed
   unbound-element refusal defined by the owning QSL contract; it SHALL not
   invent a CG item or silently treat the item as bound.
@@ -52,4 +57,7 @@ driver SHALL not send the package's unbound item set to CG.
 - QSL-514 is planned end-to-end `quire-integration` evidence for FR-307's
   end-to-end clause, not a requirement acceptance criterion. The
   cross-repository acceptance test is owned by QSL's `quire-integration` suite.
+- [QSL FR-307-AC-6](ix://agent-ix/quire-spec-language/FR-307#FR-307-AC-6)
+  owns the bound-or-refused result kinds the driver reads; this requirement
+  owns the request the driver builds from them.
 - [TC-017](../test-cases/TC-017-only-bound-items-reach-codegen.md).
