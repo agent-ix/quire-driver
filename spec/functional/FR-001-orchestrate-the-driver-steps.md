@@ -41,6 +41,10 @@ ADR-011 T-13, ADR-012 §7.2):
    with its request index, its checked node, its routed backend and its CG
    kind.
 
+After the E5 hand-off and before step 3, the driver calls QSL's layer-4
+bindings export (QSL FR-307) for the requested items and partitions them
+into bound and refused (FR-010).
+
 Between steps 2 and 3, the E5 hand-off: IR's checked-package reader
 (`read_checked_package`) reads the emitted v2 bytes, and the driver accepts
 the admitted package only at the `package_id` E4 emitted.
@@ -82,10 +86,16 @@ the admitted package only at the `package_id` E4 emitted.
   FR-014 claim map CG derived for the Kani group, `Some` whenever one ran;
   a caller writes it as `claim-map.json`.
 - `Driven` also carries a per-item refusal member: for each requested item
-  the export refused, in request order, the item's occurrence key and the
-  export's typed refusal unchanged. The member is empty when every item is
-  bound. A partly bound package therefore returns its settled items and each
-  refused item's refusal in one completed result.
+  the export refused, the item's occurrence key and the export's typed
+  refusal unchanged, in driver request order. The member is empty when every
+  item is bound. A partly bound package therefore returns its settled items
+  and each refused item's refusal in one completed result.
+- The two halves of `Driven` join on the item's original driver request
+  index. Settlements and generation output stay keyed by that index, so an
+  omitted refused item leaves a gap and C keeps driver index 2 when B (index
+  1) is omitted; the refusal member carries the occurrence key and that same
+  driver index. The FR-330 position vector keeps one `DriverItem` per
+  original request item (FR-001-AC-15).
 - Or one command-level refusal.
 - Or a `DriverRefusal::Cancelled` result carrying the cancelled QSL stage and
   cause.
@@ -189,15 +199,29 @@ the admitted package only at the `package_id` E4 emitted.
   settles `Unsupported` with `no_derivable_claim`, naming the node and CG's
   derivation refusal, and carries no harness. It does not reject its
   siblings, and does not refuse the run.
-- A refused item's typed refusal is an item-level result, not a command-level
-  refusal: the driver SHALL record it in `Driven`'s per-item refusal member
-  and SHALL NOT return a `DriverRefusal` for it. A run in which every item is
-  refused completes with no settled item and one per-item refusal for each
-  requested item.
+- The per-item refusal member SHALL hold only an item the export refused. It
+  holds no negotiation settlement (`invalid-request`, `unknown-backend`,
+  `NoDerivableClaim`) and no scalar `RunRefusal` or `BindRefusal`;
+  FR-001-AC-16 still stops the composition for the latter.
+- When the export refuses a requested item, the driver SHALL record the
+  refusal in the member.
+- When the export refuses a requested item, the driver SHALL NOT return a
+  `DriverRefusal` for it.
+- When the export refuses every requested item, the driver SHALL complete the
+  run with no settled item and one per-item refusal for each requested item.
+- When the export fails as a whole, the driver SHALL refuse the run with the
+  export's typed refusal.
+- When the export reports that an occurrence key the driver built names no
+  requirement record, the driver SHALL treat it as a `runtime_invariant`
+  internal fault at the hand-off.
+- A package that carries no abstraction relation binds no element; the
+  export then returns a bound result for an item that references no element
+  and a refusal for every other item.
 - Each command-level refusal SHALL carry its step, its catalog code and an
   outcome kind: refusal, limit refusal or internal fault. A provider
   manifest that does not register, a spine refusal, the unknown-backend
-  refusal and an envelope refusal are refusals. A spine
+  refusal, an envelope refusal and an export that fails as a whole are
+  refusals. A spine
   `stage_limit_exceeded` and an IR reader limit are limit refusals. An
   upstream answer that breaks the driver's invariants is an internal fault;
   that includes IR refusing, or admitting at another `package_id`, the bytes
@@ -246,7 +270,9 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-14 | For each routed scalar item selected for native proof, the driver joins the QSL item and CG driver item by request index and exact `OccurrenceKey`, then uses QSL `bind_scalar_operands` on that call's package and exact function/application/occurrence. Bound operands remain in QSL order, matching the CG scalar identity's argument order, with their argument source and ordinal; `ScalarLimits` come from the same call's accounting. Two occurrences on one node remain distinct. No positional zip or node-only occurrence selection is permitted. | Test (TC-006) |
 | FR-001-AC-15 | CG receives only its existing admitted `ContractPackageV1`, complete FR-330 position vector, routed items, and generation contexts. The position vector retains one `DriverItem` per original request item, in driver-index order, and a separate `ContextRoot` for each selected direct conversion occurrence; context roots create no route, claim, or generated item and do not advance driver indices. The exact QSL call and bound operands remain in a driver-owned sidecar keyed by request index. | Test (TC-006) |
 | FR-001-AC-16 | No selected scalar item means no scalar binding or native execution and no fallback selection. QSL's typed missing/ambiguous call or occurrence refusal is preserved unchanged. A missing/ambiguous required conversion context preserves its owning QSL/IR/CG typed refusal; `None` is valid only when the exact QSL item has no conversion context. An admitted-package/request-position/routed-item mismatch preserves the owning IR/CG typed refusal, or is a driver `runtime_invariant` fault when the driver detects an inconsistent join. Each case stops before native execution or replay and invents no call, occurrence, context root, or operand order. | Test (TC-006) |
-| FR-001-AC-17 | Given a package whose export returns a bound result for A and C and a refusal for B, the run completes, `Driven` holds the settlement of A and C and B's refusal in the per-item refusal member, and no `DriverRefusal` is returned; with every item refused, `Driven` holds no settled item and one refusal per requested item. | Test (TC-017) |
+| FR-001-AC-17 | For the FR-010-AC-4 vector, the run completes, `Driven` holds the settlements of A (driver index 0) and C (driver index 2) and B's refusal, unchanged, with its occurrence key and driver index 1 in the per-item refusal member, and no `DriverRefusal` is returned. | Test (TC-017) |
+| FR-001-AC-18 | When the export refuses every requested item, `Driven` holds no settled item and one refusal in the per-item refusal member for each requested item. | Test (TC-017) |
+| FR-001-AC-19 | An export that fails as a whole refuses the run, and an occurrence key the driver built that the export reports as naming no requirement record is a `runtime_invariant` internal fault. | Test (TC-017) |
 
 ## Dependencies
 

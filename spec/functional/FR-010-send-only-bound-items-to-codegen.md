@@ -35,9 +35,10 @@ driver SHALL not send the package's unbound item set to CG.
 - When every requested item is refused, the driver SHALL send CG a request
   with zero items; FR-001 governs an empty request unchanged.
 - Where a required binding is absent, the driver SHALL preserve the typed
-  unbound-element refusal defined by the owning QSL contract and SHALL
-  return it in FR-001's per-item refusal member; it SHALL not
-  invent a CG item or silently treat the item as bound.
+  unbound-element refusal defined by the owning QSL contract.
+- Where a required binding is absent, the driver SHALL return that refusal
+  in FR-001's per-item refusal member.
+- The driver SHALL NOT invent a CG item or treat an unbound item as bound.
 
 ## Acceptance Criteria
 
@@ -46,7 +47,7 @@ driver SHALL not send the package's unbound item set to CG.
 | FR-010-AC-1 | Given a package whose abstraction relation binds a subset of requested items, CG negotiation receives exactly that subset and receives no unbound item. | Test |
 | FR-010-AC-2 | CG generation receives only items that the same admitted relation bound and that negotiation settled for generation. | Test |
 | FR-010-AC-3 | When a binding required for emission is absent, the item's QSL-defined typed unbound-element refusal appears unchanged in the per-item refusal member of the completed result, and no unbound item is sent to CG. | Test |
-| FR-010-AC-4 | Given an export that returns a bound result for a clause item A, a refusal for an extent-domain item B over an unbound population, and a bound result with an empty binding set for an item C that references no model element, the CG request carries A and C and not B, and B's refusal is in the per-item refusal member beside the settlement of A and C. | Test (TC-017) |
+| FR-010-AC-4 | Given an export that returns a bound result for a clause item A, a refusal for an extent-domain item B over an unbound population, and a bound result with an empty binding set for an item C that references no model element, the CG request carries A and C and not B. This is the vector FR-001-AC-17 and FR-009-AC-16 cite. | Test (TC-017) |
 | FR-010-AC-5 | When the export refuses every requested item, the driver sends CG a request with zero items. | Test |
 
 ## Dependencies

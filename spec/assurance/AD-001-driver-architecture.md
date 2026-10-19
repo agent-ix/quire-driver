@@ -154,8 +154,9 @@ The existing FR-001 sequence is compile/emit, E5 admission, candidate
 construction, backend conversion, negotiation, routing and generation.
 FR-010 qualifies the CG input: only relation-bound items enter negotiation
 and generation. Selection never discards the need to account for each
-requested item: a settled item in FR-009's final outcome, a refused item in
-FR-001's per-item refusal member. Proving extends generation with
+requested item: a settled item in CG's settlement and generation output (and,
+for a proof, in FR-009's outcome), a refused item in FR-001's per-item
+refusal member. Proving extends generation with
 provider execution, QSL replay and CG settlement; a `generate` request does
 not imply that a proof was executed.
 
