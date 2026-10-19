@@ -311,7 +311,7 @@ generation composition in FR-001-AC-13 through FR-001-AC-16 remains planned;
 it is a driver-library boundary, not a CLI extension or a QSL/CG API change.
 
 The excluded position for an export-refused item depends on a CG change
-(CG ticket pending). Today CG requires (1) the position vector to equal the
+(IR-915). Today CG requires (1) the position vector to equal the
 admitted package's feature accounting, by count and by each position's
 `node_id`, so dropping the refused item or giving it no node fails; (2) one
 FR-331 envelope item per `DriverItem` position, so an envelope holding only
