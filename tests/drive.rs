@@ -241,6 +241,8 @@ struct Recorder {
     calls: RefCell<Vec<Call>>,
     /// When set, the IR read answers this instead of reading.
     read_answer: Option<CheckedPackageDispatchResult>,
+    /// When set, negotiation returns this typed refusal before consulting CG.
+    negotiate_answer: Option<EnvelopeRefusal>,
     /// When set, `negotiate` rewrites the real settlement at this request
     /// index to `unsupported`, as if no registered backend advertised its
     /// kind. Real input cannot build a mixed settlement set on its own --
@@ -342,6 +344,9 @@ impl Upstream for Recorder {
             items: envelope.items.len(),
         });
         *self.envelope.borrow_mut() = Some(envelope.clone());
+        if let Some(refusal) = &self.negotiate_answer {
+            return Err(refusal.clone());
+        }
         let mut settlements = QslCg.negotiate(envelope)?;
         if let Some(index) = self.unsupported_at {
             if let Some(settlement) = settlements.get_mut(index) {
@@ -1907,6 +1912,43 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
             },
             Call::Generate { items: 1 },
         ]
+    );
+}
+
+/// Trace: FR-001-AC-5.
+/// A typed CG envelope fault remains an internal fault at negotiation and
+/// stops the driver before routing or generation.
+#[test]
+fn tc_004_repeated_manifest_identity_from_negotiation_is_an_internal_fault() {
+    let registry = build_registry(&[]).expect("an empty registry builds");
+    let packages = BTreeMap::new();
+    let recorder = Recorder {
+        negotiate_answer: Some(EnvelopeRefusal::ManifestRepeatsBackendIdentity {
+            identity: "plugin:example".to_owned(),
+        }),
+        ..Recorder::default()
+    };
+
+    let refusal = drive(
+        &recorder,
+        int_input(&packages),
+        &registry,
+        None,
+        GenerationInput::default(),
+    )
+    .expect_err("CG's repeated manifest identity is not a caller refusal");
+
+    assert_eq!(refusal.stage(), DriverStage::Negotiation);
+    assert_eq!(refusal.code(), "runtime_invariant");
+    assert_eq!(refusal.kind(), OutcomeKind::Fault);
+    assert!(refusal.to_string().contains("plugin:example"));
+    assert!(
+        !recorder
+            .calls()
+            .iter()
+            .any(|call| matches!(call, Call::Route { .. } | Call::Generate { .. })),
+        "routing and generation stop after the negotiation fault: {:?}",
+        recorder.calls()
     );
 }
 
