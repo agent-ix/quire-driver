@@ -15,7 +15,8 @@ preflight refusals, CG-owned terminal mapping, and the generic result carrier
 used by non-Kani providers. Full routed invocation and process-provider
 terminal integration remain planned.
 
-Scope: FR-005-AC-1 through FR-005-AC-11, FR-005-AC-16 and FR-005-AC-17.
+Scope: FR-005-AC-1 through FR-005-AC-11, FR-005-AC-16 through FR-005-AC-17,
+and FR-005-AC-20 through FR-005-AC-21.
 
 ## Test Procedure
 
@@ -34,14 +35,23 @@ Scope: FR-005-AC-1 through FR-005-AC-11, FR-005-AC-16 and FR-005-AC-17.
    `ProviderItemResult` retains CG's execution ceilings, memory observation
    and symbolic-argument bounds. Supply a different memory or wall-clock
    ceiling and verify a typed mismatch refusal occurs before CG execution.
-6. Construct generic provider results with non-Kani success and failure types.
+6. Exercise Kani request construction with an explicitly supplied absolute
+   launcher home directory and verify the same path reaches CG's execution
+   request. Repeat with the home directory unknown while the process has a
+   decoy `HOME`; verify the CG request receives `None`, not the environment
+   value or a path inferred from another directory.
+7. Pass CG evidence with a `NoVerdict` diagnostic record through the typed
+   Kani result carrier and verify its structured fields are unchanged. Repeat
+   with diagnostics absent and verify they remain absent. Verify the driver
+   does not parse diagnostic text or create a `KaniFailureCause`.
+8. Construct generic provider results with non-Kani success and failure types.
    Verify each retains its request index and backend identity. Exercise the
    host adapter conversion with a non-Kani result carrier and verify its typed
    result reaches the caller unchanged.
-7. Pass a cover-unsatisfied outcome and a timeout outcome through CG's
+9. Pass a cover-unsatisfied outcome and a timeout outcome through CG's
    `run_terminal_value`; verify they map to `Proved { success_checks: 0 }`
    and `Incomplete(TimedOut)` respectively.
-8. The origin-aware QSL-to-CG descriptor projection is tested in
+10. The origin-aware QSL-to-CG descriptor projection is tested in
    `src/drive.rs`: build separate QSL registries with otherwise equal `kani`
    descriptors, one `Linked` and one `Process`, then verify their CG
    descriptor projections preserve identity, advertised pairs and the supplied
@@ -53,13 +63,16 @@ Scope: FR-005-AC-1 through FR-005-AC-11, FR-005-AC-16 and FR-005-AC-17.
    registration through the `quire-cli` process-provider adapter remains
    planned.
 
-9. Verify the Kani output's terminal is the one produced by CG's
-   `run_terminal_value`; the driver does not derive a terminal from evidence or
-   diagnostics independently.
-10. Planned under QSL-655: keep a plugin counterexample in the shared carrier
+11. Verify the Kani output's terminal is the one produced by CG's
+   `run_terminal_value` from the original evidence and optional replay
+   settlement. Include `NoVerdict` with and without diagnostics and
+   `FailedWithoutCounterexample` with absent and present causes. Confirm the
+   driver forwards only CG's actual optional cause and diagnostics do not
+   change the terminal.
+12. Planned under QSL-655: keep a plugin counterexample in the shared carrier
     as a non-terminal candidate until QSL S6a replay reproduces it; do not emit
     `Refuted` before replay.
-11. Build a linked provider registry from a manifest whose `wire` is absent.
+13. Build a linked provider registry from a manifest whose `wire` is absent.
     Verify `build_registry` retains canonical FR-331 bytes, includes present
     optional members and omits absent ones. Pass a retained manifest with
     `wire: None` directly to the FR-331 request adapter and verify it refuses
@@ -88,6 +101,11 @@ invocation and process-provider terminal integration remain planned.
   execution. CG's evidence fields remain available through the typed provider
   result. CG FR-028 defines the wall-clock ceiling in the harness
   identity as the execution timeout; the driver supplies no second timeout.
+- An explicitly supplied `KaniExecutionLimits.home_directory` reaches CG's
+  request unchanged. An unknown home directory remains `None` even when a
+  decoy process `HOME` is set. CG's optional diagnostics and failure cause
+  remain unchanged in typed evidence; the driver reads neither diagnostic text
+  nor ambient environment to choose a failure cause or terminal.
 - CG maps cover-unsatisfied to `Proved { success_checks: 0 }` and timeout to
   `Incomplete(TimedOut)`; the driver does not reimplement that mapping.
 - Kani execution limits and terminal mapping remain Kani-specific. The shared

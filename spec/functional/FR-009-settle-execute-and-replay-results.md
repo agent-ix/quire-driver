@@ -7,6 +7,10 @@ relationships:
     type: implements
   - target: ix://agent-ix/quire-spec-language/ADR-029
     type: depends_on
+  - target: ix://agent-ix/quire-contract-codegen/FR-017
+    type: depends_on
+  - target: ix://agent-ix/quire-contract-codegen/FR-029
+    type: depends_on
 ---
 # FR-009: Settle executions after replaying counterexamples
 
@@ -71,6 +75,12 @@ replay context through QSL evaluation and report handling.
   that supplies the same call and selected occurrence to that mapping remains
   planned under FR-001-AC-13 through FR-001-AC-16 and IR-879.
 - The driver SHALL preserve the provider's typed result.
+- For a Kani result, the driver SHALL pass the same CG
+  `KaniExecutionEvidence` and optional replay settlement to CG's
+  `run_terminal_value`. The driver SHALL NOT synthesize a
+  `KaniFailureCause`, infer one from diagnostics or other text, or alter the
+  evidence before this call. CG's function reads the outcome, success-check
+  count and optional failure cause from that evidence.
 - For predicate/function counterexamples, when QSL replay reproduces the
   counterexample, the driver SHALL settle that item as `refuted`.
 - For predicate/function counterexamples, when replay disagrees or completes
@@ -168,13 +178,16 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-11 | No scalar operator-parity report settles as `refuted`. | Planned (TC-016; IR-610 consumer slice and reviewed CG API) |
 | FR-009-AC-12 | If CG returns a successful native-execution receipt that consistently attests request, metered, and returned `ScalarLimits` `L1` while the private retained context contains different original limits `L0`, the driver returns `DriverRefusal::Fault(DriverFault::NativeExecutionLimitsMismatch)` at the new `DriverStage::Replay` stage, with code `runtime_invariant` and outcome kind `Fault`, before QSL replay evaluation; no replay evaluation, settlement, or terminal record is created. An upstream typed completion refusal, when returned, is preserved unchanged. | Planned (TC-016; IR-773 S6b producer) |
 | FR-009-AC-13 | For routed scalar native execution, the driver obtains concrete operands from a typed mapping of one selected `ExecutionRequest.call` to one exact QSL requirement occurrence and checked scalar application, with values ordered by the matching CG `ScalarObligationIdentity.arguments`; the original `ScalarLimits` come from that same call's accounting. Positional zipping, expression-node-only occurrence matching, and limits from another call are not valid mappings. If the mapping or exact binding is absent or ambiguous, it is missing retained context under FR-009-AC-7 and cannot produce an accepted native receipt or proceed to QSL replay evaluation, settlement, or terminal creation. | Planned (TC-016; IR-773 producer; production call-to-generation boundary FR-001-AC-13 through FR-001-AC-16 / IR-879; QSL FR-367 and IR-832 APIs are available) |
+| FR-009-AC-14 | For a Kani result, the driver passes the original CG `KaniExecutionEvidence` and optional replay settlement to CG `run_terminal_value`; it preserves the resulting typed terminal without adding a driver mapping. The map receives the evidence's actual optional `failure_cause`; the driver invents or infers no cause. | Planned (TC-016; IR-843) |
+| FR-009-AC-15 | Changing or omitting optional CG diagnostics while holding the outcome, success-check count, failure cause, and replay settlement fixed does not change the terminal produced by CG `run_terminal_value`; the driver does not parse diagnostic content to classify or map a result. | Planned (TC-016; IR-843; CG FR-017-AC-36 and FR-029) |
 
 ## Dependencies
 
 - QSL ADR-029 LC-1, CB-4 and library operation `prove`; ADR-013 O-16 and
   C-09; QSL FR-357 observation-digest and report-claim contract; CG FR-032
-  native-observation and scalar-replay binding contract; CG's terminal-record
-  mapping. QSL FR-367 and IR-832 own the named `CallArgument`-to-selected-
+  native-observation and scalar-replay binding contract; CG FR-017 owns Kani
+  execution evidence and FR-029 owns its terminal mapping. QSL FR-367 and
+  IR-832 own the named `CallArgument`-to-selected-
   scalar-operand binding and typed declared-name accessor; FR-001-AC-13 through
   FR-001-AC-16 specify the driver's production composition that supplies the
   same call and exact occurrence to them. IR-773 owns the planned
