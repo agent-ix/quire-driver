@@ -51,9 +51,8 @@ pub enum DriverRefusal {
         /// Each unconverted `BackendId`, in bytewise order.
         backends: Vec<BackendId>,
     },
-    /// CG rejected or found an invariant violation in the whole FR-331
-    /// envelope before settling any item.
-    #[error("{}", envelope_message(.0))]
+    /// CG refused the whole FR-331 envelope before settling any item.
+    #[error("CG refused the negotiation envelope: {}", envelope_message(.0))]
     Envelope(EnvelopeRefusal),
     /// E5: IR's reader stopped at one of its limits.
     #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
@@ -101,6 +100,13 @@ pub enum DriverFault {
         requested: usize,
         /// Settlements returned.
         settled: usize,
+    },
+    /// CG found a repeated manifest identity that the driver's registry
+    /// construction should have prevented.
+    #[error("CG negotiation manifest repeats backend identity `{identity}`")]
+    ManifestRepeatsBackendIdentity {
+        /// The bytewise-first repeated identity from CG's typed refusal.
+        identity: String,
     },
     /// An item settled `supported` by a backend outside its candidate set.
     #[error(
@@ -179,6 +185,17 @@ pub enum DriverFault {
     ContractLoweringIncomplete,
 }
 
+impl From<EnvelopeRefusal> for DriverRefusal {
+    fn from(refusal: EnvelopeRefusal) -> Self {
+        match refusal {
+            EnvelopeRefusal::InvalidCapability { .. } => Self::Envelope(refusal),
+            EnvelopeRefusal::ManifestRepeatsBackendIdentity { identity } => {
+                Self::Fault(DriverFault::ManifestRepeatsBackendIdentity { identity })
+            }
+        }
+    }
+}
+
 /// The step a [`DriverRefusal`] comes from.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DriverStage {
@@ -251,9 +268,6 @@ impl DriverRefusal {
             Self::Envelope(EnvelopeRefusal::InvalidCapability { cause, .. }) => {
                 format!("invalid_capability/{cause}")
             }
-            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
-                Code::RuntimeInvariant.as_str().to_owned()
-            }
             Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
             Self::LoweringLimit { .. } => Code::ResourceExhausted.as_str().to_owned(),
             Self::Generation(error) => generation_code(error).as_str().to_owned(),
@@ -296,7 +310,8 @@ impl DriverRefusal {
                 DriverFault::UnknownOccurrenceRole { .. } | DriverFault::ContractLoweringIncomplete,
             ) => DriverStage::Generation,
             Self::Fault(
-                DriverFault::SettlementCount { .. }
+                DriverFault::ManifestRepeatsBackendIdentity { .. }
+                | DriverFault::SettlementCount { .. }
                 | DriverFault::SupportedOutsideCandidates { .. },
             ) => DriverStage::Negotiation,
         }
@@ -322,9 +337,6 @@ impl DriverRefusal {
                 OutcomeKind::Limit
             }
             Self::ManifestEncoding(_) => OutcomeKind::Fault,
-            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
-                OutcomeKind::Fault
-            }
             Self::Registration(_)
             | Self::Compile(_)
             | Self::UnknownBackend { .. }
@@ -554,9 +566,6 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
             member,
             received,
         } => format!("invalid_capability/{cause}: `{member}` is `{received}`"),
-        EnvelopeRefusal::ManifestRepeatsBackendIdentity { identity } => {
-            format!("internal fault: CG negotiation manifest repeats backend identity `{identity}`")
-        }
     }
 }
 
@@ -587,7 +596,7 @@ mod tests {
 
     #[test]
     fn repeated_manifest_backend_identity_is_a_negotiation_fault() {
-        let refusal = DriverRefusal::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity {
+        let refusal = DriverRefusal::from(EnvelopeRefusal::ManifestRepeatsBackendIdentity {
             identity: "plugin:example".to_owned(),
         });
 

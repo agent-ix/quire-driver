@@ -147,7 +147,7 @@ pub fn drive(
     let kinds = convert_backends(upstream, registry, &prepared.generation_descriptors)?;
     let settlements = upstream
         .negotiate(&prepared.envelope)
-        .map_err(DriverRefusal::Envelope)?;
+        .map_err(DriverRefusal::from)?;
     let in_order = settlements.len() == items.len()
         && settlements
             .iter()
