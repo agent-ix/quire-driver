@@ -582,6 +582,7 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 
 #[cfg(test)]
 mod tests {
+    use ix_trace_rs::trace;
     use qsl_foundation::digest::WireNodeId;
     use qsl_foundation::EmptyBackendIdentity;
     use qsl_replay::Category;
@@ -605,6 +606,7 @@ mod tests {
         assert_eq!(refusal.stage(), DriverStage::Registry);
     }
 
+    #[trace("FR-001-AC-5")]
     #[test]
     fn repeated_manifest_backend_identity_is_a_negotiation_fault() {
         let refusal = DriverRefusal::from(EnvelopeRefusal::ManifestRepeatsBackendIdentity {
