@@ -15,6 +15,10 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-069
     type: depends_on
+  - target: ix://agent-ix/quire-contract-codegen/FR-017
+    type: depends_on
+  - target: ix://agent-ix/quire-contract-codegen/FR-029
+    type: depends_on
   - target: ix://agent-ix/quire-driver/FR-002
     type: depends_on
 ---
@@ -39,6 +43,9 @@ is specified in Behavior.
 - For Kani generation, an explicit CG `ProofCeilings` value carrying the
   memory-byte and wall-clock ceilings that become part of each harness
   identity.
+- For Kani execution, `KaniExecutionLimits.home_directory`, an optional
+  absolute launcher home-directory path supplied by the caller when that
+  launch context is known.
 
 ## Outputs
 
@@ -94,6 +101,15 @@ is specified in Behavior.
   observed ceilings, memory observation and symbolic-argument bounds in the
   typed execution evidence. CG FR-028 defines the wall-clock ceiling as the
   execution timeout; the driver SHALL NOT supply a second timeout.
+- When Kani execution is requested, the driver SHALL set CG's
+  `KaniExecutionRequest.home_directory` to the optional absolute launcher home
+  directory supplied by `KaniExecutionLimits.home_directory`, including
+  `None` when the caller does not know it. The driver SHALL NOT read ambient
+  process environment variables or infer a home directory from the
+  installation, crate directory, or target directory.
+- The driver SHALL retain CG's `KaniExecutionEvidence` unchanged in its typed
+  Kani result, including its optional `diagnostics` and `failure_cause` fields;
+  absence of either field SHALL remain absence.
 - For each plugin hello, the `quire-cli` host hello admitter SHALL call the QSL
   descriptor-admission boundary once with caller-supplied origin `Process` and
   return the admitted descriptor plus its FR-331 DTO to the driver.
@@ -139,7 +155,7 @@ is specified in Behavior.
 | FR-005-AC-5 | The driver preserves a caller-supplied `Process` origin, descriptor identity and advertised pairs when it registers the descriptor and projects it to CG unchanged. | Partial (TC-012 covers caller-admitted registration and projection; plugin hello admission remains planned in TC-013) |
 | FR-005-AC-6 | The driver's shared provider-result carrier preserves each routed item's request index and backend identity. | Partial (TC-012, TC-013; `src/provider.rs::shared_provider_carrier_preserves_non_kani_data_and_failures` verifies generic typed successes and failures; the host adapter preserves a non-Kani carrier; end-to-end routed process invocation remains planned under IR-629) |
 | FR-005-AC-7 | A plugin counterexample received before QSL replay is represented in the shared result carrier as a non-terminal candidate; it has no `Refuted` terminal until QSL S6a replay reproduces it. | Planned (TC-013; QSL-655) |
-| FR-005-AC-8 | For Kani results, the driver uses CG's authoritative `run_terminal_value` mapping; driver evidence and diagnostic text do not define or alter the terminal category. | Partial (TC-012 exercises CG's mapping; the driver does not implement a second mapping) |
+| FR-005-AC-8 | For Kani results, the driver passes CG's `KaniExecutionEvidence` and the optional replay settlement to CG's authoritative `run_terminal_value`; the driver implements no second mapping, and neither evidence diagnostics nor their text define or alter the terminal category. | Partial (TC-012 exercises CG's mapping; the driver does not implement a second mapping) |
 | FR-005-AC-9 | The driver represents non-Kani provider data without Kani-specific evidence or failure types, while QSL remains the owner of terminal values and categories. | Partial (TC-012, TC-013; generic typed result/failure carriers are verified; plugin terminal mapping remains planned under QSL-490 and QSL-655) |
 | FR-005-AC-10 | The driver does not map plugin `proved` results to a terminal until QSL supports its trusted proof basis, and it does not fabricate Kani `success_checks`. | Planned (TC-013; QSL-490 and QSL-655) |
 | FR-005-AC-11 | Once QSL-655 amends ADR-029 PL-7 to define plugin claims of `replay-parity`, `replay-refused`, or `kani_vacuous_proof` as invalid, the driver rejects those claims as tool failures. | Planned (TC-013; QSL-655 / ADR-029 PL-7 amendment) |
@@ -151,6 +167,8 @@ is specified in Behavior.
 | FR-005-AC-17 | Before negotiation, the driver projects each QSL registry descriptor through CG's `BackendKind::from_descriptor` and CG constructs `BackendKind::Process` from the supplied `Process` origin; the driver does not construct the kind or map backend identity to it. | Test (TC-012; `src/drive.rs::backend_kind_conversion_uses_admitted_origin` verifies equal identities classify by their QSL-admitted origin and an unknown Linked identity remains refused) |
 | FR-005-AC-18 | When a plugin hello manifest contains invalid domains, the driver passes the labels to QSL descriptor admission and preserves QSL-654's per-registration `invalid_capability` refusal with cause `invalid-domains`; the driver does not validate domains or construct the refusal. | Planned (TC-013; QSL-654) |
 | FR-005-AC-19 | When a plugin hello manifest has an absent or unknown kind or mode, the driver preserves QSL's typed per-registration `invalid_capability` refusal. | Planned (TC-013; QSL registry admission) |
+| FR-005-AC-20 | The driver forwards `KaniExecutionLimits.home_directory` unchanged to CG's `KaniExecutionRequest`; if it is `None`, the driver passes `None` even when the process environment has a `HOME` value. The driver does not infer the path from other directories or from the selected Kani installation. | Planned (TC-012; IR-843) |
+| FR-005-AC-21 | The typed Kani result retains CG's `KaniExecutionEvidence` unchanged: a `NoVerdict` diagnostic record and a present `failure_cause` remain equal to CG's values, while absent optional fields remain absent. The driver does not parse diagnostics or derive a failure cause from them. | Planned (TC-012; IR-843) |
 
 Current implementation status: the linked Kani adapter is the only Provider
 execution adapter; the shared result carriers accept provider-specific typed
@@ -168,7 +186,9 @@ remains Linked-only.
 
 ## Dependencies
 
-- CG FR-017 and FR-028 for Kani execution evidence and proof ceilings.
+- CG FR-017 and FR-028 for Kani execution evidence, optional launcher home
+  directory and proof ceilings; CG FR-029 owns the terminal mapping from
+  evidence and optional replay settlement.
 - QSL ADR-029 PV-1 and PV-3 for provider registration and execution boundaries;
   QSL FR-075 and FR-288 for registry identity and provider-manifest
   registration; QSL-654 for per-registration domain admission and refusal.

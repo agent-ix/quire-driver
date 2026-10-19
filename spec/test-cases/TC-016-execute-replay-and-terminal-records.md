@@ -15,7 +15,7 @@ Verify the available proved-provider terminal path uses QSL's canonical
 for every requested item, including the routed scalar observation producer
 and report-claim guard, remains planned.
 
-Scope: FR-009-AC-1 through FR-009-AC-13.
+Scope: FR-009-AC-1 through FR-009-AC-15.
 
 ## Test Procedure
 
@@ -23,6 +23,13 @@ Run a verified Kani result through `ProviderResults::outcome_bytes` and compare
 the bytes with QSL's `OutcomeDocument::settled` over
 `OutcomeItem::from_terminal`. Verify that a falsified scalar without replay
 remains a typed error and produces no guessed outcome.
+
+For CG terminal forwarding, pass the original `KaniExecutionEvidence` and
+optional replay settlement to `run_terminal_value`. Cover `NoVerdict` evidence
+with and without diagnostics and `FailedWithoutCounterexample` evidence with
+each actual optional failure cause state. Verify the typed result follows CG's
+map, diagnostics do not change it, and the driver neither synthesizes nor
+infers a cause.
 
 The scalar producer/replay scenarios below remain planned. IR-879 owns the
 production driver composition that binds a real QSL call to its exact selected
@@ -101,6 +108,10 @@ full prove/replay integration remains planned.
   outcome through CG FR-032's typed settlement conversion. No scalar
   operator-parity report settles as `refuted`.
 - CG's mapping is used without a second driver mapping.
+- The driver's terminal call forwards the original CG evidence and optional
+  replay settlement; a failure cause is read only from that evidence. Optional
+  diagnostics are retained in the typed evidence but never classify or map a
+  terminal.
 - A request that reaches per-item settlement has exactly one terminal record
   per requested item, including unsupported and incomplete items. A
   request-level typed refusal before settlement has no per-item terminal
