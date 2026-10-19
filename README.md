@@ -1,74 +1,153 @@
 # quire-driver
 
-The `quire-driver` library package orchestrates QSL ADR-011 T-13, with IR
-admission between QSL and CG (`quire-contract-codegen`). It remains downstream
-of those libraries and does not depend on the concrete `quire-cache` package.
-The cache is a separate downstream component that implements the driver's
-cache interface. The current `quire` binary target is in the `quire-driver`
-package and cannot depend on that component; IR-607 moves the binary to the
-separate `quire-cli` crate before cache composition.
+The driver is the part of Quire that runs a specification end to end. It takes
+a rule written in the Quire Specification Language (QSL), has QSL check and
+package it, hands the checked package to Contract IR and the code generators,
+and reports what came back. It also builds the user-facing `quire` command.
 
-`drive` runs one request:
+It exists so the layers above it never have to sequence the compiler and the
+generators by hand. QSL knows nothing about code generation, and the generators
+know nothing about source files. Something has to read the source, pass bytes
+from one stage to the next, negotiate with the available backends, and turn
+every way a run can end into one clear result and exit code. That is this
+repository. It is the only place that calls both QSL and the code generators.
 
-1. S1 to S4 and the E4 v2 emit, through QSL's typed `parse`, `select`, `check` and `package` lifecycle, sharing one `Cancel` handle.
-2. E5: IR's `read_checked_package` reads the emitted bytes; the admitted
-   package must carry the emitted `package_id`.
-3. The `route` candidate step, for each item to negotiate. The items are not
-   supplied by the caller: they are written from the compiled unit's own
-   checked requirement records
-   (`qsl_package::CheckedPackage::graph().requirements()`, QSL-266), one item
-   per record in occurrence-key order
-   (`qsl_route::request::items_from_requirements`). A unit with no scalar
-   operation application writes no requirement record, so the driver routes
-   nothing for it and calls neither `route` nor `generate`.
-4. The pre-negotiation conversion: every registered `BackendId` through CG's
-   `BackendKind::from_identity`. Any id with no CG kind refuses the run with
-   `invalid_capability`/`unknown-backend`, naming every unconverted id in
-   bytewise order, before any negotiation.
-5. E7: CG `negotiate_backend_provider`.
-6. The `route` routing step over the items settled `supported` only.
-7. CG `generate_routed` over the routed items, each with its request index,
-   its admitted `CheckedNodeId`, its routed backend and its kind, and the
-   caller's `GenerationInput` (for Kani: subject path and unwind). CG
-   derives each routed item's Kani claim from the node's own operation and
-   bound (IR-294, IR-298, IR-302):
-   a unary operation over a bounded parameter, and a binary operation with
-   a bounded operand beside a literal or beside another independently
-   bounded operand (QSL's own narrowing `conversion` shape), all settle
-   `Supported`. Real limits remain: an operand that is neither bounded nor
-   a literal (a plain-`Integer` parameter, a nested subexpression, or a
-   negative literal, which QSL emits as a negate node) still settles
-   `RequiresBound`; a node narrowed to more than one distinct bound, or
-   consumed by both a narrowing conversion and any other node, still
-   settles `Unsupported`/`AmbiguousBound` (several narrowing conversions to
-   the *same* bound dedupe and settle `Supported`), until IR-304; and path
-   conditions are ignored until IR-304 -- CG ranges every operand over its
-   full declared domain regardless of the `if` guard that reaches it, live
-   or proved dead. The derived claim map is returned in
-   `generation.claim_map`, `Some` whenever a Kani group ran. CG also
-   returns the FR-014 oracle crate it generated in
-   `generation.oracle_artifacts` (IR-300), which the driver does not yet
-   write out (Kani execution is blocked on IR-301).
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.svg">
+  <img alt="The quire command takes QSL source through parse, check and compile to a checked package, and its run verb evaluates a function to an outcome with an exit code, all working today. The driver library also reads the package back, routes it, negotiates with backends and generates code, but no command exposes that yet. The prove and generate commands and their verdict are planned." src="docs/images/hero-light.svg">
+</picture>
 
-The registry is a value built with `build_registry` from provider manifests
-and passed in as an argument. E5's evidence is the caller's domain package
-documents and QSL's root feature; no artifact digest evidence is supplied.
+> **Status: prerelease, private repository.** Nothing here is published
+> (`publish = false`). Today the `quire` binary parses, formats, checks,
+> compiles and runs QSL. The route, negotiate and generate steps work as a
+> library and are tested, but no command runs them yet. Expect breaking
+> changes.
 
-## Package boundaries
+## What works today
 
-Keep `quire-cache` outside the `quire-driver` dependency graph. The driver
-library defines the cache interface. After IR-607 moves the CLI into a separate
-crate, that crate can compose the downstream cache implementation.
+The binary is built from the `quire-cli` package. Its verbs follow the QSL
+command-line design:
 
-The `quire-plugin-host` workspace package owns the process transport, framing,
-and lifecycle described by QSL ADR-029 PL-2 through PL-7. Driver dispatch and
-typed settlement through CG's process-provider kind remain a separate
-FR-006/TC-013 integration step gated on CG's IR-629 API.
+| Verb | State | What it does |
+| --- | --- | --- |
+| `parse`, `check`, `compile`, `run` | works | Run the QSL stage of that name on one source file and print QSL's result document. Use `--format json`; text rendering is not available yet and is refused as unsupported. |
+| `format` | works | Print the source in QSL's canonical layout. |
+| `analyze`, `monitor`, `prove`, `replay`, `generate`, `inspect`, `render` | planned | Recognized, but they end as `unsupported` (exit 21) until a handler is written. |
 
-## Commands
+`run` accepts `--engine interpreter|aot|jit` and `--limit` overrides. Only the
+interpreter is linked, so the other engines are refused before anything runs;
+the driver never substitutes one engine for another. The command supplies an
+empty object environment because it has no way to pass one in yet.
 
-See `CLAUDE.md`. `make ci` runs every gate.
+Every command ends with QSL's own exit code, passed through unchanged:
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | success |
+| 10 | violation or undefined |
+| 20 | refused |
+| 21 | unsupported |
+| 22 | incomplete or inconclusive |
+| 30 | internal failure |
+
+### A first run
+
+This source is `quire-cli/tests/fixtures/ir608-run.qsl`, the file the
+`run_without_engine_executes_with_the_interpreter` test in
+`quire-cli/tests/binary_process.rs` runs:
+
+```
+language "ix:native" edition "1-draft";
+profile v = "quire.value.complete/v1";
+function yes using v(): Boolean pure { true }
+```
+
+The same test runs it like this and expects exit code 0:
+
+```
+quire run quire-cli/tests/fixtures/ir608-run.qsl yes --format json
+```
+
+## The library: from source to generated code
+
+The `quire-driver` library crate exposes `drive`, which runs one request
+through every stage below. Its tests (`tests/drive.rs`) call real QSL and
+code-generator crates, not mocks.
+
+1. Parse, select, check and package the source with QSL, sharing one `Cancel`
+   handle. The result is the `checked-package/v2` bytes and their identity.
+2. Read those bytes back through Contract IR's reader. The package it admits
+   must carry the identity QSL just emitted.
+3. Write the items to negotiate from the package's own checked requirement
+   records, one per record. The caller does not supply them. A unit with no
+   scalar operation application has no records, so nothing is routed and
+   nothing is generated.
+4. Convert every registered backend to the code generator's backend kind. An
+   id with no kind refuses the run before any negotiation, naming each one.
+5. Negotiate with the backend providers, then route only the items settled as
+   supported.
+6. Ask the code generator to generate for each routed item and return its
+   settlements, claim map and generated artifacts.
+
+Kani execution of the generated proofs is not wired up, and the generated
+oracle crate is returned but not yet written to disk. The registry of
+backends is a value the caller builds from provider manifests and passes in,
+never global state.
+
+`execute` is the smaller entry point behind `quire run`: it compiles one
+source and calls one function on the selected engine, returning QSL's typed
+outcome unchanged.
+
+## Workspace crates
+
+| Crate | Role |
+| --- | --- |
+| `quire-driver` (root) | The library: `drive`, `execute`, the registry, limits and the cache interface. Depends on QSL and the code generator, and on neither the cache nor the CLI. |
+| `quire-cli` | The `quire` binary: argument parsing and the command handlers. Depends on the driver and the cache. |
+| `quire-plugin-host` | The process boundary for out-of-process backend providers: framing, wire types and lifecycle for the `quire.plugin-wire/v1` protocol. |
+| `quire-cache` | A content-addressed on-disk cache that implements the driver's cache interface. The CLI does not call it yet. |
+
+The driver defines the cache interface and the cache implements it, so the
+library never depends on its own cache. `tests/dependency_edges.rs` fails if
+the driver gains a dependency on the cache or on the QSL root crate.
+
+## The Quire ecosystem
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/ecosystem-dark.svg">
+  <img alt="The Quire repositories in four bands. Foundations: quire-exact, quire-semantic-value, quire-walk, quire-canonical, quire-verification-contracts, quire-observation. Language: quire-specification, quire-spec-language, quire-contract-ir. Backends: quire-contract-codegen, quire-contract-runtime, quire-analyze, quire-protocol, quire-mltl. Orchestration: quire-verification, quire-driver, quire-integration." src="docs/images/ecosystem-light.svg">
+</picture>
+
+quire-driver sits in the orchestration band, above everything it calls. It
+depends on the QSL layer crates from
+[quire-spec-language](https://github.com/agent-ix/quire-spec-language), on
+[quire-contract-codegen](https://github.com/agent-ix/quire-contract-codegen),
+on the model crate of
+[quire-contract-ir](https://github.com/agent-ix/quire-contract-ir), and on
+[quire-canonical](https://github.com/agent-ix/quire-canonical) and
+[quire-exact](https://github.com/agent-ix/quire-exact). No QSL, IR or
+code-generator crate depends on it. It also uses `ix-cli-kit` for the
+command-line exit and stream conventions.
+
+## Building and testing
+
+Requires the Rust toolchain pinned in `rust-toolchain.toml`.
+
+```
+make fmt-check   # formatting
+make lint        # clippy, warnings are errors
+make test        # cargo test
+make deny        # license and source policy
+make spec        # quire validate over spec/
+make ci          # every gate above plus unsafe-comment and doc checks
+```
+
+`make build` makes a release build. Two `quire-cli` signal tests need normal,
+unsandboxed process-signal permissions; rerun them outside a sandbox if they
+fail there. Requirements live in [`spec/`](spec/spec.md); `CLAUDE.md` has the
+contributor notes and the crate layout.
 
 ## License
 
-AGPL-3.0-or-later. See `LICENSE` and `CONTENT_RIGHTS.md`.
+AGPL-3.0-or-later. See [LICENSE](LICENSE) and
+[CONTENT_RIGHTS.md](CONTENT_RIGHTS.md).
