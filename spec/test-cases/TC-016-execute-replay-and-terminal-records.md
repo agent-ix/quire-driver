@@ -29,7 +29,13 @@ optional replay settlement to `run_terminal_value`. Cover `NoVerdict` evidence
 with and without diagnostics and `FailedWithoutCounterexample` evidence with
 each actual optional failure cause state. Verify the typed result follows CG's
 map, diagnostics do not change it, and the driver neither synthesizes nor
-infers a cause.
+infers a cause. `src/provider.rs::cg_terminal_mapping_reads_original_failure_cause_not_diagnostics`
+asserts that CG's retained `OutOfMemory` cause selects the terminal while
+different or absent diagnostic text does not. The preserved-evidence test is
+`src/provider.rs::provider_result_preserves_optional_cg_diagnostics_and_failure_cause`.
+`src/provider.rs::falsified_scalar_does_not_guess_a_replay_settlement` verifies
+the optional replay settlement is passed to CG's map and no settlement is
+guessed when it is absent.
 
 The scalar producer/replay scenarios below remain planned. IR-879 owns the
 production driver composition that binds a real QSL call to its exact selected
@@ -91,7 +97,8 @@ until the driver implements this contract; it must not manufacture an
 upstream refusal.
 
 The production QSL-call-to-CG-generation prerequisite is covered by TC-006.
-Test location for native receipt and settlement qualification: `src/provider.rs`;
+Test location for Kani request/evidence forwarding and terminal mapping:
+`src/provider.rs`. Test location for native receipt and settlement qualification: `src/provider.rs`;
 full prove/replay integration remains planned.
 
 ## Expected Results

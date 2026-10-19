@@ -37,13 +37,15 @@ and FR-005-AC-20 through FR-005-AC-21.
    ceiling and verify a typed mismatch refusal occurs before CG execution.
 6. Exercise Kani request construction with an explicitly supplied absolute
    launcher home directory and verify the same path reaches CG's execution
-   request. Repeat with the home directory unknown while the process has a
-   decoy `HOME`; verify the CG request receives `None`, not the environment
-   value or a path inferred from another directory.
+   request. Repeat with the home directory unknown while a child test process
+   has a decoy `HOME`; verify the CG request receives `None`, not the
+   environment value or a path inferred from another directory. The focused
+   assertion is `src/provider.rs::kani_request_forwards_only_the_explicit_home_directory`.
 7. Pass CG evidence with a `NoVerdict` diagnostic record through the typed
    Kani result carrier and verify its structured fields are unchanged. Repeat
    with diagnostics absent and verify they remain absent. Verify the driver
-   does not parse diagnostic text or create a `KaniFailureCause`.
+   does not parse diagnostic text or create a `KaniFailureCause`; see
+   `src/provider.rs::provider_result_preserves_optional_cg_diagnostics_and_failure_cause`.
 8. Construct generic provider results with non-Kani success and failure types.
    Verify each retains its request index and backend identity. Exercise the
    host adapter conversion with a non-Kani result carrier and verify its typed
@@ -68,7 +70,10 @@ and FR-005-AC-20 through FR-005-AC-21.
    settlement. Include `NoVerdict` with and without diagnostics and
    `FailedWithoutCounterexample` with absent and present causes. Confirm the
    driver forwards only CG's actual optional cause and diagnostics do not
-   change the terminal.
+   change the terminal. `src/provider.rs::cg_terminal_mapping_reads_original_failure_cause_not_diagnostics`
+   checks cause forwarding and diagnostic neutrality, while
+   `src/provider.rs::falsified_scalar_does_not_guess_a_replay_settlement`
+   checks the optional replay settlement reaches CG's map.
 12. Planned under QSL-655: keep a plugin counterexample in the shared carrier
     as a non-terminal candidate until QSL S6a replay reproduces it; do not emit
     `Refuted` before replay.
