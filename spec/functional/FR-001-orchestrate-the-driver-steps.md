@@ -223,11 +223,14 @@ the admitted package only at the `package_id` E4 emitted.
 - When the package declares no abstraction relation, the driver SHALL skip
   the export, send every item to CG as FR-001 otherwise states, and leave the
   per-item refusal member empty.
-- Each command-level refusal SHALL carry its step, its catalog code and an
-  outcome kind: refusal, limit refusal or internal fault. A provider
-  manifest that does not register, a spine refusal, the unknown-backend
-  refusal, an envelope refusal and an export that fails as a whole are
-  refusals. A spine
+- Each command-level refusal whose FR-272 classification is specified SHALL
+  carry its step, catalog code and outcome kind: refusal, limit refusal or
+  internal fault. A provider manifest that does not register, a spine
+  refusal, the unknown-backend refusal, an envelope refusal whose mapping is
+  specified, and an export that fails as a whole are refusals. The two CG
+  contract-package reader variants are governed by FR-001-AC-22; their
+  FR-272 code and outcome-kind classification remains pending the QSL
+  FR-272 owner decision. A spine
   `stage_limit_exceeded` and an IR reader limit are limit refusals. An
   upstream answer that breaks the driver's invariants is an internal fault;
   that includes IR refusing, or admitting at another `package_id`, the bytes
@@ -281,6 +284,7 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-19 | An export that fails as a whole refuses the run with the export's typed refusal, and the refusal carries the bindings-export step. | Test (TC-017) |
 | FR-001-AC-20 | An occurrence key the driver built that the export reports as naming no requirement record is a `runtime_invariant` internal fault. | Test (TC-017) |
 | FR-001-AC-21 | When the package declares no abstraction relation, the driver does not call the export, every item goes to CG, and the per-item refusal member is empty. | Test (TC-017) |
+| FR-001-AC-22 | When CG negotiation returns `EnvelopeRefusal::ContractPackageReadRefused`, the driver's command-level refusal carries stage `Negotiation` and retains the CG-owned typed projection unchanged, including `code`, `path`, `cause`, `locus`, `contract_version`, `document_pointer`, `expected` and `actual`. When it returns `EnvelopeRefusal::ContractPackageReadIncomplete`, the refusal carries stage `Negotiation` and retains the CG-owned typed projection unchanged, including `limit_kind`, `limit`, `consumed` and `path`. Neither case is converted to the E5 reader result. This criterion does not assign an FR-272 catalog code or outcome kind; those classifications remain pending the QSL FR-272 owner decision. | Test (TC-004) |
 
 ## Dependencies
 
