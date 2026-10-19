@@ -12,7 +12,7 @@ use qsl_replay::{
 use quire_contract_codegen::{
     execute_kani_obligation, run_terminal_value, Candidate, KaniExecutableHarness,
     KaniExecutionEvidence, KaniExecutionRefusal, KaniExecutionRequest, KaniInstallation,
-    KaniRunOutcome, KindOutput, RoutedItemOutput, TerminalPairError,
+    KindOutput, ReplaySettlement, RoutedItemOutput, TerminalPairError,
 };
 use quire_exact::{Cancel, CancelCause};
 
@@ -54,6 +54,9 @@ pub struct KaniExecutionLimits<'a> {
     pub crate_directory: &'a Path,
     /// Cargo target directory for Kani's build.
     pub target_directory: &'a Path,
+    /// Launcher home directory when the caller knows it. The driver never reads it from the
+    /// process environment or infers it from another path.
+    pub home_directory: Option<&'a Path>,
 }
 
 /// Resource and execution configuration supplied to a provider.
@@ -76,17 +79,10 @@ pub struct ProviderItemResult<T = KaniExecutionEvidence, E = KaniProviderFailure
 }
 
 impl ProviderItemResult<KaniExecutionEvidence, KaniProviderFailure> {
-    /// Compose the terminal record for a non-falsified Kani result through
-    /// CG's authoritative map. A falsification needs QSL replay first.
+    /// Compose a terminal record for a Kani result through CG's authoritative map. A
+    /// falsification needs QSL replay first.
     pub fn terminal_record(&self) -> Result<TerminalRecord, ProviderTerminalError> {
-        let evidence = self
-            .result
-            .as_ref()
-            .map_err(|_| ProviderTerminalError::ExecutionDidNotProduceEvidence)?;
-        if matches!(&evidence.outcome, KaniRunOutcome::Falsified { .. }) {
-            return Err(ProviderTerminalError::ReplayUnavailableForScalarObligation);
-        }
-        let value = run_terminal_value(&evidence.outcome, evidence.success_checks, None)?;
+        let value = self.terminal_value_with_settlement(None)?;
         let request_index = RequestIndex::new(self.request_index);
         let backend = BackendId::new(self.backend.identity.clone());
         match value {
@@ -121,6 +117,24 @@ impl ProviderItemResult<KaniExecutionEvidence, KaniProviderFailure> {
             }
         }
     }
+
+    /// Ask CG to map the original evidence and optional replay settlement to a typed terminal.
+    /// The driver does not project the evidence or infer a failure cause.
+    pub fn terminal_value_with_settlement(
+        &self,
+        settlement: Option<ReplaySettlement<'_>>,
+    ) -> Result<TerminalValue, ProviderTerminalError> {
+        let evidence = self
+            .result
+            .as_ref()
+            .map_err(|_| ProviderTerminalError::ExecutionDidNotProduceEvidence)?;
+        run_terminal_value(evidence, settlement).map_err(|error| match error {
+            TerminalPairError::MissingSettlement => {
+                ProviderTerminalError::ReplayUnavailableForScalarObligation
+            }
+            other => ProviderTerminalError::TerminalPair(other),
+        })
+    }
 }
 
 /// Why a Kani item does not yet have a terminal record.
@@ -129,9 +143,8 @@ pub enum ProviderTerminalError {
     /// Kani execution returned a typed refusal instead of evidence.
     #[error("provider execution did not produce evidence")]
     ExecutionDidNotProduceEvidence,
-    /// The scalar harness requires a replay adapter that is not present in
-    /// the locked CG API; no settlement is guessed.
-    #[error("scalar replay is unavailable for terminal settlement")]
+    /// A falsified Kani result has no terminal record until QSL replay settles it.
+    #[error("a falsified Kani result requires QSL replay before terminal recording")]
     ReplayUnavailableForScalarObligation,
     /// QSL has no backend-bearing constructor for a non-Kani proof basis or
     /// non-certified proof in this scalar Kani execution path.
@@ -261,9 +274,29 @@ impl KaniProvider {
         limits: &ProviderLimits<'_>,
         cancel: &Cancel,
     ) -> KaniProviderResults {
+        self.run_items_with_executor(request, limits, cancel, execute_kani_obligation)
+    }
+
+    /// Run provider items through the same execution-result path while allowing tests to supply
+    /// deterministic CG evidence without launching Kani.
+    fn run_items_with_executor(
+        &self,
+        request: &ProviderRequest<'_>,
+        limits: &ProviderLimits<'_>,
+        cancel: &Cancel,
+        mut execute: impl FnMut(
+            &KaniExecutionRequest<'_>,
+        ) -> Result<KaniExecutionEvidence, KaniExecutionRefusal>,
+    ) -> KaniProviderResults {
         let mut items = Vec::with_capacity(request.items.len());
         for item in request.items {
-            let result = run_kani_item(item, &self.manifest.identity, limits.kani, cancel);
+            let result = run_kani_item_with_executor(
+                item,
+                &self.manifest.identity,
+                limits.kani,
+                cancel,
+                &mut execute,
+            );
             items.push(ProviderItemResult {
                 request_index: item.request_index,
                 backend: item.backend.clone(),
@@ -290,11 +323,14 @@ impl Provider for KaniProvider {
     }
 }
 
-fn run_kani_item(
+fn run_kani_item_with_executor(
     item: &RoutedItemOutput,
     expected_identity: &str,
     limits: Option<KaniExecutionLimits<'_>>,
     cancel: &Cancel,
+    execute: &mut impl FnMut(
+        &KaniExecutionRequest<'_>,
+    ) -> Result<KaniExecutionEvidence, KaniExecutionRefusal>,
 ) -> Result<KaniExecutionEvidence, KaniProviderFailure> {
     let has_harness = matches!(
         &item.output,
@@ -318,14 +354,27 @@ fn run_kani_item(
         return Err(KaniProviderFailure::NoExecutableHarness);
     };
     ensure_matching_ceilings(limits.ceilings, harness.identity.ceilings)?;
-    execute_kani_obligation(&KaniExecutionRequest {
+    execute(&kani_execution_request(
+        limits,
+        cancel,
+        KaniExecutableHarness::from(&**harness),
+    ))
+    .map_err(KaniProviderFailure::Execution)
+}
+
+fn kani_execution_request<'a>(
+    limits: KaniExecutionLimits<'a>,
+    cancel: &'a Cancel,
+    harness: KaniExecutableHarness<'a>,
+) -> KaniExecutionRequest<'a> {
+    KaniExecutionRequest {
         cancel,
         installation: limits.installation,
-        harness: KaniExecutableHarness::from(&**harness),
+        harness,
         crate_directory: limits.crate_directory,
         target_directory: limits.target_directory,
-    })
-    .map_err(KaniProviderFailure::Execution)
+        home_directory: limits.home_directory,
+    }
 }
 
 fn ensure_matching_ceilings(
@@ -369,6 +418,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::num::NonZeroU64;
     use std::path::{Path, PathBuf};
+    use std::process::Command;
     use std::sync::LazyLock;
     use std::time::Duration;
 
@@ -384,13 +434,17 @@ mod tests {
         Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver, MemoryMechanism,
         MemoryObservation, ProofCeilings, SymbolicArgumentBounds, SymbolicBounds,
     };
+    use quire_contract_codegen::{
+        KaniExecutableHarness, KaniFailureCause, KaniFailurePhase, KaniNoVerdictDiagnostics,
+        KaniStreamExcerpt, ReplaySettlement,
+    };
     use quire_exact::{Cancel, CancelCause};
     use serde_json::Value;
 
     use super::{
-        KaniExecutionLimits, KaniProvider, KaniProviderFailure, ProviderItemResult, ProviderLimits,
-        ProviderManifest, ProviderOutcomeError, ProviderRequest, ProviderResults,
-        ProviderTerminalError,
+        kani_execution_request, KaniExecutionLimits, KaniProvider, KaniProviderFailure,
+        ProviderItemResult, ProviderLimits, ProviderManifest, ProviderOutcomeError,
+        ProviderRequest, ProviderResults, ProviderTerminalError,
     };
     use crate::{CompileInput, GenerationInput, KaniInput};
     use qsl_route::ManifestDigest;
@@ -503,7 +557,37 @@ mod tests {
                 success_checks: 3,
                 checks: Vec::new(),
                 batch: None,
+                diagnostics: None,
+                failure_cause: None,
             }),
+        }
+    }
+
+    fn result_with_metadata(
+        outcome: KaniRunOutcome,
+        diagnostics: Option<KaniNoVerdictDiagnostics>,
+        failure_cause: Option<KaniFailureCause>,
+    ) -> ProviderItemResult {
+        let mut item = result(outcome);
+        let Ok(evidence) = &mut item.result else {
+            unreachable!("result fixture always contains evidence")
+        };
+        evidence.diagnostics = diagnostics;
+        evidence.failure_cause = failure_cause;
+        item
+    }
+
+    fn diagnostics(stderr: &str) -> KaniNoVerdictDiagnostics {
+        KaniNoVerdictDiagnostics {
+            phase: KaniFailurePhase::Launcher,
+            stdout: KaniStreamExcerpt {
+                text: "Kani Rust Verifier".to_owned(),
+                omitted_bytes: 0,
+            },
+            stderr: KaniStreamExcerpt {
+                text: stderr.to_owned(),
+                omitted_bytes: 0,
+            },
         }
     }
 
@@ -690,6 +774,195 @@ mod tests {
         );
     }
 
+    /// Trace: FR-005-AC-20.
+    #[test]
+    fn kani_request_forwards_only_the_explicit_home_directory() {
+        const CHILD_MODE: &str = "QUIRE_DRIVER_IR843_HOME_REQUEST_CHILD";
+        if std::env::var_os(CHILD_MODE).is_some() {
+            assert_request_home_directory();
+            return;
+        }
+
+        let output = Command::new(std::env::current_exe().expect("test executable path"))
+            .args([
+                "--exact",
+                "provider::tests::kani_request_forwards_only_the_explicit_home_directory",
+            ])
+            .env("HOME", "ir843-decoy-home")
+            .env(CHILD_MODE, "1")
+            .output()
+            .expect("test child starts");
+        assert!(
+            output.status.success(),
+            "request-home test child failed: status={:?}, stdout={}, stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn assert_request_home_directory() {
+        let item = generated_routed_item();
+        let KindOutput::Kani {
+            harness: Some(harness),
+            ..
+        } = &item.output
+        else {
+            panic!("generated fixture carries a Kani harness");
+        };
+        let cg_harness = KaniExecutableHarness::from(&**harness);
+        let installation = KaniInstallation::new("unused-launcher");
+        let cancel = Cancel::new();
+        let crate_directory = Path::new("generated-crate");
+        let target_directory = Path::new("generated-target");
+        let explicit_home = std::env::current_dir()
+            .expect("test current directory")
+            .join("caller-home");
+        let limits = KaniExecutionLimits {
+            ceilings: ceilings(),
+            installation: &installation,
+            crate_directory,
+            target_directory,
+            home_directory: Some(&explicit_home),
+        };
+
+        let request = kani_execution_request(limits, &cancel, cg_harness);
+        assert_eq!(request.home_directory, Some(explicit_home.as_path()));
+
+        let limits_without_home = KaniExecutionLimits {
+            home_directory: None,
+            ..limits
+        };
+        let request_without_home = kani_execution_request(
+            limits_without_home,
+            &cancel,
+            KaniExecutableHarness::from(&**harness),
+        );
+        assert_eq!(request_without_home.home_directory, None);
+    }
+
+    /// Trace: FR-005-AC-21.
+    #[test]
+    fn provider_result_preserves_optional_cg_diagnostics_and_failure_cause() {
+        let routed_item = generated_routed_item();
+        let request = ProviderRequest::new(std::slice::from_ref(&routed_item));
+        let installation = KaniInstallation::new("unused-test-launcher");
+        let limits = ProviderLimits {
+            kani: Some(KaniExecutionLimits {
+                ceilings: ceilings(),
+                installation: &installation,
+                crate_directory: Path::new("unused-test-crate"),
+                target_directory: Path::new("unused-test-target"),
+                home_directory: None,
+            }),
+        };
+
+        let diagnostic = diagnostics("launcher gave no verdict");
+        let failure_cause = KaniFailureCause::OutOfMemory;
+        let cases = [
+            (
+                result_with_metadata(
+                    KaniRunOutcome::Inconclusive {
+                        reason: KaniInconclusiveReason::NoVerdict,
+                    },
+                    Some(diagnostic.clone()),
+                    Some(failure_cause.clone()),
+                )
+                .result
+                .expect("fixture carries CG evidence"),
+                Some(diagnostic),
+                Some(failure_cause),
+            ),
+            (
+                result_with_metadata(KaniRunOutcome::Verified, None, None)
+                    .result
+                    .expect("fixture carries CG evidence"),
+                None,
+                None,
+            ),
+        ];
+
+        for (cg_evidence, expected_diagnostics, expected_failure_cause) in cases {
+            let mut executor_called = false;
+            let mut evidence_to_return = Some(cg_evidence);
+            let results = provider().run_items_with_executor(
+                &request,
+                &limits,
+                &Cancel::new(),
+                |execution_request| {
+                    executor_called = true;
+                    assert_eq!(execution_request.home_directory, None);
+                    Ok(evidence_to_return
+                        .take()
+                        .expect("single-item provider request executes once"))
+                },
+            );
+
+            assert!(executor_called, "provider reaches the execution seam");
+            let retained = results.items[0]
+                .result
+                .as_ref()
+                .expect("provider retains successful CG evidence");
+            assert_eq!(retained.diagnostics, expected_diagnostics);
+            assert_eq!(retained.failure_cause, expected_failure_cause);
+        }
+    }
+
+    /// Trace: FR-009-AC-14, FR-009-AC-15.
+    #[test]
+    fn cg_terminal_mapping_reads_original_failure_cause_not_diagnostics() {
+        let failure_cause = KaniFailureCause::OutOfMemory;
+        let with_diagnostics = result_with_metadata(
+            KaniRunOutcome::Inconclusive {
+                reason: KaniInconclusiveReason::FailedWithoutCounterexample,
+            },
+            Some(diagnostics("arbitrary diagnostic text")),
+            Some(failure_cause.clone()),
+        );
+        let without_diagnostics = result_with_metadata(
+            KaniRunOutcome::Inconclusive {
+                reason: KaniInconclusiveReason::FailedWithoutCounterexample,
+            },
+            None,
+            Some(failure_cause),
+        );
+
+        let mapped = with_diagnostics
+            .terminal_record()
+            .expect("CG maps its retained failure cause");
+        assert_eq!(
+            with_diagnostics
+                .result
+                .as_ref()
+                .expect("fixture carries evidence")
+                .failure_cause,
+            Some(KaniFailureCause::OutOfMemory)
+        );
+        let mapped_without_diagnostics = without_diagnostics
+            .terminal_record()
+            .expect("diagnostics are not an input to CG's terminal map");
+        assert_eq!(
+            mapped.value(),
+            &TerminalValue::Incomplete(IncompleteCause::ResourceExhausted)
+        );
+        assert_eq!(mapped.value(), mapped_without_diagnostics.value());
+
+        let absent_cause = result_with_metadata(
+            KaniRunOutcome::Inconclusive {
+                reason: KaniInconclusiveReason::FailedWithoutCounterexample,
+            },
+            Some(diagnostics("the text does not imply a cause")),
+            None,
+        );
+        assert_eq!(
+            absent_cause
+                .terminal_record()
+                .expect("CG maps the evidence with its absent cause")
+                .value(),
+            &TerminalValue::Failed
+        );
+    }
+
     /// Trace: FR-009-AC-4.
     #[test]
     fn proved_kani_result_uses_cgs_terminal_mapping() {
@@ -793,7 +1066,7 @@ mod tests {
             counterexample: "witness".to_owned(),
         })
         .terminal_record()
-        .expect_err("scalar replay API is not in the locked CG interface");
+        .expect_err("a falsified result has no terminal without replay settlement");
         assert_eq!(
             error,
             ProviderTerminalError::ReplayUnavailableForScalarObligation
@@ -809,6 +1082,13 @@ mod tests {
                 ProviderTerminalError::ReplayUnavailableForScalarObligation
             ))
         ));
+
+        let settled = result(KaniRunOutcome::Falsified {
+            counterexample: "witness".to_owned(),
+        })
+        .terminal_value_with_settlement(Some(ReplaySettlement::Reproduced))
+        .expect("the original CG evidence and QSL replay settlement reach CG's map");
+        assert_eq!(settled, TerminalValue::Refuted);
     }
 
     /// Trace: FR-009-AC-4.
@@ -895,6 +1175,7 @@ mod tests {
                     installation: &installation,
                     crate_directory: Path::new("."),
                     target_directory: Path::new("."),
+                    home_directory: None,
                 }),
             };
             let results = provider().run_items(&request, &limits, &Cancel::new());
