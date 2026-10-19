@@ -52,7 +52,7 @@ pub enum DriverRefusal {
         backends: Vec<BackendId>,
     },
     /// CG refused the whole FR-331 envelope before settling any item.
-    #[error("CG refused the negotiation envelope: {}", envelope_message(.0))]
+    #[error("{}", envelope_message(.0))]
     Envelope(EnvelopeRefusal),
     /// E5: IR's reader stopped at one of its limits.
     #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
@@ -268,6 +268,9 @@ impl DriverRefusal {
             Self::Envelope(EnvelopeRefusal::InvalidCapability { cause, .. }) => {
                 format!("invalid_capability/{cause}")
             }
+            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
+                Code::RuntimeInvariant.as_str().to_owned()
+            }
             Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
             Self::LoweringLimit { .. } => Code::ResourceExhausted.as_str().to_owned(),
             Self::Generation(error) => generation_code(error).as_str().to_owned(),
@@ -337,6 +340,9 @@ impl DriverRefusal {
                 OutcomeKind::Limit
             }
             Self::ManifestEncoding(_) => OutcomeKind::Fault,
+            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
+                OutcomeKind::Fault
+            }
             Self::Registration(_)
             | Self::Compile(_)
             | Self::UnknownBackend { .. }
@@ -565,7 +571,12 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
             cause,
             member,
             received,
-        } => format!("invalid_capability/{cause}: `{member}` is `{received}`"),
+        } => format!(
+            "CG refused the negotiation envelope: invalid_capability/{cause}: `{member}` is `{received}`"
+        ),
+        EnvelopeRefusal::ManifestRepeatsBackendIdentity { identity } => format!(
+            "internal fault: CG negotiation manifest repeats backend identity `{identity}`"
+        ),
     }
 }
 
