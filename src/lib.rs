@@ -63,7 +63,10 @@ pub use cache::{
     CacheOperation, CacheRequest, CacheRequestError, CacheValueCodec, CacheWriteOutcome,
     CachedRunError,
 };
-pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, Routed};
+pub use drive::{
+    drive, CompileInput, Driven, GenerationInput, KaniInput, Routed, ScalarExecution,
+    ScalarExecutionInput, ScalarNativeInput,
+};
 pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};
 pub use limits::{LimitError, LimitOverrides};
 pub use process_provider::{

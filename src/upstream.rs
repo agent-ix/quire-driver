@@ -11,8 +11,9 @@ use std::collections::BTreeMap;
 use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
-    check, package, parse, refusal_or_fault, select, CheckedUnit, DependencyInput, EmittedUnit,
-    FrontEndFailure, LockEvidence, PackageLimits, ParseRequest, SpineLimits, SpineStage,
+    check, package, parse, refusal_or_fault, select, AdmittedModels, CheckedUnit, DependencyInput,
+    EmittedUnit, FrontEndFailure, LockEvidence, PackageLimits, ParseRequest, SpineLimits,
+    SpineStage,
 };
 use qsl_route::routing::{route, Disposition};
 use qsl_route::Candidate;
@@ -79,7 +80,7 @@ pub trait Upstream {
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
         cancel: &Cancel,
-    ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal>;
+    ) -> Result<(CheckedUnit, AdmittedModels, EmittedUnit), DriverRefusal>;
 
     /// E5: IR's checked-package reader,
     /// `quire_contract_model::read_checked_package`. The full E4 value remains
@@ -128,7 +129,7 @@ impl Upstream for QslCg {
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
         cancel: &Cancel,
-    ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal> {
+    ) -> Result<(CheckedUnit, AdmittedModels, EmittedUnit), DriverRefusal> {
         let request = ParseRequest {
             source: &source,
             path,
@@ -153,7 +154,7 @@ impl Upstream for QslCg {
         let emitted = package(&checked, PackageLimits::default(), cancel)
             .map_err(|failure| driver_refusal(failure, LifecycleOperation::Package))?
             .into_value();
-        Ok((checked, emitted))
+        Ok((checked, models, emitted))
     }
 
     fn read_package(

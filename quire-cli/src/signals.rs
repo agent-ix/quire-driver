@@ -550,6 +550,7 @@ mod tests {
                             digest,
                             Vec::<(Option<&str>, Option<&str>)>::new(),
                             None,
+                            None,
                         )
                         .map_err(|e| format!("{e:?}"))?;
                         Ok((

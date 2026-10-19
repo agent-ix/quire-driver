@@ -7,12 +7,12 @@ use qsl_foundation::diagnostic::InternalFault;
 use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::{BackendId, Code, EmptyBackendIdentity};
-use qsl_replay::spine::{CompileRefusal, SpineStage};
+use qsl_replay::spine::{BindRefusal, CompileRefusal, RunRefusal, SpineStage};
 use qsl_replay::Category;
 use qsl_route::RegistrationRefusal;
 use quire_contract_codegen::{
-    ContractScalarError, EnvelopeRefusal, KaniObligationError, OracleGenerationError,
-    RoutedGenerationError,
+    ContractScalarError, EnvelopeRefusal, KaniObligationError, KaniScalarNativeError,
+    KaniScalarNativeErrorClass, OracleGenerationError, RoutedGenerationError,
 };
 use quire_contract_model::CheckedPackageLimit;
 use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageRefusal};
@@ -36,6 +36,19 @@ pub enum DriverRefusal {
     /// S1 to S4, or the E4 emitter, refused the unit.
     #[error("{0}")]
     Compile(Box<CompileRefusal>),
+    /// A QSL scalar call used for occurrence binding refused unchanged.
+    #[error(transparent)]
+    ScalarCall(Box<RunRefusal>),
+    /// QSL's exact evidence builder refused while preparing IR's one reader call.
+    #[error(transparent)]
+    QslAdmissionEvidence(Box<RunRefusal>),
+    /// QSL refused to bind a call to the selected scalar occurrence.
+    #[error(transparent)]
+    ScalarBinding(BindRefusal),
+    /// CG's paired proof/native runner refused or faulted with its stable
+    /// classification, retained without conversion.
+    #[error(transparent)]
+    ScalarNative(KaniScalarNativeError),
     /// QSL stopped a lifecycle stage because the caller cancelled its handle.
     #[error("QSL {stage:?} lifecycle cancelled: {cause:?}")]
     Cancelled {
@@ -183,6 +196,13 @@ pub enum DriverFault {
     /// IR lowering did not return a package despite having no typed limit result.
     #[error("IR lowering returned no contract package and no limit record")]
     ContractLoweringIncomplete,
+    /// CG's receipt does not consistently attest the request's original
+    /// scalar limits.
+    #[error("CG's native receipt does not attest the retained ScalarLimits")]
+    NativeExecutionLimitsMismatch,
+    /// A receipt failed the driver's artifact identity or retained-byte check.
+    #[error("CG's native receipt failed the retained artifact identity check")]
+    NativeReceiptMismatch,
 }
 
 impl From<EnvelopeRefusal> for DriverRefusal {
@@ -213,6 +233,8 @@ pub enum DriverStage {
     Handoff,
     /// CG generation for the routed items.
     Generation,
+    /// Native execution or receipt verification for a routed scalar.
+    Replay,
 }
 
 /// The terminal outcome kind a refusal maps to (ADR-011 §2.3, §5): input
@@ -237,6 +259,9 @@ impl DriverRefusal {
         match self {
             Self::EmptyBackendIdentity(refusal) => Some(refusal.category()),
             Self::EmptyLinkedManifestAdvertisements => Some(Category::Refusal),
+            Self::ScalarCall(refusal) => Some(refusal.category()),
+            Self::QslAdmissionEvidence(refusal) => Some(refusal.category()),
+            Self::ScalarBinding(refusal) => Some(refusal.code().category()),
             Self::Cancelled { cause, .. } => {
                 // `StageFailure::Cancelled` has a category independent of
                 // its refusal payload. `LimitExceeded` satisfies the generic
@@ -264,6 +289,16 @@ impl DriverRefusal {
                 |refusal| refusal.catalog_code().to_string(),
             ),
             Self::Compile(refusal) => compile_code(refusal),
+            Self::ScalarCall(refusal) => refusal.code().as_str().to_owned(),
+            Self::QslAdmissionEvidence(refusal) => refusal.code().as_str().to_owned(),
+            Self::ScalarBinding(refusal) => {
+                let code = refusal.code().as_str();
+                match refusal.cause() {
+                    Some(cause) => format!("{code}/{cause}"),
+                    None => code.to_owned(),
+                }
+            }
+            Self::ScalarNative(error) => error.code().to_owned(),
             Self::UnknownBackend { .. } => "invalid_capability/unknown-backend".to_owned(),
             Self::Envelope(EnvelopeRefusal::InvalidCapability { cause, .. }) => {
                 format!("invalid_capability/{cause}")
@@ -293,12 +328,19 @@ impl DriverRefusal {
                 DriverFault::AdmittedManifestMissingLabel | DriverFault::AdmittedManifestMissing,
             ) => DriverStage::Registry,
             Self::Compile(refusal) => DriverStage::Compile(refusal.stage()),
+            Self::QslAdmissionEvidence(_) => DriverStage::Handoff,
+            Self::ScalarCall(_) | Self::ScalarBinding(_) | Self::ScalarNative(_) => {
+                DriverStage::Replay
+            }
             Self::Cancelled { stage, .. } => DriverStage::Compile(*stage),
             Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
                 DriverStage::Conversion
             }
             Self::Envelope(_) => DriverStage::Negotiation,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
+            Self::Fault(
+                DriverFault::NativeExecutionLimitsMismatch | DriverFault::NativeReceiptMismatch,
+            ) => DriverStage::Replay,
             Self::Fault(DriverFault::Spine { stage, .. }) => DriverStage::Compile(*stage),
             Self::HandoffLimit(_)
             | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
@@ -326,6 +368,13 @@ impl DriverRefusal {
             Self::EmptyBackendIdentity(_) => OutcomeKind::Refused,
             Self::EmptyLinkedManifestAdvertisements => OutcomeKind::Refused,
             Self::Cancelled { .. } => OutcomeKind::Cancelled,
+            Self::ScalarCall(refusal) => outcome_kind_for_qsl(refusal.category()),
+            Self::QslAdmissionEvidence(refusal) => outcome_kind_for_qsl(refusal.category()),
+            Self::ScalarBinding(refusal) => outcome_kind_for_qsl(refusal.code().category()),
+            Self::ScalarNative(error) => match error.class() {
+                KaniScalarNativeErrorClass::CompletionRefusal => OutcomeKind::Refused,
+                KaniScalarNativeErrorClass::EnvironmentFault => OutcomeKind::Fault,
+            },
             Self::Compile(refusal) if refusal.code() == Code::StageLimitExceeded => {
                 OutcomeKind::Limit
             }
@@ -349,6 +398,15 @@ impl DriverRefusal {
             | Self::Envelope(EnvelopeRefusal::InvalidCapability { .. }) => OutcomeKind::Refused,
             Self::Fault(_) => OutcomeKind::Fault,
         }
+    }
+}
+
+fn outcome_kind_for_qsl(category: Category) -> OutcomeKind {
+    match category {
+        Category::Refusal | Category::Unsupported => OutcomeKind::Refused,
+        Category::Incomplete => OutcomeKind::Cancelled,
+        Category::InternalFailure => OutcomeKind::Fault,
+        _ => OutcomeKind::Fault,
     }
 }
 
@@ -439,6 +497,7 @@ fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
         | CompileRefusal::Forms { .. }
         | CompileRefusal::Intake { .. }
         | CompileRefusal::OperationClause { .. }
+        | CompileRefusal::TypeInvariant { .. }
         | CompileRefusal::Assembly { .. }
         | CompileRefusal::Emit(_)
         | CompileRefusal::Omitted(_) => None,
@@ -588,11 +647,36 @@ mod tests {
     use qsl_replay::Category;
     use quire_contract_codegen::{
         ContractScalarError, EnvelopeRefusal, HarnessPath, HarnessSymbol, KaniObligationError,
-        ModuleSymbol, OracleGenerationError, RoutedGenerationError,
+        KaniScalarNativeError, KaniScalarNativeErrorClass, ModuleSymbol, OracleGenerationError,
+        RoutedGenerationError, ScalarOracleStopKind,
     };
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    #[trace("FR-009-AC-6", "FR-009-AC-7")]
+    #[test]
+    fn native_runner_typed_refusal_keeps_cg_discriminant_and_class() {
+        let refusal = DriverRefusal::ScalarNative(KaniScalarNativeError::OracleStop(
+            ScalarOracleStopKind::IllTyped,
+        ));
+        assert_eq!(refusal.code(), "oracle_stop");
+        assert_eq!(refusal.qsl_category(), Some(Category::Refusal));
+        assert_eq!(refusal.stage(), DriverStage::Replay);
+        assert_eq!(refusal.kind(), OutcomeKind::Refused);
+        assert_eq!(
+            match &refusal {
+                DriverRefusal::ScalarNative(error) => error.class(),
+                _ => unreachable!("test constructed the scalar-native refusal"),
+            },
+            KaniScalarNativeErrorClass::CompletionRefusal
+        );
+
+        let fault = DriverRefusal::ScalarNative(KaniScalarNativeError::CodegenLock);
+        assert_eq!(fault.code(), "codegen_lock");
+        assert_eq!(fault.kind(), OutcomeKind::Fault);
+        assert_eq!(fault.stage(), DriverStage::Replay);
+    }
 
     #[test]
     fn empty_backend_identity_preserves_qsl_code_and_category() {

@@ -35,6 +35,7 @@ qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = 
 qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", branch = "main" }
 quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", branch = "main" }
+quire-contract-runtime = { git = "https://github.com/agent-ix/quire-contract-runtime", branch = "main" }
 # QSpec FR-331's linked manifest snapshot is canonicalized at registry admission.
 quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main" }
 # QSL's caller-owned cancellation handle is a public driver API type.

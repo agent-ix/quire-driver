@@ -19,7 +19,8 @@ use qsl_package::EmittedPackage;
 use qsl_route::request::RequirementItem;
 use qsl_route::CandidateOutcome;
 use qsl_route::{
-    descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
+    descriptor_from_manifest, BackendDescriptor, Candidate, FairnessKindsMember, FairnessLabel,
+    ManifestDigest, ProviderOrigin,
 };
 use quire_driver::Driven;
 use quire_driver::ProviderManifest;
@@ -267,6 +268,17 @@ impl ManifestStage {
             .domains
             .as_deref()
             .map(|domains| domains.iter().map(String::as_str).collect::<Vec<_>>());
+        let fairness_labels = shape
+            .fairness_kinds
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|label| FairnessLabel::Text(label))
+            .collect::<Vec<_>>();
+        let fairness_member = shape
+            .fairness_kinds
+            .as_ref()
+            .map(|_| FairnessKindsMember::List(&fairness_labels));
         let descriptor = descriptor_from_manifest(
             Candidate::new(BackendId::from_wire(&shape.backend)?),
             ProviderOrigin::Process,
@@ -276,6 +288,7 @@ impl ManifestStage {
                 .iter()
                 .map(|pair| (pair.kind.as_deref(), pair.mode.as_deref())),
             domain_labels.as_deref(),
+            fairness_member,
         )?;
         Ok(AdmittedManifest {
             descriptor,

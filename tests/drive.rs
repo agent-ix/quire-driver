@@ -22,12 +22,14 @@ use qsl_foundation::diagnostic::Category;
 use qsl_foundation::BackendId;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
-    check, package, parse, select, CheckedUnit, CompileRefusal, DependencyInput, EmittedUnit,
-    LockEvidence, PackageLimits, ParseRequest, SpineLimits, SpineStage,
+    check, default_accounting, package, parse, select, Call, CallArgument, CheckedUnit,
+    CompileRefusal, DependencyInput, EmittedUnit, LockEvidence, PackageLimits, ParseRequest,
+    SpineLimits, SpineStage,
 };
 use qsl_replay::DomainKind;
 use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{Candidate, ManifestDigest, RegistrationCause};
+use qsl_semantics::model::object_environment::ObjectEnvironment;
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_contract_codegen::{
     generate_routed, BackendDescriptor, BackendKind, BackendProviderEnvelope, Candidates, Cause,
@@ -43,9 +45,9 @@ use quire_contract_model::{
 use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
     GenerationInput, KaniInput, KaniProvider, OutcomeKind, Provider, ProviderItemFailure,
-    ProviderLimits, ProviderManifest, ProviderRequest, QslCg, Upstream,
+    ProviderLimits, ProviderManifest, ProviderRequest, QslCg, ScalarExecutionInput, Upstream,
 };
-use quire_exact::{Cancel, CancelCause};
+use quire_exact::{Cancel, CancelCause, Integer, Value};
 
 /// A unit: the `ix:native` header, the `v` profile selecting QSL's own
 /// `DefinitionLock` root row (read from QSL, never copied here), then `body`.
@@ -303,7 +305,7 @@ impl Upstream for Recorder {
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
         cancel: &Cancel,
-    ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal> {
+    ) -> Result<(CheckedUnit, qsl_replay::spine::AdmittedModels, EmittedUnit), DriverRefusal> {
         self.calls.borrow_mut().push(Call::Compile);
         QslCg.compile(source, path, bytes, packages, limits, cancel)
     }
@@ -816,6 +818,7 @@ fn kani_input() -> GenerationInput<'static> {
             subject_path: "crate::subject",
             unwind: 1,
         }),
+        scalar_execution: None,
     }
 }
 
@@ -1480,6 +1483,130 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
     )
     .expect("CG generates each routed occurrence with its own context");
     assert_eq!(driven.generation, expected);
+}
+
+/// Trace: FR-001-AC-15, FR-001-AC-16; FR-009-AC-13, TC-006.
+/// Provenance: QSL RR-16.
+#[test]
+fn tc_006_rr16_binds_each_exact_occurrence_to_its_generated_item() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let cancel = Cancel::new();
+    let mut compile = rr16_input(&packages);
+    compile.cancel = cancel.clone();
+    let call = Call {
+        function: "f".to_owned(),
+        arguments: vec![CallArgument {
+            parameter: "x".to_owned(),
+            value: Value::Integer(Integer::from(3_i64)),
+        }],
+        accounting: default_accounting(1_000_000),
+        supplied: Default::default(),
+    };
+    let environment = ObjectEnvironment::default();
+    let mut generation = kani_input();
+    generation.scalar_execution = Some(ScalarExecutionInput {
+        call: &call,
+        replay_limits: qsl_replay::ReplayLimits::default(),
+        environment: &environment,
+        native: None,
+    });
+
+    let driven = drive(&QslCg, compile, &registry, None, generation)
+        .expect("the production driver binds and generates both scalar occurrences");
+
+    assert_eq!(driven.routed.len(), 2);
+    assert_eq!(driven.scalar_executions.len(), 2);
+    let first = &driven.scalar_executions[0];
+    let second = &driven.scalar_executions[1];
+    assert_eq!((first.request_index, second.request_index), (0, 1));
+    assert_eq!(first.call.function, "f");
+    assert_eq!(second.call.function, "f");
+    assert_eq!(first.replay_limits, qsl_replay::ReplayLimits::default());
+    assert_eq!(second.replay_limits, qsl_replay::ReplayLimits::default());
+    assert_eq!(first.operands.values(), [3, 1]);
+    assert_eq!(second.operands.values(), [3, 1]);
+    for (execution, generated) in [first, second].into_iter().zip(&driven.generation.items) {
+        let quire_contract_codegen::KindOutput::Kani {
+            harness: Some(harness),
+            ..
+        } = &generated.output
+        else {
+            panic!("each routed RR-16 item has a scalar harness");
+        };
+        assert_eq!(generated.request_index, execution.request_index);
+        assert_eq!(
+            execution.operands.operands().len(),
+            harness.identity.arguments.len()
+        );
+        for (ordinal, (operand, argument)) in execution
+            .operands
+            .operands()
+            .iter()
+            .zip(&harness.identity.arguments)
+            .enumerate()
+        {
+            assert_eq!(operand.ordinal, ordinal as u64);
+            assert_eq!(operand.range.lower, i128::from(argument.minimum));
+            assert_eq!(operand.range.upper, i128::from(argument.maximum));
+        }
+    }
+    assert_ne!(first.occurrence.occurrence, second.occurrence.occurrence);
+    assert_eq!(first.operands.occurrence(), &first.occurrence);
+    assert_eq!(second.operands.occurrence(), &second.occurrence);
+    assert!(first.receipt.is_none() && second.receipt.is_none());
+
+    let selections = driven
+        .generation
+        .items
+        .iter()
+        .map(|item| item.request_index)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        selections,
+        [0, 1],
+        "context roots do not shift routed indices"
+    );
+}
+
+/// Trace: FR-001-AC-16; FR-009-AC-13.
+#[test]
+fn tc_006_no_selected_scalar_item_skips_binding_and_native_execution() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let call = Call {
+        function: "f".to_owned(),
+        arguments: Vec::new(),
+        accounting: default_accounting(1_000_000),
+        supplied: Default::default(),
+    };
+    let environment = ObjectEnvironment::default();
+    let mut generation = kani_input();
+    generation.scalar_execution = Some(ScalarExecutionInput {
+        call: &call,
+        replay_limits: qsl_replay::ReplayLimits::default(),
+        environment: &environment,
+        native: None,
+    });
+
+    let driven = drive(
+        &QslCg,
+        CompileInput {
+            bytes: UNIT.as_bytes(),
+            ..input(&packages)
+        },
+        &registry,
+        None,
+        generation,
+    )
+    .expect("a source with no scalar requirement runs without scalar fallback");
+
+    assert!(driven.request_items.is_empty());
+    assert!(driven.routed.is_empty());
+    assert!(driven.generation.items.is_empty());
+    assert!(driven.scalar_executions.is_empty());
 }
 
 /// FR-001-AC-6 (TC-006): the driver's generation output for

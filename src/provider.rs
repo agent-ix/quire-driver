@@ -735,6 +735,7 @@ mod tests {
                     subject_path: "crate::subject",
                     unwind: 1,
                 }),
+                scalar_execution: None,
             },
         )
         .expect("the real driver and CG generation produce a Kani harness")
