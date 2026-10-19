@@ -18,6 +18,7 @@ use std::sync::{Arc, LazyLock};
 use std::thread;
 use std::time::Duration;
 
+use ix_trace_rs::trace;
 use qsl_foundation::diagnostic::Category;
 use qsl_foundation::BackendId;
 use qsl_foundation::SourceIdentity;
@@ -165,9 +166,11 @@ static NEGATE_UNIT: LazyLock<String> =
     LazyLock::new(|| unit("function negate using v(z: Int[0, 9]): Int[-9, 0] pure { -z }\n"));
 
 static PARTITION_UNIT: LazyLock<String> = LazyLock::new(|| {
-    unit("function a using v(x: Int[0, 9]): Int[-9, 0] pure { -x }\n\
+    unit(
+        "function a using v(x: Int[0, 9]): Int[-9, 0] pure { -x }\n\
           function b using v(y: Int[0, 9]): Int[-9, 0] pure { -y }\n\
-          function c using v(z: Int[0, 9]): Int[-9, 0] pure { -z }\n")
+          function c using v(z: Int[0, 9]): Int[-9, 0] pure { -z }\n",
+    )
 });
 
 /// A unit with an integer `+` over two parameters, each owning its own
@@ -228,6 +231,7 @@ static IMPORT_UNIT: LazyLock<String> = LazyLock::new(|| {
 enum Call {
     Compile,
     ReadPackage,
+    ExportBindings,
     BackendKind(String),
     Negotiate {
         items: usize,
@@ -305,30 +309,45 @@ impl Recorder {
 
 impl Upstream for Recorder {
     fn has_abstraction_relation(&self, package: &qsl_package::CheckedPackage) -> bool {
-        !self.export_refused_at.is_empty() || self.export_whole_refusal || self.export_unknown_at.is_some()
+        !self.export_refused_at.is_empty()
+            || self.export_whole_refusal
+            || self.export_unknown_at.is_some()
             || QslCg.has_abstraction_relation(package)
     }
     fn export_bindings(
         &self,
         _package: &qsl_package::CheckedPackage,
         items: &[qsl_foundation::source::provenance::OccurrenceKey],
-    ) -> Result<Vec<Result<qsl_package::BoundItem, qsl_package::ExportRefusal>>, qsl_package::ExportRefusal> {
+    ) -> Result<
+        Vec<Result<qsl_package::BoundItem, qsl_package::ExportRefusal>>,
+        qsl_package::ExportRefusal,
+    > {
+        self.calls.borrow_mut().push(Call::ExportBindings);
         if self.export_whole_refusal {
             return Err(qsl_package::ExportRefusal::Unbound {
-                item: items[0].clone(), elements: Vec::new(),
+                item: items[0].clone(),
+                elements: Vec::new(),
             });
         }
-        Ok(items.iter().enumerate().map(|(index, item)| {
-            if self.export_unknown_at == Some(index) {
-                Err(qsl_package::ExportRefusal::UnknownItem { item: item.clone() })
-            } else if self.export_refused_at.contains(&index) {
-                Err(qsl_package::ExportRefusal::Unbound {
-                    item: item.clone(), elements: Vec::new(),
-                })
-            } else {
-                Ok(qsl_package::BoundItem { item: item.clone(), bindings: Vec::new() })
-            }
-        }).collect())
+        Ok(items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                if self.export_unknown_at == Some(index) {
+                    Err(qsl_package::ExportRefusal::UnknownItem { item: item.clone() })
+                } else if self.export_refused_at.contains(&index) {
+                    Err(qsl_package::ExportRefusal::Unbound {
+                        item: item.clone(),
+                        elements: Vec::new(),
+                    })
+                } else {
+                    Ok(qsl_package::BoundItem {
+                        item: item.clone(),
+                        bindings: Vec::new(),
+                    })
+                }
+            })
+            .collect())
     }
     fn compile(
         &self,
@@ -566,7 +585,10 @@ fn int_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
 }
 
 fn partition_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
-    CompileInput { bytes: PARTITION_UNIT.as_bytes(), ..input(packages) }
+    CompileInput {
+        bytes: PARTITION_UNIT.as_bytes(),
+        ..input(packages)
+    }
 }
 
 fn eq_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
@@ -891,6 +913,7 @@ fn relationless_package_skips_export_and_has_no_item_refusals() {
     assert!(driven.item_refusals.is_empty());
     assert_eq!(driven.request_items.len(), 1);
     assert_eq!(driven.settlements.len(), 1);
+    assert!(!recorder.calls().contains(&Call::ExportBindings));
 }
 
 #[test]
@@ -899,17 +922,44 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
-    let recorder = Recorder { export_refused_at: vec![1], ..Recorder::default() };
-    let driven = drive(&recorder, partition_input(&packages), &registry, None, kani_input())
-        .expect("the mixed export completes");
+    let recorder = Recorder {
+        export_refused_at: vec![1],
+        ..Recorder::default()
+    };
+    let driven = drive(
+        &recorder,
+        partition_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("the mixed export completes");
     assert_eq!(driven.request_items.len(), 3);
+    assert!(recorder.calls().contains(&Call::ExportBindings));
     assert_eq!(recorder.envelope().items.len(), 2);
-    assert_eq!(driven.settlements.iter().map(|item| item.request_index).collect::<Vec<_>>(), [0, 2]);
+    assert_eq!(
+        driven
+            .settlements
+            .iter()
+            .map(|item| item.request_index)
+            .collect::<Vec<_>>(),
+        [0, 2]
+    );
     assert_eq!(driven.item_refusals.len(), 1);
     assert_eq!(driven.item_refusals[0].request_index, 1);
-    assert_eq!(driven.item_refusals[0].occurrence, *driven.request_items[1].occurrence());
-    assert!(matches!(driven.item_refusals[0].refusal, qsl_package::ExportRefusal::Unbound { .. }));
-    assert!(driven.generation.items.iter().all(|item| item.request_index != 1));
+    assert_eq!(
+        driven.item_refusals[0].occurrence,
+        *driven.request_items[1].occurrence()
+    );
+    assert!(matches!(
+        driven.item_refusals[0].refusal,
+        qsl_package::ExportRefusal::Unbound { .. }
+    ));
+    assert!(driven
+        .generation
+        .items
+        .iter()
+        .all(|item| item.request_index != 1));
 }
 
 #[test]
@@ -918,13 +968,25 @@ fn all_export_refusals_send_nothing_to_cg() {
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
-    let recorder = Recorder { export_refused_at: vec![0, 1, 2], ..Recorder::default() };
-    let driven = drive(&recorder, partition_input(&packages), &registry, None, kani_input())
-        .expect("all per-item refusals complete the run");
+    let recorder = Recorder {
+        export_refused_at: vec![0, 1, 2],
+        ..Recorder::default()
+    };
+    let driven = drive(
+        &recorder,
+        partition_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("all per-item refusals complete the run");
     assert_eq!(driven.item_refusals.len(), 3);
     assert!(driven.settlements.is_empty());
     assert!(driven.generation.items.is_empty());
-    assert!(!recorder.calls().iter().any(|call| matches!(call, Call::Negotiate { .. } | Call::Generate { .. })));
+    assert!(!recorder
+        .calls()
+        .iter()
+        .any(|call| matches!(call, Call::Negotiate { .. } | Call::Generate { .. })));
 }
 
 #[test]
@@ -933,15 +995,27 @@ fn export_run_refusal_and_unknown_driver_key_keep_their_distinct_outcomes() {
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
-    let whole = Recorder { export_whole_refusal: true, ..Recorder::default() };
+    let whole = Recorder {
+        export_whole_refusal: true,
+        ..Recorder::default()
+    };
     let refusal = drive(&whole, int_input(&packages), &registry, None, kani_input())
         .expect_err("whole export refusal stops the run");
     assert_eq!(refusal.stage(), DriverStage::BindingsExport);
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
-    let unknown = Recorder { export_unknown_at: Some(0), ..Recorder::default() };
-    let fault = drive(&unknown, int_input(&packages), &registry, None, kani_input())
-        .expect_err("unknown driver-built key is an invariant fault");
-    assert_eq!(fault.stage(), DriverStage::BindingsExport);
+    let unknown = Recorder {
+        export_unknown_at: Some(0),
+        ..Recorder::default()
+    };
+    let fault = drive(
+        &unknown,
+        int_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect_err("unknown driver-built key is an invariant fault");
+    assert_eq!(fault.stage(), DriverStage::Handoff);
     assert_eq!(fault.kind(), OutcomeKind::Fault);
     assert_eq!(fault.code(), "runtime_invariant");
 }

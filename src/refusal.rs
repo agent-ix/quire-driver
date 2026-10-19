@@ -6,7 +6,9 @@
 use qsl_foundation::diagnostic::InternalFault;
 use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::digest::WireNodeId;
+use qsl_foundation::source::provenance::OccurrenceKey;
 use qsl_foundation::{BackendId, Code, EmptyBackendIdentity};
+use qsl_package::ExportRefusal;
 use qsl_replay::spine::{CompileRefusal, SpineStage};
 use qsl_replay::Category;
 use qsl_route::RegistrationRefusal;
@@ -21,6 +23,9 @@ use quire_exact::CancelCause;
 /// Why [`crate::drive`] or [`crate::build_registry`] produced no result.
 #[derive(Debug, thiserror::Error)]
 pub enum DriverRefusal {
+    /// The QSL binding export refused the run as a whole.
+    #[error("QSL binding export refused the run: {0:?}")]
+    BindingsExport(ExportRefusal),
     /// A provider manifest supplied QSL's typed empty-identity refusal.
     #[error(transparent)]
     EmptyBackendIdentity(EmptyBackendIdentity),
@@ -82,6 +87,20 @@ pub enum DriverRefusal {
 /// A violated invariant between the driver and an upstream crate.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum DriverFault {
+    /// QSL's export did not return one result for each driver-built key.
+    #[error("binding export returned {returned} results for {requested} items")]
+    ExportCount {
+        /// Number of driver-built keys submitted.
+        requested: usize,
+        /// Number of per-item export results returned.
+        returned: usize,
+    },
+    /// QSL's export said a driver-built key names no requirement record.
+    #[error("binding export did not recognize driver item {item:?}")]
+    ExportUnknownItem {
+        /// The exact occurrence the export could not match.
+        item: OccurrenceKey,
+    },
     /// QSL's typed lifecycle reported a broken invariant.
     #[error("QSL {stage:?} spine fault: {fault:?}")]
     Spine {
@@ -199,6 +218,8 @@ impl From<EnvelopeRefusal> for DriverRefusal {
 /// The step a [`DriverRefusal`] comes from.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DriverStage {
+    /// QSL's binding export, after the checked-package handoff.
+    BindingsExport,
     /// Building the registry from provider manifests.
     Registry,
     /// A spine stage, S1 to the E4 emitter.
@@ -256,6 +277,7 @@ impl DriverRefusal {
     /// carries its own `catalog_code()`.
     pub fn code(&self) -> String {
         match self {
+            Self::BindingsExport(refusal) => refusal.code().as_str().to_owned(),
             Self::EmptyBackendIdentity(refusal) => refusal.code().as_str().to_owned(),
             Self::EmptyLinkedManifestAdvertisements => "invalid_capability".to_owned(),
             Self::Cancelled { .. } => Code::Cancelled.as_str().to_owned(),
@@ -285,6 +307,10 @@ impl DriverRefusal {
     /// The step that refused.
     pub fn stage(&self) -> DriverStage {
         match self {
+            Self::BindingsExport(_) | Self::Fault(DriverFault::ExportCount { .. }) => {
+                DriverStage::BindingsExport
+            }
+            Self::Fault(DriverFault::ExportUnknownItem { .. }) => DriverStage::Handoff,
             Self::EmptyBackendIdentity(_) => DriverStage::Registry,
             Self::EmptyLinkedManifestAdvertisements => DriverStage::Registry,
             Self::Registration(_) => DriverStage::Registry,
@@ -323,6 +349,8 @@ impl DriverRefusal {
     /// The outcome kind this refusal settles.
     pub fn kind(&self) -> OutcomeKind {
         match self {
+            Self::BindingsExport(ExportRefusal::Fault(_)) => OutcomeKind::Fault,
+            Self::BindingsExport(_) => OutcomeKind::Refused,
             Self::EmptyBackendIdentity(_) => OutcomeKind::Refused,
             Self::EmptyLinkedManifestAdvertisements => OutcomeKind::Refused,
             Self::Cancelled { .. } => OutcomeKind::Cancelled,
@@ -439,6 +467,7 @@ fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
         | CompileRefusal::Forms { .. }
         | CompileRefusal::Intake { .. }
         | CompileRefusal::OperationClause { .. }
+        | CompileRefusal::TypeInvariant { .. }
         | CompileRefusal::Assembly { .. }
         | CompileRefusal::Emit(_)
         | CompileRefusal::Omitted(_) => None,

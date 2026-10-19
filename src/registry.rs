@@ -225,6 +225,7 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
                 .iter()
                 .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
             domain_labels.as_deref(),
+            None,
         );
         match admitted {
             Ok(descriptor) => {
@@ -543,6 +544,7 @@ mod tests {
             ManifestDigest::from_digest([8; 32]),
             [(Some("operation-contract"), Some("bounded"))],
             Some(&["integer"]),
+            None,
         )
         .expect("the host hello admitter returns a QSL-admitted descriptor");
         let id = BackendId::from_wire("agent-ix/plugin/test").expect("nonempty identity");
@@ -592,6 +594,7 @@ mod tests {
             ManifestDigest::from_digest([2; 32]),
             [(Some("operation-contract"), Some("bounded"))],
             Some(&["integer"]),
+            None,
         )
         .expect("process descriptor admits");
 
@@ -621,6 +624,7 @@ mod tests {
                         ManifestDigest::from_digest([4; 32]),
                         [(Some("operation-contract"), Some("bounded"))],
                         Some(&["integer"]),
+                        None,
                     )
                     .expect("later descriptor admits"),
                     ProviderManifest {
@@ -689,6 +693,7 @@ mod tests {
             ManifestDigest::from_digest([2; 32]),
             [(Some("operation-contract"), Some("bounded"))],
             Some(&["integer"]),
+            None,
         )
         .expect("process descriptor admits");
 

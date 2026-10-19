@@ -3,8 +3,10 @@
 
 use std::collections::BTreeMap;
 
+use qsl_foundation::source::provenance::OccurrenceKey;
 use qsl_foundation::{BackendId, SourceIdentity};
 use qsl_package::EmittedPackage;
+use qsl_package::ExportRefusal;
 use qsl_replay::spine::{CheckedUnit, SpineLimits};
 use qsl_route::request::{items_from_requirements, ExtentClassification, RequirementItem};
 use qsl_route::routing::Disposition as RouteDisposition;
@@ -77,6 +79,8 @@ pub struct KaniInput<'a> {
 /// A completed run.
 #[derive(Debug)]
 pub struct Driven {
+    /// Only QSL export-refused items, keyed by their original driver index.
+    pub item_refusals: Vec<ItemRefusal>,
     /// The S4 in-process package.
     pub package: CheckedUnit,
     /// The E4 wire output: v2 bytes and `package_id`.
@@ -84,10 +88,10 @@ pub struct Driven {
     /// E5: the emitted bytes as IR's reader admitted them, at the emitted
     /// `package_id`.
     pub checked: CheckedPackageV2,
-    /// CG's settlement of every requested item, in request order.
+    /// CG's settlement of each export-bound item, in driver request order.
     pub settlements: Vec<ItemSettlement>,
-    /// The exact QSL-produced request items used to construct the CG envelope.
-    /// The CLI serializes these same values into the FR-331 process request.
+    /// All QSL-produced request items, including export-refused items. Only
+    /// bound entries construct the CG envelope or FR-331 process request.
     pub request_items: Vec<RequirementItem>,
     /// Every item settled `supported`, with its routed backend, in request
     /// order.
@@ -97,6 +101,17 @@ pub struct Driven {
     /// claim map CG derived for the Kani group (IR-294), `Some` whenever one
     /// ran; a caller writes it as `claim-map.json`.
     pub generation: RoutedGeneration,
+}
+
+/// One QSL export refusal, preserving its occurrence and driver index.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ItemRefusal {
+    /// Original index among all driver request items.
+    pub request_index: usize,
+    /// QSL's exact requested occurrence.
+    pub occurrence: OccurrenceKey,
+    /// QSL's unchanged typed refusal.
+    pub refusal: ExportRefusal,
 }
 
 /// Run one request through the driver's steps (see the crate docs).
@@ -138,24 +153,87 @@ pub fn drive(
         registry,
         named,
     );
-    let lowered = lower_driver_request(&checked, &items)?;
+    let mut item_refusals = Vec::new();
+    let bound = if upstream.has_abstraction_relation(checked_unit.package()) {
+        let keys = items
+            .iter()
+            .map(|item| item.occurrence().clone())
+            .collect::<Vec<_>>();
+        let results = upstream
+            .export_bindings(checked_unit.package(), &keys)
+            .map_err(|refusal| match refusal {
+                ExportRefusal::UnknownItem { item } => {
+                    DriverRefusal::Fault(DriverFault::ExportUnknownItem { item })
+                }
+                other => DriverRefusal::BindingsExport(other),
+            })?;
+        if results.len() != items.len() {
+            return Err(DriverRefusal::Fault(DriverFault::ExportCount {
+                requested: items.len(),
+                returned: results.len(),
+            }));
+        }
+        results
+            .into_iter()
+            .enumerate()
+            .map(|(request_index, result)| match result {
+                Ok(bound_item) if bound_item.item == keys[request_index] => Ok(true),
+                Ok(_) => Err(DriverRefusal::Fault(DriverFault::ExportUnknownItem {
+                    item: keys[request_index].clone(),
+                })),
+                Err(ExportRefusal::UnknownItem { item }) => {
+                    Err(DriverRefusal::Fault(DriverFault::ExportUnknownItem {
+                        item,
+                    }))
+                }
+                Err(refusal @ ExportRefusal::Fault(_)) => {
+                    Err(DriverRefusal::BindingsExport(refusal))
+                }
+                Err(ExportRefusal::Unbound { item, .. }) if item != keys[request_index] => {
+                    Err(DriverRefusal::Fault(DriverFault::ExportUnknownItem {
+                        item,
+                    }))
+                }
+                Err(refusal) => {
+                    item_refusals.push(ItemRefusal {
+                        request_index,
+                        occurrence: keys[request_index].clone(),
+                        refusal,
+                    });
+                    Ok(false)
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        vec![true; items.len()]
+    };
+    let lowered = lower_driver_request(&checked, &items, &bound)?;
 
     // T-13 order: the `route` candidate step, then every registered
     // BackendId through CG's one conversion, then E7.
     let manifests = registry.manifest_snapshot();
-    let prepared = envelope(registry, manifests, &checked, &items, named, &lowered)?;
+    let prepared = envelope(
+        registry, manifests, &checked, &items, &bound, named, &lowered,
+    )?;
     let kinds = convert_backends(upstream, registry, &prepared.generation_descriptors)?;
-    let settlements = upstream
-        .negotiate(&prepared.envelope)
-        .map_err(DriverRefusal::from)?;
-    let in_order = settlements.len() == items.len()
+    let settlements = if !items.is_empty() && prepared.envelope.items.is_empty() {
+        Vec::new()
+    } else {
+        upstream
+            .negotiate(&prepared.envelope)
+            .map_err(DriverRefusal::from)?
+    };
+    let in_order = settlements.len() == bound.iter().filter(|included| **included).count()
         && settlements
             .iter()
-            .enumerate()
-            .all(|(index, settlement)| settlement.request_index == index);
+            .map(|settlement| settlement.request_index)
+            .eq(bound
+                .iter()
+                .enumerate()
+                .filter_map(|(index, included)| included.then_some(index)));
     if !in_order {
         return Err(DriverRefusal::Fault(DriverFault::SettlementCount {
-            requested: items.len(),
+            requested: bound.iter().filter(|included| **included).count(),
             settled: settlements.len(),
         }));
     }
@@ -178,6 +256,7 @@ pub fn drive(
         package: checked_unit,
         emitted,
         checked,
+        item_refusals,
         settlements,
         request_items: items,
         routed,
@@ -268,6 +347,7 @@ struct LoweredDriverRequest {
 fn lower_driver_request(
     checked: &CheckedPackageV2,
     items: &[RequirementItem],
+    bound: &[bool],
 ) -> Result<LoweredDriverRequest, DriverRefusal> {
     let mut roots = Vec::new();
     let mut positions = Vec::new();
@@ -279,6 +359,14 @@ fn lower_driver_request(
             request_index,
         )?
         .clone();
+        if !bound[request_index] {
+            roots.push(application.clone());
+            positions.push(cg::ContractRequestPosition::Excluded {
+                node_id: application,
+            });
+            result_selections.push(cg::ContractDriverResultSelection::NotApplicable);
+            continue;
+        }
         let application_occurrence =
             contract_occurrence(checked, item.occurrence(), request_index)?;
         let conversion = item
@@ -409,6 +497,7 @@ fn envelope(
     manifests: &[crate::ProviderManifest],
     checked: &CheckedPackageV2,
     items: &[RequirementItem],
+    bound: &[bool],
     named: Option<&BackendId>,
     lowered: &LoweredDriverRequest,
 ) -> Result<PreparedEnvelope, DriverRefusal> {
@@ -429,6 +518,10 @@ fn envelope(
     let mut request_items = Vec::with_capacity(items.len());
     let mut candidate_sets = Vec::with_capacity(items.len());
     for (request_index, item) in items.iter().enumerate() {
+        if !bound[request_index] {
+            candidate_sets.push(Vec::new());
+            continue;
+        }
         let extent = Some(cg_extent(item));
         let label = item.kind().to_wire();
         let kind = cg::CapabilityKind::from_label(label).map_or_else(
@@ -739,6 +832,7 @@ mod origin_projection_tests {
             ManifestDigest::from_digest([7; 32]),
             [(Some("value-validity"), Some("bounded"))],
             Some(&domains),
+            None,
         )
         .expect("QSL accepts the typed descriptor")
     }

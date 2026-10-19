@@ -19,7 +19,8 @@ use qsl_package::EmittedPackage;
 use qsl_route::request::RequirementItem;
 use qsl_route::CandidateOutcome;
 use qsl_route::{
-    descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
+    descriptor_from_manifest, BackendDescriptor, Candidate, FairnessKindsMember, FairnessLabel,
+    ManifestDigest, ProviderOrigin,
 };
 use quire_driver::Driven;
 use quire_driver::ProviderManifest;
@@ -267,6 +268,12 @@ impl ManifestStage {
             .domains
             .as_deref()
             .map(|domains| domains.iter().map(String::as_str).collect::<Vec<_>>());
+        let fairness_labels = shape.fairness_kinds.as_deref().map(|kinds| {
+            kinds
+                .iter()
+                .map(|kind| FairnessLabel::Text(kind))
+                .collect::<Vec<_>>()
+        });
         let descriptor = descriptor_from_manifest(
             Candidate::new(BackendId::from_wire(&shape.backend)?),
             ProviderOrigin::Process,
@@ -276,6 +283,7 @@ impl ManifestStage {
                 .iter()
                 .map(|pair| (pair.kind.as_deref(), pair.mode.as_deref())),
             domain_labels.as_deref(),
+            fairness_labels.as_deref().map(FairnessKindsMember::List),
         )?;
         Ok(AdmittedManifest {
             descriptor,
@@ -871,6 +879,19 @@ mod tests {
     }
 
     impl Upstream for RouteRecorder {
+        fn has_abstraction_relation(&self, package: &qsl_package::CheckedPackage) -> bool {
+            QslCg.has_abstraction_relation(package)
+        }
+        fn export_bindings(
+            &self,
+            package: &qsl_package::CheckedPackage,
+            items: &[qsl_foundation::source::provenance::OccurrenceKey],
+        ) -> Result<
+            Vec<Result<qsl_package::BoundItem, qsl_package::ExportRefusal>>,
+            qsl_package::ExportRefusal,
+        > {
+            QslCg.export_bindings(package, items)
+        }
         fn compile(
             &self,
             source: qsl_foundation::SourceIdentity,
