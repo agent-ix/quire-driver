@@ -274,9 +274,29 @@ impl KaniProvider {
         limits: &ProviderLimits<'_>,
         cancel: &Cancel,
     ) -> KaniProviderResults {
+        self.run_items_with_executor(request, limits, cancel, execute_kani_obligation)
+    }
+
+    /// Run provider items through the same execution-result path while allowing tests to supply
+    /// deterministic CG evidence without launching Kani.
+    fn run_items_with_executor(
+        &self,
+        request: &ProviderRequest<'_>,
+        limits: &ProviderLimits<'_>,
+        cancel: &Cancel,
+        mut execute: impl FnMut(
+            &KaniExecutionRequest<'_>,
+        ) -> Result<KaniExecutionEvidence, KaniExecutionRefusal>,
+    ) -> KaniProviderResults {
         let mut items = Vec::with_capacity(request.items.len());
         for item in request.items {
-            let result = run_kani_item(item, &self.manifest.identity, limits.kani, cancel);
+            let result = run_kani_item_with_executor(
+                item,
+                &self.manifest.identity,
+                limits.kani,
+                cancel,
+                &mut execute,
+            );
             items.push(ProviderItemResult {
                 request_index: item.request_index,
                 backend: item.backend.clone(),
@@ -303,11 +323,14 @@ impl Provider for KaniProvider {
     }
 }
 
-fn run_kani_item(
+fn run_kani_item_with_executor(
     item: &RoutedItemOutput,
     expected_identity: &str,
     limits: Option<KaniExecutionLimits<'_>>,
     cancel: &Cancel,
+    execute: &mut impl FnMut(
+        &KaniExecutionRequest<'_>,
+    ) -> Result<KaniExecutionEvidence, KaniExecutionRefusal>,
 ) -> Result<KaniExecutionEvidence, KaniProviderFailure> {
     let has_harness = matches!(
         &item.output,
@@ -331,7 +354,7 @@ fn run_kani_item(
         return Err(KaniProviderFailure::NoExecutableHarness);
     };
     ensure_matching_ceilings(limits.ceilings, harness.identity.ceilings)?;
-    execute_kani_obligation(&kani_execution_request(
+    execute(&kani_execution_request(
         limits,
         cancel,
         KaniExecutableHarness::from(&**harness),
@@ -821,27 +844,68 @@ mod tests {
     /// Trace: FR-005-AC-21.
     #[test]
     fn provider_result_preserves_optional_cg_diagnostics_and_failure_cause() {
-        let diagnostic = diagnostics("launcher gave no verdict");
-        let item = result_with_metadata(
-            KaniRunOutcome::Inconclusive {
-                reason: KaniInconclusiveReason::NoVerdict,
-            },
-            Some(diagnostic.clone()),
-            None,
-        );
-        let evidence = item
-            .result
-            .expect("fixture carries the original CG evidence");
-        assert_eq!(evidence.diagnostics, Some(diagnostic));
-        assert_eq!(evidence.failure_cause, None);
+        let routed_item = generated_routed_item();
+        let request = ProviderRequest::new(std::slice::from_ref(&routed_item));
+        let installation = KaniInstallation::new("unused-test-launcher");
+        let limits = ProviderLimits {
+            kani: Some(KaniExecutionLimits {
+                ceilings: ceilings(),
+                installation: &installation,
+                crate_directory: Path::new("unused-test-crate"),
+                target_directory: Path::new("unused-test-target"),
+                home_directory: None,
+            }),
+        };
 
-        let item_without_optional_fields =
-            result_with_metadata(KaniRunOutcome::Verified, None, None);
-        let evidence = item_without_optional_fields
-            .result
-            .expect("fixture carries the original CG evidence");
-        assert_eq!(evidence.diagnostics, None);
-        assert_eq!(evidence.failure_cause, None);
+        let diagnostic = diagnostics("launcher gave no verdict");
+        let failure_cause = KaniFailureCause::OutOfMemory;
+        let cases = [
+            (
+                result_with_metadata(
+                    KaniRunOutcome::Inconclusive {
+                        reason: KaniInconclusiveReason::NoVerdict,
+                    },
+                    Some(diagnostic.clone()),
+                    Some(failure_cause.clone()),
+                )
+                .result
+                .expect("fixture carries CG evidence"),
+                Some(diagnostic),
+                Some(failure_cause),
+            ),
+            (
+                result_with_metadata(KaniRunOutcome::Verified, None, None)
+                    .result
+                    .expect("fixture carries CG evidence"),
+                None,
+                None,
+            ),
+        ];
+
+        for (cg_evidence, expected_diagnostics, expected_failure_cause) in cases {
+            let mut executor_called = false;
+            let mut evidence_to_return = Some(cg_evidence);
+            let results = provider().run_items_with_executor(
+                &request,
+                &limits,
+                &Cancel::new(),
+                |execution_request| {
+                    executor_called = true;
+                    assert_eq!(execution_request.home_directory, None);
+                    Ok(evidence_to_return
+                        .take()
+                        .expect("single-item provider request executes once"))
+                },
+            );
+
+            assert!(executor_called, "provider reaches the execution seam");
+            let retained = results.items[0]
+                .result
+                .as_ref()
+                .expect("provider retains successful CG evidence");
+            assert_eq!(retained.diagnostics, expected_diagnostics);
+            assert_eq!(retained.failure_cause, expected_failure_cause);
+        }
     }
 
     /// Trace: FR-009-AC-14, FR-009-AC-15.
