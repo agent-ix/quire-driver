@@ -12,7 +12,7 @@ relationships:
 
 Verify the available proved-provider terminal path uses QSL's canonical
 `OutcomeItem` and `OutcomeDocument` serializer. Full replay-driven settlement
-for every requested item, including the routed scalar observation producer
+for every item in the CG request, including the routed scalar observation producer
 and report-claim guard, remains planned.
 
 Scope: FR-009-AC-1 through FR-009-AC-15.
@@ -120,7 +120,7 @@ full prove/replay integration remains planned.
   diagnostics are retained in the typed evidence but never classify or map a
   terminal.
 - A request that reaches per-item settlement has exactly one terminal record
-  per requested item, including unsupported and incomplete items. A
+  per item in the CG request, including unsupported and incomplete items. A
   request-level typed refusal before settlement has no per-item terminal
   record guarantee.
 - Missing or mismatched retained context or authentic native-observation
