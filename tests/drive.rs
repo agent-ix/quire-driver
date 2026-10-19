@@ -834,6 +834,26 @@ fn kani_candidate(driven: &Driven) -> quire_contract_codegen::Candidate {
     }
 }
 
+#[test]
+#[trace("FR-001-AC-21", "TC-017")]
+fn relationless_package_skips_export_and_has_no_item_refusals() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let recorder = Recorder::default();
+    let driven = drive(
+        &recorder,
+        int_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("relationless unit drives");
+    assert!(driven.item_refusals.is_empty());
+    assert_eq!(driven.request_items.len(), 1);
+    assert_eq!(driven.settlements.len(), 1);
+}
+
 fn routed_generation_item(
     request_index: usize,
     node_id: CheckedNodeId,
