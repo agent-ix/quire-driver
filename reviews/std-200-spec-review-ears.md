@@ -61,3 +61,4 @@ The statement is EARS-conformant apart from FND-001. Suggested split: "The drive
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Split into a ubiquitous bullet ("SHALL build the CG request only from the export's bound results ...") and an event-driven one ("When the export refuses a requested item, the driver SHALL omit ... and SHALL return ..."). The parenthetical restating FR-307 is gone. |
+| FND-002 | fixed | Fix 854d19b rewords the bullet as "When every requested item is refused, the driver SHALL send CG a request with zero items; FR-001 governs an empty request unchanged." |
