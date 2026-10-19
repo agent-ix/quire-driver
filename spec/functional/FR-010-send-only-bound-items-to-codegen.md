@@ -9,6 +9,10 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-307
     type: depends_on
+  - target: ix://agent-ix/quire-driver/FR-001
+    type: depends_on
+  - target: ix://agent-ix/quire-driver/FR-009
+    type: depends_on
 ---
 # FR-010: Send only abstraction-relation-bound items to code generation
 
@@ -31,8 +35,10 @@ driver SHALL not send the package's unbound item set to CG.
 - When every requested item is refused, the driver SHALL send CG a request
   with zero items; FR-001 governs an empty request unchanged.
 - Where a required binding is absent, the driver SHALL preserve the typed
-  unbound-element refusal defined by the owning QSL contract; it SHALL not
-  invent a CG item or silently treat the item as bound.
+  unbound-element refusal defined by the owning QSL contract.
+- Where a required binding is absent, the driver SHALL return that refusal
+  in FR-001's per-item refusal member.
+- The driver SHALL NOT invent a CG item or treat an unbound item as bound.
 
 ## Acceptance Criteria
 
@@ -40,8 +46,8 @@ driver SHALL not send the package's unbound item set to CG.
 |----|----------|--------------|
 | FR-010-AC-1 | Given a package whose abstraction relation binds a subset of requested items, CG negotiation receives exactly that subset and receives no unbound item. | Test |
 | FR-010-AC-2 | CG generation receives only items that the same admitted relation bound and that negotiation settled for generation. | Test |
-| FR-010-AC-3 | When a binding required for emission is absent, the driver returns the QSL-defined typed unbound-element refusal and sends no unbound item to CG. | Test |
-| FR-010-AC-4 | Given an export that returns a bound result for a clause item A, a refusal for an extent-domain item B over an unbound population, and a bound result with an empty binding set for an item C that references no model element, the CG request carries A and C and not B. | Test |
+| FR-010-AC-3 | When a binding required for emission is absent, the item's QSL-defined typed unbound-element refusal appears unchanged in the per-item refusal member of the completed result, and no unbound item is sent to CG. | Test |
+| FR-010-AC-4 | Given an export that returns a bound result for a clause item A, a refusal for an extent-domain item B over an unbound population, and a bound result with an empty binding set for an item C that references no model element, the CG request carries A and C and not B, and B holds an excluded position that keeps its driver index (the CG change named in FR-001's Status). This is the vector FR-001-AC-17 and FR-009-AC-16 cite. | Test (TC-017) |
 | FR-010-AC-5 | When the export refuses every requested item, the driver sends CG a request with zero items. | Test |
 
 ## Dependencies
@@ -61,4 +67,7 @@ driver SHALL not send the package's unbound item set to CG.
 - QSL-514 is planned end-to-end `quire-integration` evidence for FR-307's
   end-to-end clause, not a requirement acceptance criterion. The
   cross-repository acceptance test is owned by QSL's `quire-integration` suite.
+- [FR-001](FR-001-orchestrate-the-driver-steps.md) owns the per-item refusal
+  member and [FR-009](FR-009-settle-execute-and-replay-results.md) the
+  terminal records of the items that settle.
 - [TC-017](../test-cases/TC-017-only-bound-items-reach-codegen.md).

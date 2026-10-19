@@ -5,6 +5,10 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-driver/FR-010
     type: verifies
+  - target: ix://agent-ix/quire-driver/FR-001
+    type: verifies
+  - target: ix://agent-ix/quire-driver/FR-009
+    type: verifies
 ---
 # TC-017: Send only abstraction-relation-bound items to code generation
 
@@ -14,7 +18,7 @@ Verify that the driver passes only the item set bound by the admitted
 abstraction relation to CG and preserves QSL's typed refusal for a required
 unbound item.
 
-Scope: FR-010-AC-1 through FR-010-AC-5.
+Scope: FR-010-AC-1 through FR-010-AC-5, FR-001-AC-17 through FR-001-AC-21, FR-009-AC-16.
 
 ## Test Procedure
 
@@ -27,7 +31,9 @@ Partition vector (FR-010-AC-4, FR-010-AC-5): bind nothing but the ConfigVersion 
 type, then request three items: A, a clause item reading only ConfigVersion
 fields; B, an item whose extent domain ranges over the unbound ConfigVersion
 population; C, an item referencing no model element. Repeat with no element
-bound and a clause item and B requested.
+bound and a clause item and B requested. Request a proof with the fixture
+provider, and run with fixture exports that fail as a whole and that report
+a driver-built key as unnamed.
 
 Test location: planned QSL-owned cross-repository test, QSL-514.
 
@@ -36,9 +42,23 @@ Test location: planned QSL-owned cross-repository test, QSL-514.
 - CG negotiation receives exactly the bound subset; generation receives
   only bound items subsequently routed for generation.
 - No unbound item reaches CG. Where a required binding is absent, the
-  driver returns QSL's typed unbound-element refusal.
+  item's QSL typed unbound-element refusal appears unchanged in the per-item
+  refusal member of the completed result.
 - For the partition vector, the export returns A bound, B refused
   `missing_declaration`/`missing-name`, and C bound with an empty binding
-  set; the CG request carries A and C and not B (FR-010-AC-4).
+  set; the CG request carries A and C and not B (FR-010-AC-4). The
+  completed result holds the settlements of A (driver index 0) and C
+  (driver index 2) and, in the per-item refusal member, B's refusal with its
+  occurrence key and driver index 1; the run completes (FR-001-AC-17). With a
+  fixture provider that returns a terminal result for each item in the CG
+  request, a proof request holds terminal records for A and C and none for B
+  (FR-009-AC-16); no Kani execution is needed.
 - For the all-refused repeat, the CG request carries zero items
-  (FR-010-AC-5).
+  (FR-010-AC-5), and the completed result holds no settled item and one
+  refusal per requested item (FR-001-AC-18).
+- A fixture export that fails as a whole refuses the run with the export's
+  refusal and the bindings-export step (FR-001-AC-19); a fixture export
+  reporting a driver-built key as naming no requirement record yields the
+  `runtime_invariant` fault (FR-001-AC-20).
+- A package declaring no abstraction relation skips the export, sends every
+  item to CG and leaves the per-item refusal member empty (FR-001-AC-21).
