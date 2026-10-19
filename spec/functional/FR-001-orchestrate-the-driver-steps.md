@@ -94,10 +94,11 @@ the admitted package only at the `package_id` E4 emitted.
   index. Settlements and generation output stay keyed by that index, so an
   omitted refused item leaves a gap and C keeps driver index 2 when B (index
   1) is omitted; the refusal member carries the occurrence key and that same
-  driver index. The FR-330 position vector keeps one `DriverItem` per
-  original request item (FR-001-AC-15). A refused item's position is
-  accounting-only: it carries no admitted node and no claim, and CG receives
-  nothing from it that it can lower, route or generate.
+  driver index. The FR-330 position vector keeps one position per original
+  request item (FR-001-AC-15). A refused item's position is an excluded
+  position: it keeps the item's `node_id`, which the admitted package already
+  holds, and counts toward driver indices, but it is not in the FR-331
+  envelope, is not negotiated, routed or generated, and carries no claim.
 - Or one command-level refusal.
 - Or a `DriverRefusal::Cancelled` result carrying the cancelled QSL stage and
   cause.
@@ -163,8 +164,9 @@ the admitted package only at the `package_id` E4 emitted.
   admitted FR-330 accounting order. Each original driver request item
   the export bound contributes one CG `DriverItem` position with its exact
   admitted node and scalar result selection, whether or not routing later
-  selects it; an export-refused item contributes an accounting-only position
-  at its driver index with no node, claim or result selection; a direct
+  selects it; an export-refused item contributes an excluded position at its
+  driver index that keeps its `node_id` and carries no claim or result
+  selection; a direct
   conversion occurrence selected by that QSL item
   contributes its own `ContextRoot` position. A `ContextRoot` is not a routed
   item and SHALL create no backend settlement, claim, or output item. A QSL
@@ -272,7 +274,7 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-12 | For each request item, the driver's CG negotiation input carries the typed IR tag/form projected from the admitted checked requirement and node named by that same item's QSL requirement record; generation preserves that item's exact application occurrence and direct conversion-context occurrence as ordered lowering roots, including when several items share one application node. No caller-computed lowerability/refusal or display/debug-derived form substitutes for the checked form. | Test (TC-006) |
 | FR-001-AC-13 | The driver's internal scalar-generation composition receives the caller's unchanged QSL `Call`, `ObjectEnvironment`, and `Cancel` with the request's compile input. QSL binding and IR admission use the package produced by that same request: the exact emitted bytes are admitted once and are not reconstructed or re-admitted. The generated result remains associated with that call and admitted package in the driver library. | Test (TC-006) |
 | FR-001-AC-14 | For each routed scalar item selected for native proof, the driver joins the QSL item and CG driver item by request index and exact `OccurrenceKey`, then uses QSL `bind_scalar_operands` on that call's package and exact function/application/occurrence. Bound operands remain in QSL order, matching the CG scalar identity's argument order, with their argument source and ordinal; `ScalarLimits` come from the same call's accounting. Two occurrences on one node remain distinct. No positional zip or node-only occurrence selection is permitted. | Test (TC-006) |
-| FR-001-AC-15 | CG receives only its existing admitted `ContractPackageV1`, complete FR-330 position vector, routed items, and generation contexts. The position vector retains one position per original request item, in driver-index order (a `DriverItem` for each bound item, an accounting-only position for each export-refused item), and a separate `ContextRoot` for each selected direct conversion occurrence; context roots create no route, claim, or generated item and do not advance driver indices. The exact QSL call and bound operands remain in a driver-owned sidecar keyed by request index. | Test (TC-006) |
+| FR-001-AC-15 | CG receives only its existing admitted `ContractPackageV1`, complete FR-330 position vector, routed items, and generation contexts. The position vector retains one position per original request item, in driver-index order (a `DriverItem` for each bound item, an excluded position, keeping the item's `node_id` and counted in driver indices, for each export-refused item; excluded positions are absent from the FR-331 envelope), and a separate `ContextRoot` for each selected direct conversion occurrence; context roots create no route, claim, or generated item and do not advance driver indices. The exact QSL call and bound operands remain in a driver-owned sidecar keyed by request index. | Test (TC-006) |
 | FR-001-AC-16 | No selected scalar item means no scalar binding or native execution and no fallback selection. QSL's typed missing/ambiguous call or occurrence refusal is preserved unchanged. A missing/ambiguous required conversion context preserves its owning QSL/IR/CG typed refusal; `None` is valid only when the exact QSL item has no conversion context. An admitted-package/request-position/routed-item mismatch preserves the owning IR/CG typed refusal, or is a driver `runtime_invariant` fault when the driver detects an inconsistent join. Each case stops before native execution or replay and invents no call, occurrence, context root, or operand order. | Test (TC-006) |
 | FR-001-AC-17 | For the FR-010-AC-4 vector, the run completes, `Driven` holds the settlements of A (driver index 0) and C (driver index 2) and B's refusal, unchanged, with its occurrence key and driver index 1 in the per-item refusal member, and no `DriverRefusal` is returned. | Test (TC-017) |
 | FR-001-AC-18 | When the export refuses every requested item, `Driven` holds no settled item and one refusal in the per-item refusal member for each requested item. | Test (TC-017) |
@@ -308,11 +310,16 @@ Steps 1 to 7 and the E5 hand-off are implemented. The scalar call-to-routed-
 generation composition in FR-001-AC-13 through FR-001-AC-16 remains planned;
 it is a driver-library boundary, not a CLI extension or a QSL/CG API change.
 
-The accounting-only position for an export-refused item depends on CG: CG's
-`ContractRequestPosition` holds only `DriverItem`, which requires an exact
-root `node_id` that CG checks against a feature-accounting record, and
-`ContextRoot`. CG must define a position that holds no node before the driver
-can build it.
+The excluded position for an export-refused item depends on a CG change
+(CG ticket pending). Today CG requires (1) the position vector to equal the
+admitted package's feature accounting, by count and by each position's
+`node_id`, so dropping the refused item or giving it no node fails; (2) one
+FR-331 envelope item per `DriverItem` position, so an envelope holding only
+the bound items fails while the refused item keeps a counted position; and
+(3) request indices numbered only over `DriverItem` positions, so an
+uncounted new position kind would renumber C from 2 to 1. CG must define an
+excluded position kind that satisfies the first check, is skipped by the
+second and counts for the third.
 
 The Kani claim map is derived by CG from the package and the routed node
 alone (IR-294); the caller supplies no claim map, and the driver surfaces
