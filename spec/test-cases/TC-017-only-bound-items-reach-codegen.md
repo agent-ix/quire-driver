@@ -5,6 +5,10 @@ type: TC
 relationships:
   - target: ix://agent-ix/quire-driver/FR-010
     type: verifies
+  - target: ix://agent-ix/quire-driver/FR-001
+    type: verifies
+  - target: ix://agent-ix/quire-driver/FR-009
+    type: verifies
 ---
 # TC-017: Send only abstraction-relation-bound items to code generation
 
@@ -14,7 +18,7 @@ Verify that the driver passes only the item set bound by the admitted
 abstraction relation to CG and preserves QSL's typed refusal for a required
 unbound item.
 
-Scope: FR-010-AC-1 through FR-010-AC-5.
+Scope: FR-010-AC-1 through FR-010-AC-5, FR-001-AC-17, FR-009-AC-16.
 
 ## Test Procedure
 
@@ -39,6 +43,11 @@ Test location: planned QSL-owned cross-repository test, QSL-514.
   driver returns QSL's typed unbound-element refusal.
 - For the partition vector, the export returns A bound, B refused
   `missing_declaration`/`missing-name`, and C bound with an empty binding
-  set; the CG request carries A and C and not B (FR-010-AC-4).
+  set; the CG request carries A and C and not B (FR-010-AC-4). The
+  completed result holds the settlement of A and C and B's refusal, unchanged,
+  in the per-item refusal member; no `DriverRefusal` is returned
+  (FR-001-AC-17). The outcome holds terminal records for A and C and none for
+  B (FR-009-AC-16).
 - For the all-refused repeat, the CG request carries zero items
-  (FR-010-AC-5).
+  (FR-010-AC-5), and the completed result holds no settled item and one
+  refusal per requested item (FR-001-AC-17).

@@ -76,11 +76,16 @@ the admitted package only at the `package_id` E4 emitted.
 ## Outputs
 
 - The in-process `CheckedUnit`, the emitted v2 package, IR's admitted
-  `CheckedPackageV2`, CG's settlement of every item in request order, each
+  `CheckedPackageV2`, CG's settlement of every item in the CG request, in request order, each
   routed item with its `BackendId` and CG backend kind, and CG's generation
   output in ascending request index. That output's `claim_map` is the
   FR-014 claim map CG derived for the Kani group, `Some` whenever one ran;
   a caller writes it as `claim-map.json`.
+- `Driven` also carries a per-item refusal member: for each requested item
+  the export refused, in request order, the item's occurrence key and the
+  export's typed refusal unchanged. The member is empty when every item is
+  bound. A partly bound package therefore returns its settled items and each
+  refused item's refusal in one completed result.
 - Or one command-level refusal.
 - Or a `DriverRefusal::Cancelled` result carrying the cancelled QSL stage and
   cause.
@@ -184,6 +189,11 @@ the admitted package only at the `package_id` E4 emitted.
   settles `Unsupported` with `no_derivable_claim`, naming the node and CG's
   derivation refusal, and carries no harness. It does not reject its
   siblings, and does not refuse the run.
+- A refused item's typed refusal is an item-level result, not a command-level
+  refusal: the driver SHALL record it in `Driven`'s per-item refusal member
+  and SHALL NOT return a `DriverRefusal` for it. A run in which every item is
+  refused completes with no settled item and one per-item refusal for each
+  requested item.
 - Each command-level refusal SHALL carry its step, its catalog code and an
   outcome kind: refusal, limit refusal or internal fault. A provider
   manifest that does not register, a spine refusal, the unknown-backend
@@ -236,6 +246,7 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-14 | For each routed scalar item selected for native proof, the driver joins the QSL item and CG driver item by request index and exact `OccurrenceKey`, then uses QSL `bind_scalar_operands` on that call's package and exact function/application/occurrence. Bound operands remain in QSL order, matching the CG scalar identity's argument order, with their argument source and ordinal; `ScalarLimits` come from the same call's accounting. Two occurrences on one node remain distinct. No positional zip or node-only occurrence selection is permitted. | Test (TC-006) |
 | FR-001-AC-15 | CG receives only its existing admitted `ContractPackageV1`, complete FR-330 position vector, routed items, and generation contexts. The position vector retains one `DriverItem` per original request item, in driver-index order, and a separate `ContextRoot` for each selected direct conversion occurrence; context roots create no route, claim, or generated item and do not advance driver indices. The exact QSL call and bound operands remain in a driver-owned sidecar keyed by request index. | Test (TC-006) |
 | FR-001-AC-16 | No selected scalar item means no scalar binding or native execution and no fallback selection. QSL's typed missing/ambiguous call or occurrence refusal is preserved unchanged. A missing/ambiguous required conversion context preserves its owning QSL/IR/CG typed refusal; `None` is valid only when the exact QSL item has no conversion context. An admitted-package/request-position/routed-item mismatch preserves the owning IR/CG typed refusal, or is a driver `runtime_invariant` fault when the driver detects an inconsistent join. Each case stops before native execution or replay and invents no call, occurrence, context root, or operand order. | Test (TC-006) |
+| FR-001-AC-17 | Given a package whose export returns a bound result for A and C and a refusal for B, the run completes, `Driven` holds the settlement of A and C and B's refusal in the per-item refusal member, and no `DriverRefusal` is returned; with every item refused, `Driven` holds no settled item and one refusal per requested item. | Test (TC-017) |
 
 ## Dependencies
 

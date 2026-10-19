@@ -100,7 +100,7 @@ performs no semantic inference from diagnostic text.
 
 The driver composes QSL, IR and CG. It owns call order, registry construction,
 provider dispatch, proof execution, counterexample replay orchestration and
-writing one FR-331 terminal record per requested item. QSL owns checking,
+writing one FR-331 terminal record per item in the CG request. QSL owns checking,
 execution and replay semantics and the outcome types. IR owns checked-package
 admission. CG owns negotiation, claim derivation, generation, atomic artifact
 publication and the mapping from provider execution plus replay to QSL's
@@ -148,13 +148,14 @@ failure ownership across the driver and its upstream libraries.
 | Cache key and storage | `quire-cache`, implementing QSL ADR-029 CA-1..CA-5 | Derive and verify content identity, enforce typed reads, storage policy and caller byte limits | FR-012 / TC-020..TC-022 |
 | AOT execution | QSL ADR-029 EB | Pass the current checked package, selected entries, limits, cancellation and named toolchain to the selected backend; preserve failures without switching engines | FR-008 / TC-015 |
 | Counterexample replay | QSL S6a / replay operation | Replay each provider counterexample through QSL; retain execution and replay as distinct inputs to settlement | FR-009 / TC-016 |
-| Terminal settlement and outcome recording | CG FR-331 mapping, QSL terminal/outcome types | Call the authoritative mapping with provider result and replay result; write exactly one terminal record per requested item, including unsupported and incomplete items | FR-009 / TC-016 |
+| Terminal settlement and outcome recording | CG FR-331 mapping, QSL terminal/outcome types | Call the authoritative mapping with provider result and replay result; write exactly one terminal record per item in the CG request, including unsupported and incomplete items | FR-009 / TC-016 |
 
 The existing FR-001 sequence is compile/emit, E5 admission, candidate
 construction, backend conversion, negotiation, routing and generation.
 FR-010 qualifies the CG input: only relation-bound items enter negotiation
 and generation. Selection never discards the need to account for each
-requested item in FR-009's final outcome. Proving extends generation with
+requested item: a settled item in FR-009's final outcome, a refused item in
+FR-001's per-item refusal member. Proving extends generation with
 provider execution, QSL replay and CG settlement; a `generate` request does
 not imply that a proof was executed.
 

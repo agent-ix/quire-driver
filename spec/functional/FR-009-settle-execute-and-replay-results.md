@@ -21,7 +21,9 @@ request and replay each counterexample through QSL's replay operation. For each
 proof request that reaches per-item settlement, the driver SHALL produce
 exactly one FR-331 terminal record for each item in the CG request. A request-level
 typed refusal before per-item settlement does not receive a per-item
-terminal-record guarantee. The driver SHALL preserve the independent result
+terminal-record guarantee. An item the export refused is not in the CG
+request, receives no terminal record, and keeps its refusal in FR-001's
+per-item refusal member. The driver SHALL preserve the independent result
 and cause from execution and replay when settling an item. For routed scalar
 replay, the driver SHALL authenticate the native observation against the exact
 generated artifact that was proved and SHALL preserve the original claim and
@@ -50,6 +52,9 @@ replay context through QSL evaluation and report handling.
 - One FR-331 terminal record per item in the CG request, written in the
   `quire-outcome/1` outcome document, when the request reaches per-item
   settlement.
+- For each export-refused item, no terminal record; its refusal stays in
+  `Driven`'s per-item refusal member (FR-001), alongside the records of the
+  items that settled.
 - The upstream typed refusal without a per-item terminal record when the
   request is refused before per-item settlement.
 
@@ -180,6 +185,7 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-13 | For routed scalar native execution, the driver obtains concrete operands from a typed mapping of one selected `ExecutionRequest.call` to one exact QSL requirement occurrence and checked scalar application, with values ordered by the matching CG `ScalarObligationIdentity.arguments`; the original `ScalarLimits` come from that same call's accounting. Positional zipping, expression-node-only occurrence matching, and limits from another call are not valid mappings. If the mapping or exact binding is absent or ambiguous, it is missing retained context under FR-009-AC-7 and cannot produce an accepted native receipt or proceed to QSL replay evaluation, settlement, or terminal creation. | Planned (TC-016; IR-773 producer; production call-to-generation boundary FR-001-AC-13 through FR-001-AC-16 / IR-879; QSL FR-367 and IR-832 APIs are available) |
 | FR-009-AC-14 | For a Kani result, the driver passes the original CG `KaniExecutionEvidence` and optional replay settlement to CG `run_terminal_value`; it preserves the resulting typed terminal without adding a driver mapping. The map receives the evidence's actual optional `failure_cause`; the driver invents or infers no cause. | Test (`src/provider.rs::falsified_scalar_does_not_guess_a_replay_settlement`, `src/provider.rs::cg_terminal_mapping_reads_original_failure_cause_not_diagnostics`; TC-016) |
 | FR-009-AC-15 | Changing or omitting optional CG diagnostics while holding the outcome, success-check count, failure cause, and replay settlement fixed does not change the terminal produced by CG `run_terminal_value`; the driver does not parse diagnostic content to classify or map a result. | Test (`src/provider.rs::cg_terminal_mapping_reads_original_failure_cause_not_diagnostics`; TC-016; CG FR-017-AC-36 and FR-029) |
+| FR-009-AC-16 | Given a partly bound package, the outcome holds one terminal record for each item in the CG request and none for an export-refused item, whose refusal remains in `Driven`'s per-item refusal member. | Test (TC-017) |
 
 ## Dependencies
 
