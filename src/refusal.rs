@@ -51,8 +51,9 @@ pub enum DriverRefusal {
         /// Each unconverted `BackendId`, in bytewise order.
         backends: Vec<BackendId>,
     },
-    /// CG refused the whole FR-331 envelope before settling any item.
-    #[error("CG refused the negotiation envelope: {}", envelope_message(.0))]
+    /// CG rejected or found an invariant violation in the whole FR-331
+    /// envelope before settling any item.
+    #[error("{}", envelope_message(.0))]
     Envelope(EnvelopeRefusal),
     /// E5: IR's reader stopped at one of its limits.
     #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
@@ -250,6 +251,9 @@ impl DriverRefusal {
             Self::Envelope(EnvelopeRefusal::InvalidCapability { cause, .. }) => {
                 format!("invalid_capability/{cause}")
             }
+            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
+                Code::RuntimeInvariant.as_str().to_owned()
+            }
             Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
             Self::LoweringLimit { .. } => Code::ResourceExhausted.as_str().to_owned(),
             Self::Generation(error) => generation_code(error).as_str().to_owned(),
@@ -318,10 +322,13 @@ impl DriverRefusal {
                 OutcomeKind::Limit
             }
             Self::ManifestEncoding(_) => OutcomeKind::Fault,
+            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
+                OutcomeKind::Fault
+            }
             Self::Registration(_)
             | Self::Compile(_)
             | Self::UnknownBackend { .. }
-            | Self::Envelope(_) => OutcomeKind::Refused,
+            | Self::Envelope(EnvelopeRefusal::InvalidCapability { .. }) => OutcomeKind::Refused,
             Self::Fault(_) => OutcomeKind::Fault,
         }
     }
@@ -547,6 +554,9 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
             member,
             received,
         } => format!("invalid_capability/{cause}: `{member}` is `{received}`"),
+        EnvelopeRefusal::ManifestRepeatsBackendIdentity { identity } => {
+            format!("internal fault: CG negotiation manifest repeats backend identity `{identity}`")
+        }
     }
 }
 
@@ -556,8 +566,8 @@ mod tests {
     use qsl_foundation::EmptyBackendIdentity;
     use qsl_replay::Category;
     use quire_contract_codegen::{
-        ContractScalarError, HarnessPath, HarnessSymbol, KaniObligationError, ModuleSymbol,
-        OracleGenerationError, RoutedGenerationError,
+        ContractScalarError, EnvelopeRefusal, HarnessPath, HarnessSymbol, KaniObligationError,
+        ModuleSymbol, OracleGenerationError, RoutedGenerationError,
     };
     use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
 
@@ -573,6 +583,25 @@ mod tests {
         assert_eq!(refusal.qsl_category(), Some(Category::Refusal));
         assert_eq!(refusal.kind(), OutcomeKind::Refused);
         assert_eq!(refusal.stage(), DriverStage::Registry);
+    }
+
+    #[test]
+    fn repeated_manifest_backend_identity_is_a_negotiation_fault() {
+        let refusal = DriverRefusal::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity {
+            identity: "plugin:example".to_owned(),
+        });
+
+        assert_eq!(
+            refusal.code(),
+            qsl_foundation::Code::RuntimeInvariant.as_str()
+        );
+        assert_eq!(refusal.stage(), DriverStage::Negotiation);
+        assert_eq!(refusal.kind(), OutcomeKind::Fault);
+        assert_eq!(
+            refusal.to_string(),
+            "internal fault: CG negotiation manifest repeats backend identity `plugin:example`"
+        );
+        assert!(!refusal.to_string().contains("invalid_capability"));
     }
 
     /// Trace: FR-001-AC-5
