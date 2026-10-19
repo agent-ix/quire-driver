@@ -130,3 +130,17 @@ bindings:
 ## Verdict
 
 Mergeable on integrity grounds: numbering and the matrix resolve; three low findings.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | The new FR-001-AC-19 bundles two independent scenarios (a whole-export refusal and an unknown driver-built key) with different outcome kinds. This is the same atomicity pattern FND-002 split out of AC-17. It also names no step for the refusal case. Split it into two criteria. | spec/functional/FR-001-orchestrate-the-driver-steps.md:275 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix 86fe419: / FR-001 / FR-001-AC-17..FR-001-AC-19 / TC-017 / ... (now directly after the FR-001 AC-1..AC-16 row)  /  / FR-010, FR-001-AC-17..FR-001-AC-19, FR-009-AC-16 / TC-017 / Planned QSL-owned cross-repository test ... / |
+| FND-002 | fixed | Fix 86fe419: / FR-001-AC-17 / For the FR-010-AC-4 vector, the run completes, ... / / / FR-001-AC-18 / When the export refuses every requested item, `Driven` holds no settled item and one refusal in the per-item refusal member for each requested item. / ; FR-010-AC-4: 'This is the vector FR-001-AC-17 and FR-009-AC-16 cite.' |
+| FND-003 | fixed | Fix 86fe419: - [TC-016](../test-cases/TC-016-execute-replay-and-terminal-records.md).  (trailing newline restored) |

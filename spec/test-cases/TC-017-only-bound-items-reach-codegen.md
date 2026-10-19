@@ -18,7 +18,7 @@ Verify that the driver passes only the item set bound by the admitted
 abstraction relation to CG and preserves QSL's typed refusal for a required
 unbound item.
 
-Scope: FR-010-AC-1 through FR-010-AC-5, FR-001-AC-17 through FR-001-AC-19, FR-009-AC-16.
+Scope: FR-010-AC-1 through FR-010-AC-5, FR-001-AC-17 through FR-001-AC-21, FR-009-AC-16.
 
 ## Test Procedure
 
@@ -56,6 +56,9 @@ Test location: planned QSL-owned cross-repository test, QSL-514.
 - For the all-refused repeat, the CG request carries zero items
   (FR-010-AC-5), and the completed result holds no settled item and one
   refusal per requested item (FR-001-AC-18).
-- A fixture export that fails as a whole refuses the run; a fixture export
+- A fixture export that fails as a whole refuses the run with the export's
+  refusal and the bindings-export step (FR-001-AC-19); a fixture export
   reporting a driver-built key as naming no requirement record yields the
-  `runtime_invariant` fault (FR-001-AC-19).
+  `runtime_invariant` fault (FR-001-AC-20).
+- A package declaring no abstraction relation skips the export, sends every
+  item to CG and leaves the per-item refusal member empty (FR-001-AC-21).

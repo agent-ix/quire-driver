@@ -95,7 +95,9 @@ the admitted package only at the `package_id` E4 emitted.
   omitted refused item leaves a gap and C keeps driver index 2 when B (index
   1) is omitted; the refusal member carries the occurrence key and that same
   driver index. The FR-330 position vector keeps one `DriverItem` per
-  original request item (FR-001-AC-15).
+  original request item (FR-001-AC-15). A refused item's position is
+  accounting-only: it carries no admitted node and no claim, and CG receives
+  nothing from it that it can lower, route or generate.
 - Or one command-level refusal.
 - Or a `DriverRefusal::Cancelled` result carrying the cancelled QSL stage and
   cause.
@@ -210,13 +212,13 @@ the admitted package only at the `package_id` E4 emitted.
 - When the export refuses every requested item, the driver SHALL complete the
   run with no settled item and one per-item refusal for each requested item.
 - When the export fails as a whole, the driver SHALL refuse the run with the
-  export's typed refusal.
+  export's typed refusal, carrying the bindings-export step.
 - When the export reports that an occurrence key the driver built names no
   requirement record, the driver SHALL treat it as a `runtime_invariant`
   internal fault at the hand-off.
-- A package that carries no abstraction relation binds no element; the
-  export then returns a bound result for an item that references no element
-  and a refusal for every other item.
+- When the package declares no abstraction relation, the driver SHALL skip
+  the export, send every item to CG as FR-001 otherwise states, and leave the
+  per-item refusal member empty.
 - Each command-level refusal SHALL carry its step, its catalog code and an
   outcome kind: refusal, limit refusal or internal fault. A provider
   manifest that does not register, a spine refusal, the unknown-backend
@@ -272,7 +274,9 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-16 | No selected scalar item means no scalar binding or native execution and no fallback selection. QSL's typed missing/ambiguous call or occurrence refusal is preserved unchanged. A missing/ambiguous required conversion context preserves its owning QSL/IR/CG typed refusal; `None` is valid only when the exact QSL item has no conversion context. An admitted-package/request-position/routed-item mismatch preserves the owning IR/CG typed refusal, or is a driver `runtime_invariant` fault when the driver detects an inconsistent join. Each case stops before native execution or replay and invents no call, occurrence, context root, or operand order. | Test (TC-006) |
 | FR-001-AC-17 | For the FR-010-AC-4 vector, the run completes, `Driven` holds the settlements of A (driver index 0) and C (driver index 2) and B's refusal, unchanged, with its occurrence key and driver index 1 in the per-item refusal member, and no `DriverRefusal` is returned. | Test (TC-017) |
 | FR-001-AC-18 | When the export refuses every requested item, `Driven` holds no settled item and one refusal in the per-item refusal member for each requested item. | Test (TC-017) |
-| FR-001-AC-19 | An export that fails as a whole refuses the run, and an occurrence key the driver built that the export reports as naming no requirement record is a `runtime_invariant` internal fault. | Test (TC-017) |
+| FR-001-AC-19 | An export that fails as a whole refuses the run with the export's typed refusal, and the refusal carries the bindings-export step. | Test (TC-017) |
+| FR-001-AC-20 | An occurrence key the driver built that the export reports as naming no requirement record is a `runtime_invariant` internal fault. | Test (TC-017) |
+| FR-001-AC-21 | When the package declares no abstraction relation, the driver does not call the export, every item goes to CG, and the per-item refusal member is empty. | Test (TC-017) |
 
 ## Dependencies
 

@@ -103,3 +103,11 @@ bindings: []
 ## Verdict
 
 Mergeable on EARS grounds: three low findings, all wording. FR-001's Outputs bullet conforms.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix 86fe419: When the export refuses a requested item, the driver SHALL record the refusal in the member. / When the export refuses a requested item, the driver SHALL NOT return a `DriverRefusal` for it. / When the export refuses every requested item, the driver SHALL complete the run with no settled item and one per-item refusal for each requested item. |
+| FND-002 | fixed | Fix 86fe419: For an item the export refused, the driver SHALL write no terminal record and SHALL keep its refusal in FR-001's per-item refusal member. |
+| FND-003 | fixed | Fix 86fe419: - Where a required binding is absent, the driver SHALL preserve the typed unbound-element refusal defined by the owning QSL contract. - Where a required binding is absent, the driver SHALL return that refusal in FR-001's per-item refusal member. - The driver SHALL NOT invent a CG item or treat an unbound item as bound. |
