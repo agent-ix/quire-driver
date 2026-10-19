@@ -19,7 +19,7 @@ relationships:
 When the caller requests a proof, the driver SHALL run the generated provider
 request and replay each counterexample through QSL's replay operation. For each
 proof request that reaches per-item settlement, the driver SHALL produce
-exactly one FR-331 terminal record for each requested item. A request-level
+exactly one FR-331 terminal record for each item in the CG request. A request-level
 typed refusal before per-item settlement does not receive a per-item
 terminal-record guarantee. The driver SHALL preserve the independent result
 and cause from execution and replay when settling an item. For routed scalar
@@ -47,7 +47,7 @@ replay context through QSL evaluation and report handling.
 
 ## Outputs
 
-- One FR-331 terminal record per requested item, written in the
+- One FR-331 terminal record per item in the CG request, written in the
   `quire-outcome/1` outcome document, when the request reaches per-item
   settlement.
 - The upstream typed refusal without a per-item terminal record when the
@@ -156,7 +156,7 @@ replay context through QSL evaluation and report handling.
   result.
 - The driver SHALL NOT define a second terminal mapping.
 - When a proof request reaches per-item settlement, the driver SHALL write
-  one terminal record per requested item, including unsupported and incomplete
+  one terminal record per item in the CG request, including unsupported and incomplete
   items.
 - For a request that reaches per-item settlement, the driver SHALL NOT
   duplicate or omit an item record.
@@ -169,7 +169,7 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-2 | Predicate/function replay that reproduces the provider counterexample settles as `refuted`. | Test |
 | FR-009-AC-3 | A replay refusal retains its typed cause and a replay fault is an internal failure; neither is converted to `refuted`. | Test |
 | FR-009-AC-4 | The terminal result is composed by CG's FR-331 mapping from both the provider result and replay result; the driver introduces no second mapping. | Partial (TC-016 proves QSL serialization for an available CG terminal; replay-combined settlement remains planned) |
-| FR-009-AC-5 | When a proof request reaches per-item settlement, the outcome contains exactly one FR-331 terminal record for every requested item, including unsupported and incomplete items; a request-level typed refusal before per-item settlement is governed by its refusal contract and has no per-item terminal-record guarantee. | Partial (TC-016 serializes available provider terminals through QSL; full per-item replay accounting remains planned) |
+| FR-009-AC-5 | When a proof request reaches per-item settlement, the outcome contains exactly one FR-331 terminal record for every item in the CG request, including unsupported and incomplete items; a request-level typed refusal before per-item settlement is governed by its refusal contract and has no per-item terminal-record guarantee. | Partial (TC-016 serializes available provider terminals through QSL; full per-item replay accounting remains planned) |
 | FR-009-AC-6 | For routed scalar replay, the driver retains one context binding the exact proved generated artifact and emitted package to the scalar identity, occurrence, ordered operands, original `ScalarLimits` and `ReplayLimits`, and exact QSL claim and replay context; it sends the retained `ReplayLimits` in that QSL request, executes the artifact with the retained scalar inputs and `ScalarLimits`, and retains the actual typed native outcome. | Planned (TC-016; IR-773 producer; production call-to-generation boundary FR-001-AC-13 through FR-001-AC-16 / IR-879) |
 | FR-009-AC-7 | Before QSL evaluates the native-observation claim, the driver recomputes QSL FR-357's artifact-only `sha256-jcs` `DigestRecord` from all staged `(path, bytes)` entries exposed by the CG receipt and verifies it against the receipt's attested proof-content identity using the same record version, digest domain, and mapping specified by the merged IR-846 contract. The digest preimage excludes operands, limits, and outcome; the actual typed native outcome is carried separately as the claim. The opaque CG receipt binds the exposed entries, including CG-generated runner files, to the immutable snapshot CG executed; the driver checks its driver-owned entries against retained originals. The driver also compares the receipt's attested request/meter/returned `ScalarLimits` with its privately retained original limits, using the CG meter-limits attestation contract owned by IR-857. Missing or mismatched context, artifact identity, or observation prevents QSL replay evaluation, settlement, and terminal creation. An upstream typed completion refusal is preserved unchanged under the refusal classification contract specified by IR-847. | Planned (TC-016; IR-773 producer; production call-to-generation boundary FR-001-AC-13 through FR-001-AC-16 / IR-879; IR-846 identity mapping, IR-847 refusal classification, IR-857 request/meter/returned `ScalarLimits` attestation, IR-631 replay-conversion consumer, IR-610 E9 integration) |
 | FR-009-AC-8 | For scalar parity, the CG-owned binding converter compares `report.claim()` with the exact claim sent for every report outcome; an absent report or mismatch yields CG FR-032's typed binding refusal with no settlement, which the driver surfaces unchanged and never turns into a terminal. This path remains planned until CG exports the public scalar binding converter; the driver adds no refusal mapping. | Planned (TC-016; IR-610 consumer slice and public CG converter API) |

@@ -24,6 +24,12 @@ driver SHALL not send the package's unbound item set to CG.
   package and determine which requested items it binds.
 - The driver SHALL submit only those bound items to CG's negotiation and
   generation operations.
+- The driver SHALL build the CG request only from the export's bound
+  results, including a bound result with an empty binding set.
+- When the export refuses a requested item, the driver SHALL omit that item
+  from the CG request.
+- When every requested item is refused, the driver SHALL send CG a request
+  with zero items; FR-001 governs an empty request unchanged.
 - Where a required binding is absent, the driver SHALL preserve the typed
   unbound-element refusal defined by the owning QSL contract; it SHALL not
   invent a CG item or silently treat the item as bound.
@@ -35,11 +41,14 @@ driver SHALL not send the package's unbound item set to CG.
 | FR-010-AC-1 | Given a package whose abstraction relation binds a subset of requested items, CG negotiation receives exactly that subset and receives no unbound item. | Test |
 | FR-010-AC-2 | CG generation receives only items that the same admitted relation bound and that negotiation settled for generation. | Test |
 | FR-010-AC-3 | When a binding required for emission is absent, the driver returns the QSL-defined typed unbound-element refusal and sends no unbound item to CG. | Test |
+| FR-010-AC-4 | Given an export that returns a bound result for a clause item A, a refusal for an extent-domain item B over an unbound population, and a bound result with an empty binding set for an item C that references no model element, the CG request carries A and C and not B. | Test |
+| FR-010-AC-5 | When the export refuses every requested item, the driver sends CG a request with zero items. | Test |
 
 ## Dependencies
 
 - [QSL FR-307](ix://agent-ix/quire-spec-language/FR-307) defines the
-  bound-item export and per-item results.
+  bound-item export and per-item results, including the bound-or-refused
+  result kinds in FR-307-AC-6.
   [QSpec FR-353-AC-3](ix://agent-ix/quire-specification/FR-353#FR-353-AC-3)
   owns the per-item unbound refusal, naming each unbound element with its
   owning `DomainPackageRef`;
