@@ -26,8 +26,8 @@ Repeat with an item that QSL requires to be bound but whose binding is absent.
 Partition vector (FR-010-AC-4): bind nothing but the ConfigVersion object
 type, then request three items: A, a clause item reading only ConfigVersion
 fields; B, an item whose extent domain ranges over the unbound ConfigVersion
-population; C, an item referencing no model element. Repeat with nothing
-bound and only B requested alongside a second refused clause item.
+population; C, an item referencing no model element. Repeat with no element
+bound and a clause item and B requested.
 
 Test location: planned QSL-owned cross-repository test, QSL-514.
 
@@ -38,7 +38,9 @@ Test location: planned QSL-owned cross-repository test, QSL-514.
 - No unbound item reaches CG. Where a required binding is absent, the
   driver returns QSL's typed unbound-element refusal.
 - For the partition vector, the export returns A bound, B refused
-  `missing_declaration`/`missing-name`, C bound with an empty binding set;
-  the CG request carries A and C and not B, and B's refusal is reported to
-  the caller. When every item is refused, no item is sent to CG and each
-  refusal is reported.
+  `missing_declaration`/`missing-name`, and C bound with an empty binding
+  set; the CG request carries A and C and not B, and B's refusal is returned
+  unchanged with its population key and `DomainPackageRef`; B receives no
+  terminal record.
+- For the all-refused repeat, the CG request carries zero items and each
+  refusal is returned unchanged.
