@@ -324,10 +324,7 @@ impl Upstream for Recorder {
     > {
         self.calls.borrow_mut().push(Call::ExportBindings);
         if self.export_whole_refusal {
-            return Err(qsl_package::ExportRefusal::Unbound {
-                item: items[0].clone(),
-                elements: Vec::new(),
-            });
+            return Err(fixture_unbound(&items[0]));
         }
         Ok(items
             .iter()
@@ -336,10 +333,7 @@ impl Upstream for Recorder {
                 if self.export_unknown_at == Some(index) {
                     Err(qsl_package::ExportRefusal::UnknownItem { item: item.clone() })
                 } else if self.export_refused_at.contains(&index) {
-                    Err(qsl_package::ExportRefusal::Unbound {
-                        item: item.clone(),
-                        elements: Vec::new(),
-                    })
+                    Err(fixture_unbound(item))
                 } else {
                     Ok(qsl_package::BoundItem {
                         item: item.clone(),
@@ -442,6 +436,23 @@ impl Upstream for Recorder {
         });
         *self.generation_input.borrow_mut() = Some((package.clone(), positions.to_vec()));
         QslCg.generate(package, positions, routed, contexts)
+    }
+}
+
+fn fixture_unbound(
+    item: &qsl_foundation::source::provenance::OccurrenceKey,
+) -> qsl_package::ExportRefusal {
+    qsl_package::ExportRefusal::Unbound {
+        item: item.clone(),
+        elements: vec![qsl_package::UnboundElement {
+            key: qsl_semantics::check::AbstractionKey::Population(
+                qsl_semantics::model::key::DeclarationKey {
+                    package: "test/ir914".to_owned(),
+                    node: "ConfigVersion".to_owned(),
+                },
+            ),
+            package: "test/ir914".to_owned(),
+        }],
     }
 }
 
@@ -951,10 +962,10 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
         driven.item_refusals[0].occurrence,
         *driven.request_items[1].occurrence()
     );
-    assert!(matches!(
+    assert_eq!(
         driven.item_refusals[0].refusal,
-        qsl_package::ExportRefusal::Unbound { .. }
-    ));
+        fixture_unbound(driven.request_items[1].occurrence()),
+    );
     assert!(driven
         .generation
         .items
