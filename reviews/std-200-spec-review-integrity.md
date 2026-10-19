@@ -54,3 +54,9 @@ bindings:
 ## Verdict
 
 Not mergeable until FR-010-AC-4 is added (base SR-6005 FND-001). Once it is, these index rows become correct as written. Tooling limitation: neither `quire validate` nor `quoin matrix` flags an index or TC reference to an undefined AC id, so a green `make spec` does not show that the traceability is sound.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-010-AC-4 now exists in the FR-010 AC table (6c53d9f). The spec/tests.md rows (lines 86 and 132) and TC-017's Scope line and vector label all resolve to it. `quoin matrix` lists FR-010-AC-4, and `make spec` exits 0. |

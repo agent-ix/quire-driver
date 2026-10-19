@@ -27,13 +27,9 @@ driver SHALL not send the package's unbound item set to CG.
 - The driver SHALL build the CG request only from the export's bound
   results, including a bound result with an empty binding set.
 - When the export refuses a requested item, the driver SHALL omit that item
-  from the CG request and SHALL return the export's typed refusal for that
-  item unchanged in the driver's typed-refusal output, as FR-009 states for
-  a refusal before per-item settlement. A refused item never reaches
-  per-item settlement, so it receives no FR-331 terminal record; FR-009's
-  one-record guarantee applies to the bound items that do.
-- When every requested item is refused, the CG request carries zero items;
-  FR-001 governs an empty request unchanged.
+  from the CG request.
+- When every requested item is refused, the driver SHALL send CG a request
+  with zero items; FR-001 governs an empty request unchanged.
 - Where a required binding is absent, the driver SHALL preserve the typed
   unbound-element refusal defined by the owning QSL contract; it SHALL not
   invent a CG item or silently treat the item as bound.
@@ -45,7 +41,8 @@ driver SHALL not send the package's unbound item set to CG.
 | FR-010-AC-1 | Given a package whose abstraction relation binds a subset of requested items, CG negotiation receives exactly that subset and receives no unbound item. | Test |
 | FR-010-AC-2 | CG generation receives only items that the same admitted relation bound and that negotiation settled for generation. | Test |
 | FR-010-AC-3 | When a binding required for emission is absent, the driver returns the QSL-defined typed unbound-element refusal and sends no unbound item to CG. | Test |
-| FR-010-AC-4 | Given an export that returns a bound result for a clause item A, a refusal for an extent-domain item B over an unbound population, and a bound result with an empty binding set for an item C that references no model element, the CG request carries A and C and not B, B's refusal is returned unchanged with its population key and `DomainPackageRef`, and B receives no terminal record. | Test |
+| FR-010-AC-4 | Given an export that returns a bound result for a clause item A, a refusal for an extent-domain item B over an unbound population, and a bound result with an empty binding set for an item C that references no model element, the CG request carries A and C and not B. | Test |
+| FR-010-AC-5 | When the export refuses every requested item, the driver sends CG a request with zero items. | Test |
 
 ## Dependencies
 

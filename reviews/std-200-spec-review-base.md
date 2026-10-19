@@ -134,3 +134,19 @@ bindings: []
 ## Verdict
 
 Not mergeable. FND-001 (high) means the requirement the ticket asks for does not exist. FND-002 needs an owner decision or a reword to the derived reading. Everything else checked is consistent: the vector against QSL FR-307-AC-1/AC-6 and TC-1082, extending FR-010 instead of adding an FR, the cross-repository reference style, and the behaviour-not-changelog wording.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | low | No AC covers the all-refused rule ("the CG request carries zero items"). TC-017's all-refused repeat asserts it under FR-010-AC-4, whose text covers only the A/B/C vector. | spec/functional/FR-010-send-only-bound-items-to-codegen.md:35-36; spec/test-cases/TC-017-only-bound-items-reach-codegen.md:45-46 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Fix 6c53d9f adds the FR-010-AC-4 row (Test) to the AC table. `quoin matrix` now lists FR-010-AC-1..AC-4. |
+| FND-002 | fixed | "Send nothing" is dropped. FR-010 now states the derived rule, "the CG request carries zero items; FR-001 governs an empty request unchanged", which adds no new driver rule, and TC-017 matches. |
+| FND-003 | still-open | Half fixed: B's terminal-record status is now stated. Still open: (a) FR-010 sends B's refusal to "the driver's typed-refusal output, as FR-009 states for a refusal before per-item settlement". That FR-009 output (`DriverRefusal`) is a request-level alternative to a completed `Driven`, and the A/B/C run does reach settlement for A and C, so no stated output carries both A/C's terminal records and B's refusal. (b) FR-010 narrows FR-009's "exactly one FR-331 terminal record for each requested item" to bound items, but FR-009's own text is unchanged and still contradicts it. Name a per-item refusal member of the completed result (an owner/design call if it is new), and amend FR-009's guarantee to the items in the CG request. |
+| FND-004 | fixed | The duplicate FR-307-AC-6 Dependencies bullet is removed and folded into the first bullet. The new refusal bullet now covers the export's per-item refusal. The remaining absent-binding bullet adds the separate "never invent a CG item" obligation. |
+| FND-005 | fixed | The repeat now reads "with no element bound and a clause item and B requested", mirroring TC-1082 step 1. The expected result asserts that the refusal is returned unchanged, with its population key and `DomainPackageRef`. |

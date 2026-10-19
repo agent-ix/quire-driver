@@ -49,3 +49,15 @@ bindings: []
 ## Verdict
 
 The statement is EARS-conformant apart from FND-001. Suggested split: "The driver SHALL build the CG request only from the QSL FR-307 export's bound results, including bound results with an empty binding set." and "When the export refuses a requested item, the driver SHALL omit that item from the CG request and SHALL return its refusal unchanged in <named output>." The named output depends on base FND-003.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | low | The all-refused bullet is worded as a statement of fact ("the CG request carries zero items") with no SHALL, so EARS does not read it as a requirement. Use "When every requested item is refused, the driver SHALL send CG a request with zero items." | spec/functional/FR-010-send-only-bound-items-to-codegen.md:35-36 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Split into a ubiquitous bullet ("SHALL build the CG request only from the export's bound results ...") and an event-driven one ("When the export refuses a requested item, the driver SHALL omit ... and SHALL return ..."). The parenthetical restating FR-307 is gone. |
