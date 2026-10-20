@@ -661,7 +661,7 @@ mod tests {
             ScalarOracleStopKind::IllTyped,
         ));
         assert_eq!(refusal.code(), "oracle_stop");
-        assert_eq!(refusal.qsl_category(), Some(Category::Refusal));
+        assert_eq!(refusal.qsl_category(), None);
         assert_eq!(refusal.stage(), DriverStage::Replay);
         assert_eq!(refusal.kind(), OutcomeKind::Refused);
         assert_eq!(

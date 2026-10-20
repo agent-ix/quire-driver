@@ -23,6 +23,23 @@ use quire_exact::Cancel;
 use crate::handoff::handoff;
 use crate::{AdmittedRegistry, DriverFault, DriverRefusal, Upstream};
 
+macro_rules! native_limit_fields_match {
+    ($left:expr, $right:expr) => {{
+        let left = $left;
+        let right = $right;
+        left.integer_bits == right.integer_bits
+            && left.decimal_digits == right.decimal_digits
+            && left.scale_expansion == right.scale_expansion
+            && left.text_input_bytes == right.text_input_bytes
+            && left.text_scalars == right.text_scalars
+            && left.normalized_scalars == right.normalized_scalars
+            && left.unit_edges == right.unit_edges
+            && left.value_occurrences == right.value_occurrences
+            && left.work_units == right.work_units
+            && left.result_units == right.result_units
+    }};
+}
+
 /// The unit to compile, and the inputs QSL's typed lifecycle takes with it.
 #[derive(Clone, Debug)]
 pub struct CompileInput<'a> {
@@ -131,7 +148,17 @@ pub struct Driven {
     /// ran; a caller writes it as `claim-map.json`.
     pub generation: RoutedGeneration,
     /// Each native scalar execution, keyed to the exact routed request item.
-    pub scalar_executions: Vec<ScalarExecution>,
+    scalar_executions: Vec<ScalarExecution>,
+}
+
+impl Driven {
+    /// Native scalar executions retained for later replay composition.
+    ///
+    /// The collection is read-only so callers cannot detach or replace a
+    /// verified execution context after the driver has authenticated it.
+    pub fn scalar_executions(&self) -> &[ScalarExecution] {
+        &self.scalar_executions
+    }
 }
 
 /// The call, occurrence binding, and CG's same-artifact native receipt for a
@@ -139,21 +166,63 @@ pub struct Driven {
 /// not settle or replay the outcome.
 pub struct ScalarExecution {
     /// The driver's original request index.
-    pub request_index: usize,
+    request_index: usize,
     /// The exact QSL call cloned from the caller's input.
-    pub call: Call,
+    call: Call,
     /// The object environment used by the same QSL binding call.
-    pub environment: ObjectEnvironment,
+    environment: ObjectEnvironment,
     /// The caller's original cancellation handle, shared with QSL and CG.
-    pub cancel: Cancel,
+    cancel: Cancel,
     /// Exact QSL replay limits retained alongside the native observation.
-    pub replay_limits: qsl_replay::ReplayLimits,
+    replay_limits: qsl_replay::ReplayLimits,
     /// The QSL requirement occurrence selected for this routed item.
-    pub occurrence: ScalarOccurrence,
+    occurrence: ScalarOccurrence,
     /// Concrete QSL-bound operands in the generated harness argument order.
-    pub operands: qsl_replay::spine::BoundScalarOperands,
+    operands: qsl_replay::spine::BoundScalarOperands,
     /// CG's opaque proof/native receipt for the executed immutable snapshot.
-    pub receipt: Option<cg::KaniScalarNativeReceipt>,
+    receipt: Option<cg::KaniScalarNativeReceipt>,
+}
+
+impl ScalarExecution {
+    /// Original request index associated with this execution.
+    pub fn request_index(&self) -> usize {
+        self.request_index
+    }
+
+    /// The exact caller call retained during binding and native execution.
+    pub fn call(&self) -> &Call {
+        &self.call
+    }
+
+    /// Object environment retained during binding.
+    pub fn environment(&self) -> &ObjectEnvironment {
+        &self.environment
+    }
+
+    /// Shared cancellation handle used for the request and native execution.
+    pub fn cancel(&self) -> &Cancel {
+        &self.cancel
+    }
+
+    /// Caller replay limits retained with this execution.
+    pub fn replay_limits(&self) -> qsl_replay::ReplayLimits {
+        self.replay_limits
+    }
+
+    /// Exact occurrence selected for this request item.
+    pub fn occurrence(&self) -> &ScalarOccurrence {
+        &self.occurrence
+    }
+
+    /// QSL-bound operands in generated harness order.
+    pub fn operands(&self) -> &qsl_replay::spine::BoundScalarOperands {
+        &self.operands
+    }
+
+    /// CG's opaque receipt, when native execution was requested.
+    pub fn receipt(&self) -> Option<&cg::KaniScalarNativeReceipt> {
+        self.receipt.as_ref()
+    }
 }
 
 impl std::fmt::Debug for ScalarExecution {
@@ -340,7 +409,13 @@ fn execute_scalar_items(
                 target_directory: native.target_directory,
             })
             .map_err(DriverRefusal::ScalarNative)?;
-            verify_native_receipt(&receipt, artifacts, harness, &operand_values, scalar.call)?;
+            verify_native_receipt(
+                &receipt,
+                artifacts,
+                harness,
+                &operand_values,
+                scalar.call.accounting,
+            )?;
             Some(receipt)
         } else {
             None
@@ -378,14 +453,9 @@ fn verify_native_receipt(
     artifacts: &[cg::Artifact],
     harness: &cg::KaniScalarObligationHarness,
     operands: &[i64],
-    call: &Call,
+    retained_limits: qsl_replay::ScalarLimits,
 ) -> Result<(), DriverRefusal> {
-    let expected_limits = native_scalar_limits(call.accounting);
-    if !native_limits_match(
-        receipt.scalar_limits(),
-        receipt.meter_observation().limits(),
-        &expected_limits,
-    ) {
+    if !native_limits_match(receipt, &retained_limits) {
         return Err(DriverRefusal::Fault(
             DriverFault::NativeExecutionLimitsMismatch,
         ));
@@ -401,11 +471,12 @@ fn verify_native_receipt(
 }
 
 fn native_limits_match(
-    request: &quire_contract_runtime::exact::ScalarLimits,
-    meter: &quire_contract_runtime::exact::ScalarLimits,
-    retained: &quire_contract_runtime::exact::ScalarLimits,
+    receipt: &cg::KaniScalarNativeReceipt,
+    retained: &qsl_replay::ScalarLimits,
 ) -> bool {
-    request == retained && meter == retained
+    let returned = receipt.scalar_limits();
+    let meter = receipt.meter_observation().limits();
+    native_limit_fields_match!(returned, retained) && native_limit_fields_match!(meter, retained)
 }
 
 /// QSL and CG's public `ScalarLimits` are distinct crate types. The fieldwise
@@ -425,6 +496,13 @@ fn native_scalar_limits(
         work_units: limits.work_units,
         result_units: limits.result_units,
     }
+}
+
+fn qsl_limit_fields_match(
+    left: &qsl_replay::ScalarLimits,
+    right: &qsl_replay::ScalarLimits,
+) -> bool {
+    native_limit_fields_match!(left, right)
 }
 
 fn receipt_driver_bytes_match(
@@ -698,10 +776,7 @@ fn contract_occurrence(
 
 #[cfg(test)]
 mod scalar_receipt_tests {
-    use super::{
-        driver_entries_match, native_limits_match, native_scalar_limits,
-        recompute_proof_content_digest,
-    };
+    use super::{driver_entries_match, qsl_limit_fields_match, recompute_proof_content_digest};
     use quire_contract_codegen::Artifact;
 
     #[test]
@@ -738,12 +813,20 @@ mod scalar_receipt_tests {
         ])
         .is_none());
         assert!(recompute_proof_content_digest(&[("a".to_owned(), vec![0xff])]).is_none());
+        let mut changed = entries.clone();
+        changed[0].1.push(b'!');
+        let (changed_identity, _) = recompute_proof_content_digest(&changed)
+            .expect("mutated staged bytes remain valid UTF-8");
+        assert_ne!(
+            identity, changed_identity,
+            "every staged entry is identity-bound"
+        );
     }
 
     #[test]
-    fn native_receipt_limits_must_match_retained_limits_for_request_and_meter() {
-        let retained = native_scalar_limits(qsl_replay::spine::default_accounting(1_000_000));
-        assert!(native_limits_match(&retained, &retained, &retained));
+    fn every_named_limit_is_checked_against_the_retained_qsl_value() {
+        let retained = qsl_replay::spine::default_accounting(1_000_000);
+        assert!(qsl_limit_fields_match(&retained, &retained));
         for field in 0..10 {
             let mut changed = retained;
             match field {
@@ -759,8 +842,7 @@ mod scalar_receipt_tests {
                 9 => changed.result_units += 1,
                 _ => unreachable!("loop ranges over the ten named limits"),
             }
-            assert!(!native_limits_match(&changed, &retained, &retained));
-            assert!(!native_limits_match(&retained, &changed, &retained));
+            assert!(!qsl_limit_fields_match(&changed, &retained));
         }
     }
 
@@ -798,6 +880,161 @@ mod scalar_receipt_tests {
             "harness source",
             "kani-obligations/example.json",
             "record",
+        ));
+    }
+}
+
+#[cfg(test)]
+mod native_receipt_integration_tests {
+    use super::*;
+    use qsl_replay::spine::{default_accounting, CallArgument};
+    use qsl_route::ManifestDigest;
+    use qsl_semantics::value::{CatalogRole, DefinitionLock};
+    use quire_contract_codegen::{KaniInstallation, ProofCeilings};
+    use quire_exact::{Integer, Value};
+    use std::num::NonZeroU64;
+
+    /// This Kani-lane test obtains a genuine successful receipt through the
+    /// production driver call, then checks the driver's L0 comparison against
+    /// a distinct retained context.
+    /// Trace: FR-009-AC-12, TC-016.
+    #[test]
+    #[ignore = "kani lane: paired proof/native execution uses the installed Kani backend"]
+    fn successful_native_receipt_is_authenticated_against_retained_limits() {
+        let lock = DefinitionLock::pinned();
+        let root = lock.entry(CatalogRole::Root);
+        let source = format!(
+            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
+             function inc using v(x: Int[0, 9]): Int[0, 10] pure {{ x + 1 }}\n",
+            root.identity
+        );
+        let packages = BTreeMap::new();
+        let cancel = Cancel::new();
+        let call = Call {
+            function: "inc".to_owned(),
+            arguments: vec![CallArgument {
+                parameter: "x".to_owned(),
+                value: Value::Integer(Integer::from(4_i64)),
+            }],
+            accounting: default_accounting(1_000_000),
+            supplied: Default::default(),
+        };
+        let environment = ObjectEnvironment::default();
+        let installation = KaniInstallation::discover().expect("cargo-kani is installed");
+        let target_directory = std::path::PathBuf::from(
+            std::env::var_os("CARGO_TARGET_TMPDIR")
+                .expect("cargo test provides its temporary target"),
+        )
+        .join(format!("ir773-native-receipt-{}", std::process::id()));
+        let registry = crate::build_registry(&[crate::ProviderManifest {
+            identity: "agent-ix/provider/kani-test".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([7; 32]),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
+            wire: None,
+        }])
+        .expect("the Kani provider registers");
+        let generation = GenerationInput {
+            kani: Some(KaniInput {
+                ceilings: ProofCeilings {
+                    memory_bytes: NonZeroU64::new(64 * 1024 * 1024).expect("positive limit"),
+                    wall_clock: std::time::Duration::from_secs(60),
+                },
+                subject_path: "crate::subject",
+                unwind: 1,
+            }),
+            scalar_execution: Some(ScalarExecutionInput {
+                call: &call,
+                replay_limits: qsl_replay::ReplayLimits::default(),
+                environment: &environment,
+                native: Some(ScalarNativeInput {
+                    installation: &installation,
+                    target_directory: &target_directory,
+                }),
+            }),
+        };
+        let driven = drive(
+            &QslCg,
+            CompileInput {
+                source: SourceIdentity::new("agent-ix", "ir-773", "native-receipt", "1"),
+                path: "native-receipt.native",
+                bytes: source.as_bytes(),
+                packages: &packages,
+                limits: SpineLimits::default(),
+                cancel: cancel.clone(),
+            },
+            &registry,
+            None,
+            generation,
+        )
+        .expect("native proof and receipt succeed");
+
+        let execution = driven
+            .scalar_executions()
+            .first()
+            .expect("the routed scalar was executed");
+        let receipt = execution.receipt().expect("the native receipt is retained");
+        assert_eq!(receipt.operands(), [4, 1]);
+        assert!(native_limits_match(receipt, &call.accounting));
+        assert!(matches!(
+            receipt.native_outcome(),
+            quire_contract_runtime::exact::Outcome::Completed(_)
+        ));
+        assert!(receipt_digest_matches(receipt));
+        let mut changed_artifacts = driven
+            .generation
+            .oracle_artifacts
+            .as_ref()
+            .expect("the routed generation retains its oracle artifacts")
+            .clone();
+        let changed = changed_artifacts
+            .first_mut()
+            .expect("the generated oracle package is non-empty");
+        changed.contents.push('!');
+        assert!(!receipt_driver_bytes_match(
+            receipt.staged_entries(),
+            &changed_artifacts,
+            match &driven.generation.items[0].output {
+                cg::KindOutput::Kani {
+                    harness: Some(harness),
+                    ..
+                } => harness,
+                _ => panic!("the routed scalar generated a Kani harness"),
+            }
+        ));
+
+        let mut different_original_limits = call.accounting;
+        different_original_limits.result_units += 1;
+        let harness = match &driven.generation.items[0].output {
+            cg::KindOutput::Kani {
+                harness: Some(harness),
+                ..
+            } => harness,
+            _ => panic!("the routed scalar generated a Kani harness"),
+        };
+        let artifacts = driven
+            .generation
+            .oracle_artifacts
+            .as_deref()
+            .expect("the routed generation retains its oracle artifacts");
+        let refusal = verify_native_receipt(
+            receipt,
+            artifacts,
+            harness,
+            execution.operands().values().as_slice(),
+            different_original_limits,
+        )
+        .expect_err("a successful L1 receipt cannot be accepted against retained L0");
+        assert_eq!(refusal.stage(), crate::DriverStage::Replay);
+        assert_eq!(refusal.code(), "runtime_invariant");
+        assert_eq!(refusal.kind(), crate::OutcomeKind::Fault);
+        assert!(matches!(
+            refusal,
+            DriverRefusal::Fault(DriverFault::NativeExecutionLimitsMismatch)
         ));
     }
 }

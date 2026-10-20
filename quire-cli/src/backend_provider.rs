@@ -895,6 +895,7 @@ mod tests {
         ) -> Result<
             (
                 qsl_replay::spine::CheckedUnit,
+                qsl_replay::spine::AdmittedModels,
                 qsl_replay::spine::EmittedUnit,
             ),
             DriverRefusal,
