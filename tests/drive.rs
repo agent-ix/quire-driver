@@ -23,12 +23,14 @@ use qsl_foundation::diagnostic::Category;
 use qsl_foundation::BackendId;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
-    check, package, parse, select, CheckedUnit, CompileRefusal, DependencyInput, EmittedUnit,
-    LockEvidence, PackageLimits, ParseRequest, SpineLimits, SpineStage,
+    check, default_accounting, package, parse, select, Call as QslCall, CallArgument, CheckedUnit,
+    CompileRefusal, DependencyInput, EmittedUnit, LockEvidence, PackageLimits, ParseRequest,
+    SpineLimits, SpineStage,
 };
 use qsl_replay::DomainKind;
 use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{Candidate, ManifestDigest, RegistrationCause};
+use qsl_semantics::model::object_environment::ObjectEnvironment;
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_contract_codegen::{
     generate_routed, BackendDescriptor, BackendKind, BackendProviderEnvelope, Candidates, Cause,
@@ -44,9 +46,9 @@ use quire_contract_model::{
 use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
     GenerationInput, KaniInput, KaniProvider, OutcomeKind, Provider, ProviderItemFailure,
-    ProviderLimits, ProviderManifest, ProviderRequest, QslCg, Upstream,
+    ProviderLimits, ProviderManifest, ProviderRequest, QslCg, ScalarExecutionInput, Upstream,
 };
-use quire_exact::{Cancel, CancelCause};
+use quire_exact::{Cancel, CancelCause, Integer, Value};
 
 /// A unit: the `ix:native` header, the `v` profile selecting QSL's own
 /// `DefinitionLock` root row (read from QSL, never copied here), then `body`.
@@ -351,7 +353,7 @@ impl Upstream for Recorder {
         packages: &BTreeMap<[u8; 32], Vec<u8>>,
         limits: SpineLimits,
         cancel: &Cancel,
-    ) -> Result<(CheckedUnit, EmittedUnit), DriverRefusal> {
+    ) -> Result<(CheckedUnit, qsl_replay::spine::AdmittedModels, EmittedUnit), DriverRefusal> {
         self.calls.borrow_mut().push(Call::Compile);
         QslCg.compile(source, path, bytes, packages, limits, cancel)
     }
@@ -780,10 +782,10 @@ fn tc_019_e5_receives_source_provision_and_checked_unit_retains_bounded_root() {
     assert_eq!(provision.len(), 1, "only the root source was emitted");
     assert_eq!(provision[0].0, source);
     assert_eq!(provision[0].1.as_bytes(), source_text.as_bytes());
-    assert_eq!(driven.package.source().identity(), &provision[0].0);
-    assert_eq!(driven.package.source().text(), provision[0].1);
-    assert!(driven.package.source().text().len() <= limits.source.source_bytes);
-    assert!(driven.package.libraries().is_empty());
+    assert_eq!(driven.package().source().identity(), &provision[0].0);
+    assert_eq!(driven.package().source().text(), provision[0].1);
+    assert!(driven.package().source().text().len() <= limits.source.source_bytes);
+    assert!(driven.package().libraries().is_empty());
     assert_eq!(recorder.calls()[..2], [Call::Compile, Call::ReadPackage]);
 }
 
@@ -893,6 +895,7 @@ fn kani_input() -> GenerationInput<'static> {
             subject_path: "crate::subject",
             unwind: 1,
         }),
+        scalar_execution: None,
     }
 }
 
@@ -984,7 +987,7 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
         fixture_unbound(driven.request_items[1].occurrence()),
     );
     assert!(driven
-        .generation
+        .generation()
         .items
         .iter()
         .all(|item| item.request_index != 1));
@@ -1010,7 +1013,7 @@ fn all_export_refusals_send_nothing_to_cg() {
     .expect("all per-item refusals complete the run");
     assert_eq!(driven.item_refusals.len(), 3);
     assert!(driven.settlements.is_empty());
-    assert!(driven.generation.items.is_empty());
+    assert!(driven.generation().items.is_empty());
     assert!(!recorder
         .calls()
         .iter()
@@ -1079,14 +1082,15 @@ fn direct_generation(
         .map(|item| {
             let selection = positions
                 .iter()
-                .filter_map(|position| match position {
+                .filter(|position| !matches!(position, ContractRequestPosition::ContextRoot { .. }))
+                .nth(item.request_index)
+                .and_then(|position| match position {
                     ContractRequestPosition::DriverItem {
                         result_selection, ..
                     } => Some(result_selection),
-                    ContractRequestPosition::Excluded { .. } => None,
-                    ContractRequestPosition::ContextRoot { .. } => None,
+                    ContractRequestPosition::Excluded { .. }
+                    | ContractRequestPosition::ContextRoot { .. } => None,
                 })
-                .nth(item.request_index)
                 .expect("the request index has an explicit lowering position")
                 .clone();
             item.with_scalar_selection(&package, selection)
@@ -1160,7 +1164,7 @@ fn tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order() {
 /// from `CheckedGraph::requirements()` -- no item is supplied by this test.
 #[test]
 fn tc_001_tc_006_steps_run_in_order_through_generation() {
-    let checked = negate_package().checked;
+    let checked = negate_package().checked().clone();
     let neg = expression_by_identity(&checked, "quire.op.integer.negate");
 
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
@@ -1178,12 +1182,16 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     .expect("the run completes");
 
     // E4 emitted v2 bytes; E5 admitted them at the emitted `package_id`.
-    assert!(!driven.emitted.bytes().is_empty());
+    assert!(!driven.emitted().bytes().is_empty());
     assert_eq!(
-        driven.checked.package_id().digest.as_ref(),
-        driven.emitted.package_id().hex()
+        driven.checked().package_id().digest.as_ref(),
+        driven.emitted().package_id().hex()
     );
-    assert_eq!(driven.checked, checked, "the same unit, the same package");
+    assert_eq!(
+        driven.checked(),
+        &checked,
+        "the same unit, the same package"
+    );
 
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
@@ -1221,10 +1229,10 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
         },
     )
     .expect("CG generates for the routed item");
-    assert_eq!(driven.generation, expected);
-    assert_eq!(driven.generation.items.len(), 1);
-    assert_eq!(driven.generation.items[0].request_index, 0);
-    assert_eq!(driven.generation.items[0].backend, backend);
+    assert_eq!(driven.generation(), &expected);
+    assert_eq!(driven.generation().items.len(), 1);
+    assert_eq!(driven.generation().items[0].request_index, 0);
+    assert_eq!(driven.generation().items[0].backend, backend);
     // QSL-261 is resolved by IR-296 and IR-297; IR-298 then makes CG
     // identify each bound role by what the node itself names: an operand's
     // bound is the `bounded_domain` typing it, and the result bound is the
@@ -1236,10 +1244,10 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     // runs at all). `INT_UNIT`'s `x + 1` and `TWO_PARAM_UNIT`'s `x + y` are
     // the two-operand cases IR-302 fixes (see `tc_006_x_plus_1_settles_supported`
     // and `tc_006_x_plus_y_settles_supported_with_independent_argument_bounds`).
-    let KindOutput::Kani { record, harness } = &driven.generation.items[0].output else {
+    let KindOutput::Kani { record, harness } = &driven.generation().items[0].output else {
         panic!(
             "expected Kani output, got {:?}",
-            driven.generation.items[0].output
+            driven.generation().items[0].output
         );
     };
     assert!(
@@ -1263,7 +1271,7 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     // FR-001-AC-8 (IR-294): the Kani group derived a claim map, which holds
     // the routed node with a generated claim.
     let claim_map = driven
-        .generation
+        .generation()
         .claim_map
         .as_ref()
         .expect("a Kani group ran, so a claim map is derived");
@@ -1395,7 +1403,7 @@ fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
     );
 
     assert!(driven.routed.is_empty());
-    assert_eq!(driven.generation, RoutedGeneration::default());
+    assert_eq!(driven.generation(), &RoutedGeneration::default());
     let calls = recorder.calls();
     assert!(
         !calls
@@ -1494,7 +1502,7 @@ fn tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_un
 /// answer through unchanged either way.
 #[test]
 fn tc_006_x_plus_1_generation_passes_through_unchanged() {
-    let checked = int_package().checked;
+    let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -1515,7 +1523,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
     assert_eq!(
         envelope.items[0].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked.clone()),
+            package: Box::new(driven.checked().clone()),
             contract: Box::new(contract.clone()),
             positions: positions.clone(),
             request_index: 0,
@@ -1537,7 +1545,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
         },
     )
     .expect("CG generates for the routed item");
-    assert_eq!(driven.generation, expected);
+    assert_eq!(driven.generation(), &expected);
 }
 
 /// Trace: FR-001-AC-12.
@@ -1545,7 +1553,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
 /// selected requirement node, even when later CG settlement does not route it.
 #[test]
 fn tc_006_kani_form_projects_exact_package_and_selected_node() {
-    let checked = int_package().checked;
+    let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -1567,7 +1575,7 @@ fn tc_006_kani_form_projects_exact_package_and_selected_node() {
     assert_eq!(
         envelope.items[0].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked.clone()),
+            package: Box::new(driven.checked().clone()),
             contract: Box::new(contract),
             positions,
             request_index: 0,
@@ -1598,12 +1606,12 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
 
     assert_eq!(driven.routed.len(), 2, "only the two add occurrences route");
     assert_eq!(
-        driven.generation.items.len(),
+        driven.generation().items.len(),
         2,
         "CG emits two request items"
     );
 
-    let qsl_requirements = driven.package.package().graph().requirements();
+    let qsl_requirements = driven.package().package().graph().requirements();
     let expected_contexts = qsl_requirements
         .iter()
         .filter_map(|(application, requirement)| {
@@ -1636,14 +1644,15 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
         };
         let expected_node = positions
             .iter()
-            .filter_map(|position| match position {
-                ContractRequestPosition::DriverItem { node_id, .. } => Some(node_id),
-                ContractRequestPosition::Excluded { .. } => None,
-                ContractRequestPosition::ContextRoot { .. } => None,
-            })
+            .filter(|position| !matches!(position, ContractRequestPosition::ContextRoot { .. }))
             .nth(request_index)
+            .and_then(|position| match position {
+                ContractRequestPosition::DriverItem { node_id, .. } => Some(node_id),
+                ContractRequestPosition::Excluded { .. }
+                | ContractRequestPosition::ContextRoot { .. } => None,
+            })
             .expect("each request has a lowered driver position");
-        assert_eq!(package.as_ref(), &driven.checked);
+        assert_eq!(package.as_ref(), driven.checked());
         assert_eq!(contract.as_ref(), &lowered);
         assert_eq!(form_positions, &positions);
         assert_eq!(*form_index, request_index);
@@ -1719,7 +1728,179 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
         },
     )
     .expect("CG generates each routed occurrence with its own context");
-    assert_eq!(driven.generation, expected);
+    assert_eq!(driven.generation(), &expected);
+}
+
+/// Trace: FR-001-AC-13, FR-001-AC-14, FR-001-AC-15, FR-001-AC-16, FR-009-AC-13, TC-006.
+/// Provenance: QSL RR-16.
+#[test]
+fn tc_006_rr16_binds_each_exact_occurrence_to_its_generated_item() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let cancel = Cancel::new();
+    let mut compile = rr16_input(&packages);
+    compile.cancel = cancel.clone();
+    let call = QslCall {
+        function: "f".to_owned(),
+        arguments: vec![CallArgument {
+            parameter: "x".to_owned(),
+            value: Value::Integer(Integer::from(3_i64)),
+        }],
+        accounting: default_accounting(1_000_000),
+        supplied: Default::default(),
+    };
+    let environment = ObjectEnvironment::default()
+        .with_population_sizes(BTreeMap::from([("rr16-marker".to_owned(), 2)]));
+    let mut generation = kani_input();
+    generation.scalar_execution = Some(ScalarExecutionInput {
+        call: &call,
+        replay_limits: qsl_replay::ReplayLimits::default(),
+        environment: &environment,
+        native: None,
+    });
+
+    let recorder = Recorder::default();
+    let driven = drive(&recorder, compile, &registry, None, generation)
+        .expect("the production driver binds and generates both scalar occurrences");
+
+    assert_eq!(driven.routed.len(), 2);
+    assert_eq!(driven.scalar_executions().len(), 2);
+    let first = &driven.scalar_executions()[0];
+    let second = &driven.scalar_executions()[1];
+    assert_eq!((first.request_index(), second.request_index()), (0, 1));
+    for retained in [first.call(), second.call()] {
+        assert_eq!(retained.function, call.function);
+        assert_eq!(retained.arguments.len(), call.arguments.len());
+        assert_eq!(retained.arguments[0].parameter, call.arguments[0].parameter);
+        assert_eq!(
+            format!("{:?}", retained.arguments[0].value),
+            format!("{:?}", call.arguments[0].value)
+        );
+        assert_eq!(
+            format!("{:?}", retained.accounting),
+            format!("{:?}", call.accounting)
+        );
+        assert_eq!(retained.supplied, call.supplied);
+    }
+    assert_eq!(first.environment().population_size("rr16-marker"), Some(2));
+    assert_eq!(second.environment().population_size("rr16-marker"), Some(2));
+    assert_eq!(first.cancel(), &cancel);
+    assert_eq!(second.cancel(), &cancel);
+    assert_eq!(first.call().function, "f");
+    assert_eq!(second.call().function, "f");
+    assert_eq!(first.replay_limits(), qsl_replay::ReplayLimits::default());
+    assert_eq!(second.replay_limits(), qsl_replay::ReplayLimits::default());
+    assert_eq!(first.operands().values(), [3, 1]);
+    assert_eq!(second.operands().values(), [3, 1]);
+    for (execution, generated) in [first, second].into_iter().zip(&driven.generation().items) {
+        let quire_contract_codegen::KindOutput::Kani {
+            harness: Some(harness),
+            ..
+        } = &generated.output
+        else {
+            panic!("each routed RR-16 item has a scalar harness");
+        };
+        assert_eq!(generated.request_index, execution.request_index());
+        assert_eq!(
+            execution.operands().operands().len(),
+            harness.identity.arguments.len()
+        );
+        for (ordinal, (operand, argument)) in execution
+            .operands()
+            .operands()
+            .iter()
+            .zip(&harness.identity.arguments)
+            .enumerate()
+        {
+            assert_eq!(operand.ordinal, ordinal as u64);
+            assert_eq!(operand.range.lower, i128::from(argument.minimum));
+            assert_eq!(operand.range.upper, i128::from(argument.maximum));
+        }
+    }
+    assert_ne!(
+        first.occurrence().occurrence,
+        second.occurrence().occurrence
+    );
+    assert_eq!(first.operands().occurrence(), first.occurrence());
+    assert_eq!(second.operands().occurrence(), second.occurrence());
+    assert!(first.receipt().is_none() && second.receipt().is_none());
+
+    let calls = recorder.calls();
+    assert_eq!(
+        calls.iter().filter(|call| **call == Call::Compile).count(),
+        1
+    );
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| **call == Call::ReadPackage)
+            .count(),
+        1
+    );
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| matches!(call, Call::Generate { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(
+        driven.checked().package_id().digest.as_ref(),
+        driven.emitted().package_id().hex(),
+        "the one IR admission is for the exact emitted package"
+    );
+
+    let selections = driven
+        .generation()
+        .items
+        .iter()
+        .map(|item| item.request_index)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        selections,
+        [0, 1],
+        "context roots do not shift routed indices"
+    );
+}
+
+/// Trace: FR-001-AC-16, FR-009-AC-13, TC-006.
+#[test]
+fn tc_006_no_selected_scalar_item_skips_binding_and_native_execution() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let call = QslCall {
+        function: "f".to_owned(),
+        arguments: Vec::new(),
+        accounting: default_accounting(1_000_000),
+        supplied: Default::default(),
+    };
+    let environment = ObjectEnvironment::default();
+    let mut generation = kani_input();
+    generation.scalar_execution = Some(ScalarExecutionInput {
+        call: &call,
+        replay_limits: qsl_replay::ReplayLimits::default(),
+        environment: &environment,
+        native: None,
+    });
+
+    let driven = drive(
+        &QslCg,
+        CompileInput {
+            bytes: UNIT.as_bytes(),
+            ..input(&packages)
+        },
+        &registry,
+        None,
+        generation,
+    )
+    .expect("a source with no scalar requirement runs without scalar fallback");
+
+    assert!(driven.request_items.is_empty());
+    assert!(driven.routed.is_empty());
+    assert!(driven.generation().items.is_empty());
+    assert!(driven.scalar_executions().is_empty());
 }
 
 /// FR-001-AC-6 (TC-006): the driver's generation output for
@@ -1728,7 +1909,7 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
 /// `tc_006_x_plus_1_generation_passes_through_unchanged`.
 #[test]
 fn tc_006_x_plus_y_generation_passes_through_unchanged() {
-    let checked = two_param_package().checked;
+    let checked = two_param_package().checked().clone();
     let add = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -1757,7 +1938,7 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
         },
     )
     .expect("CG generates for the routed item");
-    assert_eq!(driven.generation, expected);
+    assert_eq!(driven.generation(), &expected);
 }
 
 /// FR-001-AC-6 (TC-006), IR-302: `INT_UNIT`'s `+` (`x + 1`) settles
@@ -1768,7 +1949,7 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
 /// the first argument.
 #[test]
 fn tc_006_x_plus_1_settles_supported() {
-    let checked = int_package().checked;
+    let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -1777,10 +1958,10 @@ fn tc_006_x_plus_1_settles_supported() {
     let driven = drive(&QslCg, int_input(&packages), &registry, None, kani_input())
         .expect("the run completes");
 
-    let KindOutput::Kani { record, harness } = &driven.generation.items[0].output else {
+    let KindOutput::Kani { record, harness } = &driven.generation().items[0].output else {
         panic!(
             "expected Kani output, got {:?}",
-            driven.generation.items[0].output
+            driven.generation().items[0].output
         );
     };
     assert!(
@@ -1822,7 +2003,7 @@ fn tc_006_x_plus_1_settles_supported() {
 /// (IR-302), rather than treating it as unreachable.
 #[test]
 fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
-    let checked = two_param_package().checked;
+    let checked = two_param_package().checked().clone();
     let add = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -1838,10 +2019,10 @@ fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
     )
     .expect("the run completes");
 
-    let KindOutput::Kani { record, harness } = &driven.generation.items[0].output else {
+    let KindOutput::Kani { record, harness } = &driven.generation().items[0].output else {
         panic!(
             "expected Kani output, got {:?}",
-            driven.generation.items[0].output
+            driven.generation().items[0].output
         );
     };
     assert!(
@@ -1935,7 +2116,8 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
         GenerationInput::default(),
     )
     .expect("QSL does not discharge a dead branch's coercion, so this compiles")
-    .checked;
+    .checked()
+    .clone();
     let x_bound = integer_range_bound(&checked, "0", "9");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -1952,7 +2134,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
     .expect("the run completes");
 
     assert!(driven.routed.is_empty());
-    assert!(driven.generation.items.is_empty());
+    assert!(driven.generation().items.is_empty());
     assert!(matches!(
         &driven.settlements[0].backend.as_ref().expect("a lowered item settles").disposition,
         Disposition::Unsupported {
@@ -2123,7 +2305,7 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
     let routed_indexes: Vec<usize> = driven.routed.iter().map(|r| r.request_index).collect();
     assert_eq!(routed_indexes, [1]);
     let generated_indexes: Vec<usize> = driven
-        .generation
+        .generation()
         .items
         .iter()
         .map(|item| item.request_index)
@@ -2139,7 +2321,7 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
     // Comparing the whole generation output against a direct `generate_routed`
     // call naming the `-` node at request index 1 catches that: it would
     // disagree with whatever CG derives for the `=` node instead.
-    let neg = expression_by_identity(&driven.checked, "quire.op.integer.negate");
+    let neg = expression_by_identity(driven.checked(), "quire.op.integer.negate");
     let backend = kani_candidate(&driven);
     let expected = direct_generation(
         &recorder,
@@ -2153,7 +2335,7 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
         },
     )
     .expect("CG generates for the `-` item alone");
-    assert_eq!(driven.generation, expected);
+    assert_eq!(driven.generation(), &expected);
 
     assert_eq!(
         recorder.calls(),
@@ -2231,7 +2413,7 @@ fn tc_003_a_unit_with_no_scalar_applications_routes_nothing() {
 
     assert!(driven.settlements.is_empty());
     assert!(driven.routed.is_empty());
-    assert_eq!(driven.generation, RoutedGeneration::default());
+    assert_eq!(driven.generation(), &RoutedGeneration::default());
     let calls = recorder.calls();
     assert!(calls.contains(&Call::Negotiate { items: 0 }));
     assert!(
@@ -2428,7 +2610,8 @@ fn tc_004_e5_identity_and_refusal_are_faults() {
         GenerationInput::default(),
     )
     .expect("UNIT drives")
-    .checked;
+    .checked()
+    .clone();
     let CheckedPackageDispatchResult::Refused(refusal) = quire_contract_model::read_checked_package(
         b"not a JSON document",
         CheckedPackageReadLimits::bounded(),
@@ -2498,8 +2681,8 @@ fn tc_006_e5_admits_text_and_rational_units() {
         )
         .unwrap_or_else(|refusal| panic!("{declaration}: {refusal:?}"));
         assert_eq!(
-            driven.checked.package_id().digest.as_ref(),
-            driven.emitted.package_id().hex(),
+            driven.checked().package_id().digest.as_ref(),
+            driven.emitted().package_id().hex(),
             "{declaration}"
         );
         assert_eq!(recorder.calls()[..2], [Call::Compile, Call::ReadPackage]);
@@ -2512,7 +2695,7 @@ fn tc_006_e5_admits_text_and_rational_units() {
 /// negation remains routable and generates its own claim.
 #[test]
 fn tc_006_typed_form_refusal_preserves_supported_sibling() {
-    let checked = eq_package().checked;
+    let checked = eq_package().checked().clone();
     let eq = expression_by_identity(&checked, "quire.op.integer.eq");
     let neg = expression_by_identity(&checked, "quire.op.integer.negate");
 
@@ -2536,7 +2719,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
     assert_eq!(
         envelope.items[0].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked.clone()),
+            package: Box::new(driven.checked().clone()),
             contract: Box::new(contract.clone()),
             positions: positions.clone(),
             request_index: 0,
@@ -2546,7 +2729,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
     assert_eq!(
         envelope.items[1].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked.clone()),
+            package: Box::new(driven.checked().clone()),
             contract: Box::new(contract),
             positions,
             request_index: 1,
@@ -2570,11 +2753,11 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
 
     assert_eq!(driven.routed.len(), 1);
     assert_eq!(driven.routed[0].request_index, 1);
-    assert_eq!(driven.generation.items.len(), 1);
-    assert!(driven.generation.rejected.is_empty());
+    assert_eq!(driven.generation().items.len(), 1);
+    assert!(driven.generation().rejected.is_empty());
 
     // The sibling's generation output is keyed by its original request index.
-    let neg_item = &driven.generation.items[0];
+    let neg_item = &driven.generation().items[0];
     assert_eq!(neg_item.request_index, 1);
     let KindOutput::Kani { record, harness } = &neg_item.output else {
         panic!("expected Kani output, got {:?}", neg_item.output);
@@ -2620,7 +2803,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
     // Only routed items reach claim generation; the equality item was
     // refused earlier by typed form negotiation.
     let claim_map = driven
-        .generation
+        .generation()
         .claim_map
         .as_ref()
         .expect("a Kani group ran, so a claim map is derived");
@@ -2646,20 +2829,20 @@ fn provider_trait_run_processes_a_selected_item() {
     let packages = BTreeMap::new();
     let driven = drive(&QslCg, int_input(&packages), &registry, None, kani_input())
         .expect("the Kani item is generated");
-    assert_eq!(driven.generation.items.len(), 1);
+    assert_eq!(driven.generation().items.len(), 1);
     let KindOutput::Kani {
         harness: Some(harness),
         ..
-    } = &driven.generation.items[0].output
+    } = &driven.generation().items[0].output
     else {
         panic!("the selected Kani item has a generated harness");
     };
     assert_eq!(harness.identity.ceilings, proof_ceilings());
 
     let provider = KaniProvider::new(manifest("kani", 7, &["value-validity"]));
-    let request = ProviderRequest::new(&driven.generation.items);
+    let request = ProviderRequest::new(&driven.generation().items);
     let results = provider.run(
-        &driven.emitted,
+        driven.emitted(),
         &request,
         &ProviderLimits { kani: None },
         &Cancel::new(),
