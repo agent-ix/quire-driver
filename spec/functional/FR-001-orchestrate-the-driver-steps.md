@@ -228,9 +228,7 @@ the admitted package only at the `package_id` E4 emitted.
   internal fault. A provider manifest that does not register, a spine
   refusal, the unknown-backend refusal, an envelope refusal whose mapping is
   specified, and an export that fails as a whole are refusals. The two CG
-  contract-package reader variants are governed by FR-001-AC-22; their
-  FR-272 code and outcome-kind classification remains pending the QSL
-  FR-272 owner decision. A spine
+  contract-package reader variants are governed by FR-001-AC-22. A spine
   `stage_limit_exceeded` and an IR reader limit are limit refusals. An
   upstream answer that breaks the driver's invariants is an internal fault;
   that includes IR refusing, or admitting at another `package_id`, the bytes
@@ -284,13 +282,17 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-19 | An export that fails as a whole refuses the run with the export's typed refusal, and the refusal carries the bindings-export step. | Test (TC-017) |
 | FR-001-AC-20 | An occurrence key the driver built that the export reports as naming no requirement record is a `runtime_invariant` internal fault. | Test (TC-017) |
 | FR-001-AC-21 | When the package declares no abstraction relation, the driver does not call the export, every item goes to CG, and the per-item refusal member is empty. | Test (TC-017) |
-| FR-001-AC-22 | When CG negotiation returns `EnvelopeRefusal::ContractPackageReadRefused`, the driver's command-level refusal carries stage `Negotiation` and retains the CG-owned typed projection unchanged, including `code`, `path`, `cause`, `locus`, `contract_version`, `document_pointer`, `expected` and `actual`. When it returns `EnvelopeRefusal::ContractPackageReadIncomplete`, the refusal carries stage `Negotiation` and retains the CG-owned typed projection unchanged, including `limit_kind`, `limit`, `consumed` and `path`. Neither case is converted to the E5 reader result. This criterion does not assign an FR-272 catalog code or outcome kind; those classifications remain pending the QSL FR-272 owner decision. | Test (TC-004) |
+| FR-001-AC-22 | When CG returns `EnvelopeRefusal::ContractPackageReadRefused`, the driver emits an FR-272 refusal diagnostic at `package_read`, retaining the complete CG projection unchanged as typed source data: `code`, `path`, `cause`, `locus`, `contract_version`, `document_pointer`, `expected` and `actual`. The diagnostic carries the same code and cause, has category `refusal`, maps `path` to the FR-274 `json_path` location, and carries `locus` as a `CheckedNodeId` payload when present; every returned code has an FR-271 row. When CG returns `ContractPackageReadIncomplete`, the driver emits `stage_limit_exceeded` at `package_read` with category `incomplete` (numeric category 22) and retains the complete CG projection unchanged (`limit_kind`, `limit`, `consumed`, `path`). The closed map is `Bytes` → `input-bytes-exceeded` / `CheckedPackageReadLimits.bytes`; `Nodes` → `node-count-exceeded` / `CheckedPackageReadLimits.nodes`; `Edges` → `edge-count-exceeded` / `CheckedPackageReadLimits.edges`; `Occurrences` → `occurrence-count-exceeded` / `CheckedPackageReadLimits.occurrences`; `Work` → `work-budget-exceeded` / `CheckedPackageReadLimits.work`. For each mapped case, `bound` is `limit`, `actual` is `consumed`, `kind` is the cause tag, `setting` is the listed limits-argument member, and `path` supplies the FR-274 `json_path` location when present (absent for `Bytes`). Although `CheckedPackageReadLimits` includes `diagnostics`, the ContractPackage reader reports no diagnostics stop. If CG nevertheless returns `Diagnostics`, the driver returns a `runtime_invariant` fault at `package_read` while retaining the CG projection unchanged, with no FR-272 limit diagnostic. No reader variant is converted to the E5 result, and no other `limit_kind` branch is accepted. Registration of these limits under FR-460/FR-461 entry points/defaults is a deferred follow-up under IR-896. | Test (TC-004) |
 
 ## Dependencies
 
 - QSL ADR-011 §2.1, §6.1 driver row, §7.1 and T-13; ADR-012 §7.1 and §7.2.
 - QSL `qsl-replay` (typed spine lifecycle) and `qsl-route` (registry, candidate
   step, routing step).
+- QSL FR-330 owns ContractPackage reader results; QSL FR-271/FR-272 own the
+  reader code, cause, category and incomplete-limit diagnostic vocabulary.
+  FR-460/FR-461 registration for ContractPackage and I2 reader settings is a
+  deferred follow-up under IR-896.
 - CG `BackendKind::from_descriptor`,
   `negotiate_backend_provider` and `generate_routed` (CG FR-022,
   FR-330, IR-293, IR-294, IR-298, IR-300, IR-302).

@@ -11,9 +11,8 @@ relationships:
 ## Description
 
 Verify the step, catalog code and outcome kind of the command-level
-refusals whose FR-272 classifications are defined, and the typed payload
-and stage of the two CG contract-package reader variants whose FR-272
-classification remains pending.
+refusals, including lossless FR-272 mapping of CG contract-package reader
+results.
 
 Scope: FR-001-AC-5 and FR-001-AC-22.
 
@@ -40,14 +39,12 @@ Scope: FR-001-AC-5 and FR-001-AC-22.
    negation unit naming `kani` as the request's backend.
 9. Feed QSL lifecycle `Fault`, `Cancelled` and `Limit` failures to the
    driver mapping for `parse`, `select`, `check` and `package`.
-10. At the CG negotiation boundary, return each public CG variant
-    `EnvelopeRefusal::ContractPackageReadRefused` and
-    `EnvelopeRefusal::ContractPackageReadIncomplete` with typed payloads.
-    For the refusal projection, include present and absent optional members
-    and compare `code`, `path`, `cause`, `locus`, `contract_version`,
-    `document_pointer`, `expected` and `actual` individually. For the
-    incomplete projection, compare `limit_kind`, `limit`, `consumed` and
-    `path` individually, including the absent path for a byte-limit case.
+10. At the CG package-reader boundary, return
+    `ContractPackageReadRefused` results covering a returned code with a
+    cause and one without a cause, plus present and absent optional payload
+    members. Return `ContractPackageReadIncomplete` once for each permitted
+    `limit_kind`: `Bytes`, `Nodes`, `Edges`, `Occurrences` and `Work`; also
+    inject `Diagnostics` as a contract-violating CG result.
 
 Tests: `tests/drive.rs`, `tc_004_command_level_refusals_are_typed`,
 `tc_004_e5_identity_and_refusal_are_faults` and
@@ -89,10 +86,25 @@ and `tc_004_handoff_and_generation_limits_are_limits`, plus
 - Step 8 settles `unsupported`, naming `kani` in the cause
   (`unsupported-requested-capability`): `kani` is registered but does not
   advertise `value-validity`. Nothing routes.
-- Step 10 returns the matching typed `DriverRefusal::Envelope` without
-  translating either variant into an E5 reader refusal. Both cases identify
-  `Negotiation` as the driver stage and preserve every CG projection member
-  by typed equality, including `None` for absent optional members. The test
-  does not assert an FR-272 catalog code or outcome kind; those mappings
-  remain pending the QSL FR-272 owner decision and are not inferred from
-  enum formatting or payload text.
+- Step 10's refused result becomes an FR-272 refusal diagnostic at
+  `package_read`, with CG code and cause unchanged, category `refusal`, the
+  `path` as the FR-274 `json_path` location, and a present `locus` retained
+  as typed `CheckedNodeId`. The complete typed CG projection remains
+  available unchanged, including `code`, `path`, `cause`, `locus`,
+  `contract_version`, `document_pointer`, `expected` and `actual`, including
+  all optional members and their absence. Each returned code has an FR-271
+  row; the diagnostic classification is not derived from text.
+  The incomplete results map exactly as follows: `Bytes` to
+  `input-bytes-exceeded` / `CheckedPackageReadLimits.bytes`; `Nodes` to
+  `node-count-exceeded` / `CheckedPackageReadLimits.nodes`; `Edges` to
+  `edge-count-exceeded` / `CheckedPackageReadLimits.edges`; `Occurrences` to
+  `occurrence-count-exceeded` / `CheckedPackageReadLimits.occurrences`;
+  `Work` to `work-budget-exceeded` / `CheckedPackageReadLimits.work`. Each has
+  `stage_limit_exceeded` at `package_read`, category `incomplete` (numeric
+  category 22), `bound = limit`, `actual = consumed`, `kind` equal to the
+  cause tag, and location from `path`, absent for `Bytes`. The CG typed
+  incomplete projection (`limit_kind`, `limit`, `consumed`, `path`) is
+  retained unchanged. `Diagnostics` returns a `runtime_invariant` fault at
+  `package_read`, preserves its typed CG projection and emits no FR-272 stop
+  diagnostic. No mapping is inferred from enum formatting or payload text,
+  and no reader result is converted into the E5 result.
