@@ -375,7 +375,7 @@ impl RequestStage {
         }
 
         let items = driven
-            .generation
+            .generation()
             .items
             .iter()
             .filter(|generated| generated.backend.identity == backend.as_str())
@@ -388,7 +388,7 @@ impl RequestStage {
                 RequestItem::from_qsl(item, backend)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Self::from_emitted(&driven.emitted, manifest, deadline_ms, items)
+        Self::from_emitted(&driven.emitted(), manifest, deadline_ms, items)
     }
 
     /// Build the wire request from an emitted package and typed routed inputs.
@@ -1443,20 +1443,20 @@ mod tests {
         assert_eq!(driven.routed.len(), 1);
         assert_eq!(driven.routed[0].request_index, request_index);
         assert_eq!(driven.routed[0].backend().as_str(), "agent-ix/plugin/alpha");
-        assert_eq!(driven.generation.items.len(), 1);
-        assert_eq!(driven.generation.items[0].request_index, request_index);
+        assert_eq!(driven.generation().items.len(), 1);
+        assert_eq!(driven.generation().items[0].request_index, request_index);
         assert_eq!(upstream.calls.get(), 1, "the one supported item is routed");
 
         let backend = driven.routed[0].backend();
         let stage = RequestStage::from_driven(&driven, backend, &manifests, 250)
             .expect("the production writer selects this provider's routed QSL item");
         let wire = serde_json::to_value(stage).expect("FR-331 stage serializes");
-        let package_id = driven.emitted.package_id().record();
+        let package_id = driven.emitted().package_id().record();
         assert_eq!(
             URL_SAFE_NO_PAD
                 .decode(wire["request"]["package"].as_str().expect("package string"))
                 .expect("package uses base64url"),
-            driven.emitted.bytes()
+            driven.emitted().bytes()
         );
         assert_eq!(wire["request"]["package_id"]["digest"], package_id.hex());
         assert_eq!(
@@ -1467,7 +1467,7 @@ mod tests {
         assert_eq!(wire["request"]["items"][0]["request_index"], request_index);
         assert_eq!(
             wire["request"]["items"][0]["backend"],
-            driven.generation.items[0].backend.identity
+            driven.generation().items[0].backend.identity
         );
         assert_eq!(
             wire["request"]["items"][0]["kind"],

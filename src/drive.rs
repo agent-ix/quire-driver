@@ -128,12 +128,12 @@ pub struct KaniInput<'a> {
 #[derive(Debug)]
 pub struct Driven {
     /// The S4 in-process package.
-    pub package: CheckedUnit,
+    package: CheckedUnit,
     /// The E4 wire output: v2 bytes and `package_id`.
-    pub emitted: EmittedPackage,
+    emitted: EmittedPackage,
     /// E5: the emitted bytes as IR's reader admitted them, at the emitted
     /// `package_id`.
-    pub checked: CheckedPackageV2,
+    checked: CheckedPackageV2,
     /// CG's settlement of every requested item, in request order.
     pub settlements: Vec<ItemSettlement>,
     /// The exact QSL-produced request items used to construct the CG envelope.
@@ -146,12 +146,32 @@ pub struct Driven {
     /// index. Empty when nothing was routed. Its `claim_map` is the FR-014
     /// claim map CG derived for the Kani group (IR-294), `Some` whenever one
     /// ran; a caller writes it as `claim-map.json`.
-    pub generation: RoutedGeneration,
+    generation: RoutedGeneration,
     /// Each native scalar execution, keyed to the exact routed request item.
     scalar_executions: Vec<ScalarExecution>,
 }
 
 impl Driven {
+    /// The compiled in-process QSL package.
+    pub fn package(&self) -> &CheckedUnit {
+        &self.package
+    }
+
+    /// The emitted package bytes and identity.
+    pub fn emitted(&self) -> &EmittedPackage {
+        &self.emitted
+    }
+
+    /// The admitted emitted package.
+    pub fn checked(&self) -> &CheckedPackageV2 {
+        &self.checked
+    }
+
+    /// The immutable generation result produced from the admitted package.
+    pub fn generation(&self) -> &RoutedGeneration {
+        &self.generation
+    }
+
     /// Native scalar executions retained for later replay composition.
     ///
     /// The collection is read-only so callers cannot detach or replace a
@@ -498,6 +518,7 @@ fn native_scalar_limits(
     }
 }
 
+#[cfg(test)]
 fn qsl_limit_fields_match(
     left: &qsl_replay::ScalarLimits,
     right: &qsl_replay::ScalarLimits,
@@ -927,7 +948,7 @@ mod native_receipt_integration_tests {
         )
         .join(format!("ir773-native-receipt-{}", std::process::id()));
         let registry = crate::build_registry(&[crate::ProviderManifest {
-            identity: "agent-ix/provider/kani-test".to_owned(),
+            identity: "kani".to_owned(),
             manifest_digest: ManifestDigest::from_digest([7; 32]),
             advertises: vec![(
                 Some("value-validity".to_owned()),
@@ -986,7 +1007,7 @@ mod native_receipt_integration_tests {
         ));
         assert!(receipt_digest_matches(receipt));
         let mut changed_artifacts = driven
-            .generation
+            .generation()
             .oracle_artifacts
             .as_ref()
             .expect("the routed generation retains its oracle artifacts")
@@ -998,7 +1019,7 @@ mod native_receipt_integration_tests {
         assert!(!receipt_driver_bytes_match(
             receipt.staged_entries(),
             &changed_artifacts,
-            match &driven.generation.items[0].output {
+            match &driven.generation().items[0].output {
                 cg::KindOutput::Kani {
                     harness: Some(harness),
                     ..
@@ -1009,7 +1030,7 @@ mod native_receipt_integration_tests {
 
         let mut different_original_limits = call.accounting;
         different_original_limits.result_units += 1;
-        let harness = match &driven.generation.items[0].output {
+        let harness = match &driven.generation().items[0].output {
             cg::KindOutput::Kani {
                 harness: Some(harness),
                 ..
@@ -1017,7 +1038,7 @@ mod native_receipt_integration_tests {
             _ => panic!("the routed scalar generated a Kani harness"),
         };
         let artifacts = driven
-            .generation
+            .generation()
             .oracle_artifacts
             .as_deref()
             .expect("the routed generation retains its oracle artifacts");
