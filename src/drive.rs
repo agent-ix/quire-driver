@@ -1066,7 +1066,7 @@ mod native_receipt_integration_tests {
         ));
 
         let mut different_original_limits = call.accounting;
-        different_original_limits.result_units += 1;
+        different_original_limits.result_units -= 1;
         let harness = match &driven.generation().items[0].output {
             cg::KindOutput::Kani {
                 harness: Some(harness),
