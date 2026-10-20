@@ -868,13 +868,15 @@ fn direct_generation(
         .map(|item| {
             let selection = positions
                 .iter()
-                .filter_map(|position| match position {
+                .filter(|position| !matches!(position, ContractRequestPosition::ContextRoot { .. }))
+                .nth(item.request_index)
+                .and_then(|position| match position {
                     ContractRequestPosition::DriverItem {
                         result_selection, ..
                     } => Some(result_selection),
-                    ContractRequestPosition::ContextRoot { .. } => None,
+                    ContractRequestPosition::Excluded { .. }
+                    | ContractRequestPosition::ContextRoot { .. } => None,
                 })
-                .nth(item.request_index)
                 .expect("the request index has an explicit lowering position")
                 .clone();
             item.with_scalar_selection(&package, selection)
@@ -1404,11 +1406,13 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
         };
         let expected_node = positions
             .iter()
-            .filter_map(|position| match position {
-                ContractRequestPosition::DriverItem { node_id, .. } => Some(node_id),
-                ContractRequestPosition::ContextRoot { .. } => None,
-            })
+            .filter(|position| !matches!(position, ContractRequestPosition::ContextRoot { .. }))
             .nth(request_index)
+            .and_then(|position| match position {
+                ContractRequestPosition::DriverItem { node_id, .. } => Some(node_id),
+                ContractRequestPosition::Excluded { .. }
+                | ContractRequestPosition::ContextRoot { .. } => None,
+            })
             .expect("each request has a lowered driver position");
         assert_eq!(package.as_ref(), driven.checked());
         assert_eq!(contract.as_ref(), &lowered);
