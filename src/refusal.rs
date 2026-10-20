@@ -68,7 +68,7 @@ pub enum DriverRefusal {
     },
     /// CG refused the whole FR-331 envelope before settling any item.
     #[error("{}", envelope_message(.0))]
-    Envelope(EnvelopeRefusal),
+    Envelope(Box<EnvelopeRefusal>),
     /// E5: IR's reader stopped at one of its limits.
     #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
     HandoffLimit(CheckedPackageIncomplete),
@@ -212,18 +212,33 @@ pub enum DriverFault {
 
 impl From<EnvelopeRefusal> for DriverRefusal {
     fn from(refusal: EnvelopeRefusal) -> Self {
-        match refusal {
-            EnvelopeRefusal::InvalidCapability { .. }
-            | EnvelopeRefusal::ContractPackageReadRefused { .. } => Self::Envelope(refusal),
-            EnvelopeRefusal::ContractPackageReadIncomplete { ref incomplete }
+        Self::from(Box::new(refusal))
+    }
+}
+
+impl From<Box<EnvelopeRefusal>> for DriverRefusal {
+    fn from(refusal: Box<EnvelopeRefusal>) -> Self {
+        match refusal.as_ref() {
+            EnvelopeRefusal::ContractPackageReadIncomplete { incomplete }
                 if incomplete.limit_kind == CheckedPackageLimit::Diagnostics =>
             {
                 Self::Fault(DriverFault::PackageReadDiagnostics(incomplete.clone()))
             }
-            EnvelopeRefusal::ContractPackageReadIncomplete { .. } => Self::Envelope(refusal),
             EnvelopeRefusal::ManifestRepeatsBackendIdentity { identity } => {
-                Self::Fault(DriverFault::ManifestRepeatsBackendIdentity { identity })
+                Self::Fault(DriverFault::ManifestRepeatsBackendIdentity {
+                    identity: identity.clone(),
+                })
             }
+            _ => Self::Envelope(refusal),
+        }
+    }
+}
+
+impl DriverRefusal {
+    fn envelope_refusal(&self) -> Option<&EnvelopeRefusal> {
+        match self {
+            Self::Envelope(refusal) => Some(refusal.as_ref()),
+            _ => None,
         }
     }
 }
@@ -291,16 +306,17 @@ impl DriverRefusal {
             Self::ScalarCall(refusal) => Some(refusal.category()),
             Self::QslAdmissionEvidence(refusal) => Some(refusal.category()),
             Self::ScalarBinding(refusal) => Some(refusal.code().category()),
-            Self::Envelope(EnvelopeRefusal::ContractPackageReadRefused { .. }) => {
-                Some(Category::Refusal)
-            }
-            Self::Envelope(EnvelopeRefusal::ContractPackageReadIncomplete { incomplete }) => Some(
-                if incomplete.limit_kind == CheckedPackageLimit::Diagnostics {
-                    Category::InternalFailure
-                } else {
-                    Category::Incomplete
-                },
-            ),
+            Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::ContractPackageReadRefused { .. } => Some(Category::Refusal),
+                EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } => Some(
+                    if incomplete.limit_kind == CheckedPackageLimit::Diagnostics {
+                        Category::InternalFailure
+                    } else {
+                        Category::Incomplete
+                    },
+                ),
+                _ => None,
+            },
             Self::Cancelled { cause, .. } => {
                 // `StageFailure::Cancelled` has a category independent of
                 // its refusal payload. `LimitExceeded` satisfies the generic
@@ -339,23 +355,25 @@ impl DriverRefusal {
             }
             Self::ScalarNative(error) => error.code().to_owned(),
             Self::UnknownBackend { .. } => "invalid_capability/unknown-backend".to_owned(),
-            Self::Envelope(EnvelopeRefusal::InvalidCapability { cause, .. }) => {
-                format!("invalid_capability/{cause}")
-            }
-            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
-                Code::RuntimeInvariant.as_str().to_owned()
-            }
-            Self::Envelope(EnvelopeRefusal::ContractPackageReadRefused { refusal }) => {
-                package_read_refusal_code(refusal.code).to_owned()
-            }
-            Self::Envelope(EnvelopeRefusal::ContractPackageReadIncomplete { incomplete })
-                if incomplete.limit_kind == CheckedPackageLimit::Diagnostics =>
-            {
-                Code::RuntimeInvariant.as_str().to_owned()
-            }
-            Self::Envelope(EnvelopeRefusal::ContractPackageReadIncomplete { .. }) => {
-                Code::StageLimitExceeded.as_str().to_owned()
-            }
+            Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::InvalidCapability { cause, .. } => {
+                    format!("invalid_capability/{cause}")
+                }
+                EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. } => {
+                    Code::RuntimeInvariant.as_str().to_owned()
+                }
+                EnvelopeRefusal::ContractPackageReadRefused { refusal } => {
+                    package_read_refusal_code(refusal.code).to_owned()
+                }
+                EnvelopeRefusal::ContractPackageReadIncomplete { incomplete }
+                    if incomplete.limit_kind == CheckedPackageLimit::Diagnostics =>
+                {
+                    Code::RuntimeInvariant.as_str().to_owned()
+                }
+                EnvelopeRefusal::ContractPackageReadIncomplete { .. } => {
+                    Code::StageLimitExceeded.as_str().to_owned()
+                }
+            },
             Self::Fault(DriverFault::PackageReadDiagnostics(_)) => {
                 Code::RuntimeInvariant.as_str().to_owned()
             }
@@ -389,15 +407,15 @@ impl DriverRefusal {
             Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
                 DriverStage::Conversion
             }
-            Self::Envelope(EnvelopeRefusal::InvalidCapability { .. })
-            | Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
-                DriverStage::Negotiation
-            }
-            Self::Envelope(
+            Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::InvalidCapability { .. }
+                | EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. } => {
+                    DriverStage::Negotiation
+                }
                 EnvelopeRefusal::ContractPackageReadRefused { .. }
-                | EnvelopeRefusal::ContractPackageReadIncomplete { .. },
-            )
-            | Self::Fault(DriverFault::PackageReadDiagnostics(_)) => DriverStage::PackageRead,
+                | EnvelopeRefusal::ContractPackageReadIncomplete { .. } => DriverStage::PackageRead,
+            },
+            Self::Fault(DriverFault::PackageReadDiagnostics(_)) => DriverStage::PackageRead,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
             Self::Fault(
                 DriverFault::NativeExecutionLimitsMismatch | DriverFault::NativeReceiptMismatch,
@@ -432,17 +450,17 @@ impl DriverRefusal {
             Self::ScalarCall(refusal) => outcome_kind_for_qsl(refusal.category()),
             Self::QslAdmissionEvidence(refusal) => outcome_kind_for_qsl(refusal.category()),
             Self::ScalarBinding(refusal) => outcome_kind_for_qsl(refusal.code().category()),
-            Self::Envelope(EnvelopeRefusal::ContractPackageReadRefused { .. }) => {
-                OutcomeKind::Refused
-            }
-            Self::Envelope(EnvelopeRefusal::ContractPackageReadIncomplete { incomplete })
-                if incomplete.limit_kind == CheckedPackageLimit::Diagnostics =>
-            {
-                OutcomeKind::Fault
-            }
-            Self::Envelope(EnvelopeRefusal::ContractPackageReadIncomplete { .. }) => {
-                OutcomeKind::Limit
-            }
+            Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::ContractPackageReadRefused { .. } => OutcomeKind::Refused,
+                EnvelopeRefusal::ContractPackageReadIncomplete { incomplete }
+                    if incomplete.limit_kind == CheckedPackageLimit::Diagnostics =>
+                {
+                    OutcomeKind::Fault
+                }
+                EnvelopeRefusal::ContractPackageReadIncomplete { .. } => OutcomeKind::Limit,
+                EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. } => OutcomeKind::Fault,
+                EnvelopeRefusal::InvalidCapability { .. } => OutcomeKind::Refused,
+            },
             Self::Fault(DriverFault::PackageReadDiagnostics(_)) => OutcomeKind::Fault,
             Self::ScalarNative(error) => match error.class() {
                 KaniScalarNativeErrorClass::CompletionRefusal => OutcomeKind::Refused,
@@ -462,21 +480,17 @@ impl DriverRefusal {
                 OutcomeKind::Limit
             }
             Self::ManifestEncoding(_) => OutcomeKind::Fault,
-            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
-                OutcomeKind::Fault
+            Self::Registration(_) | Self::Compile(_) | Self::UnknownBackend { .. } => {
+                OutcomeKind::Refused
             }
-            Self::Registration(_)
-            | Self::Compile(_)
-            | Self::UnknownBackend { .. }
-            | Self::Envelope(EnvelopeRefusal::InvalidCapability { .. }) => OutcomeKind::Refused,
             Self::Fault(_) => OutcomeKind::Fault,
         }
     }
 
     /// The exact FR-272 cause of a retained ContractPackage read refusal.
     pub fn package_read_cause(&self) -> Option<&'static str> {
-        match self {
-            Self::Envelope(EnvelopeRefusal::ContractPackageReadRefused { refusal }) => {
+        match self.envelope_refusal()? {
+            EnvelopeRefusal::ContractPackageReadRefused { refusal } => {
                 refusal.cause.map(package_read_refusal_cause)
             }
             _ => None,
@@ -487,10 +501,8 @@ impl DriverRefusal {
     pub fn package_read_refusal_projection(
         &self,
     ) -> Option<&quire_contract_codegen::ContractPackageRefusalProjection> {
-        match self {
-            Self::Envelope(EnvelopeRefusal::ContractPackageReadRefused { refusal }) => {
-                Some(refusal)
-            }
+        match self.envelope_refusal()? {
+            EnvelopeRefusal::ContractPackageReadRefused { refusal } => Some(refusal),
             _ => None,
         }
     }
@@ -498,7 +510,8 @@ impl DriverRefusal {
     /// The FR-272 fields derived from a retained, permitted reader limit.
     /// The original CG projection remains available unchanged in `Envelope`.
     pub fn package_read_limit(&self) -> Option<PackageReadLimit> {
-        let Self::Envelope(EnvelopeRefusal::ContractPackageReadIncomplete { incomplete }) = self
+        let EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } =
+            self.envelope_refusal()?
         else {
             return None;
         };
@@ -942,7 +955,8 @@ mod tests {
         assert_eq!(refusal.package_read_refusal_projection(), Some(&projection));
         assert!(matches!(
             refusal,
-            DriverRefusal::Envelope(EnvelopeRefusal::ContractPackageReadRefused { .. })
+            DriverRefusal::Envelope(envelope)
+                if matches!(envelope.as_ref(), EnvelopeRefusal::ContractPackageReadRefused { .. })
         ));
 
         let projection_without_optional_payloads = ContractPackageRefusalProjection {
@@ -1024,8 +1038,8 @@ mod tests {
             );
             assert!(matches!(
                 &refusal,
-                DriverRefusal::Envelope(EnvelopeRefusal::ContractPackageReadIncomplete { incomplete })
-                    if incomplete == &projection
+                DriverRefusal::Envelope(envelope)
+                    if matches!(envelope.as_ref(), EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } if incomplete == &projection)
             ));
         }
 

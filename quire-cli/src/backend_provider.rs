@@ -388,7 +388,7 @@ impl RequestStage {
                 RequestItem::from_qsl(item, backend)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Self::from_emitted(&driven.emitted(), manifest, deadline_ms, items)
+        Self::from_emitted(driven.emitted(), manifest, deadline_ms, items)
     }
 
     /// Build the wire request from an emitted package and typed routed inputs.
@@ -919,7 +919,7 @@ mod tests {
         fn negotiate(
             &self,
             envelope: &cg::BackendProviderEnvelope,
-        ) -> Result<Vec<cg::ItemSettlement>, cg::EnvelopeRefusal> {
+        ) -> Result<Vec<cg::ItemSettlement>, Box<cg::EnvelopeRefusal>> {
             let mut settlements = QslCg.negotiate(envelope)?;
             for index in &self.unsupported_at {
                 if let Some(settlement) = settlements.get_mut(*index) {

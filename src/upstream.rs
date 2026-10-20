@@ -100,7 +100,7 @@ pub trait Upstream {
     fn negotiate(
         &self,
         envelope: &BackendProviderEnvelope,
-    ) -> Result<Vec<ItemSettlement>, EnvelopeRefusal>;
+    ) -> Result<Vec<ItemSettlement>, Box<EnvelopeRefusal>>;
 
     /// The routing step: `qsl_route::routing::route`.
     fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>>;
@@ -173,8 +173,8 @@ impl Upstream for QslCg {
     fn negotiate(
         &self,
         envelope: &BackendProviderEnvelope,
-    ) -> Result<Vec<ItemSettlement>, EnvelopeRefusal> {
-        negotiate_backend_provider(envelope)
+    ) -> Result<Vec<ItemSettlement>, Box<EnvelopeRefusal>> {
+        negotiate_backend_provider(envelope).map_err(Box::new)
     }
 
     fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>> {

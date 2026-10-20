@@ -741,8 +741,7 @@ mod tests {
         .expect("the real driver and CG generation produce a Kani harness")
         .generation()
         .items
-        .iter()
-        .next()
+        .first()
         .cloned()
         .expect("one generated Kani item")
     }

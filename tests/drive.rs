@@ -341,13 +341,13 @@ impl Upstream for Recorder {
     fn negotiate(
         &self,
         envelope: &BackendProviderEnvelope,
-    ) -> Result<Vec<ItemSettlement>, EnvelopeRefusal> {
+    ) -> Result<Vec<ItemSettlement>, Box<EnvelopeRefusal>> {
         self.calls.borrow_mut().push(Call::Negotiate {
             items: envelope.items.len(),
         });
         *self.envelope.borrow_mut() = Some(envelope.clone());
         if let Some(refusal) = &self.negotiate_answer {
-            return Err(refusal.clone());
+            return Err(Box::new(refusal.clone()));
         }
         let mut settlements = QslCg.negotiate(envelope)?;
         if let Some(index) = self.unsupported_at {
@@ -2067,7 +2067,7 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
     // Comparing the whole generation output against a direct `generate_routed`
     // call naming the `-` node at request index 1 catches that: it would
     // disagree with whatever CG derives for the `=` node instead.
-    let neg = expression_by_identity(&driven.checked(), "quire.op.integer.negate");
+    let neg = expression_by_identity(driven.checked(), "quire.op.integer.negate");
     let backend = kani_candidate(&driven);
     let expected = direct_generation(
         &recorder,
@@ -2584,7 +2584,7 @@ fn provider_trait_run_processes_a_selected_item() {
     let provider = KaniProvider::new(manifest("kani", 7, &["value-validity"]));
     let request = ProviderRequest::new(&driven.generation().items);
     let results = provider.run(
-        &driven.emitted(),
+        driven.emitted(),
         &request,
         &ProviderLimits { kani: None },
         &Cancel::new(),
