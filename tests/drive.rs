@@ -253,6 +253,11 @@ struct Recorder {
     export_refused_at: Vec<usize>,
     export_whole_refusal: bool,
     export_unknown_at: Option<usize>,
+    export_fault_at: Option<usize>,
+    export_wrong_bound_at: Option<usize>,
+    export_wrong_unbound_at: Option<usize>,
+    export_short_result: bool,
+    export_keys: RefCell<Vec<qsl_foundation::source::provenance::OccurrenceKey>>,
     calls: RefCell<Vec<Call>>,
     /// When set, the IR read answers this instead of reading.
     read_answer: Option<CheckedPackageDispatchResult>,
@@ -314,6 +319,10 @@ impl Upstream for Recorder {
         !self.export_refused_at.is_empty()
             || self.export_whole_refusal
             || self.export_unknown_at.is_some()
+            || self.export_fault_at.is_some()
+            || self.export_wrong_bound_at.is_some()
+            || self.export_wrong_unbound_at.is_some()
+            || self.export_short_result
             || QslCg.has_abstraction_relation(package)
     }
     fn export_bindings(
@@ -325,25 +334,40 @@ impl Upstream for Recorder {
         qsl_package::ExportRefusal,
     > {
         self.calls.borrow_mut().push(Call::ExportBindings);
+        *self.export_keys.borrow_mut() = items.to_vec();
         if self.export_whole_refusal {
             return Err(fixture_unbound(&items[0]));
         }
-        Ok(items
+        let mut results = items
             .iter()
             .enumerate()
             .map(|(index, item)| {
                 if self.export_unknown_at == Some(index) {
                     Err(qsl_package::ExportRefusal::UnknownItem { item: item.clone() })
+                } else if self.export_fault_at == Some(index) {
+                    Err(qsl_package::ExportRefusal::Fault(
+                        qsl_foundation::diagnostic::InternalFault::new("export", "fixture"),
+                    ))
+                } else if self.export_wrong_unbound_at == Some(index) {
+                    Err(fixture_unbound(&items[1]))
                 } else if self.export_refused_at.contains(&index) {
                     Err(fixture_unbound(item))
                 } else {
                     Ok(qsl_package::BoundItem {
-                        item: item.clone(),
+                        item: if self.export_wrong_bound_at == Some(index) {
+                            items[1].clone()
+                        } else {
+                            item.clone()
+                        },
                         bindings: Vec::new(),
                     })
                 }
             })
-            .collect())
+            .collect::<Vec<_>>();
+        if self.export_short_result {
+            results.pop();
+        }
+        Ok(results)
     }
     fn compile(
         &self,
@@ -936,7 +960,16 @@ fn relationless_package_skips_export_and_has_no_item_refusals() {
 }
 
 #[test]
-#[trace("FR-010-AC-4", "FR-001-AC-17", "FR-009-AC-16", "TC-017")]
+#[trace(
+    "FR-010-AC-1",
+    "FR-010-AC-2",
+    "FR-010-AC-3",
+    "FR-010-AC-4",
+    "FR-001-AC-15",
+    "FR-001-AC-17",
+    "FR-009-AC-16",
+    "TC-017"
+)]
 fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -956,6 +989,24 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
     assert_eq!(driven.request_items.len(), 3);
     assert!(recorder.calls().contains(&Call::ExportBindings));
     assert_eq!(recorder.envelope().items.len(), 2);
+    let (_, positions) = recorder.generation_input();
+    let driver_positions = positions
+        .iter()
+        .filter(|position| !matches!(position, ContractRequestPosition::ContextRoot { .. }))
+        .collect::<Vec<_>>();
+    assert_eq!(driver_positions.len(), 3);
+    assert!(matches!(
+        driver_positions[0],
+        ContractRequestPosition::DriverItem { .. }
+    ));
+    assert!(
+        matches!(driver_positions[1], ContractRequestPosition::Excluded { node_id }
+        if node_id.digest.as_ref() == driven.request_items[1].node().to_string())
+    );
+    assert!(matches!(
+        driver_positions[2],
+        ContractRequestPosition::DriverItem { .. }
+    ));
     assert_eq!(
         driven
             .settlements
@@ -986,16 +1037,20 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
         driven.item_refusals[0].refusal,
         fixture_unbound(driven.request_items[1].occurrence()),
     );
-    assert!(driven
-        .generation()
-        .items
-        .iter()
-        .all(|item| item.request_index != 1));
+    assert_eq!(
+        driven
+            .generation()
+            .items
+            .iter()
+            .map(|item| item.request_index)
+            .collect::<Vec<_>>(),
+        [0, 2]
+    );
 }
 
 #[test]
 #[trace("FR-010-AC-5", "FR-001-AC-18", "TC-017")]
-fn all_export_refusals_send_nothing_to_cg() {
+fn all_export_refusals_send_zero_item_request_to_cg() {
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
@@ -1014,10 +1069,11 @@ fn all_export_refusals_send_nothing_to_cg() {
     assert_eq!(driven.item_refusals.len(), 3);
     assert!(driven.settlements.is_empty());
     assert!(driven.generation().items.is_empty());
+    assert!(recorder.calls().contains(&Call::Negotiate { items: 0 }));
     assert!(!recorder
         .calls()
         .iter()
-        .any(|call| matches!(call, Call::Negotiate { .. } | Call::Generate { .. })));
+        .any(|call| matches!(call, Call::Generate { .. })));
 }
 
 #[test]
@@ -1034,6 +1090,8 @@ fn export_run_refusal_and_unknown_driver_key_keep_their_distinct_outcomes() {
         .expect_err("whole export refusal stops the run");
     assert_eq!(refusal.stage(), DriverStage::BindingsExport);
     assert_eq!(refusal.kind(), OutcomeKind::Refused);
+    assert!(matches!(refusal, DriverRefusal::BindingsExport(ref actual)
+        if *actual == fixture_unbound(&whole.export_keys.borrow()[0])));
     let unknown = Recorder {
         export_unknown_at: Some(0),
         ..Recorder::default()
@@ -1049,6 +1107,81 @@ fn export_run_refusal_and_unknown_driver_key_keep_their_distinct_outcomes() {
     assert_eq!(fault.stage(), DriverStage::Handoff);
     assert_eq!(fault.kind(), OutcomeKind::Fault);
     assert_eq!(fault.code(), "runtime_invariant");
+}
+
+#[test]
+#[trace("FR-001-AC-19", "FR-001-AC-20", "TC-017")]
+fn malformed_export_results_stop_at_the_typed_boundary() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+
+    let short = Recorder {
+        export_short_result: true,
+        ..Recorder::default()
+    };
+    let refusal = drive(&short, int_input(&packages), &registry, None, kani_input())
+        .expect_err("export must return one result per key");
+    assert!(matches!(
+        refusal,
+        DriverRefusal::Fault(DriverFault::ExportCount {
+            requested: 1,
+            returned: 0
+        })
+    ));
+
+    let wrong_bound = Recorder {
+        export_wrong_bound_at: Some(0),
+        ..Recorder::default()
+    };
+    let refusal = drive(
+        &wrong_bound,
+        partition_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect_err("a bound item must name the original key");
+    assert!(matches!(
+        refusal,
+        DriverRefusal::Fault(DriverFault::ExportUnknownItem { .. })
+    ));
+
+    let wrong_unbound = Recorder {
+        export_wrong_unbound_at: Some(0),
+        ..Recorder::default()
+    };
+    let refusal = drive(
+        &wrong_unbound,
+        partition_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect_err("an unbound item must name the original key");
+    assert!(matches!(
+        refusal,
+        DriverRefusal::Fault(DriverFault::ExportUnknownItem { .. })
+    ));
+
+    let faulted = Recorder {
+        export_fault_at: Some(0),
+        ..Recorder::default()
+    };
+    let refusal = drive(
+        &faulted,
+        int_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect_err("an export fault refuses the whole run");
+    assert!(matches!(
+        &refusal,
+        DriverRefusal::BindingsExport(qsl_package::ExportRefusal::Fault(_))
+    ));
+    assert_eq!(refusal.stage(), DriverStage::BindingsExport);
+    assert_eq!(refusal.kind(), OutcomeKind::Fault);
 }
 
 fn routed_generation_item(
