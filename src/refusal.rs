@@ -970,15 +970,31 @@ mod tests {
     #[test]
     fn cg_package_read_incomplete_maps_each_permitted_limit_and_faults_diagnostics() {
         let cases = [
-            (CheckedPackageLimit::Bytes, "input-bytes-exceeded", "bytes"),
-            (CheckedPackageLimit::Nodes, "node-count-exceeded", "nodes"),
-            (CheckedPackageLimit::Edges, "edge-count-exceeded", "edges"),
+            (
+                CheckedPackageLimit::Bytes,
+                "input-bytes-exceeded",
+                "CheckedPackageReadLimits.bytes",
+            ),
+            (
+                CheckedPackageLimit::Nodes,
+                "node-count-exceeded",
+                "CheckedPackageReadLimits.nodes",
+            ),
+            (
+                CheckedPackageLimit::Edges,
+                "edge-count-exceeded",
+                "CheckedPackageReadLimits.edges",
+            ),
             (
                 CheckedPackageLimit::Occurrences,
                 "occurrence-count-exceeded",
-                "occurrences",
+                "CheckedPackageReadLimits.occurrences",
             ),
-            (CheckedPackageLimit::Work, "work-budget-exceeded", "work"),
+            (
+                CheckedPackageLimit::Work,
+                "work-budget-exceeded",
+                "CheckedPackageReadLimits.work",
+            ),
         ];
         for (limit_kind, cause, setting) in cases {
             let source_path =
