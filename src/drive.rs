@@ -16,7 +16,8 @@ use qsl_route::{Candidate, CandidateOutcome, Mode, Registry};
 use qsl_semantics::model::object_environment::ObjectEnvironment;
 use quire_contract_codegen as cg;
 use quire_contract_codegen::{
-    BackendKind, ContractItemSettlement, KaniInstallation, KaniScalarNativeRequest, RoutedGeneration,
+    BackendKind, ContractItemSettlement, KaniInstallation, KaniScalarNativeRequest,
+    RoutedGeneration,
 };
 use quire_contract_model::{CheckedNodeId, CheckedPackageV2};
 use quire_exact::Cancel;
@@ -274,6 +275,18 @@ pub struct ItemRefusal {
     pub refusal: ExportRefusal,
 }
 
+/// The export's one decision per original driver position.
+struct ExportPartition {
+    bound_indices: Vec<usize>,
+    item_refusals: Vec<ItemRefusal>,
+}
+
+impl ExportPartition {
+    fn includes(&self, request_index: usize) -> bool {
+        self.bound_indices.binary_search(&request_index).is_ok()
+    }
+}
+
 /// Run one request through the driver's steps (see the crate docs).
 ///
 /// `registry` is the value [`crate::build_registry`] built. The items to
@@ -319,8 +332,7 @@ pub fn drive(
         registry,
         named,
     );
-    let mut item_refusals = Vec::new();
-    let bound = if upstream.has_abstraction_relation(checked_unit.package()) {
+    let partition = if upstream.has_abstraction_relation(checked_unit.package()) {
         let keys = items
             .iter()
             .map(|item| item.occurrence().clone())
@@ -339,71 +351,71 @@ pub fn drive(
                 returned: results.len(),
             }));
         }
-        results
-            .into_iter()
-            .enumerate()
-            .map(|(request_index, result)| match result {
-                Ok(bound_item) if bound_item.item == keys[request_index] => Ok(true),
-                Ok(_) => Err(DriverRefusal::Fault(DriverFault::ExportUnknownItem {
-                    item: keys[request_index].clone(),
-                })),
-                Err(ExportRefusal::UnknownItem { item }) => {
-                    Err(DriverRefusal::Fault(DriverFault::ExportUnknownItem {
-                        item,
+        let mut partition = ExportPartition {
+            bound_indices: Vec::with_capacity(items.len()),
+            item_refusals: Vec::new(),
+        };
+        for (request_index, result) in results.into_iter().enumerate() {
+            match result {
+                Ok(bound_item) if bound_item.item == keys[request_index] => {
+                    partition.bound_indices.push(request_index);
+                }
+                Ok(_) => {
+                    return Err(DriverRefusal::Fault(DriverFault::ExportUnknownItem {
+                        item: keys[request_index].clone(),
                     }))
+                }
+                Err(ExportRefusal::UnknownItem { item }) => {
+                    return Err(DriverRefusal::Fault(DriverFault::ExportUnknownItem {
+                        item,
+                    }));
                 }
                 Err(refusal @ ExportRefusal::Fault(_)) => {
-                    Err(DriverRefusal::BindingsExport(refusal))
+                    return Err(DriverRefusal::BindingsExport(refusal));
                 }
                 Err(ExportRefusal::Unbound { item, .. }) if item != keys[request_index] => {
-                    Err(DriverRefusal::Fault(DriverFault::ExportUnknownItem {
+                    return Err(DriverRefusal::Fault(DriverFault::ExportUnknownItem {
                         item,
-                    }))
+                    }));
                 }
-                Err(refusal) => {
-                    item_refusals.push(ItemRefusal {
-                        request_index,
-                        occurrence: keys[request_index].clone(),
-                        refusal,
-                    });
-                    Ok(false)
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()?
+                Err(refusal) => partition.item_refusals.push(ItemRefusal {
+                    request_index,
+                    occurrence: keys[request_index].clone(),
+                    refusal,
+                }),
+            }
+        }
+        partition
     } else {
-        vec![true; items.len()]
+        ExportPartition {
+            bound_indices: (0..items.len()).collect(),
+            item_refusals: Vec::new(),
+        }
     };
-    let lowered = lower_driver_request(&checked, &items, &bound)?;
+    let lowered = lower_driver_request(&checked, &items, &partition)?;
 
     // T-13 order: the `route` candidate step, then every registered
     // BackendId through CG's one conversion, then E7.
     let manifests = registry.manifest_snapshot();
     let prepared = envelope(
-        registry, manifests, &checked, &items, &bound, named, &lowered,
+        registry, manifests, &checked, &items, &partition, named, &lowered,
     )?;
     let kinds = convert_backends(upstream, registry, &prepared.generation_descriptors)?;
-    let settlements = if !items.is_empty() && prepared.envelope.items.is_empty() {
-        Vec::new()
-    } else {
-        upstream
-            .negotiate(
-                &lowered.contract_package,
-                &lowered.positions,
-                &prepared.envelope,
-            )
-            .map_err(|error| DriverRefusal::from(*error))?
-    };
-    let in_order = settlements.len() == bound.iter().filter(|included| **included).count()
+    let settlements = upstream
+        .negotiate(
+            &lowered.contract_package,
+            &lowered.positions,
+            &prepared.envelope,
+        )
+        .map_err(|error| DriverRefusal::from(*error))?;
+    let in_order = settlements.len() == partition.bound_indices.len()
         && settlements
             .iter()
             .map(|settlement| settlement.request_index)
-            .eq(bound
-                .iter()
-                .enumerate()
-                .filter_map(|(index, included)| included.then_some(index)));
+            .eq(partition.bound_indices.iter().copied());
     if !in_order {
         return Err(DriverRefusal::Fault(DriverFault::SettlementCount {
-            requested: bound.iter().filter(|included| **included).count(),
+            requested: partition.bound_indices.len(),
             settled: settlements.len(),
         }));
     }
@@ -440,7 +452,7 @@ pub fn drive(
         package: checked_unit,
         emitted,
         checked,
-        item_refusals,
+        item_refusals: partition.item_refusals,
         settlements,
         request_items: items,
         routed,
@@ -780,7 +792,7 @@ struct LoweredDriverRequest {
 fn lower_driver_request(
     checked: &CheckedPackageV2,
     items: &[RequirementItem],
-    bound: &[bool],
+    partition: &ExportPartition,
 ) -> Result<LoweredDriverRequest, DriverRefusal> {
     let mut roots = Vec::new();
     let mut positions = Vec::new();
@@ -792,7 +804,7 @@ fn lower_driver_request(
             request_index,
         )?
         .clone();
-        if !bound[request_index] {
+        if !partition.includes(request_index) {
             roots.push(application.clone());
             positions.push(cg::ContractRequestPosition::Excluded {
                 node_id: application,
@@ -1242,7 +1254,7 @@ fn envelope(
     manifests: &[crate::ProviderManifest],
     checked: &CheckedPackageV2,
     items: &[RequirementItem],
-    bound: &[bool],
+    partition: &ExportPartition,
     named: Option<&BackendId>,
     lowered: &LoweredDriverRequest,
 ) -> Result<PreparedEnvelope, DriverRefusal> {
@@ -1263,7 +1275,7 @@ fn envelope(
     let mut request_items = Vec::with_capacity(items.len());
     let mut candidate_sets = Vec::with_capacity(items.len());
     for (request_index, item) in items.iter().enumerate() {
-        if !bound[request_index] {
+        if !partition.includes(request_index) {
             candidate_sets.push(Vec::new());
             continue;
         }

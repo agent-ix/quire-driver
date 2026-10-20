@@ -75,7 +75,9 @@ pub enum DriverRefusal {
     /// CG refused the whole FR-331 envelope before settling any item.
     #[error("{}", envelope_message(.0))]
     Envelope(Box<EnvelopeRefusal>),
-    /// CG refused the admitted package and its complete request positions.
+    /// CG refused the admitted package and complete positions built by the
+    /// driver from that same package. This is an internal join fault at
+    /// negotiation, not a caller request refusal.
     #[error("CG package negotiation refused: {0:?}")]
     PackageNegotiation(PackageRequestError),
     /// E5: IR's reader stopped at one of its limits.
@@ -513,7 +515,7 @@ impl DriverRefusal {
             },
             Self::Fault(DriverFault::PackageReadDiagnostics(_)) | Self::PackageNegotiation(_) => {
                 OutcomeKind::Fault
-            },
+            }
             Self::ScalarNative(error) => match error.class() {
                 KaniScalarNativeErrorClass::CompletionRefusal => OutcomeKind::Refused,
                 KaniScalarNativeErrorClass::EnvironmentFault => OutcomeKind::Fault,
@@ -708,8 +710,7 @@ fn package_request_code(error: &PackageRequestError) -> Code {
 
 fn generation_code(error: &RoutedGenerationError) -> Code {
     match error {
-        RoutedGenerationError::ScalarSelectionMismatch { .. }
-        => Code::InvalidRequest,
+        RoutedGenerationError::ScalarSelectionMismatch { .. } => Code::InvalidRequest,
         RoutedGenerationError::Package(error) => package_request_code(error),
         RoutedGenerationError::BackendKindDisagrees { .. }
         | RoutedGenerationError::ExcludedDriverIndex { .. }
@@ -939,18 +940,64 @@ mod tests {
     use qsl_foundation::EmptyBackendIdentity;
     use qsl_replay::Category;
     use quire_contract_codegen::{
-        ContractPackageIncompleteProjection, ContractPackageRefusalProjection, ContractScalarError,
-        EnvelopeRefusal, HarnessPath, HarnessSymbol, KaniObligationError, KaniScalarNativeError,
-        KaniScalarNativeErrorClass, ModuleSymbol, OracleGenerationError, RoutedGenerationError,
+        ContractNegotiationError, ContractPackageIncompleteProjection,
+        ContractPackageRefusalProjection, ContractScalarError, EnvelopeRefusal, HarnessPath,
+        HarnessSymbol, KaniObligationError, KaniScalarNativeError, KaniScalarNativeErrorClass,
+        ModuleSymbol, OracleGenerationError, PackageRequestError, RoutedGenerationError,
         ScalarOracleStopKind,
     };
+    use quire_contract_model::CheckedNodeId;
     use quire_contract_model::{
         CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusalCause,
         CheckedPackageRefusalCode,
     };
-    use quire_contract_model::CheckedNodeId;
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    #[trace("FR-001-AC-16")]
+    #[test]
+    fn excluded_package_position_is_an_internal_join_fault_at_every_cg_boundary() {
+        let node_id = CheckedNodeId {
+            domain: "quire.checked-semantic-node/v1".into(),
+            digest: "0".repeat(64).into(),
+        };
+        let excluded = PackageRequestError::ExcludedDriverIndex {
+            request_index: 1,
+            node_id,
+        };
+        let direct = DriverRefusal::from(ContractNegotiationError::Package(excluded.clone()));
+        assert_eq!(direct.code(), "runtime_invariant");
+        assert_eq!(direct.stage(), DriverStage::Negotiation);
+        assert_eq!(direct.kind(), OutcomeKind::Fault);
+        for error in [
+            RoutedGenerationError::Package(excluded.clone()),
+            RoutedGenerationError::ContractScalar(ContractScalarError::Request(excluded.clone())),
+            RoutedGenerationError::ContractScalar(ContractScalarError::Oracle(
+                OracleGenerationError::PackageRequest(excluded.clone()),
+            )),
+        ] {
+            let refusal = DriverRefusal::Generation(error);
+            assert_eq!(refusal.code(), "runtime_invariant");
+            assert_eq!(refusal.stage(), DriverStage::Generation);
+            assert_eq!(refusal.kind(), OutcomeKind::Fault);
+        }
+    }
+
+    #[trace("FR-001-AC-16")]
+    #[test]
+    fn envelope_item_count_maps_to_typed_settlement_fault() {
+        let refusal = DriverRefusal::from(ContractNegotiationError::EnvelopeItemCount {
+            requested: 2,
+            supplied: 1,
+        });
+        assert!(matches!(
+            refusal,
+            DriverRefusal::Fault(DriverFault::SettlementCount {
+                requested: 2,
+                settled: 1
+            })
+        ));
+    }
 
     #[trace("FR-009-AC-6", "FR-009-AC-7")]
     #[test]

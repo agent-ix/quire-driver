@@ -35,8 +35,9 @@ use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_contract_codegen::{
     generate_routed, BackendDescriptor, BackendKind, BackendProviderEnvelope, Candidates, Cause,
     ClaimDisposition, ContractItemSettlement, ContractNegotiationError, ContractRequestPosition,
-    DerivedDomain, Disposition, EnvelopeRefusal, GenerationContexts, KaniForm,
-    KaniGenerationContext, KindOutput, ObligationDisposition, ProofCeilings, RoutedGeneration,
+    DerivedDomain, Disposition, EnvelopeRefusal, GenerationContexts, KaniExecutionEvidence,
+    KaniForm, KaniGenerationContext, KaniRunOutcome, KaniSolver, KindOutput, MemoryMechanism,
+    MemoryObservation, ObligationDisposition, ProofCeilings, RoutedGeneration,
     RoutedGenerationError, RoutedGenerationItem, UnsupportedObligation,
 };
 use quire_contract_model::{
@@ -46,7 +47,8 @@ use quire_contract_model::{
 use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
     GenerationInput, KaniInput, KaniProvider, OutcomeKind, Provider, ProviderItemFailure,
-    ProviderLimits, ProviderManifest, ProviderRequest, QslCg, ScalarExecutionInput, Upstream,
+    ProviderItemResult, ProviderLimits, ProviderManifest, ProviderRequest, QslCg,
+    ScalarExecutionInput, Upstream,
 };
 use quire_exact::{Cancel, CancelCause, Integer, Value};
 
@@ -1046,6 +1048,43 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
             .collect::<Vec<_>>(),
         [0, 2]
     );
+    let terminal_indexes = driven
+        .generation()
+        .items
+        .iter()
+        .map(|item| {
+            ProviderItemResult {
+                request_index: item.request_index,
+                backend: item.backend.clone(),
+                result: Ok(KaniExecutionEvidence {
+                    ceilings: proof_ceilings(),
+                    memory: MemoryObservation {
+                        mechanism: MemoryMechanism::LinuxPidNamespaceProcfsTreeRss,
+                        peak_resident_bytes: Some(16),
+                    },
+                    symbolic_arguments: Vec::new(),
+                    kind: None,
+                    harness_path: "fixture::claim".to_owned(),
+                    launcher_path: "/tools/cargo-kani".to_owned(),
+                    arguments: Vec::new(),
+                    unwind: 1,
+                    solver: KaniSolver::Cadical,
+                    exit_code: Some(0),
+                    outcome: KaniRunOutcome::Verified,
+                    success_checks: 1,
+                    checks: Vec::new(),
+                    batch: None,
+                    diagnostics: None,
+                    failure_cause: None,
+                }),
+            }
+            .terminal_record()
+            .expect("fixture provider returns one terminal per generated item")
+            .request_index()
+            .get()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(terminal_indexes, [0, 2]);
 }
 
 #[test]
