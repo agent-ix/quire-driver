@@ -954,7 +954,7 @@ mod tests {
         ModuleSymbol, OracleGenerationError, PackageRequestError, RoutedGenerationError,
         ScalarOracleStopKind,
     };
-    use quire_contract_model::CheckedNodeId;
+    use quire_contract_model::{CheckedNodeId, CheckedSemanticId};
     use quire_contract_model::{
         CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusalCause,
         CheckedPackageRefusalCode,
@@ -1061,9 +1061,19 @@ mod tests {
         assert_eq!(refusal.stage(), DriverStage::Registry);
     }
 
-    #[trace("FR-001-AC-22")]
+    #[trace("TC-004", "FR-001-AC-22")]
     #[test]
     fn cg_package_read_refusal_preserves_projection_and_maps_its_typed_code_and_cause() {
+        let expected = CheckedSemanticId {
+            domain: "quire.contract-expected/v1".into(),
+            algorithm: "sha-256".into(),
+            digest: "0".repeat(64).into(),
+        };
+        let actual = CheckedSemanticId {
+            domain: "quire.contract-actual/v1".into(),
+            algorithm: "sha-256".into(),
+            digest: "1".repeat(64).into(),
+        };
         let projection = ContractPackageRefusalProjection {
             code: CheckedPackageRefusalCode::StaleDependency,
             path: Some("/package/dependencies/0".to_owned()),
@@ -1074,8 +1084,8 @@ mod tests {
             }),
             contract_version: Some("2.0.0".to_owned()),
             document_pointer: Some("/package/dependencies/0".to_owned()),
-            expected: None,
-            actual: None,
+            expected: Some(expected.clone()),
+            actual: Some(actual.clone()),
         };
         let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadRefused {
             refusal: projection.clone(),
@@ -1087,6 +1097,9 @@ mod tests {
         assert_eq!(refusal.kind(), OutcomeKind::Refused);
         assert_eq!(refusal.stage(), DriverStage::PackageRead);
         assert_eq!(refusal.package_read_refusal_projection(), Some(&projection));
+        let retained = refusal.package_read_refusal_projection().unwrap();
+        assert_eq!(retained.expected.as_ref(), Some(&expected));
+        assert_eq!(retained.actual.as_ref(), Some(&actual));
         assert!(matches!(
             refusal,
             DriverRefusal::Envelope(envelope)
@@ -1114,7 +1127,7 @@ mod tests {
         );
     }
 
-    #[trace("FR-001-AC-22")]
+    #[trace("TC-004", "FR-001-AC-22")]
     #[test]
     fn cg_package_read_incomplete_maps_each_permitted_limit_and_faults_diagnostics() {
         let cases = [
