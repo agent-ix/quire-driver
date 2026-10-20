@@ -903,7 +903,8 @@ mod scalar_receipt_tests {
     }
 }
 
-#[cfg(test)]
+// The native runner's memory enforcement requires Linux procfs.
+#[cfg(all(test, target_os = "linux"))]
 mod native_receipt_integration_tests {
     use super::*;
     use qsl_replay::spine::{default_accounting, CallArgument};
