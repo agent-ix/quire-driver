@@ -1,14 +1,12 @@
 # quire-driver
 
-quire-driver is the part of Quire that runs a specification end to end. It
-also builds the user-facing `quire` command.
+quire-driver runs a QSL specification end to end and builds the `quire`
+command-line tool.
 
-The driver takes a rule written in the Quire Specification Language (QSL), has
-QSL check and package it, hands the checked package to Contract IR and the code
-generators, and reports what came back. It reads the source, passes bytes
-between stages, negotiates with the available backends, and turns every way a
-run can end into one result and exit code. It is the only place that calls
-both QSL and the code generators.
+It reads the source, has QSL check and package the rule, passes the checked
+package to Contract IR and the code generators, and reports the result with one
+exit code. It is the only component that calls both QSL and the code
+generators.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.svg">
