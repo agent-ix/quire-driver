@@ -7,15 +7,17 @@ use qsl_foundation::diagnostic::InternalFault;
 use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::{BackendId, Code, EmptyBackendIdentity};
-use qsl_replay::spine::{CompileRefusal, SpineStage};
+use qsl_replay::spine::{BindRefusal, CompileRefusal, RunRefusal, SpineStage};
 use qsl_replay::Category;
 use qsl_route::RegistrationRefusal;
 use quire_contract_codegen::{
-    ContractScalarError, EnvelopeRefusal, KaniObligationError, OracleGenerationError,
-    RoutedGenerationError,
+    ContractScalarError, EnvelopeRefusal, KaniObligationError, KaniScalarNativeError,
+    KaniScalarNativeErrorClass, OracleGenerationError, RoutedGenerationError,
 };
-use quire_contract_model::CheckedPackageLimit;
-use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageRefusal};
+use quire_contract_model::{
+    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
+    CheckedPackageRefusalCause, CheckedPackageRefusalCode,
+};
 use quire_exact::CancelCause;
 
 /// Why [`crate::drive`] or [`crate::build_registry`] produced no result.
@@ -36,6 +38,19 @@ pub enum DriverRefusal {
     /// S1 to S4, or the E4 emitter, refused the unit.
     #[error("{0}")]
     Compile(Box<CompileRefusal>),
+    /// A QSL scalar call used for occurrence binding refused unchanged.
+    #[error(transparent)]
+    ScalarCall(Box<RunRefusal>),
+    /// QSL's exact evidence builder refused while preparing IR's one reader call.
+    #[error(transparent)]
+    QslAdmissionEvidence(Box<RunRefusal>),
+    /// QSL refused to bind a call to the selected scalar occurrence.
+    #[error(transparent)]
+    ScalarBinding(BindRefusal),
+    /// CG's paired proof/native runner refused or faulted with its stable
+    /// classification, retained without conversion.
+    #[error(transparent)]
+    ScalarNative(KaniScalarNativeError),
     /// QSL stopped a lifecycle stage because the caller cancelled its handle.
     #[error("QSL {stage:?} lifecycle cancelled: {cause:?}")]
     Cancelled {
@@ -53,7 +68,7 @@ pub enum DriverRefusal {
     },
     /// CG refused the whole FR-331 envelope before settling any item.
     #[error("{}", envelope_message(.0))]
-    Envelope(EnvelopeRefusal),
+    Envelope(Box<EnvelopeRefusal>),
     /// E5: IR's reader stopped at one of its limits.
     #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
     HandoffLimit(CheckedPackageIncomplete),
@@ -108,6 +123,9 @@ pub enum DriverFault {
         /// The bytewise-first repeated identity from CG's typed refusal.
         identity: String,
     },
+    /// FR-330's ContractPackage reader cannot stop at Diagnostics.
+    #[error("CG ContractPackage reader reported the unreachable Diagnostics limit kind")]
+    PackageReadDiagnostics(quire_contract_codegen::ContractPackageIncompleteProjection),
     /// An item settled `supported` by a backend outside its candidate set.
     #[error(
         "request item {request_index} settled supported by `{backend}`, not one of its candidates"
@@ -183,15 +201,44 @@ pub enum DriverFault {
     /// IR lowering did not return a package despite having no typed limit result.
     #[error("IR lowering returned no contract package and no limit record")]
     ContractLoweringIncomplete,
+    /// CG's receipt does not consistently attest the request's original
+    /// scalar limits.
+    #[error("CG's native receipt does not attest the retained ScalarLimits")]
+    NativeExecutionLimitsMismatch,
+    /// A receipt failed the driver's artifact identity or retained-byte check.
+    #[error("CG's native receipt failed the retained artifact identity check")]
+    NativeReceiptMismatch,
 }
 
 impl From<EnvelopeRefusal> for DriverRefusal {
     fn from(refusal: EnvelopeRefusal) -> Self {
-        match refusal {
-            EnvelopeRefusal::InvalidCapability { .. } => Self::Envelope(refusal),
-            EnvelopeRefusal::ManifestRepeatsBackendIdentity { identity } => {
-                Self::Fault(DriverFault::ManifestRepeatsBackendIdentity { identity })
+        Self::from(Box::new(refusal))
+    }
+}
+
+impl From<Box<EnvelopeRefusal>> for DriverRefusal {
+    fn from(refusal: Box<EnvelopeRefusal>) -> Self {
+        match refusal.as_ref() {
+            EnvelopeRefusal::ContractPackageReadIncomplete { incomplete }
+                if incomplete.limit_kind == CheckedPackageLimit::Diagnostics =>
+            {
+                Self::Fault(DriverFault::PackageReadDiagnostics(incomplete.clone()))
             }
+            EnvelopeRefusal::ManifestRepeatsBackendIdentity { identity } => {
+                Self::Fault(DriverFault::ManifestRepeatsBackendIdentity {
+                    identity: identity.clone(),
+                })
+            }
+            _ => Self::Envelope(refusal),
+        }
+    }
+}
+
+impl DriverRefusal {
+    fn envelope_refusal(&self) -> Option<&EnvelopeRefusal> {
+        match self {
+            Self::Envelope(refusal) => Some(refusal.as_ref()),
+            _ => None,
         }
     }
 }
@@ -207,12 +254,16 @@ pub enum DriverStage {
     Conversion,
     /// E7 negotiation.
     Negotiation,
+    /// CG's FR-330 ContractPackage reader.
+    PackageRead,
     /// The routing step after negotiation.
     Routing,
     /// E5: IR's read of the emitted package.
     Handoff,
     /// CG generation for the routed items.
     Generation,
+    /// Native execution or receipt verification for a routed scalar.
+    Replay,
 }
 
 /// The terminal outcome kind a refusal maps to (ADR-011 §2.3, §5): input
@@ -231,12 +282,41 @@ pub enum OutcomeKind {
     Fault,
 }
 
+/// The FR-272 projection for a CG ContractPackage read limit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PackageReadLimit {
+    /// The FR-272 cause tag.
+    pub cause: &'static str,
+    /// The `CheckedPackageReadLimits` member that supplied the bound.
+    pub setting: &'static str,
+    /// The caller-selected limit.
+    pub bound: u64,
+    /// The first denied count or encoded byte count.
+    pub actual: u64,
+    /// The CG reader's JSON path, absent for byte limits.
+    pub path: Option<String>,
+}
+
 impl DriverRefusal {
     /// A QSL-owned category carried without translation by a typed refusal.
     pub fn qsl_category(&self) -> Option<Category> {
         match self {
             Self::EmptyBackendIdentity(refusal) => Some(refusal.category()),
             Self::EmptyLinkedManifestAdvertisements => Some(Category::Refusal),
+            Self::ScalarCall(refusal) => Some(refusal.category()),
+            Self::QslAdmissionEvidence(refusal) => Some(refusal.category()),
+            Self::ScalarBinding(refusal) => Some(refusal.code().category()),
+            Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::ContractPackageReadRefused { .. } => Some(Category::Refusal),
+                EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } => Some(
+                    if incomplete.limit_kind == CheckedPackageLimit::Diagnostics {
+                        Category::InternalFailure
+                    } else {
+                        Category::Incomplete
+                    },
+                ),
+                _ => None,
+            },
             Self::Cancelled { cause, .. } => {
                 // `StageFailure::Cancelled` has a category independent of
                 // its refusal payload. `LimitExceeded` satisfies the generic
@@ -264,11 +344,37 @@ impl DriverRefusal {
                 |refusal| refusal.catalog_code().to_string(),
             ),
             Self::Compile(refusal) => compile_code(refusal),
-            Self::UnknownBackend { .. } => "invalid_capability/unknown-backend".to_owned(),
-            Self::Envelope(EnvelopeRefusal::InvalidCapability { cause, .. }) => {
-                format!("invalid_capability/{cause}")
+            Self::ScalarCall(refusal) => refusal.code().as_str().to_owned(),
+            Self::QslAdmissionEvidence(refusal) => refusal.code().as_str().to_owned(),
+            Self::ScalarBinding(refusal) => {
+                let code = refusal.code().as_str();
+                match refusal.cause() {
+                    Some(cause) => format!("{code}/{cause}"),
+                    None => code.to_owned(),
+                }
             }
-            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
+            Self::ScalarNative(error) => error.code().to_owned(),
+            Self::UnknownBackend { .. } => "invalid_capability/unknown-backend".to_owned(),
+            Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::InvalidCapability { cause, .. } => {
+                    format!("invalid_capability/{cause}")
+                }
+                EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. } => {
+                    Code::RuntimeInvariant.as_str().to_owned()
+                }
+                EnvelopeRefusal::ContractPackageReadRefused { refusal } => {
+                    package_read_refusal_code(refusal.code).to_owned()
+                }
+                EnvelopeRefusal::ContractPackageReadIncomplete { incomplete }
+                    if incomplete.limit_kind == CheckedPackageLimit::Diagnostics =>
+                {
+                    Code::RuntimeInvariant.as_str().to_owned()
+                }
+                EnvelopeRefusal::ContractPackageReadIncomplete { .. } => {
+                    Code::StageLimitExceeded.as_str().to_owned()
+                }
+            },
+            Self::Fault(DriverFault::PackageReadDiagnostics(_)) => {
                 Code::RuntimeInvariant.as_str().to_owned()
             }
             Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
@@ -293,12 +399,27 @@ impl DriverRefusal {
                 DriverFault::AdmittedManifestMissingLabel | DriverFault::AdmittedManifestMissing,
             ) => DriverStage::Registry,
             Self::Compile(refusal) => DriverStage::Compile(refusal.stage()),
+            Self::QslAdmissionEvidence(_) => DriverStage::Handoff,
+            Self::ScalarCall(_) | Self::ScalarBinding(_) | Self::ScalarNative(_) => {
+                DriverStage::Replay
+            }
             Self::Cancelled { stage, .. } => DriverStage::Compile(*stage),
             Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
                 DriverStage::Conversion
             }
-            Self::Envelope(_) => DriverStage::Negotiation,
+            Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::InvalidCapability { .. }
+                | EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. } => {
+                    DriverStage::Negotiation
+                }
+                EnvelopeRefusal::ContractPackageReadRefused { .. }
+                | EnvelopeRefusal::ContractPackageReadIncomplete { .. } => DriverStage::PackageRead,
+            },
+            Self::Fault(DriverFault::PackageReadDiagnostics(_)) => DriverStage::PackageRead,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
+            Self::Fault(
+                DriverFault::NativeExecutionLimitsMismatch | DriverFault::NativeReceiptMismatch,
+            ) => DriverStage::Replay,
             Self::Fault(DriverFault::Spine { stage, .. }) => DriverStage::Compile(*stage),
             Self::HandoffLimit(_)
             | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
@@ -326,6 +447,25 @@ impl DriverRefusal {
             Self::EmptyBackendIdentity(_) => OutcomeKind::Refused,
             Self::EmptyLinkedManifestAdvertisements => OutcomeKind::Refused,
             Self::Cancelled { .. } => OutcomeKind::Cancelled,
+            Self::ScalarCall(refusal) => outcome_kind_for_qsl(refusal.category()),
+            Self::QslAdmissionEvidence(refusal) => outcome_kind_for_qsl(refusal.category()),
+            Self::ScalarBinding(refusal) => outcome_kind_for_qsl(refusal.code().category()),
+            Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::ContractPackageReadRefused { .. } => OutcomeKind::Refused,
+                EnvelopeRefusal::ContractPackageReadIncomplete { incomplete }
+                    if incomplete.limit_kind == CheckedPackageLimit::Diagnostics =>
+                {
+                    OutcomeKind::Fault
+                }
+                EnvelopeRefusal::ContractPackageReadIncomplete { .. } => OutcomeKind::Limit,
+                EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. } => OutcomeKind::Fault,
+                EnvelopeRefusal::InvalidCapability { .. } => OutcomeKind::Refused,
+            },
+            Self::Fault(DriverFault::PackageReadDiagnostics(_)) => OutcomeKind::Fault,
+            Self::ScalarNative(error) => match error.class() {
+                KaniScalarNativeErrorClass::CompletionRefusal => OutcomeKind::Refused,
+                KaniScalarNativeErrorClass::EnvironmentFault => OutcomeKind::Fault,
+            },
             Self::Compile(refusal) if refusal.code() == Code::StageLimitExceeded => {
                 OutcomeKind::Limit
             }
@@ -340,15 +480,153 @@ impl DriverRefusal {
                 OutcomeKind::Limit
             }
             Self::ManifestEncoding(_) => OutcomeKind::Fault,
-            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
-                OutcomeKind::Fault
+            Self::Registration(_) | Self::Compile(_) | Self::UnknownBackend { .. } => {
+                OutcomeKind::Refused
             }
-            Self::Registration(_)
-            | Self::Compile(_)
-            | Self::UnknownBackend { .. }
-            | Self::Envelope(EnvelopeRefusal::InvalidCapability { .. }) => OutcomeKind::Refused,
             Self::Fault(_) => OutcomeKind::Fault,
         }
+    }
+
+    /// The exact FR-272 cause of a retained ContractPackage read refusal.
+    pub fn package_read_cause(&self) -> Option<&'static str> {
+        match self.envelope_refusal()? {
+            EnvelopeRefusal::ContractPackageReadRefused { refusal } => {
+                refusal.cause.map(package_read_refusal_cause)
+            }
+            _ => None,
+        }
+    }
+
+    /// The complete CG refusal projection retained by the driver.
+    pub fn package_read_refusal_projection(
+        &self,
+    ) -> Option<&quire_contract_codegen::ContractPackageRefusalProjection> {
+        match self.envelope_refusal()? {
+            EnvelopeRefusal::ContractPackageReadRefused { refusal } => Some(refusal),
+            _ => None,
+        }
+    }
+
+    /// The FR-272 fields derived from a retained, permitted reader limit.
+    /// The original CG projection remains available unchanged in `Envelope`.
+    pub fn package_read_limit(&self) -> Option<PackageReadLimit> {
+        let EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } =
+            self.envelope_refusal()?
+        else {
+            return None;
+        };
+        let (cause, setting) = package_read_limit_mapping(incomplete.limit_kind)?;
+        Some(PackageReadLimit {
+            cause,
+            setting,
+            bound: incomplete.limit,
+            actual: incomplete.consumed,
+            path: if incomplete.limit_kind == CheckedPackageLimit::Bytes {
+                None
+            } else {
+                incomplete.path.clone()
+            },
+        })
+    }
+}
+
+fn outcome_kind_for_qsl(category: Category) -> OutcomeKind {
+    match category {
+        Category::Refusal | Category::Unsupported => OutcomeKind::Refused,
+        Category::Incomplete => OutcomeKind::Cancelled,
+        Category::InternalFailure => OutcomeKind::Fault,
+        _ => OutcomeKind::Fault,
+    }
+}
+
+fn package_read_refusal_code(code: CheckedPackageRefusalCode) -> &'static str {
+    match code {
+        CheckedPackageRefusalCode::UnknownContractVersion => "unknown_contract_version",
+        CheckedPackageRefusalCode::MalformedWire => "malformed_wire",
+        CheckedPackageRefusalCode::DuplicateMember => "duplicate_member",
+        CheckedPackageRefusalCode::UnknownMember => "unknown_member",
+        CheckedPackageRefusalCode::NoncanonicalWire => "noncanonical_wire",
+        CheckedPackageRefusalCode::StaleDependency => "stale_dependency",
+        CheckedPackageRefusalCode::DigestDomainMismatch => "digest_domain_mismatch",
+        CheckedPackageRefusalCode::UnknownRequiredCapability => "unknown_required_capability",
+        CheckedPackageRefusalCode::InvalidSemanticGraph => "invalid_semantic_graph",
+        CheckedPackageRefusalCode::InvalidSourceMap => "invalid_source_map",
+        CheckedPackageRefusalCode::UnsupportedNodeTag => "unsupported_node_tag",
+        CheckedPackageRefusalCode::UnsupportedConstruct => "unsupported_construct",
+        CheckedPackageRefusalCode::MissingDeclaration => "missing_declaration",
+        CheckedPackageRefusalCode::InvalidModelBinding => "invalid_model_binding",
+        CheckedPackageRefusalCode::InvalidPackage => "invalid_package",
+        CheckedPackageRefusalCode::IllTyped => "ill_typed",
+        CheckedPackageRefusalCode::AmbiguousDeclaration => "ambiguous_declaration",
+        CheckedPackageRefusalCode::MissingImport => "missing_import",
+        CheckedPackageRefusalCode::UnknownProfile => "unknown_profile",
+    }
+}
+
+fn package_read_refusal_cause(cause: CheckedPackageRefusalCause) -> &'static str {
+    match cause {
+        CheckedPackageRefusalCause::MalformedJson => "malformed-json",
+        CheckedPackageRefusalCause::MissingMember => "missing-member",
+        CheckedPackageRefusalCause::UnknownMember => "unknown-member",
+        CheckedPackageRefusalCause::WrongValueKind => "wrong-value-kind",
+        CheckedPackageRefusalCause::UnsupportedWire => "unsupported-wire",
+        CheckedPackageRefusalCause::UnsupportedFeature => "unsupported-feature",
+        CheckedPackageRefusalCause::DefinitionCycle => "definition-cycle",
+        CheckedPackageRefusalCause::IncompatibleDefinition => "incompatible-definition",
+        CheckedPackageRefusalCause::FeatureSetMismatch => "feature-set-mismatch",
+        CheckedPackageRefusalCause::InsufficientNextCharge => "insufficient-next-charge",
+        CheckedPackageRefusalCause::ContentMismatch => "content-mismatch",
+        CheckedPackageRefusalCause::MissingName => "missing-name",
+        CheckedPackageRefusalCause::MalformedDeclaration => "malformed-declaration",
+        CheckedPackageRefusalCause::StaleNodeKey => "stale-node-key",
+        CheckedPackageRefusalCause::UnknownOperation => "unknown-operation",
+        CheckedPackageRefusalCause::OperationClassMismatch => "operation-class-mismatch",
+        CheckedPackageRefusalCause::OperationLawMissing => "operation-law-missing",
+        CheckedPackageRefusalCause::OperationLawMismatch => "operation-law-mismatch",
+        CheckedPackageRefusalCause::OperationLawUnselected => "operation-law-unselected",
+        CheckedPackageRefusalCause::OperationModeMismatch => "operation-mode-mismatch",
+        CheckedPackageRefusalCause::OperationModeTypeMismatch => "operation-mode-type-mismatch",
+        CheckedPackageRefusalCause::OperationMemberMismatch => "operation-member-mismatch",
+        CheckedPackageRefusalCause::OperatorIneligible => "operator-ineligible",
+        CheckedPackageRefusalCause::ExpressionForm => "expression-form",
+        CheckedPackageRefusalCause::DeclarationNominalMismatch => "declaration-nominal-mismatch",
+        CheckedPackageRefusalCause::AmbiguousName => "ambiguous-name",
+        CheckedPackageRefusalCause::MissingSelection => "missing-selection",
+        CheckedPackageRefusalCause::DigestDomainMismatch => "digest-domain-mismatch",
+        CheckedPackageRefusalCause::ByteDigestMismatch => "byte-digest-mismatch",
+        CheckedPackageRefusalCause::WrongModelSelection => "wrong-model-selection",
+        CheckedPackageRefusalCause::ConflictingBinding => "conflicting-binding",
+        CheckedPackageRefusalCause::UnpreservedModelMeaning => "unpreserved-model-meaning",
+        CheckedPackageRefusalCause::ConflictingDefinition => "conflicting-definition",
+        CheckedPackageRefusalCause::InvalidValue => "invalid-value",
+        CheckedPackageRefusalCause::DuplicateMember => "duplicate-member",
+        CheckedPackageRefusalCause::TypeMismatch => "type-mismatch",
+        CheckedPackageRefusalCause::UnsupportedSelection => "unsupported-selection",
+        CheckedPackageRefusalCause::WrongSelectionRole => "wrong-selection-role",
+        CheckedPackageRefusalCause::InexactInteger => "inexact-integer",
+        CheckedPackageRefusalCause::InexactNumber => "inexact-number",
+    }
+}
+
+fn package_read_limit_mapping(limit: CheckedPackageLimit) -> Option<(&'static str, &'static str)> {
+    match limit {
+        CheckedPackageLimit::Bytes => {
+            Some(("input-bytes-exceeded", "CheckedPackageReadLimits.bytes"))
+        }
+        CheckedPackageLimit::Nodes => {
+            Some(("node-count-exceeded", "CheckedPackageReadLimits.nodes"))
+        }
+        CheckedPackageLimit::Edges => {
+            Some(("edge-count-exceeded", "CheckedPackageReadLimits.edges"))
+        }
+        CheckedPackageLimit::Occurrences => Some((
+            "occurrence-count-exceeded",
+            "CheckedPackageReadLimits.occurrences",
+        )),
+        CheckedPackageLimit::Work => {
+            Some(("work-budget-exceeded", "CheckedPackageReadLimits.work"))
+        }
+        CheckedPackageLimit::Diagnostics => None,
     }
 }
 
@@ -375,6 +653,7 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
         | RoutedGenerationError::Package(_) => Code::InvalidRequest,
         RoutedGenerationError::BackendKindDisagrees { .. }
         | RoutedGenerationError::DuplicateRequestIndex { .. }
+        | RoutedGenerationError::ExcludedDriverIndex { .. }
         | RoutedGenerationError::DuplicateHarness { .. }
         | RoutedGenerationError::KaniRecordCountMismatch { .. }
         | RoutedGenerationError::KaniDuplicatePositionOutOfRange { .. }
@@ -439,6 +718,7 @@ fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
         | CompileRefusal::Forms { .. }
         | CompileRefusal::Intake { .. }
         | CompileRefusal::OperationClause { .. }
+        | CompileRefusal::TypeInvariant { .. }
         | CompileRefusal::Assembly { .. }
         | CompileRefusal::Emit(_)
         | CompileRefusal::Omitted(_) => None,
@@ -464,6 +744,10 @@ fn join(backends: &[BackendId]) -> String {
 
 fn generation_message(error: &RoutedGenerationError) -> String {
     match error {
+        RoutedGenerationError::ExcludedDriverIndex {
+            request_index,
+            node_id,
+        } => format!("request item {request_index} targets excluded driver position {node_id:?}"),
         RoutedGenerationError::ScalarSelectionMismatch { request_index } => {
             format!("request item {request_index} did not match its admitted scalar selection")
         }
@@ -577,6 +861,14 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
         EnvelopeRefusal::ManifestRepeatsBackendIdentity { identity } => format!(
             "internal fault: CG negotiation manifest repeats backend identity `{identity}`"
         ),
+        EnvelopeRefusal::ContractPackageReadRefused { refusal } => format!(
+            "CG ContractPackage reader refused with {}: {refusal:?}",
+            package_read_refusal_code(refusal.code)
+        ),
+        EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } => format!(
+            "CG ContractPackage reader reached its {:?} limit: {incomplete:?}",
+            incomplete.limit_kind
+        ),
     }
 }
 
@@ -587,12 +879,41 @@ mod tests {
     use qsl_foundation::EmptyBackendIdentity;
     use qsl_replay::Category;
     use quire_contract_codegen::{
-        ContractScalarError, EnvelopeRefusal, HarnessPath, HarnessSymbol, KaniObligationError,
-        ModuleSymbol, OracleGenerationError, RoutedGenerationError,
+        ContractPackageIncompleteProjection, ContractPackageRefusalProjection, ContractScalarError,
+        EnvelopeRefusal, HarnessPath, HarnessSymbol, KaniObligationError, KaniScalarNativeError,
+        KaniScalarNativeErrorClass, ModuleSymbol, OracleGenerationError, RoutedGenerationError,
+        ScalarOracleStopKind,
     };
-    use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
+    use quire_contract_model::{
+        CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusalCause,
+        CheckedPackageRefusalCode,
+    };
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    #[trace("FR-009-AC-6", "FR-009-AC-7")]
+    #[test]
+    fn native_runner_typed_refusal_keeps_cg_discriminant_and_class() {
+        let refusal = DriverRefusal::ScalarNative(KaniScalarNativeError::OracleStop(
+            ScalarOracleStopKind::IllTyped,
+        ));
+        assert_eq!(refusal.code(), "oracle_stop");
+        assert_eq!(refusal.qsl_category(), None);
+        assert_eq!(refusal.stage(), DriverStage::Replay);
+        assert_eq!(refusal.kind(), OutcomeKind::Refused);
+        assert_eq!(
+            match &refusal {
+                DriverRefusal::ScalarNative(error) => error.class(),
+                _ => unreachable!("test constructed the scalar-native refusal"),
+            },
+            KaniScalarNativeErrorClass::CompletionRefusal
+        );
+
+        let fault = DriverRefusal::ScalarNative(KaniScalarNativeError::CodegenLock);
+        assert_eq!(fault.code(), "codegen_lock");
+        assert_eq!(fault.kind(), OutcomeKind::Fault);
+        assert_eq!(fault.stage(), DriverStage::Replay);
+    }
 
     #[test]
     fn empty_backend_identity_preserves_qsl_code_and_category() {
@@ -604,6 +925,141 @@ mod tests {
         assert_eq!(refusal.qsl_category(), Some(Category::Refusal));
         assert_eq!(refusal.kind(), OutcomeKind::Refused);
         assert_eq!(refusal.stage(), DriverStage::Registry);
+    }
+
+    #[trace("FR-001-AC-22")]
+    #[test]
+    fn cg_package_read_refusal_preserves_projection_and_maps_its_typed_code_and_cause() {
+        let projection = ContractPackageRefusalProjection {
+            code: CheckedPackageRefusalCode::StaleDependency,
+            path: Some("/package/dependencies/0".to_owned()),
+            cause: Some(CheckedPackageRefusalCause::ContentMismatch),
+            locus: Some(quire_contract_model::CheckedNodeId {
+                domain: "quire.checked-semantic-node/v1".into(),
+                digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+            }),
+            contract_version: Some("2.0.0".to_owned()),
+            document_pointer: Some("/package/dependencies/0".to_owned()),
+            expected: None,
+            actual: None,
+        };
+        let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadRefused {
+            refusal: projection.clone(),
+        });
+
+        assert_eq!(refusal.code(), "stale_dependency");
+        assert_eq!(refusal.package_read_cause(), Some("content-mismatch"));
+        assert_eq!(refusal.qsl_category(), Some(Category::Refusal));
+        assert_eq!(refusal.kind(), OutcomeKind::Refused);
+        assert_eq!(refusal.stage(), DriverStage::PackageRead);
+        assert_eq!(refusal.package_read_refusal_projection(), Some(&projection));
+        assert!(matches!(
+            refusal,
+            DriverRefusal::Envelope(envelope)
+                if matches!(envelope.as_ref(), EnvelopeRefusal::ContractPackageReadRefused { .. })
+        ));
+
+        let projection_without_optional_payloads = ContractPackageRefusalProjection {
+            code: CheckedPackageRefusalCode::MalformedWire,
+            path: None,
+            cause: None,
+            locus: None,
+            contract_version: None,
+            document_pointer: None,
+            expected: None,
+            actual: None,
+        };
+        let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadRefused {
+            refusal: projection_without_optional_payloads.clone(),
+        });
+        assert_eq!(refusal.code(), "malformed_wire");
+        assert_eq!(refusal.package_read_cause(), None);
+        assert_eq!(
+            refusal.package_read_refusal_projection(),
+            Some(&projection_without_optional_payloads)
+        );
+    }
+
+    #[trace("FR-001-AC-22")]
+    #[test]
+    fn cg_package_read_incomplete_maps_each_permitted_limit_and_faults_diagnostics() {
+        let cases = [
+            (
+                CheckedPackageLimit::Bytes,
+                "input-bytes-exceeded",
+                "CheckedPackageReadLimits.bytes",
+            ),
+            (
+                CheckedPackageLimit::Nodes,
+                "node-count-exceeded",
+                "CheckedPackageReadLimits.nodes",
+            ),
+            (
+                CheckedPackageLimit::Edges,
+                "edge-count-exceeded",
+                "CheckedPackageReadLimits.edges",
+            ),
+            (
+                CheckedPackageLimit::Occurrences,
+                "occurrence-count-exceeded",
+                "CheckedPackageReadLimits.occurrences",
+            ),
+            (
+                CheckedPackageLimit::Work,
+                "work-budget-exceeded",
+                "CheckedPackageReadLimits.work",
+            ),
+        ];
+        for (limit_kind, cause, setting) in cases {
+            let source_path =
+                (limit_kind != CheckedPackageLimit::Bytes).then(|| "/reader/path".to_owned());
+            let projection = ContractPackageIncompleteProjection {
+                limit_kind,
+                limit: 10,
+                consumed: 11,
+                path: source_path.clone(),
+            };
+            let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadIncomplete {
+                incomplete: projection.clone(),
+            });
+            assert_eq!(refusal.code(), "stage_limit_exceeded");
+            assert_eq!(refusal.qsl_category(), Some(Category::Incomplete));
+            assert_eq!(refusal.kind(), OutcomeKind::Limit);
+            assert_eq!(refusal.stage(), DriverStage::PackageRead);
+            assert_eq!(
+                refusal.package_read_limit(),
+                Some(super::PackageReadLimit {
+                    cause,
+                    setting,
+                    bound: 10,
+                    actual: 11,
+                    path: source_path,
+                })
+            );
+            assert!(matches!(
+                &refusal,
+                DriverRefusal::Envelope(envelope)
+                    if matches!(envelope.as_ref(), EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } if incomplete == &projection)
+            ));
+        }
+
+        let projection = ContractPackageIncompleteProjection {
+            limit_kind: CheckedPackageLimit::Diagnostics,
+            limit: 10,
+            consumed: 11,
+            path: Some("/diagnostics".to_owned()),
+        };
+        let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadIncomplete {
+            incomplete: projection.clone(),
+        });
+        assert_eq!(refusal.code(), "runtime_invariant");
+        assert_eq!(refusal.kind(), OutcomeKind::Fault);
+        assert_eq!(refusal.stage(), DriverStage::PackageRead);
+        assert!(matches!(
+            refusal,
+            DriverRefusal::Fault(DriverFault::PackageReadDiagnostics(incomplete))
+                if incomplete == projection
+        ));
     }
 
     #[trace("FR-001-AC-5")]
@@ -630,6 +1086,17 @@ mod tests {
     #[test]
     fn routed_generation_invariant_errors_are_generation_faults() {
         for (error, message) in [
+            (
+                RoutedGenerationError::ExcludedDriverIndex {
+                    request_index: 1,
+                    node_id: quire_contract_model::CheckedNodeId {
+                        domain: "quire.checked-semantic-node/v1".into(),
+                        digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                            .into(),
+                    },
+                },
+                "CG generation refused the routed items: request item 1 targets excluded driver position CheckedNodeId { domain: \"quire.checked-semantic-node/v1\", digest: \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\" }",
+            ),
             (
                 RoutedGenerationError::DuplicateHarness {
                     harness: HarnessPath {

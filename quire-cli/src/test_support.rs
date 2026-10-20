@@ -43,5 +43,6 @@ fn emitted_package_with_source_name(source_name: &str) -> qsl_package::EmittedPa
         GenerationInput::default(),
     )
     .expect("fixture compiles and emits a real package")
-    .emitted
+    .emitted()
+    .clone()
 }

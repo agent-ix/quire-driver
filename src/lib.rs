@@ -63,7 +63,10 @@ pub use cache::{
     CacheOperation, CacheRequest, CacheRequestError, CacheValueCodec, CacheWriteOutcome,
     CachedRunError,
 };
-pub use drive::{drive, CompileInput, Driven, GenerationInput, KaniInput, Routed};
+pub use drive::{
+    drive, CompileInput, Driven, GenerationInput, KaniInput, Routed, ScalarExecution,
+    ScalarExecutionInput, ScalarNativeInput,
+};
 pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};
 pub use limits::{LimitError, LimitOverrides};
 pub use process_provider::{
@@ -76,7 +79,7 @@ pub use provider::{
 };
 pub use qsl_semantics::model::object_environment::ObjectEnvironment;
 pub use quire_contract_codegen::{Candidate, ProofCeilings};
-pub use refusal::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+pub use refusal::{DriverFault, DriverRefusal, DriverStage, OutcomeKind, PackageReadLimit};
 pub use registry::{
     build_linked_providers, build_registry, AdmittedRegistry, LinkedProviders, ProviderManifest,
 };

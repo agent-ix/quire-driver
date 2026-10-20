@@ -19,7 +19,8 @@ use qsl_package::EmittedPackage;
 use qsl_route::request::RequirementItem;
 use qsl_route::CandidateOutcome;
 use qsl_route::{
-    descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
+    descriptor_from_manifest, BackendDescriptor, Candidate, FairnessKindsMember, FairnessLabel,
+    ManifestDigest, ProviderOrigin,
 };
 use quire_driver::Driven;
 use quire_driver::ProviderManifest;
@@ -267,6 +268,17 @@ impl ManifestStage {
             .domains
             .as_deref()
             .map(|domains| domains.iter().map(String::as_str).collect::<Vec<_>>());
+        let fairness_labels = shape
+            .fairness_kinds
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|label| FairnessLabel::Text(label))
+            .collect::<Vec<_>>();
+        let fairness_member = shape
+            .fairness_kinds
+            .as_ref()
+            .map(|_| FairnessKindsMember::List(&fairness_labels));
         let descriptor = descriptor_from_manifest(
             Candidate::new(BackendId::from_wire(&shape.backend)?),
             ProviderOrigin::Process,
@@ -276,6 +288,7 @@ impl ManifestStage {
                 .iter()
                 .map(|pair| (pair.kind.as_deref(), pair.mode.as_deref())),
             domain_labels.as_deref(),
+            fairness_member,
         )?;
         Ok(AdmittedManifest {
             descriptor,
@@ -362,7 +375,7 @@ impl RequestStage {
         }
 
         let items = driven
-            .generation
+            .generation()
             .items
             .iter()
             .filter(|generated| generated.backend.identity == backend.as_str())
@@ -375,7 +388,7 @@ impl RequestStage {
                 RequestItem::from_qsl(item, backend)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Self::from_emitted(&driven.emitted, manifest, deadline_ms, items)
+        Self::from_emitted(driven.emitted(), manifest, deadline_ms, items)
     }
 
     /// Build the wire request from an emitted package and typed routed inputs.
@@ -882,6 +895,7 @@ mod tests {
         ) -> Result<
             (
                 qsl_replay::spine::CheckedUnit,
+                qsl_replay::spine::AdmittedModels,
                 qsl_replay::spine::EmittedUnit,
             ),
             DriverRefusal,
@@ -905,7 +919,7 @@ mod tests {
         fn negotiate(
             &self,
             envelope: &cg::BackendProviderEnvelope,
-        ) -> Result<Vec<cg::ItemSettlement>, cg::EnvelopeRefusal> {
+        ) -> Result<Vec<cg::ItemSettlement>, Box<cg::EnvelopeRefusal>> {
             let mut settlements = QslCg.negotiate(envelope)?;
             for index in &self.unsupported_at {
                 if let Some(settlement) = settlements.get_mut(*index) {
@@ -1429,20 +1443,20 @@ mod tests {
         assert_eq!(driven.routed.len(), 1);
         assert_eq!(driven.routed[0].request_index, request_index);
         assert_eq!(driven.routed[0].backend().as_str(), "agent-ix/plugin/alpha");
-        assert_eq!(driven.generation.items.len(), 1);
-        assert_eq!(driven.generation.items[0].request_index, request_index);
+        assert_eq!(driven.generation().items.len(), 1);
+        assert_eq!(driven.generation().items[0].request_index, request_index);
         assert_eq!(upstream.calls.get(), 1, "the one supported item is routed");
 
         let backend = driven.routed[0].backend();
         let stage = RequestStage::from_driven(&driven, backend, &manifests, 250)
             .expect("the production writer selects this provider's routed QSL item");
         let wire = serde_json::to_value(stage).expect("FR-331 stage serializes");
-        let package_id = driven.emitted.package_id().record();
+        let package_id = driven.emitted().package_id().record();
         assert_eq!(
             URL_SAFE_NO_PAD
                 .decode(wire["request"]["package"].as_str().expect("package string"))
                 .expect("package uses base64url"),
-            driven.emitted.bytes()
+            driven.emitted().bytes()
         );
         assert_eq!(wire["request"]["package_id"]["digest"], package_id.hex());
         assert_eq!(
@@ -1453,7 +1467,7 @@ mod tests {
         assert_eq!(wire["request"]["items"][0]["request_index"], request_index);
         assert_eq!(
             wire["request"]["items"][0]["backend"],
-            driven.generation.items[0].backend.identity
+            driven.generation().items[0].backend.identity
         );
         assert_eq!(
             wire["request"]["items"][0]["kind"],

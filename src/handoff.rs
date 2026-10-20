@@ -4,24 +4,24 @@
 //! value remains available through admission for bounded diagnostic sources.
 
 use quire_contract_model::{
-    CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageV2,
+    CheckedPackageDispatchResult, CheckedPackageReadLimits, CheckedPackageV2,
 };
 
-use qsl_replay::spine::EmittedUnit;
-use qsl_semantics::model::key::hex;
-use qsl_semantics::value::{CatalogRole, DefinitionLock};
+use qsl_replay::spine::{admission_evidence, AdmittedModels, CheckedUnit, EmittedUnit};
 
-use crate::{CompileInput, DriverFault, DriverRefusal, Upstream};
+use crate::{DriverFault, DriverRefusal, Upstream};
 
 /// Read `emitted` through IR's reader and check the admitted `package_id`
 /// is the one E4 minted.
 pub(crate) fn handoff(
     upstream: &impl Upstream,
-    input: &CompileInput<'_>,
+    models: &AdmittedModels,
+    checked: &CheckedUnit,
     emitted: &EmittedUnit,
+    imports: qsl_package::V2ReadLimits,
 ) -> Result<CheckedPackageV2, DriverRefusal> {
-    let evidence = evidence(input)?;
+    let evidence = admission_evidence(models, checked, emitted, imports)
+        .map_err(DriverRefusal::QslAdmissionEvidence)?;
     let emitted_package = emitted.package();
     let package =
         match upstream.read_package(emitted, CheckedPackageReadLimits::bounded(), &evidence) {
@@ -43,25 +43,4 @@ pub(crate) fn handoff(
         }));
     }
     Ok(package)
-}
-
-/// The evidence IR's reader needs to admit the package:
-///
-/// - each FR-056 domain package document the caller supplied;
-/// - the root feature of QSL's pinned `DefinitionLock` catalog, as a
-///   supported feature.
-///
-/// No artifact-byte or artifact-digest evidence is supplied; IR no longer
-/// checks the package for staleness against artifact digests.
-fn evidence(input: &CompileInput<'_>) -> Result<CheckedPackageEvidence, DriverRefusal> {
-    let mut evidence = CheckedPackageEvidence::new();
-    for (digest, document) in input.packages {
-        evidence
-            .insert_domain_package_document(hex(digest), document.as_slice())
-            .expect("the input map supplies one document per digest");
-    }
-    let lock = DefinitionLock::pinned();
-    let root = lock.entry(CatalogRole::Root);
-    evidence.support_feature(root.identity);
-    Ok(evidence)
 }
