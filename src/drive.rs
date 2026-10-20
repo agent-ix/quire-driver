@@ -499,12 +499,10 @@ fn native_limits_match(
     native_limit_fields_match!(returned, retained) && native_limit_fields_match!(meter, retained)
 }
 
-/// QSL and CG's public `ScalarLimits` are distinct crate types. The fieldwise
-/// projection is the contract boundary; every named counter is retained.
-fn native_scalar_limits(
-    limits: qsl_replay::ScalarLimits,
-) -> quire_contract_runtime::exact::ScalarLimits {
-    quire_contract_runtime::exact::ScalarLimits {
+/// Project the caller's QSL limits into CG's public request type while retaining
+/// every named counter. CG is adding this type's root re-export on main.
+fn native_scalar_limits(limits: qsl_replay::ScalarLimits) -> quire_contract_codegen::ScalarLimits {
+    quire_contract_codegen::ScalarLimits {
         integer_bits: limits.integer_bits,
         decimal_digits: limits.decimal_digits,
         scale_expansion: limits.scale_expansion,
