@@ -220,6 +220,12 @@ the admitted package only at the `package_id` E4 emitted.
 - When the export reports that an occurrence key the driver built names no
   requirement record, the driver SHALL treat it as a `runtime_invariant`
   internal fault at the hand-off.
+- When CG package negotiation rejects the admitted package or the complete
+  request positions the driver constructed from it, the driver SHALL retain
+  the typed `PackageRequestError` and classify the join as a
+  `runtime_invariant` fault at negotiation. An excluded driver position
+  selected during generation is also a `runtime_invariant` fault, including
+  when CG reports it inside a nested package or oracle error.
 - When the package declares no abstraction relation, the driver SHALL skip
   the export, send every item to CG as FR-001 otherwise states, and leave the
   per-item refusal member empty.

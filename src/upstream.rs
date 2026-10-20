@@ -9,7 +9,9 @@
 use std::collections::BTreeMap;
 
 use qsl_foundation::diagnostic::StageFailure;
+use qsl_foundation::source::provenance::OccurrenceKey;
 use qsl_foundation::SourceIdentity;
+use qsl_package::{BoundItem, CheckedPackage, ExportRefusal};
 use qsl_replay::spine::{
     check, package, parse, refusal_or_fault, select, AdmittedModels, CheckedUnit, DependencyInput,
     EmittedUnit, FrontEndFailure, LockEvidence, PackageLimits, ParseRequest, SpineLimits,
@@ -18,9 +20,10 @@ use qsl_replay::spine::{
 use qsl_route::routing::{route, Disposition};
 use qsl_route::Candidate;
 use quire_contract_codegen::{
-    generate_routed, negotiate_backend_provider, BackendDescriptor, BackendKind,
-    BackendProviderEnvelope, ContractRequestPosition, EnvelopeRefusal, GenerationContexts,
-    ItemSettlement, RoutedGeneration, RoutedGenerationError, RoutedGenerationItem,
+    generate_routed, negotiate_contract_package, BackendDescriptor, BackendKind,
+    BackendProviderEnvelope, ContractItemSettlement, ContractNegotiationError,
+    ContractRequestPosition, GenerationContexts, RoutedGeneration, RoutedGenerationError,
+    RoutedGenerationItem,
 };
 use quire_contract_model::{
     read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
@@ -67,6 +70,14 @@ fn driver_refusal(failure: FrontEndFailure, operation: LifecycleOperation) -> Dr
 
 /// The QSL and CG calls [`crate::drive`] makes.
 pub trait Upstream {
+    /// Whether the checked package declares an abstraction relation.
+    fn has_abstraction_relation(&self, package: &CheckedPackage) -> bool;
+    /// QSL FR-307's per-item binding export.
+    fn export_bindings(
+        &self,
+        package: &CheckedPackage,
+        items: &[OccurrenceKey],
+    ) -> Result<Vec<Result<BoundItem, ExportRefusal>>, ExportRefusal>;
     /// S1 to S4 and the E4 emitter, composed from QSL's typed lifecycle
     /// operations. The driver supplies no libraries (ADR-015 D-1): it does
     /// not yet support compiling a unit's `import`s against caller-supplied
@@ -96,11 +107,13 @@ pub trait Upstream {
     /// closed backend kind: `BackendKind::from_descriptor`.
     fn backend_kind(&self, descriptor: &BackendDescriptor) -> Option<BackendKind>;
 
-    /// E7: `quire_contract_codegen::negotiate_backend_provider`.
+    /// E7: `quire_contract_codegen::negotiate_contract_package`.
     fn negotiate(
         &self,
+        package: &ContractPackageV1,
+        positions: &[ContractRequestPosition],
         envelope: &BackendProviderEnvelope,
-    ) -> Result<Vec<ItemSettlement>, Box<EnvelopeRefusal>>;
+    ) -> Result<Vec<ContractItemSettlement>, Box<ContractNegotiationError>>;
 
     /// The routing step: `qsl_route::routing::route`.
     fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>>;
@@ -121,6 +134,16 @@ pub trait Upstream {
 pub struct QslCg;
 
 impl Upstream for QslCg {
+    fn has_abstraction_relation(&self, package: &CheckedPackage) -> bool {
+        package.abstraction().is_some()
+    }
+    fn export_bindings(
+        &self,
+        package: &CheckedPackage,
+        items: &[OccurrenceKey],
+    ) -> Result<Vec<Result<BoundItem, ExportRefusal>>, ExportRefusal> {
+        Ok(qsl_package::export_bindings(package, items))
+    }
     fn compile(
         &self,
         source: SourceIdentity,
@@ -172,9 +195,11 @@ impl Upstream for QslCg {
 
     fn negotiate(
         &self,
+        package: &ContractPackageV1,
+        positions: &[ContractRequestPosition],
         envelope: &BackendProviderEnvelope,
-    ) -> Result<Vec<ItemSettlement>, Box<EnvelopeRefusal>> {
-        negotiate_backend_provider(envelope).map_err(Box::new)
+    ) -> Result<Vec<ContractItemSettlement>, Box<ContractNegotiationError>> {
+        negotiate_contract_package(package, positions, envelope).map_err(Box::new)
     }
 
     fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>> {

@@ -22,7 +22,7 @@
 //!    (`BackendKind::from_descriptor`). Unknown linked identities are refused
 //!    with `invalid_capability`/`unknown-backend`, naming each unconverted id
 //!    in bytewise order; process identities retain their QSL-admitted origin.
-//! 5. E7: CG `negotiate_backend_provider` over the FR-331 envelope built
+//! 5. E7: CG `negotiate_contract_package` over the FR-330 positions and FR-331 envelope built
 //!    from the registry and the candidate sets.
 //! 6. The `route` routing step, after negotiation, over the items settled
 //!    `supported` only. Each routed item carries its `BackendId` and its CG
@@ -64,7 +64,7 @@ pub use cache::{
     CachedRunError,
 };
 pub use drive::{
-    drive, CompileInput, Driven, GenerationInput, KaniInput, Routed, ScalarExecution,
+    drive, CompileInput, Driven, GenerationInput, ItemRefusal, KaniInput, Routed, ScalarExecution,
     ScalarExecutionInput, ScalarNativeInput,
 };
 pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};

@@ -6,13 +6,16 @@
 use qsl_foundation::diagnostic::InternalFault;
 use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::digest::WireNodeId;
+use qsl_foundation::source::provenance::OccurrenceKey;
 use qsl_foundation::{BackendId, Code, EmptyBackendIdentity};
+use qsl_package::ExportRefusal;
 use qsl_replay::spine::{BindRefusal, CompileRefusal, RunRefusal, SpineStage};
 use qsl_replay::Category;
 use qsl_route::RegistrationRefusal;
 use quire_contract_codegen::{
-    ContractScalarError, EnvelopeRefusal, KaniObligationError, KaniScalarNativeError,
-    KaniScalarNativeErrorClass, OracleGenerationError, RoutedGenerationError,
+    ContractNegotiationError, ContractScalarError, EnvelopeRefusal, KaniObligationError,
+    KaniScalarNativeError, KaniScalarNativeErrorClass, OracleGenerationError, PackageRequestError,
+    RoutedGenerationError,
 };
 use quire_contract_model::{
     CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
@@ -23,6 +26,9 @@ use quire_exact::CancelCause;
 /// Why [`crate::drive`] or [`crate::build_registry`] produced no result.
 #[derive(Debug, thiserror::Error)]
 pub enum DriverRefusal {
+    /// The QSL binding export refused the run as a whole.
+    #[error("QSL binding export refused the run: {0:?}")]
+    BindingsExport(ExportRefusal),
     /// A provider manifest supplied QSL's typed empty-identity refusal.
     #[error(transparent)]
     EmptyBackendIdentity(EmptyBackendIdentity),
@@ -69,6 +75,11 @@ pub enum DriverRefusal {
     /// CG refused the whole FR-331 envelope before settling any item.
     #[error("{}", envelope_message(.0))]
     Envelope(Box<EnvelopeRefusal>),
+    /// CG refused the admitted package and complete positions built by the
+    /// driver from that same package. This is an internal join fault at
+    /// negotiation, not a caller request refusal.
+    #[error("CG package negotiation refused: {0:?}")]
+    PackageNegotiation(PackageRequestError),
     /// E5: IR's reader stopped at one of its limits.
     #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
     HandoffLimit(CheckedPackageIncomplete),
@@ -97,6 +108,20 @@ pub enum DriverRefusal {
 /// A violated invariant between the driver and an upstream crate.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum DriverFault {
+    /// QSL's export did not return one result for each driver-built key.
+    #[error("binding export returned {returned} results for {requested} items")]
+    ExportCount {
+        /// Number of driver-built keys submitted.
+        requested: usize,
+        /// Number of per-item export results returned.
+        returned: usize,
+    },
+    /// QSL's export said a driver-built key names no requirement record.
+    #[error("binding export did not recognize driver item {item:?}")]
+    ExportUnknownItem {
+        /// The exact occurrence the export could not match.
+        item: OccurrenceKey,
+    },
     /// QSL's typed lifecycle reported a broken invariant.
     #[error("QSL {stage:?} spine fault: {fault:?}")]
     Spine {
@@ -243,9 +268,27 @@ impl DriverRefusal {
     }
 }
 
+impl From<ContractNegotiationError> for DriverRefusal {
+    fn from(error: ContractNegotiationError) -> Self {
+        match error {
+            ContractNegotiationError::Envelope(refusal) => Self::from(refusal),
+            ContractNegotiationError::Package(refusal) => Self::PackageNegotiation(refusal),
+            ContractNegotiationError::EnvelopeItemCount {
+                requested,
+                supplied,
+            } => Self::Fault(DriverFault::SettlementCount {
+                requested,
+                settled: supplied,
+            }),
+        }
+    }
+}
+
 /// The step a [`DriverRefusal`] comes from.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DriverStage {
+    /// QSL's binding export, after the checked-package handoff.
+    BindingsExport,
     /// Building the registry from provider manifests.
     Registry,
     /// A spine stage, S1 to the E4 emitter.
@@ -336,6 +379,7 @@ impl DriverRefusal {
     /// carries its own `catalog_code()`.
     pub fn code(&self) -> String {
         match self {
+            Self::BindingsExport(refusal) => refusal.code().as_str().to_owned(),
             Self::EmptyBackendIdentity(refusal) => refusal.code().as_str().to_owned(),
             Self::EmptyLinkedManifestAdvertisements => "invalid_capability".to_owned(),
             Self::Cancelled { .. } => Code::Cancelled.as_str().to_owned(),
@@ -377,6 +421,7 @@ impl DriverRefusal {
             Self::Fault(DriverFault::PackageReadDiagnostics(_)) => {
                 Code::RuntimeInvariant.as_str().to_owned()
             }
+            Self::PackageNegotiation(_) => Code::RuntimeInvariant.as_str().to_owned(),
             Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
             Self::LoweringLimit { .. } => Code::ResourceExhausted.as_str().to_owned(),
             Self::Generation(error) => generation_code(error).as_str().to_owned(),
@@ -391,6 +436,10 @@ impl DriverRefusal {
     /// The step that refused.
     pub fn stage(&self) -> DriverStage {
         match self {
+            Self::BindingsExport(_) | Self::Fault(DriverFault::ExportCount { .. }) => {
+                DriverStage::BindingsExport
+            }
+            Self::Fault(DriverFault::ExportUnknownItem { .. }) => DriverStage::Handoff,
             Self::EmptyBackendIdentity(_) => DriverStage::Registry,
             Self::EmptyLinkedManifestAdvertisements => DriverStage::Registry,
             Self::Registration(_) => DriverStage::Registry,
@@ -416,6 +465,7 @@ impl DriverRefusal {
                 | EnvelopeRefusal::ContractPackageReadIncomplete { .. } => DriverStage::PackageRead,
             },
             Self::Fault(DriverFault::PackageReadDiagnostics(_)) => DriverStage::PackageRead,
+            Self::PackageNegotiation(_) => DriverStage::Negotiation,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
             Self::Fault(
                 DriverFault::NativeExecutionLimitsMismatch | DriverFault::NativeReceiptMismatch,
@@ -444,6 +494,8 @@ impl DriverRefusal {
     /// The outcome kind this refusal settles.
     pub fn kind(&self) -> OutcomeKind {
         match self {
+            Self::BindingsExport(ExportRefusal::Fault(_)) => OutcomeKind::Fault,
+            Self::BindingsExport(_) => OutcomeKind::Refused,
             Self::EmptyBackendIdentity(_) => OutcomeKind::Refused,
             Self::EmptyLinkedManifestAdvertisements => OutcomeKind::Refused,
             Self::Cancelled { .. } => OutcomeKind::Cancelled,
@@ -461,7 +513,9 @@ impl DriverRefusal {
                 EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. } => OutcomeKind::Fault,
                 EnvelopeRefusal::InvalidCapability { .. } => OutcomeKind::Refused,
             },
-            Self::Fault(DriverFault::PackageReadDiagnostics(_)) => OutcomeKind::Fault,
+            Self::Fault(DriverFault::PackageReadDiagnostics(_)) | Self::PackageNegotiation(_) => {
+                OutcomeKind::Fault
+            }
             Self::ScalarNative(error) => match error.class() {
                 KaniScalarNativeErrorClass::CompletionRefusal => OutcomeKind::Refused,
                 KaniScalarNativeErrorClass::EnvironmentFault => OutcomeKind::Fault,
@@ -637,6 +691,21 @@ fn manifest_encoding_exhausted(error: &quire_canonical::Error) -> bool {
     )
 }
 
+/// A generator selecting an excluded driver position breaks the driver's
+/// join; the other package-request errors retain CG's request classification.
+fn package_request_code(error: &PackageRequestError) -> Code {
+    match error {
+        PackageRequestError::ExcludedDriverIndex { .. } => Code::RuntimeInvariant,
+        PackageRequestError::ItemPositions { .. }
+        | PackageRequestError::Count { .. }
+        | PackageRequestError::Identity { .. }
+        | PackageRequestError::AccountingIdentity { .. }
+        | PackageRequestError::Position { .. }
+        | PackageRequestError::OrphanContextRoot { .. }
+        | PackageRequestError::ReachedClosure { .. } => Code::InvalidRequest,
+    }
+}
+
 /// The catalog code of a generation refusal. The driver routes each item
 /// with the kind CG's own conversion gave it, once per request index, so a
 /// kind disagreement, a duplicate index, a duplicate harness, a Kani record-count
@@ -649,11 +718,11 @@ fn manifest_encoding_exhausted(error: &quire_canonical::Error) -> bool {
 /// them).
 fn generation_code(error: &RoutedGenerationError) -> Code {
     match error {
-        RoutedGenerationError::ScalarSelectionMismatch { .. }
-        | RoutedGenerationError::Package(_) => Code::InvalidRequest,
+        RoutedGenerationError::ScalarSelectionMismatch { .. } => Code::InvalidRequest,
+        RoutedGenerationError::Package(error) => package_request_code(error),
         RoutedGenerationError::BackendKindDisagrees { .. }
-        | RoutedGenerationError::DuplicateRequestIndex { .. }
         | RoutedGenerationError::ExcludedDriverIndex { .. }
+        | RoutedGenerationError::DuplicateRequestIndex { .. }
         | RoutedGenerationError::DuplicateHarness { .. }
         | RoutedGenerationError::KaniRecordCountMismatch { .. }
         | RoutedGenerationError::KaniDuplicatePositionOutOfRange { .. }
@@ -661,8 +730,8 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
         RoutedGenerationError::Kani(KaniObligationError::TooManyItems { .. }) => {
             Code::ResourceExhausted
         }
-        RoutedGenerationError::ContractScalar(ContractScalarError::Request(_)) => {
-            Code::InvalidRequest
+        RoutedGenerationError::ContractScalar(ContractScalarError::Request(error)) => {
+            package_request_code(error)
         }
         RoutedGenerationError::ContractScalar(ContractScalarError::Oracle(oracle)) => {
             oracle_code(oracle)
@@ -681,8 +750,8 @@ fn oracle_code(error: &OracleGenerationError) -> Code {
         | OracleGenerationError::ArtifactTooLarge { .. }
         | OracleGenerationError::ArtifactCountExceeded { .. }
         | OracleGenerationError::BundleTooLarge { .. } => Code::ResourceExhausted,
-        OracleGenerationError::PackageRequest(_)
-        | OracleGenerationError::ContractPackageUnavailable
+        OracleGenerationError::PackageRequest(error) => package_request_code(error),
+        OracleGenerationError::ContractPackageUnavailable
         | OracleGenerationError::InvalidTypeResolutionWorkLimit => Code::InvalidRequest,
         OracleGenerationError::ClaimMapSerialization
         | OracleGenerationError::LocationMapSerialization
@@ -879,17 +948,64 @@ mod tests {
     use qsl_foundation::EmptyBackendIdentity;
     use qsl_replay::Category;
     use quire_contract_codegen::{
-        ContractPackageIncompleteProjection, ContractPackageRefusalProjection, ContractScalarError,
-        EnvelopeRefusal, HarnessPath, HarnessSymbol, KaniObligationError, KaniScalarNativeError,
-        KaniScalarNativeErrorClass, ModuleSymbol, OracleGenerationError, RoutedGenerationError,
+        ContractNegotiationError, ContractPackageIncompleteProjection,
+        ContractPackageRefusalProjection, ContractScalarError, EnvelopeRefusal, HarnessPath,
+        HarnessSymbol, KaniObligationError, KaniScalarNativeError, KaniScalarNativeErrorClass,
+        ModuleSymbol, OracleGenerationError, PackageRequestError, RoutedGenerationError,
         ScalarOracleStopKind,
     };
+    use quire_contract_model::CheckedNodeId;
     use quire_contract_model::{
         CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusalCause,
         CheckedPackageRefusalCode,
     };
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    #[trace("FR-001-AC-16")]
+    #[test]
+    fn excluded_package_position_is_an_internal_join_fault_at_every_cg_boundary() {
+        let node_id = CheckedNodeId {
+            domain: "quire.checked-semantic-node/v1".into(),
+            digest: "0".repeat(64).into(),
+        };
+        let excluded = PackageRequestError::ExcludedDriverIndex {
+            request_index: 1,
+            node_id,
+        };
+        let direct = DriverRefusal::from(ContractNegotiationError::Package(excluded.clone()));
+        assert_eq!(direct.code(), "runtime_invariant");
+        assert_eq!(direct.stage(), DriverStage::Negotiation);
+        assert_eq!(direct.kind(), OutcomeKind::Fault);
+        for error in [
+            RoutedGenerationError::Package(excluded.clone()),
+            RoutedGenerationError::ContractScalar(ContractScalarError::Request(excluded.clone())),
+            RoutedGenerationError::ContractScalar(ContractScalarError::Oracle(
+                OracleGenerationError::PackageRequest(excluded.clone()),
+            )),
+        ] {
+            let refusal = DriverRefusal::Generation(error);
+            assert_eq!(refusal.code(), "runtime_invariant");
+            assert_eq!(refusal.stage(), DriverStage::Generation);
+            assert_eq!(refusal.kind(), OutcomeKind::Fault);
+        }
+    }
+
+    #[trace("FR-001-AC-16")]
+    #[test]
+    fn envelope_item_count_maps_to_typed_settlement_fault() {
+        let refusal = DriverRefusal::from(ContractNegotiationError::EnvelopeItemCount {
+            requested: 2,
+            supplied: 1,
+        });
+        assert!(matches!(
+            refusal,
+            DriverRefusal::Fault(DriverFault::SettlementCount {
+                requested: 2,
+                settled: 1
+            })
+        ));
+    }
 
     #[trace("FR-009-AC-6", "FR-009-AC-7")]
     #[test]
@@ -913,6 +1029,24 @@ mod tests {
         assert_eq!(fault.code(), "codegen_lock");
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.stage(), DriverStage::Replay);
+    }
+
+    #[test]
+    #[trace("FR-001-AC-16", "TC-006")]
+    fn excluded_generation_index_is_an_internal_join_fault() {
+        let node_id = CheckedNodeId {
+            domain: "quire.checked-semantic-node/v1".into(),
+            digest: "excluded".into(),
+        };
+        let refusal = DriverRefusal::Generation(RoutedGenerationError::ExcludedDriverIndex {
+            request_index: 1,
+            node_id: node_id.clone(),
+        });
+        assert_eq!(refusal.code(), "runtime_invariant");
+        assert_eq!(refusal.kind(), OutcomeKind::Fault);
+        assert_eq!(refusal.stage(), DriverStage::Generation);
+        assert!(refusal.to_string().contains("request item 1"));
+        assert!(refusal.to_string().contains("excluded"));
     }
 
     #[test]

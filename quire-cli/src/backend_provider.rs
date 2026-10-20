@@ -884,6 +884,19 @@ mod tests {
     }
 
     impl Upstream for RouteRecorder {
+        fn has_abstraction_relation(&self, package: &qsl_package::CheckedPackage) -> bool {
+            QslCg.has_abstraction_relation(package)
+        }
+        fn export_bindings(
+            &self,
+            package: &qsl_package::CheckedPackage,
+            items: &[qsl_foundation::source::provenance::OccurrenceKey],
+        ) -> Result<
+            Vec<Result<qsl_package::BoundItem, qsl_package::ExportRefusal>>,
+            qsl_package::ExportRefusal,
+        > {
+            QslCg.export_bindings(package, items)
+        }
         fn compile(
             &self,
             source: qsl_foundation::SourceIdentity,
@@ -918,15 +931,18 @@ mod tests {
 
         fn negotiate(
             &self,
+            package: &quire_contract_model::ContractPackageV1,
+            positions: &[cg::ContractRequestPosition],
             envelope: &cg::BackendProviderEnvelope,
-        ) -> Result<Vec<cg::ItemSettlement>, Box<cg::EnvelopeRefusal>> {
-            let mut settlements = QslCg.negotiate(envelope)?;
+        ) -> Result<Vec<cg::ContractItemSettlement>, Box<cg::ContractNegotiationError>> {
+            let mut settlements = QslCg.negotiate(package, positions, envelope)?;
             for index in &self.unsupported_at {
                 if let Some(settlement) = settlements.get_mut(*index) {
-                    let kind = settlement
+                    let backend = settlement.backend.as_mut().expect("a lowered item settles");
+                    let kind = backend
                         .kind
                         .expect("a value-validity item settles with a kind");
-                    settlement.disposition = cg::Disposition::Unsupported {
+                    backend.disposition = cg::Disposition::Unsupported {
                         cause: cg::Cause::UnsupportedRequestedCapability {
                             kind,
                             backend: None,
@@ -936,7 +952,11 @@ mod tests {
             }
             if let Some((index, backend)) = &self.supported_at {
                 if let Some(settlement) = settlements.get_mut(*index) {
-                    settlement.disposition = cg::Disposition::Supported {
+                    settlement
+                        .backend
+                        .as_mut()
+                        .expect("a lowered item settles")
+                        .disposition = cg::Disposition::Supported {
                         backend: backend.clone(),
                     };
                 }
@@ -1413,15 +1433,27 @@ mod tests {
         let request_index = 1;
         assert_eq!(driven.request_items[0].index().get(), 0);
         assert_eq!(driven.request_items[1].index().get(), request_index);
-        assert!(serde_json::to_value(&driven.settlements[0].disposition)
-            .is_ok_and(|disposition| disposition["disposition"] == "unsupported"));
+        assert!(serde_json::to_value(
+            &driven.settlements[0]
+                .backend
+                .as_ref()
+                .expect("a lowered item settles")
+                .disposition
+        )
+        .is_ok_and(|disposition| disposition["disposition"] == "unsupported"));
         let unsupported = driven
             .settlements
             .iter()
             .find(|settlement| settlement.request_index == 0)
             .expect("the first request item is retained");
-        assert!(serde_json::to_value(&unsupported.disposition)
-            .is_ok_and(|disposition| disposition["disposition"] == "unsupported"));
+        assert!(serde_json::to_value(
+            &unsupported
+                .backend
+                .as_ref()
+                .expect("a lowered item settles")
+                .disposition
+        )
+        .is_ok_and(|disposition| disposition["disposition"] == "unsupported"));
         let settlement = driven
             .settlements
             .iter()
@@ -1434,11 +1466,22 @@ mod tests {
             .find(|item| item.index().get() == request_index)
             .expect("the routed QSL item is retained");
         assert_eq!(
-            settlement.kind.map(|kind| kind.label()),
+            settlement
+                .backend
+                .as_ref()
+                .expect("a lowered item settles")
+                .kind
+                .map(|kind| kind.label()),
             Some(qsl_item.kind().to_wire())
         );
-        let disposition = serde_json::to_value(&settlement.disposition)
-            .expect("the typed settlement disposition serializes");
+        let disposition = serde_json::to_value(
+            &settlement
+                .backend
+                .as_ref()
+                .expect("a lowered item settles")
+                .disposition,
+        )
+        .expect("the typed settlement disposition serializes");
         assert_eq!(disposition["disposition"], "supported", "{disposition:?}");
         assert_eq!(driven.routed.len(), 1);
         assert_eq!(driven.routed[0].request_index, request_index);
@@ -1572,8 +1615,14 @@ mod tests {
             CandidateOutcome::Candidates(set) if set.candidates().is_empty()
         ));
         assert!(driven.settlements.iter().all(|settlement| {
-            serde_json::to_value(&settlement.disposition)
-                .is_ok_and(|disposition| disposition["disposition"] == "unsupported")
+            serde_json::to_value(
+                &settlement
+                    .backend
+                    .as_ref()
+                    .expect("a lowered item settles")
+                    .disposition,
+            )
+            .is_ok_and(|disposition| disposition["disposition"] == "unsupported")
         }));
         assert_eq!(
             upstream.calls.get(),

@@ -18,6 +18,7 @@ use std::sync::{Arc, LazyLock};
 use std::thread;
 use std::time::Duration;
 
+use ix_trace_rs::trace;
 use qsl_foundation::diagnostic::Category;
 use qsl_foundation::BackendId;
 use qsl_foundation::SourceIdentity;
@@ -33,10 +34,11 @@ use qsl_semantics::model::object_environment::ObjectEnvironment;
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_contract_codegen::{
     generate_routed, BackendDescriptor, BackendKind, BackendProviderEnvelope, Candidates, Cause,
-    ClaimDisposition, ContractRequestPosition, DerivedDomain, Disposition, EnvelopeRefusal,
-    GenerationContexts, ItemSettlement, KaniForm, KaniGenerationContext, KindOutput,
-    ObligationDisposition, ProofCeilings, RoutedGeneration, RoutedGenerationError,
-    RoutedGenerationItem, UnsupportedObligation,
+    ClaimDisposition, ContractItemSettlement, ContractNegotiationError, ContractRequestPosition,
+    DerivedDomain, Disposition, EnvelopeRefusal, GenerationContexts, KaniExecutionEvidence,
+    KaniForm, KaniGenerationContext, KaniRunOutcome, KaniSolver, KindOutput, MemoryMechanism,
+    MemoryObservation, ObligationDisposition, ProofCeilings, RoutedGeneration,
+    RoutedGenerationError, RoutedGenerationItem, UnsupportedObligation,
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
@@ -45,7 +47,8 @@ use quire_contract_model::{
 use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
     GenerationInput, KaniInput, KaniProvider, OutcomeKind, Provider, ProviderItemFailure,
-    ProviderLimits, ProviderManifest, ProviderRequest, QslCg, ScalarExecutionInput, Upstream,
+    ProviderItemResult, ProviderLimits, ProviderManifest, ProviderRequest, QslCg,
+    ScalarExecutionInput, Upstream,
 };
 use quire_exact::{Cancel, CancelCause, Integer, Value};
 
@@ -166,6 +169,14 @@ static EQ_UNIT: LazyLock<String> = LazyLock::new(|| {
 static NEGATE_UNIT: LazyLock<String> =
     LazyLock::new(|| unit("function negate using v(z: Int[0, 9]): Int[-9, 0] pure { -z }\n"));
 
+static PARTITION_UNIT: LazyLock<String> = LazyLock::new(|| {
+    unit(
+        "function a using v(x: Int[0, 9]): Int[-9, 0] pure { -x }\n\
+          function b using v(y: Int[0, 9]): Int[-9, 0] pure { -y }\n\
+          function c using v(z: Int[0, 9]): Int[-9, 0] pure { -z }\n",
+    )
+});
+
 /// A unit with an integer `+` over two parameters, each owning its own
 /// bound (`x: Int[0, 9]`, `y: Int[10, 20]`): see `NEGATE_UNIT`'s doc for why
 /// this settles `Supported`, ranging each argument over its own operand's
@@ -224,6 +235,7 @@ static IMPORT_UNIT: LazyLock<String> = LazyLock::new(|| {
 enum Call {
     Compile,
     ReadPackage,
+    ExportBindings,
     BackendKind(String),
     Negotiate {
         items: usize,
@@ -240,6 +252,14 @@ enum Call {
 /// The real upstream, with a log of the calls the driver makes.
 #[derive(Default)]
 struct Recorder {
+    export_refused_at: Vec<usize>,
+    export_whole_refusal: bool,
+    export_unknown_at: Option<usize>,
+    export_fault_at: Option<usize>,
+    export_wrong_bound_at: Option<usize>,
+    export_wrong_unbound_at: Option<usize>,
+    export_short_result: bool,
+    export_keys: RefCell<Vec<qsl_foundation::source::provenance::OccurrenceKey>>,
     calls: RefCell<Vec<Call>>,
     /// When set, the IR read answers this instead of reading.
     read_answer: Option<CheckedPackageDispatchResult>,
@@ -297,6 +317,60 @@ impl Recorder {
 }
 
 impl Upstream for Recorder {
+    fn has_abstraction_relation(&self, package: &qsl_package::CheckedPackage) -> bool {
+        !self.export_refused_at.is_empty()
+            || self.export_whole_refusal
+            || self.export_unknown_at.is_some()
+            || self.export_fault_at.is_some()
+            || self.export_wrong_bound_at.is_some()
+            || self.export_wrong_unbound_at.is_some()
+            || self.export_short_result
+            || QslCg.has_abstraction_relation(package)
+    }
+    fn export_bindings(
+        &self,
+        _package: &qsl_package::CheckedPackage,
+        items: &[qsl_foundation::source::provenance::OccurrenceKey],
+    ) -> Result<
+        Vec<Result<qsl_package::BoundItem, qsl_package::ExportRefusal>>,
+        qsl_package::ExportRefusal,
+    > {
+        self.calls.borrow_mut().push(Call::ExportBindings);
+        *self.export_keys.borrow_mut() = items.to_vec();
+        if self.export_whole_refusal {
+            return Err(fixture_unbound(&items[0]));
+        }
+        let mut results = items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                if self.export_unknown_at == Some(index) {
+                    Err(qsl_package::ExportRefusal::UnknownItem { item: item.clone() })
+                } else if self.export_fault_at == Some(index) {
+                    Err(qsl_package::ExportRefusal::Fault(
+                        qsl_foundation::diagnostic::InternalFault::new("export", "fixture"),
+                    ))
+                } else if self.export_wrong_unbound_at == Some(index) {
+                    Err(fixture_unbound(&items[1]))
+                } else if self.export_refused_at.contains(&index) {
+                    Err(fixture_unbound(item))
+                } else {
+                    Ok(qsl_package::BoundItem {
+                        item: if self.export_wrong_bound_at == Some(index) {
+                            items[1].clone()
+                        } else {
+                            item.clone()
+                        },
+                        bindings: Vec::new(),
+                    })
+                }
+            })
+            .collect::<Vec<_>>();
+        if self.export_short_result {
+            results.pop();
+        }
+        Ok(results)
+    }
     fn compile(
         &self,
         source: SourceIdentity,
@@ -340,22 +414,27 @@ impl Upstream for Recorder {
 
     fn negotiate(
         &self,
+        package: &ContractPackageV1,
+        positions: &[ContractRequestPosition],
         envelope: &BackendProviderEnvelope,
-    ) -> Result<Vec<ItemSettlement>, Box<EnvelopeRefusal>> {
+    ) -> Result<Vec<ContractItemSettlement>, Box<ContractNegotiationError>> {
         self.calls.borrow_mut().push(Call::Negotiate {
             items: envelope.items.len(),
         });
         *self.envelope.borrow_mut() = Some(envelope.clone());
         if let Some(refusal) = &self.negotiate_answer {
-            return Err(Box::new(refusal.clone()));
+            return Err(Box::new(ContractNegotiationError::Envelope(
+                refusal.clone(),
+            )));
         }
-        let mut settlements = QslCg.negotiate(envelope)?;
+        let mut settlements = QslCg.negotiate(package, positions, envelope)?;
         if let Some(index) = self.unsupported_at {
             if let Some(settlement) = settlements.get_mut(index) {
-                let kind = settlement
+                let backend = settlement.backend.as_mut().expect("a lowered item settles");
+                let kind = backend
                     .kind
                     .expect("a value-validity item settles with a kind");
-                settlement.disposition = Disposition::Unsupported {
+                backend.disposition = Disposition::Unsupported {
                     cause: Cause::UnsupportedRequestedCapability {
                         kind,
                         backend: None,
@@ -390,6 +469,23 @@ impl Upstream for Recorder {
         });
         *self.generation_input.borrow_mut() = Some((package.clone(), positions.to_vec()));
         QslCg.generate(package, positions, routed, contexts)
+    }
+}
+
+fn fixture_unbound(
+    item: &qsl_foundation::source::provenance::OccurrenceKey,
+) -> qsl_package::ExportRefusal {
+    qsl_package::ExportRefusal::Unbound {
+        item: item.clone(),
+        elements: vec![qsl_package::UnboundElement {
+            key: qsl_semantics::check::AbstractionKey::Population(
+                qsl_semantics::model::key::DeclarationKey {
+                    package: "test/ir914".to_owned(),
+                    node: "ConfigVersion".to_owned(),
+                },
+            ),
+            package: "test/ir914".to_owned(),
+        }],
     }
 }
 
@@ -528,6 +624,13 @@ fn cancel_on_charge(
 fn int_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
     CompileInput {
         bytes: INT_UNIT.as_bytes(),
+        ..input(packages)
+    }
+}
+
+fn partition_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+    CompileInput {
+        bytes: PARTITION_UNIT.as_bytes(),
         ..input(packages)
     }
 }
@@ -837,6 +940,289 @@ fn kani_candidate(driven: &Driven) -> quire_contract_codegen::Candidate {
     }
 }
 
+#[test]
+#[trace("FR-001-AC-21", "TC-017")]
+fn relationless_package_skips_export_and_has_no_item_refusals() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let recorder = Recorder::default();
+    let driven = drive(
+        &recorder,
+        int_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("relationless unit drives");
+    assert!(driven.item_refusals.is_empty());
+    assert_eq!(driven.request_items.len(), 1);
+    assert_eq!(driven.settlements.len(), 1);
+    assert!(!recorder.calls().contains(&Call::ExportBindings));
+}
+
+#[test]
+#[trace(
+    "FR-010-AC-1",
+    "FR-010-AC-2",
+    "FR-010-AC-3",
+    "FR-010-AC-4",
+    "FR-001-AC-15",
+    "FR-001-AC-17",
+    "FR-009-AC-16",
+    "TC-017"
+)]
+fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let recorder = Recorder {
+        export_refused_at: vec![1],
+        ..Recorder::default()
+    };
+    let driven = drive(
+        &recorder,
+        partition_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("the mixed export completes");
+    assert_eq!(driven.request_items.len(), 3);
+    assert!(recorder.calls().contains(&Call::ExportBindings));
+    assert_eq!(recorder.envelope().items.len(), 2);
+    let (_, positions) = recorder.generation_input();
+    let driver_positions = positions
+        .iter()
+        .filter(|position| !matches!(position, ContractRequestPosition::ContextRoot { .. }))
+        .collect::<Vec<_>>();
+    assert_eq!(driver_positions.len(), 3);
+    assert!(matches!(
+        driver_positions[0],
+        ContractRequestPosition::DriverItem { .. }
+    ));
+    assert!(
+        matches!(driver_positions[1], ContractRequestPosition::Excluded { node_id }
+        if node_id.digest.as_ref() == driven.request_items[1].node().to_string())
+    );
+    assert!(matches!(
+        driver_positions[2],
+        ContractRequestPosition::DriverItem { .. }
+    ));
+    assert_eq!(
+        driven
+            .settlements
+            .iter()
+            .map(|item| item.request_index)
+            .collect::<Vec<_>>(),
+        [0, 2]
+    );
+    assert_eq!(
+        driven
+            .settlements
+            .iter()
+            .map(|item| item
+                .backend
+                .as_ref()
+                .expect("bound item settles")
+                .request_index)
+            .collect::<Vec<_>>(),
+        [0, 2]
+    );
+    assert_eq!(driven.item_refusals.len(), 1);
+    assert_eq!(driven.item_refusals[0].request_index, 1);
+    assert_eq!(
+        driven.item_refusals[0].occurrence,
+        *driven.request_items[1].occurrence()
+    );
+    assert_eq!(
+        driven.item_refusals[0].refusal,
+        fixture_unbound(driven.request_items[1].occurrence()),
+    );
+    assert_eq!(
+        driven
+            .generation()
+            .items
+            .iter()
+            .map(|item| item.request_index)
+            .collect::<Vec<_>>(),
+        [0, 2]
+    );
+    let terminal_indexes = driven
+        .generation()
+        .items
+        .iter()
+        .map(|item| {
+            ProviderItemResult {
+                request_index: item.request_index,
+                backend: item.backend.clone(),
+                result: Ok(KaniExecutionEvidence {
+                    ceilings: proof_ceilings(),
+                    memory: MemoryObservation {
+                        mechanism: MemoryMechanism::LinuxPidNamespaceProcfsTreeRss,
+                        peak_resident_bytes: Some(16),
+                    },
+                    symbolic_arguments: Vec::new(),
+                    kind: None,
+                    harness_path: "fixture::claim".to_owned(),
+                    launcher_path: "/tools/cargo-kani".to_owned(),
+                    arguments: Vec::new(),
+                    unwind: 1,
+                    solver: KaniSolver::Cadical,
+                    exit_code: Some(0),
+                    outcome: KaniRunOutcome::Verified,
+                    success_checks: 1,
+                    checks: Vec::new(),
+                    batch: None,
+                    diagnostics: None,
+                    failure_cause: None,
+                }),
+            }
+            .terminal_record()
+            .expect("fixture provider returns one terminal per generated item")
+            .request_index()
+            .get()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(terminal_indexes, [0, 2]);
+}
+
+#[test]
+#[trace("FR-010-AC-5", "FR-001-AC-18", "TC-017")]
+fn all_export_refusals_send_zero_item_request_to_cg() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let recorder = Recorder {
+        export_refused_at: vec![0, 1, 2],
+        ..Recorder::default()
+    };
+    let driven = drive(
+        &recorder,
+        partition_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("all per-item refusals complete the run");
+    assert_eq!(driven.item_refusals.len(), 3);
+    assert!(driven.settlements.is_empty());
+    assert!(driven.generation().items.is_empty());
+    assert!(recorder.calls().contains(&Call::Negotiate { items: 0 }));
+    assert!(!recorder
+        .calls()
+        .iter()
+        .any(|call| matches!(call, Call::Generate { .. })));
+}
+
+#[test]
+#[trace("FR-001-AC-19", "FR-001-AC-20", "TC-017")]
+fn export_run_refusal_and_unknown_driver_key_keep_their_distinct_outcomes() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let whole = Recorder {
+        export_whole_refusal: true,
+        ..Recorder::default()
+    };
+    let refusal = drive(&whole, int_input(&packages), &registry, None, kani_input())
+        .expect_err("whole export refusal stops the run");
+    assert_eq!(refusal.stage(), DriverStage::BindingsExport);
+    assert_eq!(refusal.kind(), OutcomeKind::Refused);
+    assert!(matches!(refusal, DriverRefusal::BindingsExport(ref actual)
+        if *actual == fixture_unbound(&whole.export_keys.borrow()[0])));
+    let unknown = Recorder {
+        export_unknown_at: Some(0),
+        ..Recorder::default()
+    };
+    let fault = drive(
+        &unknown,
+        int_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect_err("unknown driver-built key is an invariant fault");
+    assert_eq!(fault.stage(), DriverStage::Handoff);
+    assert_eq!(fault.kind(), OutcomeKind::Fault);
+    assert_eq!(fault.code(), "runtime_invariant");
+}
+
+#[test]
+#[trace("FR-001-AC-19", "FR-001-AC-20", "TC-017")]
+fn malformed_export_results_stop_at_the_typed_boundary() {
+    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+
+    let short = Recorder {
+        export_short_result: true,
+        ..Recorder::default()
+    };
+    let refusal = drive(&short, int_input(&packages), &registry, None, kani_input())
+        .expect_err("export must return one result per key");
+    assert!(matches!(
+        refusal,
+        DriverRefusal::Fault(DriverFault::ExportCount {
+            requested: 1,
+            returned: 0
+        })
+    ));
+
+    let wrong_bound = Recorder {
+        export_wrong_bound_at: Some(0),
+        ..Recorder::default()
+    };
+    let refusal = drive(
+        &wrong_bound,
+        partition_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect_err("a bound item must name the original key");
+    assert!(matches!(
+        refusal,
+        DriverRefusal::Fault(DriverFault::ExportUnknownItem { .. })
+    ));
+
+    let wrong_unbound = Recorder {
+        export_wrong_unbound_at: Some(0),
+        ..Recorder::default()
+    };
+    let refusal = drive(
+        &wrong_unbound,
+        partition_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect_err("an unbound item must name the original key");
+    assert!(matches!(
+        refusal,
+        DriverRefusal::Fault(DriverFault::ExportUnknownItem { .. })
+    ));
+
+    let faulted = Recorder {
+        export_fault_at: Some(0),
+        ..Recorder::default()
+    };
+    let refusal = drive(
+        &faulted,
+        int_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect_err("an export fault refuses the whole run");
+    assert!(matches!(
+        &refusal,
+        DriverRefusal::BindingsExport(qsl_package::ExportRefusal::Fault(_))
+    ));
+    assert_eq!(refusal.stage(), DriverStage::BindingsExport);
+    assert_eq!(refusal.kind(), OutcomeKind::Fault);
+}
+
 fn routed_generation_item(
     request_index: usize,
     node_id: CheckedNodeId,
@@ -982,7 +1368,15 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
         .iter()
-        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .map(|s| {
+            serde_json::to_value(
+                &s.backend
+                    .as_ref()
+                    .expect("a lowered item settles")
+                    .disposition,
+            )
+            .expect("dispositions serialize")
+        })
         .collect();
     assert_eq!(dispositions.len(), 1, "one requirement record: the `-`");
     assert_eq!(dispositions[0]["disposition"], "supported");
@@ -1158,7 +1552,15 @@ fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
         .iter()
-        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .map(|s| {
+            serde_json::to_value(
+                &s.backend
+                    .as_ref()
+                    .expect("a lowered item settles")
+                    .disposition,
+            )
+            .expect("dispositions serialize")
+        })
         .collect();
     assert_eq!(dispositions.len(), 1);
     assert_eq!(dispositions[0]["disposition"], "invalid-request");
@@ -1235,7 +1637,15 @@ fn tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_un
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
         .iter()
-        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .map(|s| {
+            serde_json::to_value(
+                &s.backend
+                    .as_ref()
+                    .expect("a lowered item settles")
+                    .disposition,
+            )
+            .expect("dispositions serialize")
+        })
         .collect();
     assert_eq!(dispositions.len(), 1);
     assert_eq!(dispositions[0]["disposition"], "unsupported");
@@ -1898,7 +2308,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
     assert!(driven.routed.is_empty());
     assert!(driven.generation().items.is_empty());
     assert!(matches!(
-        &driven.settlements[0].disposition,
+        &driven.settlements[0].backend.as_ref().expect("a lowered item settles").disposition,
         Disposition::Unsupported {
             cause: Cause::KaniFormRefused {
                 refusal: UnsupportedObligation::ResultBoundUnreachable {
@@ -1915,7 +2325,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
             && reachable_upper == "109"
     ));
     assert!(matches!(
-        &driven.settlements[1].disposition,
+        &driven.settlements[1].backend.as_ref().expect("a lowered item settles").disposition,
         Disposition::Unsupported {
             cause: Cause::KaniFormRefused {
                 refusal: UnsupportedObligation::OperationNotRendered {
@@ -1988,7 +2398,15 @@ fn tc_003_no_supported_item_means_no_route_call() {
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
         .iter()
-        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .map(|s| {
+            serde_json::to_value(
+                &s.backend
+                    .as_ref()
+                    .expect("a lowered item settles")
+                    .disposition,
+            )
+            .expect("dispositions serialize")
+        })
         .collect();
     assert_eq!(dispositions[0]["disposition"], "unsupported");
     assert!(driven.routed.is_empty());
@@ -2040,7 +2458,15 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
         .iter()
-        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .map(|s| {
+            serde_json::to_value(
+                &s.backend
+                    .as_ref()
+                    .expect("a lowered item settles")
+                    .disposition,
+            )
+            .expect("dispositions serialize")
+        })
         .collect();
     assert_eq!(dispositions.len(), 2);
     assert_eq!(dispositions[0]["disposition"], "unsupported");
@@ -2483,13 +2909,17 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
         }
     );
     assert!(matches!(
-        &driven.settlements[0].disposition,
+        &driven.settlements[0].backend.as_ref().expect("a lowered item settles").disposition,
         Disposition::Unsupported {
             cause: Cause::KaniFormRefused { form, .. }
         } if form.operation_identity.as_deref() == Some("quire.op.integer.eq")
     ));
     assert!(matches!(
-        driven.settlements[1].disposition,
+        driven.settlements[1]
+            .backend
+            .as_ref()
+            .expect("a lowered item settles")
+            .disposition,
         Disposition::Supported { .. }
     ));
 
