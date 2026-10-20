@@ -12,7 +12,7 @@ use qsl_route::request::{items_from_requirements, ExtentClassification, Requirem
 use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{Candidate, CandidateOutcome, Mode, Registry};
 use quire_contract_codegen as cg;
-use quire_contract_codegen::{BackendKind, ItemSettlement, RoutedGeneration};
+use quire_contract_codegen::{BackendKind, ContractItemSettlement, RoutedGeneration};
 use quire_contract_model::{CheckedNodeId, CheckedPackageV2};
 use quire_exact::Cancel;
 
@@ -89,7 +89,7 @@ pub struct Driven {
     /// `package_id`.
     pub checked: CheckedPackageV2,
     /// CG's settlement of each export-bound item, in driver request order.
-    pub settlements: Vec<ItemSettlement>,
+    pub settlements: Vec<ContractItemSettlement>,
     /// All QSL-produced request items, including export-refused items. Only
     /// bound entries construct the CG envelope or FR-331 process request.
     pub request_items: Vec<RequirementItem>,
@@ -220,8 +220,12 @@ pub fn drive(
         Vec::new()
     } else {
         upstream
-            .negotiate(&prepared.envelope)
-            .map_err(DriverRefusal::from)?
+            .negotiate(
+                &lowered.contract_package,
+                &lowered.positions,
+                &prepared.envelope,
+            )
+            .map_err(|error| DriverRefusal::from(*error))?
     };
     let in_order = settlements.len() == bound.iter().filter(|included| **included).count()
         && settlements
@@ -723,14 +727,18 @@ mod kani_form_projection_tests {
 /// The routing step over the `supported` settlements only.
 fn route_supported(
     upstream: &impl Upstream,
-    settlements: &[ItemSettlement],
+    settlements: &[ContractItemSettlement],
     candidate_sets: &[Vec<Candidate>],
     kinds: &BTreeMap<BackendId, BackendKind>,
 ) -> Result<Vec<Routed>, DriverRefusal> {
     let mut indexes = Vec::new();
     let mut dispositions = Vec::new();
     for settlement in settlements {
-        let cg::Disposition::Supported { backend } = &settlement.disposition else {
+        let Some(cg::ItemSettlement {
+            disposition: cg::Disposition::Supported { backend },
+            ..
+        }) = &settlement.backend
+        else {
             continue;
         };
         let index = settlement.request_index;

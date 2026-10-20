@@ -19,9 +19,10 @@ use qsl_replay::spine::{
 use qsl_route::routing::{route, Disposition};
 use qsl_route::Candidate;
 use quire_contract_codegen::{
-    generate_routed, negotiate_backend_provider, BackendDescriptor, BackendKind,
-    BackendProviderEnvelope, ContractRequestPosition, EnvelopeRefusal, GenerationContexts,
-    ItemSettlement, RoutedGeneration, RoutedGenerationError, RoutedGenerationItem,
+    generate_routed, negotiate_contract_package, BackendDescriptor, BackendKind,
+    BackendProviderEnvelope, ContractItemSettlement, ContractNegotiationError,
+    ContractRequestPosition, GenerationContexts, RoutedGeneration, RoutedGenerationError,
+    RoutedGenerationItem,
 };
 use quire_contract_model::{
     read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
@@ -105,11 +106,13 @@ pub trait Upstream {
     /// closed backend kind: `BackendKind::from_descriptor`.
     fn backend_kind(&self, descriptor: &BackendDescriptor) -> Option<BackendKind>;
 
-    /// E7: `quire_contract_codegen::negotiate_backend_provider`.
+    /// E7: `quire_contract_codegen::negotiate_contract_package`.
     fn negotiate(
         &self,
+        package: &ContractPackageV1,
+        positions: &[ContractRequestPosition],
         envelope: &BackendProviderEnvelope,
-    ) -> Result<Vec<ItemSettlement>, EnvelopeRefusal>;
+    ) -> Result<Vec<ContractItemSettlement>, Box<ContractNegotiationError>>;
 
     /// The routing step: `qsl_route::routing::route`.
     fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>>;
@@ -191,9 +194,11 @@ impl Upstream for QslCg {
 
     fn negotiate(
         &self,
+        package: &ContractPackageV1,
+        positions: &[ContractRequestPosition],
         envelope: &BackendProviderEnvelope,
-    ) -> Result<Vec<ItemSettlement>, EnvelopeRefusal> {
-        negotiate_backend_provider(envelope)
+    ) -> Result<Vec<ContractItemSettlement>, Box<ContractNegotiationError>> {
+        negotiate_contract_package(package, positions, envelope).map_err(Box::new)
     }
 
     fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>> {

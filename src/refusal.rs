@@ -13,8 +13,8 @@ use qsl_replay::spine::{CompileRefusal, SpineStage};
 use qsl_replay::Category;
 use qsl_route::RegistrationRefusal;
 use quire_contract_codegen::{
-    ContractScalarError, EnvelopeRefusal, KaniObligationError, OracleGenerationError,
-    RoutedGenerationError,
+    ContractNegotiationError, ContractScalarError, EnvelopeRefusal, KaniObligationError,
+    OracleGenerationError, PackageRequestError, RoutedGenerationError,
 };
 use quire_contract_model::CheckedPackageLimit;
 use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageRefusal};
@@ -58,7 +58,10 @@ pub enum DriverRefusal {
     },
     /// CG refused the whole FR-331 envelope before settling any item.
     #[error("{}", envelope_message(.0))]
-    Envelope(EnvelopeRefusal),
+    Envelope(Box<EnvelopeRefusal>),
+    /// CG refused the admitted package and its complete request positions.
+    #[error("CG package negotiation refused: {0:?}")]
+    PackageNegotiation(PackageRequestError),
     /// E5: IR's reader stopped at one of its limits.
     #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
     HandoffLimit(CheckedPackageIncomplete),
@@ -207,10 +210,30 @@ pub enum DriverFault {
 impl From<EnvelopeRefusal> for DriverRefusal {
     fn from(refusal: EnvelopeRefusal) -> Self {
         match refusal {
-            EnvelopeRefusal::InvalidCapability { .. } => Self::Envelope(refusal),
+            EnvelopeRefusal::InvalidCapability { .. } => Self::Envelope(Box::new(refusal)),
             EnvelopeRefusal::ManifestRepeatsBackendIdentity { identity } => {
                 Self::Fault(DriverFault::ManifestRepeatsBackendIdentity { identity })
             }
+            EnvelopeRefusal::ContractPackageReadRefused { .. }
+            | EnvelopeRefusal::ContractPackageReadIncomplete { .. } => {
+                Self::Envelope(Box::new(refusal))
+            }
+        }
+    }
+}
+
+impl From<ContractNegotiationError> for DriverRefusal {
+    fn from(error: ContractNegotiationError) -> Self {
+        match error {
+            ContractNegotiationError::Envelope(refusal) => Self::from(refusal),
+            ContractNegotiationError::Package(refusal) => Self::PackageNegotiation(refusal),
+            ContractNegotiationError::EnvelopeItemCount {
+                requested,
+                supplied,
+            } => Self::Fault(DriverFault::SettlementCount {
+                requested,
+                settled: supplied,
+            }),
         }
     }
 }
@@ -287,12 +310,21 @@ impl DriverRefusal {
             ),
             Self::Compile(refusal) => compile_code(refusal),
             Self::UnknownBackend { .. } => "invalid_capability/unknown-backend".to_owned(),
-            Self::Envelope(EnvelopeRefusal::InvalidCapability { cause, .. }) => {
-                format!("invalid_capability/{cause}")
-            }
-            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
-                Code::RuntimeInvariant.as_str().to_owned()
-            }
+            Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::InvalidCapability { cause, .. } => {
+                    format!("invalid_capability/{cause}")
+                }
+                EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. } => {
+                    Code::RuntimeInvariant.as_str().to_owned()
+                }
+                EnvelopeRefusal::ContractPackageReadRefused { .. } => {
+                    Code::InvalidRequest.as_str().to_owned()
+                }
+                EnvelopeRefusal::ContractPackageReadIncomplete { .. } => {
+                    Code::ResourceExhausted.as_str().to_owned()
+                }
+            },
+            Self::PackageNegotiation(_) => Code::InvalidRequest.as_str().to_owned(),
             Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
             Self::LoweringLimit { .. } => Code::ResourceExhausted.as_str().to_owned(),
             Self::Generation(error) => generation_code(error).as_str().to_owned(),
@@ -323,7 +355,7 @@ impl DriverRefusal {
             Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
                 DriverStage::Conversion
             }
-            Self::Envelope(_) => DriverStage::Negotiation,
+            Self::Envelope(_) | Self::PackageNegotiation(_) => DriverStage::Negotiation,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
             Self::Fault(DriverFault::Spine { stage, .. }) => DriverStage::Compile(*stage),
             Self::HandoffLimit(_)
@@ -368,13 +400,16 @@ impl DriverRefusal {
                 OutcomeKind::Limit
             }
             Self::ManifestEncoding(_) => OutcomeKind::Fault,
-            Self::Envelope(EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. }) => {
-                OutcomeKind::Fault
-            }
+            Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. } => OutcomeKind::Fault,
+                EnvelopeRefusal::ContractPackageReadIncomplete { .. } => OutcomeKind::Limit,
+                EnvelopeRefusal::ContractPackageReadRefused { .. }
+                | EnvelopeRefusal::InvalidCapability { .. } => OutcomeKind::Refused,
+            },
             Self::Registration(_)
             | Self::Compile(_)
             | Self::UnknownBackend { .. }
-            | Self::Envelope(EnvelopeRefusal::InvalidCapability { .. }) => OutcomeKind::Refused,
+            | Self::PackageNegotiation(_) => OutcomeKind::Refused,
             Self::Fault(_) => OutcomeKind::Fault,
         }
     }
@@ -402,6 +437,7 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
         RoutedGenerationError::ScalarSelectionMismatch { .. }
         | RoutedGenerationError::Package(_) => Code::InvalidRequest,
         RoutedGenerationError::BackendKindDisagrees { .. }
+        | RoutedGenerationError::ExcludedDriverIndex { .. }
         | RoutedGenerationError::DuplicateRequestIndex { .. }
         | RoutedGenerationError::DuplicateHarness { .. }
         | RoutedGenerationError::KaniRecordCountMismatch { .. }
@@ -522,6 +558,10 @@ fn generation_message(error: &RoutedGenerationError) -> String {
         RoutedGenerationError::DuplicateRequestIndex { request_index } => {
             format!("request index {request_index} is routed twice")
         }
+        RoutedGenerationError::ExcludedDriverIndex {
+            request_index,
+            node_id,
+        } => format!("request item {request_index} selects excluded node {node_id:?}"),
         RoutedGenerationError::DuplicateHarness { harness } => {
             format!("Kani harness `{harness}` is emitted more than once")
         }
@@ -606,6 +646,12 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
         EnvelopeRefusal::ManifestRepeatsBackendIdentity { identity } => format!(
             "internal fault: CG negotiation manifest repeats backend identity `{identity}`"
         ),
+        EnvelopeRefusal::ContractPackageReadRefused { refusal } => {
+            format!("CG contract package read refused: {refusal:?}")
+        }
+        EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } => {
+            format!("CG contract package read reached a limit: {incomplete:?}")
+        }
     }
 }
 
@@ -619,9 +665,27 @@ mod tests {
         ContractScalarError, EnvelopeRefusal, HarnessPath, HarnessSymbol, KaniObligationError,
         ModuleSymbol, OracleGenerationError, RoutedGenerationError,
     };
-    use quire_contract_model::{CheckedPackageIncomplete, CheckedPackageLimit};
+    use quire_contract_model::{CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit};
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    #[test]
+    #[trace("FR-001-AC-16", "TC-006")]
+    fn excluded_generation_index_is_an_internal_join_fault() {
+        let node_id = CheckedNodeId {
+            domain: "quire.checked-semantic-node/v1".into(),
+            digest: "excluded".into(),
+        };
+        let refusal = DriverRefusal::Generation(RoutedGenerationError::ExcludedDriverIndex {
+            request_index: 1,
+            node_id: node_id.clone(),
+        });
+        assert_eq!(refusal.code(), "runtime_invariant");
+        assert_eq!(refusal.kind(), OutcomeKind::Fault);
+        assert_eq!(refusal.stage(), DriverStage::Generation);
+        assert!(refusal.to_string().contains("request item 1"));
+        assert!(refusal.to_string().contains("excluded"));
+    }
 
     #[test]
     fn empty_backend_identity_preserves_qsl_code_and_category() {

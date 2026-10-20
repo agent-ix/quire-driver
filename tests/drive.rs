@@ -32,10 +32,10 @@ use qsl_route::{Candidate, ManifestDigest, RegistrationCause};
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_contract_codegen::{
     generate_routed, BackendDescriptor, BackendKind, BackendProviderEnvelope, Candidates, Cause,
-    ClaimDisposition, ContractRequestPosition, DerivedDomain, Disposition, EnvelopeRefusal,
-    GenerationContexts, ItemSettlement, KaniForm, KaniGenerationContext, KindOutput,
-    ObligationDisposition, ProofCeilings, RoutedGeneration, RoutedGenerationError,
-    RoutedGenerationItem, UnsupportedObligation,
+    ClaimDisposition, ContractItemSettlement, ContractNegotiationError, ContractRequestPosition,
+    DerivedDomain, Disposition, EnvelopeRefusal, GenerationContexts, KaniForm,
+    KaniGenerationContext, KindOutput, ObligationDisposition, ProofCeilings, RoutedGeneration,
+    RoutedGenerationError, RoutedGenerationItem, UnsupportedObligation,
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
@@ -386,22 +386,27 @@ impl Upstream for Recorder {
 
     fn negotiate(
         &self,
+        package: &ContractPackageV1,
+        positions: &[ContractRequestPosition],
         envelope: &BackendProviderEnvelope,
-    ) -> Result<Vec<ItemSettlement>, EnvelopeRefusal> {
+    ) -> Result<Vec<ContractItemSettlement>, Box<ContractNegotiationError>> {
         self.calls.borrow_mut().push(Call::Negotiate {
             items: envelope.items.len(),
         });
         *self.envelope.borrow_mut() = Some(envelope.clone());
         if let Some(refusal) = &self.negotiate_answer {
-            return Err(refusal.clone());
+            return Err(Box::new(ContractNegotiationError::Envelope(
+                refusal.clone(),
+            )));
         }
-        let mut settlements = QslCg.negotiate(envelope)?;
+        let mut settlements = QslCg.negotiate(package, positions, envelope)?;
         if let Some(index) = self.unsupported_at {
             if let Some(settlement) = settlements.get_mut(index) {
-                let kind = settlement
+                let backend = settlement.backend.as_mut().expect("a lowered item settles");
+                let kind = backend
                     .kind
                     .expect("a value-validity item settles with a kind");
-                settlement.disposition = Disposition::Unsupported {
+                backend.disposition = Disposition::Unsupported {
                     cause: Cause::UnsupportedRequestedCapability {
                         kind,
                         backend: None,
@@ -956,6 +961,18 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
             .collect::<Vec<_>>(),
         [0, 2]
     );
+    assert_eq!(
+        driven
+            .settlements
+            .iter()
+            .map(|item| item
+                .backend
+                .as_ref()
+                .expect("bound item settles")
+                .request_index)
+            .collect::<Vec<_>>(),
+        [0, 2]
+    );
     assert_eq!(driven.item_refusals.len(), 1);
     assert_eq!(driven.item_refusals[0].request_index, 1);
     assert_eq!(
@@ -1066,6 +1083,7 @@ fn direct_generation(
                     ContractRequestPosition::DriverItem {
                         result_selection, ..
                     } => Some(result_selection),
+                    ContractRequestPosition::Excluded { .. } => None,
                     ContractRequestPosition::ContextRoot { .. } => None,
                 })
                 .nth(item.request_index)
@@ -1170,7 +1188,15 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
         .iter()
-        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .map(|s| {
+            serde_json::to_value(
+                &s.backend
+                    .as_ref()
+                    .expect("a lowered item settles")
+                    .disposition,
+            )
+            .expect("dispositions serialize")
+        })
         .collect();
     assert_eq!(dispositions.len(), 1, "one requirement record: the `-`");
     assert_eq!(dispositions[0]["disposition"], "supported");
@@ -1346,7 +1372,15 @@ fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
         .iter()
-        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .map(|s| {
+            serde_json::to_value(
+                &s.backend
+                    .as_ref()
+                    .expect("a lowered item settles")
+                    .disposition,
+            )
+            .expect("dispositions serialize")
+        })
         .collect();
     assert_eq!(dispositions.len(), 1);
     assert_eq!(dispositions[0]["disposition"], "invalid-request");
@@ -1423,7 +1457,15 @@ fn tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_un
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
         .iter()
-        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .map(|s| {
+            serde_json::to_value(
+                &s.backend
+                    .as_ref()
+                    .expect("a lowered item settles")
+                    .disposition,
+            )
+            .expect("dispositions serialize")
+        })
         .collect();
     assert_eq!(dispositions.len(), 1);
     assert_eq!(dispositions[0]["disposition"], "unsupported");
@@ -1596,6 +1638,7 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
             .iter()
             .filter_map(|position| match position {
                 ContractRequestPosition::DriverItem { node_id, .. } => Some(node_id),
+                ContractRequestPosition::Excluded { .. } => None,
                 ContractRequestPosition::ContextRoot { .. } => None,
             })
             .nth(request_index)
@@ -1911,7 +1954,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
     assert!(driven.routed.is_empty());
     assert!(driven.generation.items.is_empty());
     assert!(matches!(
-        &driven.settlements[0].disposition,
+        &driven.settlements[0].backend.as_ref().expect("a lowered item settles").disposition,
         Disposition::Unsupported {
             cause: Cause::KaniFormRefused {
                 refusal: UnsupportedObligation::ResultBoundUnreachable {
@@ -1928,7 +1971,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
             && reachable_upper == "109"
     ));
     assert!(matches!(
-        &driven.settlements[1].disposition,
+        &driven.settlements[1].backend.as_ref().expect("a lowered item settles").disposition,
         Disposition::Unsupported {
             cause: Cause::KaniFormRefused {
                 refusal: UnsupportedObligation::OperationNotRendered {
@@ -2001,7 +2044,15 @@ fn tc_003_no_supported_item_means_no_route_call() {
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
         .iter()
-        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .map(|s| {
+            serde_json::to_value(
+                &s.backend
+                    .as_ref()
+                    .expect("a lowered item settles")
+                    .disposition,
+            )
+            .expect("dispositions serialize")
+        })
         .collect();
     assert_eq!(dispositions[0]["disposition"], "unsupported");
     assert!(driven.routed.is_empty());
@@ -2053,7 +2104,15 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
     let dispositions: Vec<serde_json::Value> = driven
         .settlements
         .iter()
-        .map(|s| serde_json::to_value(&s.disposition).expect("dispositions serialize"))
+        .map(|s| {
+            serde_json::to_value(
+                &s.backend
+                    .as_ref()
+                    .expect("a lowered item settles")
+                    .disposition,
+            )
+            .expect("dispositions serialize")
+        })
         .collect();
     assert_eq!(dispositions.len(), 2);
     assert_eq!(dispositions[0]["disposition"], "unsupported");
@@ -2495,13 +2554,17 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
         }
     );
     assert!(matches!(
-        &driven.settlements[0].disposition,
+        &driven.settlements[0].backend.as_ref().expect("a lowered item settles").disposition,
         Disposition::Unsupported {
             cause: Cause::KaniFormRefused { form, .. }
         } if form.operation_identity.as_deref() == Some("quire.op.integer.eq")
     ));
     assert!(matches!(
-        driven.settlements[1].disposition,
+        driven.settlements[1]
+            .backend
+            .as_ref()
+            .expect("a lowered item settles")
+            .disposition,
         Disposition::Supported { .. }
     ));
 
