@@ -18,7 +18,7 @@ use quire_contract_codegen::{
     RoutedGenerationError,
 };
 use quire_contract_model::{
-    CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
+    CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
     CheckedPackageRefusalCause, CheckedPackageRefusalCode,
 };
 use quire_exact::CancelCause;
@@ -75,6 +75,10 @@ pub enum DriverRefusal {
     /// CG refused the whole FR-331 envelope before settling any item.
     #[error("{}", envelope_message(.0))]
     Envelope(Box<EnvelopeRefusal>),
+    /// CG's ContractPackage reader stopped; its source projection and the
+    /// constructed FR-272 diagnostic are retained together.
+    #[error("{}", envelope_message(.0.source()))]
+    PackageRead(Box<PackageReadFailure>),
     /// CG refused the admitted package and complete positions built by the
     /// driver from that same package. This is an internal join fault at
     /// negotiation, not a caller request refusal.
@@ -254,6 +258,47 @@ impl From<Box<EnvelopeRefusal>> for DriverRefusal {
                     identity: identity.clone(),
                 })
             }
+            EnvelopeRefusal::ContractPackageReadRefused { refusal: source } => {
+                let diagnostic = PackageReadDiagnostic {
+                    code: package_read_refusal_code(source.code),
+                    cause: source.cause.map(package_read_refusal_cause),
+                    location: source.path.clone().map(PackageReadLocation::JsonPath),
+                    locus: source.locus.clone(),
+                    limit: None,
+                };
+                Self::PackageRead(Box::new(PackageReadFailure {
+                    source: *refusal,
+                    diagnostic,
+                }))
+            }
+            EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } => {
+                let Some((cause, setting)) = package_read_limit_mapping(incomplete.limit_kind)
+                else {
+                    return Self::Fault(DriverFault::PackageReadDiagnostics(incomplete.clone()));
+                };
+                let path = if incomplete.limit_kind == CheckedPackageLimit::Bytes {
+                    None
+                } else {
+                    incomplete.path.clone()
+                };
+                let diagnostic = PackageReadDiagnostic {
+                    code: Code::StageLimitExceeded.as_str(),
+                    cause: Some(cause),
+                    location: path.clone().map(PackageReadLocation::JsonPath),
+                    locus: None,
+                    limit: Some(PackageReadLimit {
+                        cause,
+                        setting,
+                        bound: incomplete.limit,
+                        actual: incomplete.consumed,
+                        path,
+                    }),
+                };
+                Self::PackageRead(Box::new(PackageReadFailure {
+                    source: *refusal,
+                    diagnostic,
+                }))
+            }
             _ => Self::Envelope(refusal),
         }
     }
@@ -263,6 +308,7 @@ impl DriverRefusal {
     fn envelope_refusal(&self) -> Option<&EnvelopeRefusal> {
         match self {
             Self::Envelope(refusal) => Some(refusal.as_ref()),
+            Self::PackageRead(failure) => Some(failure.source()),
             _ => None,
         }
     }
@@ -340,6 +386,84 @@ pub struct PackageReadLimit {
     pub path: Option<String>,
 }
 
+/// The FR-274 location of a ContractPackage reader diagnostic.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PackageReadLocation {
+    /// A JSON field or index path, unchanged from CG's reader projection.
+    JsonPath(String),
+}
+
+/// The FR-272 diagnostic constructed when CG's ContractPackage reader stops.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PackageReadDiagnostic {
+    code: &'static str,
+    cause: Option<&'static str>,
+    location: Option<PackageReadLocation>,
+    locus: Option<CheckedNodeId>,
+    limit: Option<PackageReadLimit>,
+}
+
+impl PackageReadDiagnostic {
+    /// The FR-271 catalog code.
+    pub fn code(&self) -> &'static str {
+        self.code
+    }
+    /// The FR-272 cause tag, when the reader supplied one.
+    pub fn cause(&self) -> Option<&'static str> {
+        self.cause
+    }
+    /// The FR-272 category.
+    pub fn category(&self) -> Category {
+        if self.limit.is_some() {
+            Category::Incomplete
+        } else {
+            Category::Refusal
+        }
+    }
+    /// The driver's terminal outcome kind.
+    pub fn kind(&self) -> OutcomeKind {
+        if self.limit.is_some() {
+            OutcomeKind::Limit
+        } else {
+            OutcomeKind::Refused
+        }
+    }
+    /// The fixed driver stage of this diagnostic.
+    pub fn stage(&self) -> DriverStage {
+        DriverStage::PackageRead
+    }
+    /// The FR-274 location, absent when CG supplied no path.
+    pub fn location(&self) -> Option<&PackageReadLocation> {
+        self.location.as_ref()
+    }
+    /// The typed CG node locus, when the reader supplied one.
+    pub fn locus(&self) -> Option<&CheckedNodeId> {
+        self.locus.as_ref()
+    }
+    /// The mapped FR-272 limit fields, when this diagnostic is incomplete.
+    pub fn limit(&self) -> Option<&PackageReadLimit> {
+        self.limit.as_ref()
+    }
+}
+
+/// A reader stop retains CG's original typed source and its emitted diagnostic.
+#[derive(Debug)]
+pub struct PackageReadFailure {
+    source: EnvelopeRefusal,
+    diagnostic: PackageReadDiagnostic,
+}
+
+impl PackageReadFailure {
+    /// The unchanged CG reader refusal or incomplete projection.
+    pub fn source(&self) -> &EnvelopeRefusal {
+        &self.source
+    }
+    /// The FR-272 diagnostic made at the driver boundary.
+    pub fn diagnostic(&self) -> &PackageReadDiagnostic {
+        &self.diagnostic
+    }
+}
+
 impl DriverRefusal {
     /// A QSL-owned category carried without translation by a typed refusal.
     pub fn qsl_category(&self) -> Option<Category> {
@@ -349,6 +473,7 @@ impl DriverRefusal {
             Self::ScalarCall(refusal) => Some(refusal.category()),
             Self::QslAdmissionEvidence(refusal) => Some(refusal.category()),
             Self::ScalarBinding(refusal) => Some(refusal.code().category()),
+            Self::PackageRead(failure) => Some(failure.diagnostic().category()),
             Self::Envelope(refusal) => match refusal.as_ref() {
                 EnvelopeRefusal::ContractPackageReadRefused { .. } => Some(Category::Refusal),
                 EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } => Some(
@@ -399,6 +524,7 @@ impl DriverRefusal {
             }
             Self::ScalarNative(error) => error.code().to_owned(),
             Self::UnknownBackend { .. } => "invalid_capability/unknown-backend".to_owned(),
+            Self::PackageRead(failure) => failure.diagnostic().code().to_owned(),
             Self::Envelope(refusal) => match refusal.as_ref() {
                 EnvelopeRefusal::InvalidCapability { cause, .. } => {
                     format!("invalid_capability/{cause}")
@@ -456,6 +582,7 @@ impl DriverRefusal {
             Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
                 DriverStage::Conversion
             }
+            Self::PackageRead(_) => DriverStage::PackageRead,
             Self::Envelope(refusal) => match refusal.as_ref() {
                 EnvelopeRefusal::InvalidCapability { .. }
                 | EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. } => {
@@ -502,6 +629,7 @@ impl DriverRefusal {
             Self::ScalarCall(refusal) => outcome_kind_for_qsl(refusal.category()),
             Self::QslAdmissionEvidence(refusal) => outcome_kind_for_qsl(refusal.category()),
             Self::ScalarBinding(refusal) => outcome_kind_for_qsl(refusal.code().category()),
+            Self::PackageRead(failure) => failure.diagnostic().kind(),
             Self::Envelope(refusal) => match refusal.as_ref() {
                 EnvelopeRefusal::ContractPackageReadRefused { .. } => OutcomeKind::Refused,
                 EnvelopeRefusal::ContractPackageReadIncomplete { incomplete }
@@ -543,6 +671,9 @@ impl DriverRefusal {
 
     /// The exact FR-272 cause of a retained ContractPackage read refusal.
     pub fn package_read_cause(&self) -> Option<&'static str> {
+        if let Self::PackageRead(failure) = self {
+            return failure.diagnostic().cause();
+        }
         match self.envelope_refusal()? {
             EnvelopeRefusal::ContractPackageReadRefused { refusal } => {
                 refusal.cause.map(package_read_refusal_cause)
@@ -561,9 +692,20 @@ impl DriverRefusal {
         }
     }
 
+    /// The FR-272 diagnostic constructed at the CG reader boundary.
+    pub fn package_read_diagnostic(&self) -> Option<&PackageReadDiagnostic> {
+        match self {
+            Self::PackageRead(failure) => Some(failure.diagnostic()),
+            _ => None,
+        }
+    }
+
     /// The FR-272 fields derived from a retained, permitted reader limit.
-    /// The original CG projection remains available unchanged in `Envelope`.
+    /// The original CG projection remains available unchanged in `PackageRead`.
     pub fn package_read_limit(&self) -> Option<PackageReadLimit> {
+        if let Self::PackageRead(failure) = self {
+            return failure.diagnostic().limit().cloned();
+        }
         let EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } =
             self.envelope_refusal()?
         else {
@@ -1114,8 +1256,8 @@ mod tests {
         assert_eq!(retained.actual.as_ref(), Some(&actual));
         assert!(matches!(
             refusal,
-            DriverRefusal::Envelope(envelope)
-                if matches!(envelope.as_ref(), EnvelopeRefusal::ContractPackageReadRefused { .. })
+            DriverRefusal::PackageRead(failure)
+                if matches!(failure.source(), EnvelopeRefusal::ContractPackageReadRefused { .. })
         ));
 
         let projection_without_optional_payloads = ContractPackageRefusalProjection {
@@ -1215,8 +1357,8 @@ mod tests {
             );
             assert!(matches!(
                 &refusal,
-                DriverRefusal::Envelope(envelope)
-                    if matches!(envelope.as_ref(), EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } if incomplete == &projection)
+                DriverRefusal::PackageRead(failure)
+                    if matches!(failure.source(), EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } if incomplete == &projection)
             ));
         }
 
