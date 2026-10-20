@@ -691,6 +691,21 @@ fn manifest_encoding_exhausted(error: &quire_canonical::Error) -> bool {
     )
 }
 
+/// A generator selecting an excluded driver position breaks the driver's
+/// join; the other package-request errors retain CG's request classification.
+fn package_request_code(error: &PackageRequestError) -> Code {
+    match error {
+        PackageRequestError::ExcludedDriverIndex { .. } => Code::RuntimeInvariant,
+        PackageRequestError::ItemPositions { .. }
+        | PackageRequestError::Count { .. }
+        | PackageRequestError::Identity { .. }
+        | PackageRequestError::AccountingIdentity { .. }
+        | PackageRequestError::Position { .. }
+        | PackageRequestError::OrphanContextRoot { .. }
+        | PackageRequestError::ReachedClosure { .. } => Code::InvalidRequest,
+    }
+}
+
 /// The catalog code of a generation refusal. The driver routes each item
 /// with the kind CG's own conversion gave it, once per request index, so a
 /// kind disagreement, a duplicate index, a duplicate harness, a Kani record-count
@@ -701,13 +716,6 @@ fn manifest_encoding_exhausted(error: &quire_canonical::Error) -> bool {
 /// unknown Contract Runtime variant are internal faults (IR-294's Kani arm
 /// derives the claim map itself; nothing the driver supplies can cause
 /// them).
-fn package_request_code(error: &PackageRequestError) -> Code {
-    match error {
-        PackageRequestError::ExcludedDriverIndex { .. } => Code::RuntimeInvariant,
-        _ => Code::InvalidRequest,
-    }
-}
-
 fn generation_code(error: &RoutedGenerationError) -> Code {
     match error {
         RoutedGenerationError::ScalarSelectionMismatch { .. } => Code::InvalidRequest,

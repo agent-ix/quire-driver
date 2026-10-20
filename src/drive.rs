@@ -343,7 +343,9 @@ pub fn drive(
                 ExportRefusal::UnknownItem { item } => {
                     DriverRefusal::Fault(DriverFault::ExportUnknownItem { item })
                 }
-                other => DriverRefusal::BindingsExport(other),
+                refusal @ (ExportRefusal::Unbound { .. } | ExportRefusal::Fault(_)) => {
+                    DriverRefusal::BindingsExport(refusal)
+                }
             })?;
         if results.len() != items.len() {
             return Err(DriverRefusal::Fault(DriverFault::ExportCount {
@@ -378,11 +380,13 @@ pub fn drive(
                         item,
                     }));
                 }
-                Err(refusal) => partition.item_refusals.push(ItemRefusal {
-                    request_index,
-                    occurrence: keys[request_index].clone(),
-                    refusal,
-                }),
+                Err(refusal @ ExportRefusal::Unbound { .. }) => {
+                    partition.item_refusals.push(ItemRefusal {
+                        request_index,
+                        occurrence: keys[request_index].clone(),
+                        refusal,
+                    })
+                }
             }
         }
         partition
