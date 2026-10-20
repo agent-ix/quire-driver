@@ -1874,7 +1874,8 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
         GenerationInput::default(),
     )
     .expect("QSL does not discharge a dead branch's coercion, so this compiles")
-    .checked;
+    .checked()
+    .clone();
     let x_bound = integer_range_bound(&checked, "0", "9");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -2351,7 +2352,8 @@ fn tc_004_e5_identity_and_refusal_are_faults() {
         GenerationInput::default(),
     )
     .expect("UNIT drives")
-    .checked;
+    .checked()
+    .clone();
     let CheckedPackageDispatchResult::Refused(refusal) = quire_contract_model::read_checked_package(
         b"not a JSON document",
         CheckedPackageReadLimits::bounded(),

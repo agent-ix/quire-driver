@@ -914,6 +914,30 @@ mod native_receipt_integration_tests {
     use quire_contract_codegen::{KaniInstallation, ProofCeilings};
     use quire_exact::{Integer, Value};
     use std::num::NonZeroU64;
+    use std::path::PathBuf;
+
+    struct NativeTargetDirectory(PathBuf);
+
+    impl NativeTargetDirectory {
+        fn new() -> Self {
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("the system clock follows the Unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "ir773-native-target-{}-{nonce}",
+                std::process::id()
+            ));
+            std::fs::create_dir(&path).expect("the test owns a fresh native target directory");
+            Self(path)
+        }
+    }
+
+    impl Drop for NativeTargetDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     /// This Kani-lane test obtains a genuine successful receipt through the
     /// production driver call, then checks the driver's L0 comparison against
@@ -942,11 +966,7 @@ mod native_receipt_integration_tests {
         };
         let environment = ObjectEnvironment::default();
         let installation = KaniInstallation::discover().expect("cargo-kani is installed");
-        let target_directory = std::path::PathBuf::from(
-            std::env::var_os("CARGO_TARGET_TMPDIR")
-                .expect("cargo test provides its temporary target"),
-        )
-        .join(format!("ir773-native-receipt-{}", std::process::id()));
+        let target_directory = NativeTargetDirectory::new();
         let registry = crate::build_registry(&[crate::ProviderManifest {
             identity: "kani".to_owned(),
             manifest_digest: ManifestDigest::from_digest([7; 32]),
@@ -974,7 +994,7 @@ mod native_receipt_integration_tests {
                 environment: &environment,
                 native: Some(ScalarNativeInput {
                     installation: &installation,
-                    target_directory: &target_directory,
+                    target_directory: &target_directory.0,
                 }),
             }),
         };
