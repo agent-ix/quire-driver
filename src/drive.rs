@@ -1020,7 +1020,10 @@ mod native_receipt_integration_tests {
         let receipt = execution.receipt().expect("the native receipt is retained");
         assert_eq!(receipt.operands(), [4, 1]);
         assert!(native_limits_match(receipt, &call.accounting));
-        assert!(receipt.native_outcome().clone().completed().is_some());
+        assert_eq!(
+            receipt.native_outcome().clone().completed(),
+            Some(Integer::from(5_i64))
+        );
         assert!(receipt_digest_matches(receipt));
         let mut changed_artifacts = driven
             .generation()
