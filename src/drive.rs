@@ -844,21 +844,29 @@ mod scalar_receipt_tests {
 
     #[test]
     fn every_named_limit_is_checked_against_the_retained_qsl_value() {
+        fn different_in_range(value: u64) -> u64 {
+            if value == u64::MAX {
+                value - 1
+            } else {
+                value + 1
+            }
+        }
+
         let retained = qsl_replay::spine::default_accounting(1_000_000);
         assert!(qsl_limit_fields_match(&retained, &retained));
         for field in 0..10 {
             let mut changed = retained;
             match field {
-                0 => changed.integer_bits += 1,
-                1 => changed.decimal_digits += 1,
-                2 => changed.scale_expansion += 1,
-                3 => changed.text_input_bytes += 1,
-                4 => changed.text_scalars += 1,
-                5 => changed.normalized_scalars += 1,
-                6 => changed.unit_edges += 1,
-                7 => changed.value_occurrences += 1,
-                8 => changed.work_units += 1,
-                9 => changed.result_units += 1,
+                0 => changed.integer_bits = different_in_range(changed.integer_bits),
+                1 => changed.decimal_digits = different_in_range(changed.decimal_digits),
+                2 => changed.scale_expansion = different_in_range(changed.scale_expansion),
+                3 => changed.text_input_bytes = different_in_range(changed.text_input_bytes),
+                4 => changed.text_scalars = different_in_range(changed.text_scalars),
+                5 => changed.normalized_scalars = different_in_range(changed.normalized_scalars),
+                6 => changed.unit_edges = different_in_range(changed.unit_edges),
+                7 => changed.value_occurrences = different_in_range(changed.value_occurrences),
+                8 => changed.work_units = different_in_range(changed.work_units),
+                9 => changed.result_units = different_in_range(changed.result_units),
                 _ => unreachable!("loop ranges over the ten named limits"),
             }
             assert!(!qsl_limit_fields_match(&changed, &retained));
