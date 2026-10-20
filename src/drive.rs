@@ -985,7 +985,7 @@ mod native_receipt_integration_tests {
                     wall_clock: std::time::Duration::from_secs(60),
                 },
                 subject_path: "crate::subject",
-                unwind: 1,
+                unwind: 4,
             }),
             scalar_execution: Some(ScalarExecutionInput {
                 call: &call,
