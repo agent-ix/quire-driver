@@ -948,7 +948,7 @@ fn tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order() {
 /// from `CheckedGraph::requirements()` -- no item is supplied by this test.
 #[test]
 fn tc_001_tc_006_steps_run_in_order_through_generation() {
-    let checked = negate_package().checked;
+    let checked = negate_package().checked().clone();
     let neg = expression_by_identity(&checked, "quire.op.integer.negate");
 
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
@@ -1262,7 +1262,7 @@ fn tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_un
 /// answer through unchanged either way.
 #[test]
 fn tc_006_x_plus_1_generation_passes_through_unchanged() {
-    let checked = int_package().checked;
+    let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -1313,7 +1313,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
 /// selected requirement node, even when later CG settlement does not route it.
 #[test]
 fn tc_006_kani_form_projects_exact_package_and_selected_node() {
-    let checked = int_package().checked;
+    let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -1667,7 +1667,7 @@ fn tc_006_no_selected_scalar_item_skips_binding_and_native_execution() {
 /// `tc_006_x_plus_1_generation_passes_through_unchanged`.
 #[test]
 fn tc_006_x_plus_y_generation_passes_through_unchanged() {
-    let checked = two_param_package().checked;
+    let checked = two_param_package().checked().clone();
     let add = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -1707,7 +1707,7 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
 /// the first argument.
 #[test]
 fn tc_006_x_plus_1_settles_supported() {
-    let checked = int_package().checked;
+    let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -1761,7 +1761,7 @@ fn tc_006_x_plus_1_settles_supported() {
 /// (IR-302), rather than treating it as unreachable.
 #[test]
 fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
-    let checked = two_param_package().checked;
+    let checked = two_param_package().checked().clone();
     let add = expression(&checked, "binary");
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
@@ -2437,7 +2437,7 @@ fn tc_006_e5_admits_text_and_rational_units() {
 /// negation remains routable and generates its own claim.
 #[test]
 fn tc_006_typed_form_refusal_preserves_supported_sibling() {
-    let checked = eq_package().checked;
+    let checked = eq_package().checked().clone();
     let eq = expression_by_identity(&checked, "quire.op.integer.eq");
     let neg = expression_by_identity(&checked, "quire.op.integer.negate");
 

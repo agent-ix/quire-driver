@@ -597,11 +597,22 @@ fn package_read_refusal_cause(cause: CheckedPackageRefusalCause) -> &'static str
 
 fn package_read_limit_mapping(limit: CheckedPackageLimit) -> Option<(&'static str, &'static str)> {
     match limit {
-        CheckedPackageLimit::Bytes => Some(("input-bytes-exceeded", "bytes")),
-        CheckedPackageLimit::Nodes => Some(("node-count-exceeded", "nodes")),
-        CheckedPackageLimit::Edges => Some(("edge-count-exceeded", "edges")),
-        CheckedPackageLimit::Occurrences => Some(("occurrence-count-exceeded", "occurrences")),
-        CheckedPackageLimit::Work => Some(("work-budget-exceeded", "work")),
+        CheckedPackageLimit::Bytes => {
+            Some(("input-bytes-exceeded", "CheckedPackageReadLimits.bytes"))
+        }
+        CheckedPackageLimit::Nodes => {
+            Some(("node-count-exceeded", "CheckedPackageReadLimits.nodes"))
+        }
+        CheckedPackageLimit::Edges => {
+            Some(("edge-count-exceeded", "CheckedPackageReadLimits.edges"))
+        }
+        CheckedPackageLimit::Occurrences => Some((
+            "occurrence-count-exceeded",
+            "CheckedPackageReadLimits.occurrences",
+        )),
+        CheckedPackageLimit::Work => {
+            Some(("work-budget-exceeded", "CheckedPackageReadLimits.work"))
+        }
         CheckedPackageLimit::Diagnostics => None,
     }
 }
@@ -898,6 +909,7 @@ mod tests {
         assert_eq!(refusal.stage(), DriverStage::Registry);
     }
 
+    #[trace("FR-001-AC-22")]
     #[test]
     fn cg_package_read_refusal_preserves_projection_and_maps_its_typed_code_and_cause() {
         let projection = ContractPackageRefusalProjection {
@@ -949,6 +961,7 @@ mod tests {
         );
     }
 
+    #[trace("FR-001-AC-22")]
     #[test]
     fn cg_package_read_incomplete_maps_each_permitted_limit_and_faults_diagnostics() {
         let cases = [
