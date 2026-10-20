@@ -1097,6 +1097,18 @@ mod tests {
         assert_eq!(refusal.kind(), OutcomeKind::Refused);
         assert_eq!(refusal.stage(), DriverStage::PackageRead);
         assert_eq!(refusal.package_read_refusal_projection(), Some(&projection));
+        let diagnostic = refusal.package_read_diagnostic().unwrap();
+        assert_eq!(diagnostic.code(), "stale_dependency");
+        assert_eq!(diagnostic.cause(), Some("content-mismatch"));
+        assert_eq!(diagnostic.category(), Category::Refusal);
+        assert_eq!(diagnostic.stage(), DriverStage::PackageRead);
+        assert_eq!(
+            diagnostic.location(),
+            Some(&super::PackageReadLocation::JsonPath(
+                "/package/dependencies/0".to_owned()
+            ))
+        );
+        assert_eq!(diagnostic.locus(), projection.locus.as_ref());
         let retained = refusal.package_read_refusal_projection().unwrap();
         assert_eq!(retained.expected.as_ref(), Some(&expected));
         assert_eq!(retained.actual.as_ref(), Some(&actual));
@@ -1121,6 +1133,11 @@ mod tests {
         });
         assert_eq!(refusal.code(), "malformed_wire");
         assert_eq!(refusal.package_read_cause(), None);
+        let diagnostic = refusal.package_read_diagnostic().unwrap();
+        assert_eq!(diagnostic.code(), "malformed_wire");
+        assert_eq!(diagnostic.cause(), None);
+        assert_eq!(diagnostic.location(), None);
+        assert_eq!(diagnostic.locus(), None);
         assert_eq!(
             refusal.package_read_refusal_projection(),
             Some(&projection_without_optional_payloads)
@@ -1173,6 +1190,19 @@ mod tests {
             assert_eq!(refusal.qsl_category(), Some(Category::Incomplete));
             assert_eq!(refusal.kind(), OutcomeKind::Limit);
             assert_eq!(refusal.stage(), DriverStage::PackageRead);
+            let diagnostic = refusal.package_read_diagnostic().unwrap();
+            assert_eq!(diagnostic.code(), "stage_limit_exceeded");
+            assert_eq!(diagnostic.cause(), Some(cause));
+            assert_eq!(diagnostic.category(), Category::Incomplete);
+            assert_eq!(diagnostic.stage(), DriverStage::PackageRead);
+            assert_eq!(
+                diagnostic.location(),
+                source_path
+                    .as_ref()
+                    .map(|path| super::PackageReadLocation::JsonPath(path.clone()))
+                    .as_ref()
+            );
+            assert_eq!(diagnostic.locus(), None);
             assert_eq!(
                 refusal.package_read_limit(),
                 Some(super::PackageReadLimit {
@@ -1202,6 +1232,7 @@ mod tests {
         assert_eq!(refusal.code(), "runtime_invariant");
         assert_eq!(refusal.kind(), OutcomeKind::Fault);
         assert_eq!(refusal.stage(), DriverStage::PackageRead);
+        assert!(refusal.package_read_diagnostic().is_none());
         assert!(matches!(
             refusal,
             DriverRefusal::Fault(DriverFault::PackageReadDiagnostics(incomplete))
