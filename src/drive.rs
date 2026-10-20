@@ -981,7 +981,7 @@ mod native_receipt_integration_tests {
         let generation = GenerationInput {
             kani: Some(KaniInput {
                 ceilings: ProofCeilings {
-                    memory_bytes: NonZeroU64::new(1024 * 1024 * 1024).expect("positive limit"),
+                    memory_bytes: NonZeroU64::new(4 * 1024 * 1024 * 1024).expect("positive limit"),
                     wall_clock: std::time::Duration::from_secs(60),
                 },
                 subject_path: "crate::subject",
