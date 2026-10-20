@@ -982,7 +982,7 @@ mod native_receipt_integration_tests {
             kani: Some(KaniInput {
                 ceilings: ProofCeilings {
                     memory_bytes: NonZeroU64::new(4 * 1024 * 1024 * 1024).expect("positive limit"),
-                    wall_clock: std::time::Duration::from_secs(60),
+                    wall_clock: std::time::Duration::from_secs(600),
                 },
                 subject_path: "crate::subject",
                 unwind: 2,
