@@ -74,3 +74,10 @@ All four are fix-in-PR items.
 ## Dispositions
 
 Review pass only; no disposition round has run yet. Disposition rows are appended here.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | `malformed_export_results_stop_at_the_typed_boundary` exercises short result, wrong bound and unbound keys, and per-item export Fault. `export_run_refusal_and_unknown_driver_key_keep_their_distinct_outcomes` compares the exact whole-export refusal payload. Refusal unit tests assert `PackageNegotiation`, `EnvelopeItemCount` and every permitted `ContractPackageReadIncomplete` classification, including Diagnostics as a fault. |
+| FND-002 | fixed | The partition test asserts generation request indexes `[0, 2]`, then constructs one `ProviderItemResult` per generated item, converts each through `terminal_record`, and asserts terminal indexes `[0, 2]`. A B record or missing A/C generation now fails. The full TC-017 outcome remains accurately marked open in `spec/tests.md`. |
+| FND-003 | fixed | The partition test directly asserts DriverItem, Excluded carrying B's exact node ID, DriverItem in original driver order, with an envelope of two items and a typed B refusal. Its trace attributes include FR-001-AC-15 and FR-010-AC-1..AC-4; Quoin matrix reports each tagged. |
+| FND-004 | fixed | `spec/tests.md` now names the driver partition/refusal/index tests and quire-integration PR 16 for the composition rows, and marks the full TC-017 outcome open. |

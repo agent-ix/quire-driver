@@ -120,3 +120,11 @@ not raised as a finding.
 ## Dispositions
 
 Review pass only; no disposition round has run yet. Disposition rows are appended here.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Head 3b95829 calls `upstream.negotiate` with the complete position vector even when every exported item is refused. `all_export_refusals_send_zero_item_request_to_cg` asserts `Negotiate { items: 0 }`, no Generate call, three item refusals and no settlements. |
+| FND-002 | fixed | Cargo.lock names one QSL revision, 5b7927defa25c6ae513ebad401a00b6f5a493503, for all nine QSL packages including `qsl-route`; the exact-head `make ci` log includes a passing `cargo deny check licenses sources`. |
+| FND-003 | fixed | `package_request_code` explicitly maps nested `ExcludedDriverIndex` to `runtime_invariant`; `PackageNegotiation` also has `runtime_invariant` code, Negotiation stage and Fault kind. FR-001 states that classification, and `excluded_package_position_is_an_internal_join_fault_at_every_cg_boundary` tests direct and three nested forms. |
+| FND-004 | fixed | `ExportPartition` holds sorted bound indices and typed item refusals. A `for` loop partitions each export result with no side effect inside `map`; `includes` is used for later lowering and envelope construction. |
+| FND-005 | deferred | The historical e2ba5df mixed code/test commit and empty 7c43963 commit remain in immutable PR history. Rewriting those reviewed commits is outside this disposition round and changes no current behavior. The corrective round put red tests in 6ec5fc6 before the implementation in 012d6ec and 3b95829. This row preserves the original test-first finding rather than claiming its history was repaired. |
