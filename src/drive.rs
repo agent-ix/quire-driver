@@ -949,7 +949,7 @@ mod native_receipt_integration_tests {
         let root = lock.entry(CatalogRole::Root);
         let source = format!(
             "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
-             function inc using v(x: Int[0, 9]): Int[0, 10] pure {{ x + 1 }}\n",
+             function inc using v(x: Int[4, 4]): Int[5, 5] pure {{ x + 1 }}\n",
             root.identity
         );
         let packages = BTreeMap::new();
