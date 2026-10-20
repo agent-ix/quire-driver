@@ -912,29 +912,45 @@ mod native_receipt_integration_tests {
     use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_contract_codegen::{KaniInstallation, ProofCeilings};
     use quire_exact::{Integer, Value};
+    use std::io::Write as _;
     use std::num::NonZeroU64;
     use std::path::PathBuf;
 
-    struct NativeTargetDirectory(PathBuf);
+    struct NativeTargetDirectory {
+        path: PathBuf,
+        lock_path: PathBuf,
+    }
 
     impl NativeTargetDirectory {
         fn new() -> Self {
-            let nonce = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("the system clock follows the Unix epoch")
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "ir773-native-target-{}-{nonce}",
-                std::process::id()
-            ));
-            std::fs::create_dir(&path).expect("the test owns a fresh native target directory");
-            Self(path)
+            let executable = std::env::current_exe().expect("the test executable has a path");
+            let target_root = executable
+                .parent()
+                .and_then(Path::parent)
+                .and_then(Path::parent)
+                .expect("the test executable resides under Cargo's target directory");
+            let path = target_root.join("ir773-native-target");
+            std::fs::create_dir_all(&path)
+                .expect("the test owns its stable native target directory");
+
+            // Keep Kani's compiled dependencies for sequential focused runs, but never let
+            // concurrent runs mutate the same target. A hard-killed run leaves the marker;
+            // remove it only after verifying that no run still owns this target.
+            let lock_path = target_root.join("ir773-native-target.lock");
+            let mut lock = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+                .expect("no other native receipt test owns the stable Kani target");
+            writeln!(lock, "pid={}", std::process::id())
+                .expect("the native target ownership marker is writable");
+            Self { path, lock_path }
         }
     }
 
     impl Drop for NativeTargetDirectory {
         fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+            let _ = std::fs::remove_file(&self.lock_path);
         }
     }
 
@@ -993,7 +1009,7 @@ mod native_receipt_integration_tests {
                 environment: &environment,
                 native: Some(ScalarNativeInput {
                     installation: &installation,
-                    target_directory: &target_directory.0,
+                    target_directory: &target_directory.path,
                 }),
             }),
         };
