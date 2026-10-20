@@ -997,7 +997,7 @@ mod native_receipt_integration_tests {
             }),
         };
         let driven = drive(
-            &QslCg,
+            &crate::upstream::QslCg,
             CompileInput {
                 source: SourceIdentity::new("agent-ix", "ir-773", "native-receipt", "1"),
                 path: "native-receipt.native",

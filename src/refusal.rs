@@ -640,6 +640,7 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
         | RoutedGenerationError::Package(_) => Code::InvalidRequest,
         RoutedGenerationError::BackendKindDisagrees { .. }
         | RoutedGenerationError::DuplicateRequestIndex { .. }
+        | RoutedGenerationError::ExcludedDriverIndex { .. }
         | RoutedGenerationError::DuplicateHarness { .. }
         | RoutedGenerationError::KaniRecordCountMismatch { .. }
         | RoutedGenerationError::KaniDuplicatePositionOutOfRange { .. }
@@ -730,6 +731,10 @@ fn join(backends: &[BackendId]) -> String {
 
 fn generation_message(error: &RoutedGenerationError) -> String {
     match error {
+        RoutedGenerationError::ExcludedDriverIndex {
+            request_index,
+            node_id,
+        } => format!("request item {request_index} targets excluded driver position {node_id:?}"),
         RoutedGenerationError::ScalarSelectionMismatch { request_index } => {
             format!("request item {request_index} did not match its admitted scalar selection")
         }
@@ -1051,6 +1056,17 @@ mod tests {
     #[test]
     fn routed_generation_invariant_errors_are_generation_faults() {
         for (error, message) in [
+            (
+                RoutedGenerationError::ExcludedDriverIndex {
+                    request_index: 1,
+                    node_id: quire_contract_model::CheckedNodeId {
+                        domain: "quire.checked-semantic-node/v1".into(),
+                        digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                            .into(),
+                    },
+                },
+                "CG generation refused the routed items: request item 1 targets excluded driver position CheckedNodeId { domain: \"quire.checked-semantic-node/v1\", digest: \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\" }",
+            ),
             (
                 RoutedGenerationError::DuplicateHarness {
                     harness: HarnessPath {
