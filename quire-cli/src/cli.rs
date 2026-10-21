@@ -1701,7 +1701,7 @@ mod configured_run_tests {
             Err(failure) => panic!("configured provider flow failed: {failure:?}"),
         };
         assert_eq!(configured.call.requirements.members().len(), 1);
-        assert_eq!(configured.driven.generation().items.len(), 1);
+        assert_eq!(configured.driven.generation().items.len(), 2);
         assert_eq!(configured.provider_results.len(), 1);
         let invoked = markers
             .iter()
