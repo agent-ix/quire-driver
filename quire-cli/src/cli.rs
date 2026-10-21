@@ -1674,8 +1674,8 @@ mod configured_run_tests {
                     ],
                     deadline_ms: 4096,
                     limits: crate::provider_config::ProcessProviderLimitsConfig {
-                        max_frame_bytes: 16_384,
-                        max_total_bytes: 65_536,
+                        max_frame_bytes: 262_144,
+                        max_total_bytes: 1_048_576,
                         max_stderr_bytes: 4096,
                         cancellation_grace_ms: 500,
                         max_process_memory_bytes: None,
