@@ -264,6 +264,10 @@ struct ConfiguredCall {
 
 /// The configured run retains both compositions until QSL settlement owns the
 /// provider result mapping. No provider result is converted to a terminal.
+#[allow(
+    dead_code,
+    reason = "QSL-655 settlement will consume the retained typed composition"
+)]
 struct ConfiguredRun {
     call: ConfiguredCall,
     driven: Driven,
@@ -271,6 +275,10 @@ struct ConfiguredRun {
     diagnostics: Vec<quire_plugin_host::SessionFinished<crate::backend_provider::ManifestStage>>,
 }
 
+#[allow(
+    dead_code,
+    reason = "typed configured-run failures remain unmapped until their QSL contracts land"
+)]
 enum ConfiguredRunErrorKind {
     Call(Box<RunRefusal>),
     Start {
@@ -293,6 +301,10 @@ enum ConfiguredRunErrorKind {
     },
 }
 
+#[allow(
+    dead_code,
+    reason = "QSL-655 settlement will consume typed failure and cleanup details"
+)]
 struct ConfiguredRunFailure {
     call: Option<ConfiguredCall>,
     document: OutcomeDocument,
@@ -564,6 +576,10 @@ struct CommandResult {
     document: Option<OutcomeDocument>,
     diagnostic: Option<String>,
     text_output: Option<String>,
+    #[allow(
+        dead_code,
+        reason = "keep provider results typed until QSL-655 defines their mapping"
+    )]
     configured_run: Option<Result<ConfiguredRun, ConfiguredRunFailure>>,
 }
 
@@ -1551,5 +1567,180 @@ mod tests {
             "read is bounded to the limit plus one sentinel byte"
         );
         assert_eq!(actual, expected[..=limit]);
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "configured provider integration assertions are the test failure report"
+)]
+mod configured_run_tests {
+    use std::path::{Path, PathBuf};
+
+    use qsl_foundation::SourceIdentity;
+    use qsl_replay::spine::{
+        default_accounting, Call, CallArgument, SpineLimits, DEFAULT_WORK_UNITS,
+    };
+    use quire_exact::{Integer, Value};
+
+    use super::{run_configured_providers, CommandResult};
+
+    struct TempDir(PathBuf);
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn python_path() -> PathBuf {
+        std::env::split_paths(&std::env::var_os("PATH").expect("PATH is set"))
+            .map(|directory| directory.join("python3"))
+            .find(|candidate| candidate.is_file())
+            .expect("the process fixture requires Python 3")
+    }
+
+    /// Trace: FR-006-AC-1, FR-006-AC-8, FR-006-AC-15; production dispatch keeps one typed result unmapped.
+    #[test]
+    fn configured_run_invokes_only_the_selected_process_and_retains_its_typed_result() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time is after the Unix epoch")
+            .as_nanos();
+        let directory = TempDir(std::env::temp_dir().join(format!(
+            "quire-cli-configured-run-{}-{unique}",
+            std::process::id()
+        )));
+        std::fs::create_dir(&directory.0).expect("create temporary test directory");
+
+        let lock = quire_contract_model::DefinitionLock::pinned();
+        let root = lock.entry(quire_contract_model::CatalogRole::Root);
+        let bytes = format!(
+            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
+             function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
+             function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
+            root.identity
+        );
+        let path = "configured-run.native";
+        let source = SourceIdentity::new("agent-ix", path, "git", "1");
+        let packages = std::collections::BTreeMap::new();
+        let dependencies = qsl_replay::spine::DependencyInput::default();
+        let limits = SpineLimits::default();
+        let call = Call {
+            function: "eq".to_owned(),
+            arguments: vec![
+                CallArgument {
+                    parameter: "x".to_owned(),
+                    value: Value::Integer(Integer::from(2_i64)),
+                },
+                CallArgument {
+                    parameter: "y".to_owned(),
+                    value: Value::Integer(Integer::from(3_i64)),
+                },
+            ],
+            accounting: default_accounting(DEFAULT_WORK_UNITS),
+            supplied: Default::default(),
+        };
+        let executable = python_path();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/configured-fr331-provider.py");
+        let identities = [
+            "agent-ix/provider/configured-alpha",
+            "agent-ix/provider/configured-zeta",
+        ];
+        let markers = identities
+            .iter()
+            .map(|identity| directory.0.join(format!("{identity}.json")))
+            .collect::<Vec<_>>();
+        let providers = identities
+            .iter()
+            .zip(&markers)
+            .map(
+                |(identity, marker)| crate::provider_config::ProcessProviderConfig {
+                    executable: executable.clone(),
+                    argv: vec![
+                        fixture.display().to_string(),
+                        (*identity).to_owned(),
+                        marker.display().to_string(),
+                    ],
+                    deadline_ms: 4096,
+                    limits: crate::provider_config::ProcessProviderLimitsConfig {
+                        max_frame_bytes: 16_384,
+                        max_total_bytes: 65_536,
+                        max_stderr_bytes: 4096,
+                        cancellation_grace_ms: 500,
+                        max_process_memory_bytes: None,
+                        max_process_cpu_time_ms: None,
+                    },
+                },
+            )
+            .collect();
+
+        let configured = run_configured_providers(
+            path,
+            bytes.as_bytes(),
+            source,
+            limits,
+            call,
+            packages,
+            dependencies,
+            crate::provider_config::ProviderConfig { providers },
+            crate::signals::SignalContext::default(),
+        )
+        .expect("both providers admit before real QSL/CG routing and cleanup");
+        let invoked = markers
+            .iter()
+            .enumerate()
+            .filter(|(_, marker)| marker.is_file())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            invoked.len(),
+            1,
+            "only the selected provider receives a request"
+        );
+        let (selected, marker) = invoked[0];
+        let request: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(marker).expect("the selected provider recorded its request"),
+        )
+        .expect("the provider request is JSON");
+        assert_eq!(request["deadline_ms"], 4096);
+        assert_eq!(request["items"].as_array().map(Vec::len), Some(1));
+        assert_eq!(request["items"][0]["backend"], identities[selected]);
+        assert_eq!(request["items"][0]["kind"], "value-validity");
+        assert!(request["items"][0]["claim"].is_object());
+
+        let command = CommandResult::configured(Ok(configured));
+        assert!(
+            command.document.is_some(),
+            "existing QSL call result is retained"
+        );
+        let Some(Ok(retained)) = command.configured_run.as_ref() else {
+            panic!("typed configured result remains owned by the command result");
+        };
+        assert_eq!(retained.provider_results.len(), 1);
+        assert_eq!(retained.provider_results[0].items.len(), 1);
+        let outcome = retained.provider_results[0].items[0]
+            .result
+            .as_ref()
+            .expect("the fixture returned a typed provider result");
+        assert!(matches!(
+            &outcome.item,
+            crate::process_provider::ProcessProviderItemOutcome::Result {
+                kind: crate::process_provider::Fr331ResultKind::Tested,
+                ..
+            }
+        ));
+        assert_eq!(retained.diagnostics.len(), 2);
+        assert!(retained
+            .diagnostics
+            .iter()
+            .all(|finished| String::from_utf8_lossy(&finished.stderr)
+                .contains("configured provider completed")));
+        assert_eq!(
+            retained.call.package_id,
+            retained.driven.emitted().package_id()
+        );
     }
 }
