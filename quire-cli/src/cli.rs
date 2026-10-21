@@ -79,7 +79,7 @@ fn write_primary_output(bytes: &[u8], description: &str, success: Category) -> C
         Err(error) => {
             emit_diagnostic(
                 "OutputFailure",
-                &format!("could not write {description}: {error}"),
+                &format!("OutputFailure: could not write {description}: {error}"),
             );
             Category::InternalFailure
         }

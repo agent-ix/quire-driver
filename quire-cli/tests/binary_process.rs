@@ -759,12 +759,8 @@ fn full_stdout_device_selects_internal_failure_and_output_failure_diagnostic() {
         Some(i32::from(Category::InternalFailure.exit_code()))
     );
     assert!(
-        stderr.contains("OutputFailure"),
-        "non-BrokenPipe output failure is identified: {stderr}"
-    );
-    assert!(
-        stderr.contains("outcome document"),
-        "diagnostic identifies failed primary output: {stderr}"
+        stderr.contains("OutputFailure: could not write outcome document"),
+        "non-BrokenPipe failure is visibly classified and identifies the output: {stderr}"
     );
 }
 
