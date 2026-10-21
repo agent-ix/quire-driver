@@ -26,6 +26,7 @@ implementation work. Package-graph, adapter-fixture lifecycle, and cleanup
 checks can run independently of production dispatch.
 
 Scope: FR-002-AC-3, FR-002-AC-7, FR-006-AC-1, FR-006-AC-3..FR-006-AC-4,
+FR-006-AC-8,
 FR-006-AC-24..FR-006-AC-27, FR-013-AC-11,
 FR-013-AC-14..FR-013-AC-15,
 FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
