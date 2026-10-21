@@ -12,8 +12,9 @@ relationships:
 
 ## Description
 
-Verify FR-002-AC-2 through FR-002-AC-4, FR-002-AC-6, FR-002-AC-8 and
-FR-002-AC-9 at the driver's root argv and process boundary. QSL ADR-029
+Verify FR-002-AC-2 through FR-002-AC-4, FR-002-AC-6, FR-002-AC-8 through
+FR-002-AC-9 and FR-002-AC-14 through FR-002-AC-16 at the driver's root argv
+and process boundary. QSL ADR-029
 supplies the outcome value and exit semantics; this case checks that the
 binary preserves them while using ix-cli-kit's exit, streams and JSON modules.
 
@@ -91,7 +92,28 @@ binary preserves them while using ix-cli-kit's exit, streams and JSON modules.
    reserved code `5` and fallback code `30`.
 5. Inspect the binary's output paths and verify text results and diagnostics
    use ix-cli-kit's `streams` module for stdout/stderr selection and write
-   behavior, including failure and broken-pipe handling.
+   behavior. Verify the two primary-stdout failure cases in separate child
+   processes using the `refused-range` case and `--format json`:
+
+   a. For a broken pipe, use a Unix named pipe as the source path and start the
+      child with stdout piped. Repeatedly attempt to open the source FIFO's
+      writer in nonblocking mode until it succeeds, retrying `ENXIO` and
+      `EINTR` every 10 ms. Use one 10-second deadline from child spawn through
+      child exit. During retries, poll the child; if it exits before the writer
+      opens, fail the test. Once the writer opens, close the
+      parent's stdout reader before writing the fixture bytes to the source
+      FIFO. Require the child to exit within that deadline and compare its
+      status with the independently obtained QSL refusal category
+      exit result (`20`). Require stderr not to contain an `OutputFailure`
+      diagnostic, as specified by FR-002-AC-14. Do not assert stdout contents
+      after closing its reader. On any timeout, premature child exit or other
+      setup/write failure, kill the child if it is still running and wait for
+      it before failing the test.
+   b. On Linux, redirect the child's stdout to `/dev/full`, whose writes fail
+      with a non-`BrokenPipe` I/O error. Require process status `30` and stderr
+      to contain an `OutputFailure` diagnostic identifying the outcome document
+      write. Do not compare device contents or require stdout to be empty or
+      complete.
 
 Test location: `quire-cli/tests/binary_process.rs` with its test-only
 operation adapter and fixtures under `quire-cli/tests/fixtures/`; entry-point
@@ -113,3 +135,8 @@ review covers `quire-cli/src/main.rs` and `quire-cli/src/cli.rs`.
   `undefined_expression/unproved-range` diagnostic
   retains its structured fields in that value, and its complete nonempty
   rendered line appears on stderr and is absent from stdout.
+- With the source FIFO handshake, a closed stdout reader produces the original
+  QSL refusal status `20` and does not produce an `OutputFailure` diagnostic.
+  With Linux `/dev/full`, a non-broken stdout write failure produces status
+  `30` and an `OutputFailure` diagnostic on stderr. The failed stdout write may
+  have emitted a prefix, so the test makes no empty-or-complete stdout claim.
