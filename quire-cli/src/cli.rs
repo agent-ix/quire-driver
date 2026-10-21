@@ -1606,7 +1606,7 @@ mod configured_run_tests {
             .expect("the process fixture requires Python 3")
     }
 
-    /// Trace: FR-006-AC-1, FR-006-AC-8, FR-006-AC-15; production dispatch keeps one typed result unmapped.
+    /// Trace: FR-006-AC-1, FR-006-AC-8, FR-006-AC-10..FR-006-AC-11, FR-006-AC-15.
     #[test]
     fn configured_run_invokes_only_the_selected_process_and_retains_its_typed_result() {
         let unique = std::time::SystemTime::now()
@@ -1718,16 +1718,43 @@ mod configured_run_tests {
             &std::fs::read(marker).expect("the selected provider recorded its request"),
         )
         .expect("the provider request is JSON");
+        let member = &configured.call.requirements.members()[0];
         assert_eq!(request["request"]["deadline_ms"], 4096);
-        assert_eq!(request["request"]["items"].as_array().map(Vec::len), Some(1));
-        assert_eq!(request["request"]["items"][0]["backend"], identities[selected]);
+        assert_eq!(
+            request["request"]["items"].as_array().map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            request["request"]["items"][0]["backend"],
+            identities[selected]
+        );
+        assert_eq!(
+            request["request"]["items"][0]["request_index"],
+            member.request_index().get()
+        );
         assert_eq!(request["request"]["items"][0]["kind"], "value-validity");
         assert!(request["request"]["items"][0]["claim"].is_object());
+        assert_eq!(request["request"]["items"][0]["candidates"]["type"], "set");
+        assert!(request["request"]["items"][0]["candidates"]["backends"]
+            .as_array()
+            .expect("candidate set is an array")
+            .iter()
+            .any(|candidate| candidate == identities[selected]));
+        assert!(request["request"]["items"][0]["extent"].is_object());
 
         let command = CommandResult::configured(Ok(configured));
         assert!(
             command.document.is_some(),
             "existing QSL call result is retained"
+        );
+        assert!(
+            command
+                .document
+                .as_ref()
+                .expect("QSL call document remains available")
+                .items()
+                .is_empty(),
+            "provider results are not fabricated as QSL terminals"
         );
         let Some(Ok(retained)) = command.configured_run.as_ref() else {
             panic!("typed configured result remains owned by the command result");
