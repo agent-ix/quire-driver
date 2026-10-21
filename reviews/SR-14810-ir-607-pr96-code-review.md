@@ -61,3 +61,21 @@ assert_eq!(observation["source_bytes"], serde_json::json!(bytes));
 ```sh
 printf '%s\n' "$$output" | grep -Fq 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;'
 ```
+
+## New findings, round 4
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | The prior `/dev/full` stderr assertion failed because `Record::render_human` emits an error record's message but does not render its `kind`; passing kind `OutputFailure` with message `could not write outcome document: ...` therefore did not produce the AC-16 diagnostic marker in human stderr. Prefix the message with the diagnostic name and assert the visible marker plus failed-output description. | quire-cli/src/cli.rs:80-83; quire-cli/tests/binary_process.rs:759-765; ix-cli-kit/src/streams.rs:315-322 |
+
+## Dispositions, round 4
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-002 | fixed | The human message now begins with `OutputFailure:` and names the outcome-document write; the Linux `/dev/full` process test requires that exact prefix. This changes diagnostic wording only; the non-BrokenPipe exit remains InternalFailure and BrokenPipe still keeps the operation result without an OutputFailure diagnostic. |
+
+### Round 4 after_excerpt
+
+```rust
+stderr.contains("OutputFailure: could not write outcome document")
+```
