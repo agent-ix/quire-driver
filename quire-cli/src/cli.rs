@@ -1693,6 +1693,12 @@ mod configured_run_tests {
             Ok(configured) => configured,
             Err(_) => panic!("both providers admit before real QSL/CG routing and cleanup"),
         };
+        eprintln!(
+            "configured projection: call_members={} routed={} provider_results={}",
+            configured.call.requirements.members().len(),
+            configured.driven.generation().items.len(),
+            configured.provider_results.len()
+        );
         let invoked = markers
             .iter()
             .enumerate()
