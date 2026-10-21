@@ -52,16 +52,13 @@ use quire_driver::{
 };
 use quire_exact::{Cancel, CancelCause, Integer, Value};
 
+#[path = "common/units.rs"]
+mod shared_units;
+
 /// A unit: the `ix:native` header, the `v` profile selecting QSL's own
 /// `DefinitionLock` root row (read from QSL, never copied here), then `body`.
 fn unit(body: &str) -> String {
-    let lock = DefinitionLock::pinned();
-    let root = lock.entry(CatalogRole::Root);
-    format!(
-        "language \"ix:native\" edition \"1-draft\";\n\
-         profile v = \"{}\";\n{body}",
-        root.identity
-    )
+    shared_units::unit(body)
 }
 
 static UNIT: LazyLock<String> =
@@ -195,7 +192,7 @@ static TWO_PARAM_UNIT: LazyLock<String> = LazyLock::new(|| {
 /// identical reachable range, because QSL does not discharge that
 /// coercion at all inside a branch it proves dead.
 static OVERFLOW_UNIT: LazyLock<String> = LazyLock::new(|| {
-    unit("function unreachable_result using v(x: Int[0, 9]): Int[0, 10] pure { x + 100 }\n")
+    shared_units::overflow_unit()
 });
 
 /// A unit whose `+` (`x + 100`) is the same shape `OVERFLOW_UNIT` declares,
