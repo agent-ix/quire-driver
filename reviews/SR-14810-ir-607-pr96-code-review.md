@@ -23,3 +23,16 @@ Reviewed the process-level FIFO and Linux `/dev/full` tests, fixture extraction,
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | Both new process tests run the default binary against a real `check` invocation and never select or observe TC-018's required `refused-range` adapter case. TC-018 step 5 explicitly requires that case for both failure modes, so the added tests do not satisfy the accepted procedure. | quire-cli/tests/binary_process.rs:655-660, 705-710; spec/test-cases/TC-018-binary-process-boundary.md:49-60, 95-116 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Both process tests now select `refused-range` and assert the test-only observation for the exact source bytes, path, identity, profile, and limits. The shared `overflow_unit` produces the specified `undefined_expression/unproved-range` refusal through real QSL parse/select/check. |
+
+### Round 1 after_excerpt
+
+```rust
+assert_eq!(observation["case"], "refused-range");
+assert_eq!(observation["source_bytes"], serde_json::json!(bytes));
+```
