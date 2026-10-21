@@ -95,13 +95,20 @@ binary preserves them while using ix-cli-kit's exit, streams and JSON modules.
    behavior. Verify the two primary-stdout failure cases in separate child
    processes using the `refused-range` case and `--format json`:
 
-   a. For a broken pipe, use a Unix named pipe as the source path. Start the
-      child with stdout piped, establish that it has opened the source pipe by
-      opening the writer end, close the parent's stdout reader, and only then
-      write the fixture bytes to the source pipe. Compare the child status with
-      the independently obtained QSL refusal category exit result (`20`), and
-      require stderr not to contain an `OutputFailure` diagnostic. Do not
-      assert stdout contents after closing its reader.
+   a. For a broken pipe, use a Unix named pipe as the source path and start the
+      child with stdout piped. Repeatedly attempt to open the source FIFO's
+      writer in nonblocking mode until it succeeds, retrying `ENXIO` and
+      `EINTR` every 10 ms. Use one 10-second deadline from child spawn through
+      child exit. During retries, poll the child; if it exits before the writer
+      opens, fail the test. Once the writer opens, close the
+      parent's stdout reader before writing the fixture bytes to the source
+      FIFO. Require the child to exit within that deadline and compare its
+      status with the independently obtained QSL refusal category
+      exit result (`20`). Require stderr not to contain an `OutputFailure`
+      diagnostic, as specified by FR-002-AC-14. Do not assert stdout contents
+      after closing its reader. On any timeout, premature child exit or other
+      setup/write failure, kill the child if it is still running and wait for
+      it before failing the test.
    b. On Linux, redirect the child's stdout to `/dev/full`, whose writes fail
       with a non-`BrokenPipe` I/O error. Require process status `30` and stderr
       to contain an `OutputFailure` diagnostic identifying the outcome document

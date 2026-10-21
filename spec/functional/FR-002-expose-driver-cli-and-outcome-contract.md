@@ -133,7 +133,7 @@ the fallback when that function returns reserved value `5`.
 | FR-002-AC-11 | When invoked with `--version`, the CLI reports the semantic version declared by the `quire-cli` Cargo package. | Test (TC-009) |
 | FR-002-AC-12 | The `quire-cli` built-binary version-agreement check uses `ix_cli_kit::version::Agreement::command` to compare `CARGO_PKG_VERSION` with the output of the built `quire --version` command and requires agreement. | Test (TC-009) |
 | FR-002-AC-13 | When text rendering is unavailable for parse, check, compile or run, the CLI returns the operation-specific QSL `UnimplementedCapability` result, writes no stdout, and does not execute the requested lifecycle operation. | Test (TC-009) |
-| FR-002-AC-14 | If writing or flushing primary stdout returns `BrokenPipe`, the process exits with the completed operation's QSL category exit result, and the CLI does not select an output-failure category. | Test (TC-018) |
+| FR-002-AC-14 | If writing or flushing primary stdout returns `BrokenPipe`, the process exits with the completed operation's QSL category exit result, the CLI does not select an output-failure category, and it emits no `OutputFailure` diagnostic. | Test (TC-018) |
 | FR-002-AC-15 | If writing or flushing primary stdout returns an I/O error other than `BrokenPipe`, the process exits with QSL's `Category::InternalFailure` exit result. The criterion makes no assertion that stdout is empty or complete. | Test (TC-018) |
 | FR-002-AC-16 | If a non-`BrokenPipe` primary stdout write or flush fails and stderr is writable, stderr contains an `OutputFailure` diagnostic that identifies the failed output. | Test (TC-018) |
 
