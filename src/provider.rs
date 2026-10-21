@@ -10,9 +10,9 @@ use qsl_replay::{
     ProofBasis, RequestIndex, TerminalRecord, TerminalValue,
 };
 use quire_contract_codegen::{
-    execute_kani_obligation, run_terminal_value, Candidate, KaniExecutableHarness,
-    KaniExecutionEvidence, KaniExecutionRefusal, KaniExecutionRequest, KaniInstallation,
-    KindOutput, ReplaySettlement, RoutedItemOutput, TerminalPairError,
+    Candidate, KaniExecutableHarness, KaniExecutionEvidence, KaniExecutionRefusal,
+    KaniExecutionRequest, KaniInstallation, KindOutput, ReplaySettlement, RoutedItemOutput,
+    TerminalPairError, execute_kani_obligation, run_terminal_value,
 };
 use quire_exact::{Cancel, CancelCause};
 
@@ -85,6 +85,14 @@ impl ProviderItemResult<KaniExecutionEvidence, KaniProviderFailure> {
         let value = self.terminal_value_with_settlement(None)?;
         let request_index = RequestIndex::new(self.request_index);
         let backend = BackendId::new(self.backend.identity.clone());
+        Self::terminal_record_for_value(value, request_index, backend)
+    }
+
+    fn terminal_record_for_value(
+        value: TerminalValue,
+        request_index: RequestIndex,
+        backend: BackendId,
+    ) -> Result<TerminalRecord, ProviderTerminalError> {
         match value {
             TerminalValue::Proved {
                 basis: ProofBasis::Checks { success_checks },
@@ -115,6 +123,9 @@ impl ProviderItemResult<KaniExecutionEvidence, KaniProviderFailure> {
             TerminalValue::Refuted => {
                 Err(ProviderTerminalError::ReplayUnavailableForScalarObligation)
             }
+            // Statistical measurements are an independent FR-192 result axis, not proof
+            // evidence. This Kani-only projection has no matching terminal constructor.
+            TerminalValue::Measured(_) => Err(ProviderTerminalError::UnsupportedTerminalValue),
         }
     }
 
@@ -424,10 +435,13 @@ mod tests {
 
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::SpineLimits;
+    use qsl_replay::statistical::{
+        Confidence, Coverage, Decision, StatisticalBasis, StatisticalMethod, StatisticalProvenance,
+        StatisticalVerdict, UndecidedCause,
+    };
     use qsl_replay::{
-        compile_package, Certification, DependencyInput, IncompleteCause, Operation,
-        OutcomeDocument, OutcomeItem, OutcomeStage, ProofBasis, ReplayLimits, StageLimits,
-        TerminalValue,
+        Certification, DependencyInput, IncompleteCause, Operation, OutcomeDocument, OutcomeItem,
+        OutcomeStage, ProofBasis, ReplayLimits, StageLimits, TerminalValue, compile_package,
     };
     use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_contract_codegen::{
@@ -438,18 +452,18 @@ mod tests {
         KaniExecutableHarness, KaniFailureCause, KaniFailurePhase, KaniNoVerdictDiagnostics,
         KaniStreamExcerpt, ReplaySettlement,
     };
-    use quire_exact::{Cancel, CancelCause};
+    use quire_exact::{Cancel, CancelCause, Integer, Rational};
     use serde_json::Value;
 
     use super::{
-        kani_execution_request, KaniExecutionLimits, KaniProvider, KaniProviderFailure,
-        ProviderItemResult, ProviderLimits, ProviderManifest, ProviderOutcomeError,
-        ProviderRequest, ProviderResults, ProviderTerminalError,
+        KaniExecutionLimits, KaniProvider, KaniProviderFailure, ProviderItemResult, ProviderLimits,
+        ProviderManifest, ProviderOutcomeError, ProviderRequest, ProviderResults,
+        ProviderTerminalError, kani_execution_request,
     };
     use crate::{CompileInput, GenerationInput, KaniInput};
     use qsl_route::ManifestDigest;
-    use quire_contract_codegen::routed_contract_lowering_profile;
     use quire_contract_codegen::KaniInstallation;
+    use quire_contract_codegen::routed_contract_lowering_profile;
     use quire_contract_codegen::{
         AdmittedItemAccounting, KaniExecutionEvidence, KindOutput, ObligationDisposition,
         ObligationRecord, ObligationSubject, RoutedItemOutput,
@@ -1106,6 +1120,50 @@ mod tests {
             item.terminal_record().expect_err("there is no evidence"),
             ProviderTerminalError::ExecutionDidNotProduceEvidence
         );
+    }
+
+    /// Trace: FR-006-AC-15; statistical measurements are not Kani proof terminals.
+    #[test]
+    fn measured_qsl_value_remains_unmapped_in_kani_terminal_projection() {
+        let half = Rational::new(Integer::one(), Integer::from(2_i64))
+            .expect("one-half is a valid rational");
+        let confidence = Confidence::new(half.clone(), half.clone(), half.clone())
+            .expect("one-half is a valid confidence value");
+        let verdict = StatisticalVerdict {
+            decision: Decision::Undecided(UndecidedCause::IndifferenceRegion),
+            estimate: None,
+            interval: None,
+            basis: StatisticalBasis {
+                method: StatisticalMethod::Okamoto,
+                confidence,
+                samples: 0,
+                draws: 0,
+                tests: 0,
+                alpha_per_test: half.clone(),
+                beta_per_test: half,
+                coverage: Coverage::FiniteSample,
+            },
+            provenance: StatisticalProvenance {
+                seed: 0,
+                sampler: qsl_foundation::selection::DefinitionRef::new(
+                    "agent-ix",
+                    "quire.simulation.sampler/v1",
+                )
+                .expect("sampler has a valid identity"),
+                tests: Vec::new(),
+            },
+            tests: Vec::new(),
+            witnesses: Vec::new(),
+        };
+
+        assert!(matches!(
+            ProviderItemResult::<KaniExecutionEvidence, KaniProviderFailure>::terminal_record_for_value(
+                TerminalValue::Measured(Box::new(verdict)),
+                qsl_replay::RequestIndex::new(0),
+                qsl_foundation::BackendId::new("agent-ix/provider/kani"),
+            ),
+            Err(ProviderTerminalError::UnsupportedTerminalValue)
+        ), "a statistical measurement must not produce a Kani terminal");
     }
 
     /// Trace: FR-005-AC-2.
