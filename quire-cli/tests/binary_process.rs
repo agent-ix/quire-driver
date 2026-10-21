@@ -431,17 +431,47 @@ fn provider_config_file_and_schema_errors_emit_one_invalid_request_document() {
         ),
         (
             "missing-field.json",
-            r#"{"providers":[{"argv":[],"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
+            r#"{"providers":[{"argv":[],"deadline_ms":100,"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
             "provider configuration schema",
         ),
         (
             "wrong-type.json",
-            r#"{"providers":[{"executable":"/must-not-start","argv":[],"limits":{"max_frame_bytes":"1","max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"deadline_ms":100,"limits":{"max_frame_bytes":"1","max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
+            "provider configuration schema",
+        ),
+        (
+            "missing-deadline.json",
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
+            "provider configuration schema",
+        ),
+        (
+            "zero-deadline.json",
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"deadline_ms":0,"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
+            "provider configuration schema",
+        ),
+        (
+            "negative-deadline.json",
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"deadline_ms":-1,"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
+            "provider configuration schema",
+        ),
+        (
+            "fractional-deadline.json",
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"deadline_ms":1.5,"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
+            "provider configuration schema",
+        ),
+        (
+            "null-deadline.json",
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"deadline_ms":null,"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
+            "provider configuration schema",
+        ),
+        (
+            "unsafe-deadline.json",
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"deadline_ms":9007199254740992,"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
             "provider configuration schema",
         ),
         (
             "null-budget.json",
-            r#"{"providers":[{"executable":"/must-not-start","argv":[],"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1,"max_process_memory_bytes":null}}]}"#,
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"deadline_ms":100,"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1,"max_process_memory_bytes":null}}]}"#,
             "provider configuration schema",
         ),
         (
@@ -451,12 +481,12 @@ fn provider_config_file_and_schema_errors_emit_one_invalid_request_document() {
         ),
         (
             "unknown-provider.json",
-            r#"{"providers":[{"executable":"/must-not-start","argv":[],"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1},"unexpected":true}]}"#,
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"deadline_ms":100,"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1},"unexpected":true}]}"#,
             "provider configuration schema",
         ),
         (
             "unknown-limits.json",
-            r#"{"providers":[{"executable":"/must-not-start","argv":[],"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1,"unexpected":true}}]}"#,
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"deadline_ms":100,"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1,"unexpected":true}}]}"#,
             "provider configuration schema",
         ),
     ];

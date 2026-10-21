@@ -22,6 +22,9 @@ pub(crate) struct ProcessProviderConfig {
     pub executable: PathBuf,
     /// Arguments passed verbatim to the executable.
     pub argv: Vec<String>,
+    /// Caller-owned FR-331 request deadline in milliseconds.
+    #[serde(deserialize_with = "deserialize_deadline")]
+    pub deadline_ms: u64,
     /// Required framing and optional process resource limits.
     pub limits: ProcessProviderLimitsConfig,
 }
@@ -51,6 +54,20 @@ where
     D: serde::Deserializer<'de>,
 {
     u64::deserialize(deserializer).map(Some)
+}
+
+fn deserialize_deadline<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if (1..=9_007_199_254_740_991).contains(&value) {
+        Ok(value)
+    } else {
+        Err(serde::de::Error::custom(
+            "deadline_ms must be in 1..=9007199254740991",
+        ))
+    }
 }
 
 /// Why an explicitly selected provider configuration could not be loaded.
@@ -97,6 +114,7 @@ mod tests {
         "providers": [{
             "executable": "/tmp/provider",
             "argv": [],
+            "deadline_ms": 250,
             "limits": {
                 "max_frame_bytes": 1024,
                 "max_total_bytes": 4096,
@@ -118,6 +136,7 @@ mod tests {
             PathBuf::from("/tmp/provider")
         );
         assert!(config.providers[0].argv.is_empty());
+        assert_eq!(config.providers[0].deadline_ms, 250);
         assert_eq!(config.providers[0].limits.max_frame_bytes, 1024);
         assert_eq!(
             config.providers[0].limits.max_process_memory_bytes,
@@ -172,6 +191,31 @@ mod tests {
         ] {
             assert!(serde_json::from_str::<ProviderConfig>(&malformed).is_err());
         }
+    }
+
+    /// Trace: FR-006-AC-24; accept both positive safe-integer boundaries only.
+    #[test]
+    fn provider_deadline_accepts_safe_integer_boundaries_and_rejects_outside_values() {
+        for deadline in [1, 9_007_199_254_740_991] {
+            let config: ProviderConfig = serde_json::from_str(&VALID.replace(
+                "\"deadline_ms\": 250",
+                &format!("\"deadline_ms\": {deadline}"),
+            ))
+            .expect("boundary deadline is valid");
+            assert_eq!(config.providers[0].deadline_ms, deadline);
+        }
+        for deadline in ["0", "-1", "1.5", "null", "\"1\"", "9007199254740992"] {
+            let invalid = VALID.replace(
+                "\"deadline_ms\": 250",
+                &format!("\"deadline_ms\": {deadline}"),
+            );
+            assert!(
+                serde_json::from_str::<ProviderConfig>(&invalid).is_err(),
+                "accepted deadline {deadline}"
+            );
+        }
+        let missing = VALID.replace("\"deadline_ms\": 250,", "");
+        assert!(serde_json::from_str::<ProviderConfig>(&missing).is_err());
     }
 
     /// Trace: FR-006-AC-24; unknown fields and identity overrides are rejected at all levels.
