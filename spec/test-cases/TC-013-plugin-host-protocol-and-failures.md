@@ -30,8 +30,10 @@ and FR-006-AC-5 through FR-006-AC-23.
    `RequirementItem`/`CandidateOutcome`, using the same request data used to
    build typed CG negotiation; take the selected backend from CG's routed
    output. Supply the snapshot and constructed request data with the package,
-   its package identity and caller's deadline to the adapter serialization
-   check. This step checks field ownership and serialization only; it does not
+   its package identity and the selected configuration entry's `deadline_ms`
+   to the adapter serialization check. Verify that value is taken from that
+   entry unchanged, not from a default, ambient state, or another provider's
+   entry. This step checks field ownership and serialization only; it does not
    imply that the driver dispatches negotiated work through the Process seam,
    which remains IR-672 implementation work. TC-028 verifies the production
    `--provider-config` input and its forwarding into the process-provider
@@ -43,8 +45,9 @@ and FR-006-AC-5 through FR-006-AC-23.
    contains the emitted package's RFC 8785 bytes as unpadded base64url,
    `package_id` is copied from that same `EmittedPackage`, the `quire-cli`
    adapter serializes the supplied manifest snapshot without reconstructing
-   it or adding members, and `deadline_ms` comes
-   from the caller. Verify bounds appear only at `items[].extent.bounds` and
+   it or adding members, and `deadline_ms` equals the validated value in the
+   selected provider's configuration entry. Verify bounds appear only at
+   `items[].extent.bounds` and
    `items[].temporal.subject.proof_bounds`, with no request-level `domains` or
    `limits` member. QSpec TC-271 owns the CG negotiation checks for QSpec
    FR-290-AC-13. Do not claim a serialized proof-bound
@@ -145,7 +148,8 @@ define or infer terminal mappings.
 - Request fields are serialized by the `quire-cli` adapter from their named
   owners: `package` and `package_id` from
   the same `EmittedPackage`; `manifest` from the driver's registered-candidate
-  records; `deadline_ms` from the caller's process-provider request; each
+  records; `deadline_ms` unchanged from the selected provider's validated
+  configuration entry; each
   item's request index, claim locus, kind, extent/bounds and candidate set from
   the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using
   the same request data used to build typed CG negotiation; and its selected

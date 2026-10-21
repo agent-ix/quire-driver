@@ -49,14 +49,17 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
 6. Exercise the production `quire run --provider-config <path>` command with a
    strict JSON file containing at least two entries for distinct fixture
    executables. Each fixture SHALL record its executable identity, exact argv,
-   and hello-ready marker. Give each entry distinct, non-default frame, total,
-   stderr-retention, and cancellation-grace values, plus explicit optional
+   its `deadline_ms`, and hello-ready marker. Give each entry a distinct valid
+   `deadline_ms` and distinct, non-default frame, total, stderr-retention, and
+   cancellation-grace values, plus explicit optional
    process-memory and CPU-time values. Hold the fixture hellos at a test barrier
    and verify both hellos are admitted before the run begins backend
    negotiation. Use the real QSL/CG route to select the second configured
    provider. Verify only that provider receives the routed request, and verify
    the process-provider dispatch receives that entry's exact executable path,
-   argv and `ProcessProviderLimits`; the first provider receives no request.
+   argv, `ProcessProviderLimits`, and `deadline_ms`; the first provider
+   receives no request. Verify the selected provider's FR-331 request contains
+   that entry's exact `deadline_ms`, unchanged.
    Include a separate entry with `argv: []` and verify the executable receives
    no extra arguments. The admitted hello is the sole source of each provider
    identity; the config contains no identity field. This end-to-end routed case
@@ -69,9 +72,13 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    quire-cli/tests/fixtures/ir608-run.qsl yes --format json
    --provider-config <path>` and verify no provider process starts. Cover a
    missing or unreadable file; malformed JSON; missing or wrongly typed
-   required fields; unknown fields at the top-level, provider-entry and
-   `limits` objects; and `null` or another wrongly typed value for either
-   optional process budget. Verify each process exits with the existing QSL
+   required fields; missing, zero, negative, fractional, null, wrongly typed,
+   or greater-than-9,007,199,254,740,991 `deadline_ms`; unknown fields at the
+   top-level, provider-entry and `limits` objects; and `null` or another wrongly
+   typed value for either optional process budget. Add parser-level boundary
+   cases that accept `deadline_ms` values 1 and 9,007,199,254,740,991; keep
+   end-to-end dispatch fixtures' deadlines large enough for the fixture run.
+   Verify each process exits with the existing QSL
    refusal category and writes exactly one `quire-outcome/1` for
    `Operation::Execute` with `Code::InvalidRequest` to stdout. Compare the
    document with the existing CLI input-refusal result, including its
@@ -156,19 +163,21 @@ Linux/macOS runners provide the signal evidence in step 13.
   `quire-cli` locations, and the `quire-driver` package's `src/lib.rs` does
   not export a `cli` module.
 - `quire run --provider-config <path>` reads only the named strict JSON file;
-  malformed/unknown configuration fails before spawn, configured executable,
-  arguments and limits reach the selected process-provider dispatch unchanged,
-  and omitting the option (or providing an empty `providers` array) registers
-  and starts no process providers. End-to-end routed dispatch remains planned
-  under IR-672. Invalid config in machine mode uses the existing
+  malformed/unknown configuration or an invalid `deadline_ms` fails before
+  spawn; each configured provider's executable, arguments, limits and
+  `deadline_ms` reach the selected process-provider dispatch unchanged; and
+  omitting the option (or providing an empty `providers` array) registers and
+  starts no process providers, with no implicit deadline. End-to-end routed
+  dispatch remains planned under IR-672. Invalid config in machine mode uses
+  the existing
   `Operation::Execute` `Code::InvalidRequest` input-refusal document and
   refusal exit category, with no new code or cause. Optional CPU/RSS fields
   omitted from `limits` mean no such budget; explicit `null` and wrongly typed
   values are rejected before spawn.
 - With two configured providers, both hellos are admitted before negotiation;
   the second provider can be selected and receives only its routed request,
-  with its exact executable, argv and limits. The hello descriptor remains the
-  sole identity source.
+  with its exact executable, argv, limits and `deadline_ms`. The hello
+  descriptor remains the sole identity source.
 - Distinct sessions with duplicate admitted identities cause no negotiation
   and all started sessions close. QSL registration refusals pass through
   unchanged; if QSL accepts identical registration idempotently, the CLI uses

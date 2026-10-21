@@ -34,7 +34,7 @@ settlement path used for first-party providers.
 - The caller-named plugin executable path.
 - Explicit process-provider configuration supplied to the `quire-cli`
   composition by `--provider-config <path>`: an executable path, argument
-  vector and `ProcessProviderLimits` per entry.
+  vector, a per-provider `deadline_ms`, and `ProcessProviderLimits` per entry.
 - The admitted provider manifest, negotiated provider identity and routed
   request items.
 - The emitted checked-package bytes and provider limits.
@@ -64,9 +64,13 @@ settlement path used for first-party providers.
   the process-provider configuration file. The file SHALL be UTF-8 JSON with
   one top-level field, `providers`, whose value is an array. Each entry SHALL
   have exactly `executable` (the executable path), `argv` (an array of argument
-  strings, including an explicit empty array when no arguments are needed), and
-  `limits` fields. The `limits` object SHALL contain exactly the required
-  unsigned integer fields in the `u64` range: `max_frame_bytes`,
+  strings, including an explicit empty array when no arguments are needed),
+  `deadline_ms`, and `limits` fields. `deadline_ms` SHALL be a positive safe
+  JSON integer from 1 through 9,007,199,254,740,991 inclusive, the FR-331
+  `deadline_ms` range. It is the caller-supplied deadline for that provider's
+  FR-331 request, not a host resource limit. The `limits` object SHALL contain
+  exactly the required unsigned integer fields in the `u64` range:
+  `max_frame_bytes`,
   `max_total_bytes`, `max_stderr_bytes`, and `cancellation_grace_ms`; it MAY
   contain `max_process_memory_bytes` and `max_process_cpu_time_ms` with the same
   unsigned-integer representation. Byte fields are byte counts; duration fields
@@ -74,12 +78,15 @@ settlement path used for first-party providers.
   kind is requested; `null` or any other non-unsigned-integer value is invalid.
 - The `quire-cli` composition SHALL reject an unreadable or missing file,
   malformed JSON, missing or wrongly typed required fields, and unknown fields
-  at every object level before starting any provider.
+  at every object level before starting any provider. It SHALL also reject a
+  missing, non-integer, zero, negative, or out-of-range `deadline_ms` before
+  starting any provider.
 - For each configured entry, the `quire-cli` composition SHALL start the named
   executable and admit its hello before negotiation. The identity in that
   once-admitted hello descriptor SHALL be the sole identity used to register
   and route that process provider. The composition SHALL pass the entry's
-  executable, `argv`, and limits unchanged to the process-provider seam.
+  executable, `argv`, `deadline_ms`, and limits unchanged to the
+  process-provider seam.
 - The `quire-cli` composition SHALL start and admit every configured entry
   before beginning negotiation.
 - If distinct configured process sessions return the same identity from their
@@ -115,8 +122,10 @@ settlement path used for first-party providers.
   package's exact bytes and its `package_id` from that same `EmittedPackage`
   value.
 - The `quire-cli` adapter SHALL copy the `deadline_ms` supplied in the caller's
-  process-provider request into the FR-331 request. It SHALL NOT add
-  request-level `domains` or `limits`.
+  selected provider configuration entry into the process-provider request and
+  copy that same value unchanged into the FR-331 request. It SHALL NOT derive a
+  deadline from a default, ambient state, or another provider entry. It SHALL
+  NOT add request-level `domains` or `limits`.
 - The `quire-cli` adapter SHALL serialize each item's request index, claim
   locus, kind, extent/bounds and candidate set from the corresponding retained
   QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to
@@ -183,14 +192,14 @@ settlement path used for first-party providers.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the configuration entry associated with that provider's once-admitted hello identity, one `EmittedPackage` value, the caller-supplied deadline, the registered-candidate manifest snapshot and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Planned (TC-013, TC-028; production dispatch and CLI configuration loading remain IR-672 implementation work) |
+| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the configuration entry associated with that provider's once-admitted hello identity, one `EmittedPackage` value, that entry's caller-supplied deadline, the registered-candidate manifest snapshot and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Planned (TC-013, TC-028; production dispatch and CLI configuration loading remain IR-672 implementation work) |
 | FR-006-AC-2 | Validated typed results returned through the process-provider seam enter the same driver proof settlement path as first-party provider results when QSL defines their terminal mapping; results without a current QSL mapping remain typed and unmapped, while unrelated routed items retain their own results. | Planned (TC-013; no end-to-end claim from an injected boundary; IR-672, IR-677, QSL-490 and QSL-655) |
 | FR-006-AC-3 | Before normal CLI command termination, the adapter requests graceful shutdown of every active plugin session; on Linux and macOS, if `RunLimits.cancellation_grace` expires first, the process tree terminates and cleanup completes within one second. The merged Windows host force-terminates the Job Object through `terminate_tree`/`terminate_job`; native Windows evidence remains planned. Kill-on-close is separately planned under IR-674. | Test (TC-028) |
 | FR-006-AC-4 | On Linux or macOS, handled SIGINT or SIGTERM while a plugin session is starting, running or shutting down requests cancellation through the caller-owned QSL handle, waits for settlement or `RunLimits.cancellation_grace` expiry, and cleans up the plugin process tree before the CLI restores the default disposition and re-raises the signal. No QSL cancellation cause is claimed; with no active session, the platform's default signal disposition is retained. | Test (TC-028) |
 | FR-006-AC-5 | The driver composes the request manifest snapshot from the lossless FR-331 DTO retained in each registered-candidate registry record, covering linked and process providers; the `quire-cli` adapter serializes that snapshot without reconstructing or adding members. | Planned (TC-013) |
 | FR-006-AC-6 | The `quire-cli` adapter serializes `package` as the unpadded base64url encoding of the emitted package's exact bytes. | Planned (TC-013) |
 | FR-006-AC-7 | The `quire-cli` adapter serializes `package_id` from the same `EmittedPackage` value as the encoded package bytes. | Planned (TC-013) |
-| FR-006-AC-8 | The `quire-cli` adapter serializes `deadline_ms` equal to the caller-supplied process-provider deadline. | Planned (TC-013) |
+| FR-006-AC-8 | The `quire-cli` adapter serializes `deadline_ms` equal to the `deadline_ms` in the selected provider's validated `--provider-config` entry, unchanged. | Planned (TC-013, TC-028) |
 | FR-006-AC-9 | The `quire-cli` adapter serializes a request without top-level `domains` or `limits` members. | Planned (TC-013) |
 | FR-006-AC-10 | The `quire-cli` adapter serializes each item's request index, claim locus and kind from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation. | Planned (TC-013; production source projection remains IR-672 implementation work) |
 | FR-006-AC-11 | The `quire-cli` adapter serializes each item's selected backend from CG's routed output and its candidate set from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation. | Planned (TC-013; production source projection remains IR-672 implementation work) |
@@ -206,7 +215,7 @@ settlement path used for first-party providers.
 | FR-006-AC-21 | For a preserved non-canonical-package response, the driver's shared settlement path maps each failed routed item to QSL `TerminalValue::Failed`. | Planned (TC-013; IR-677 and QSL settlement API) |
 | FR-006-AC-22 | For package-mismatch and non-canonical-package responses, the driver's shared settlement path carries each typed FR-272 diagnostic separately in QSL `OutcomeDiagnostic`. | Planned (TC-013; IR-677 and QSL settlement API) |
 | FR-006-AC-23 | Settling a failed process-provider response leaves unrelated provider results unchanged. | Planned (TC-013; IR-677 and QSL settlement API) |
-| FR-006-AC-24 | The `--provider-config` file accepts only the documented strict JSON shape; missing/unreadable files, malformed JSON, missing or wrongly typed fields, `null` or wrongly typed optional process budgets, and unknown fields at any object level are rejected before any provider starts. In machine mode, these failures use the existing `Operation::Execute` `Code::InvalidRequest` input-refusal result and serialize that typed outcome once. | Planned (TC-028) |
+| FR-006-AC-24 | The `--provider-config` file accepts only the documented strict JSON shape; missing/unreadable files, malformed JSON, missing or wrongly typed fields, a `deadline_ms` that is missing, non-integer, outside 1..=9,007,199,254,740,991, `null` or wrongly typed optional process budgets, and unknown fields at any object level are rejected before any provider starts. In machine mode, these failures use the existing `Operation::Execute` `Code::InvalidRequest` input-refusal result and serialize that typed outcome once. | Planned (TC-028) |
 | FR-006-AC-25 | The `quire-cli` composition starts and admits every configured provider before negotiation, and uses each admitted hello descriptor as the sole provider identity for subsequent selection and dispatch. | Planned (TC-028) |
 | FR-006-AC-26 | If distinct configured sessions return the same admitted identity, the composition begins no negotiation and closes all sessions; it preserves a QSL registration refusal, or returns the existing CLI `InvalidRequest` input refusal when QSL treats repeated identical admission as idempotent. | Planned (TC-028) |
 | FR-006-AC-27 | If a configured provider fails to start or admit its hello, the composition begins no negotiation, closes all earlier active sessions, and preserves the original typed host failure. | Planned (TC-028) |
