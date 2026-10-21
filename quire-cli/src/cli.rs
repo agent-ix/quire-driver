@@ -320,6 +320,18 @@ struct ConfiguredRunFailure {
     cleanup_failures: Vec<CliProviderError>,
 }
 
+struct ConfiguredRunRequest<'a> {
+    path: &'a str,
+    bytes: &'a [u8],
+    source: SourceIdentity,
+    limits: SpineLimits,
+    call: Call,
+    packages: BTreeMap<[u8; 32], Vec<u8>>,
+    dependencies: DependencyInput,
+    config: crate::provider_config::ProviderConfig,
+    signals: crate::signals::SignalContext,
+}
+
 fn close_configured_providers(
     sessions: Vec<ActiveConfiguredProvider>,
 ) -> (
@@ -341,16 +353,16 @@ fn configured_failure_after_call(
     call: ConfiguredCall,
     kind: ConfiguredRunErrorKind,
     sessions: Vec<ActiveConfiguredProvider>,
-) -> ConfiguredRunFailure {
+) -> Box<ConfiguredRunFailure> {
     let document = call_outcome_document(call.package_id, &call.outcome);
     let (cleanup_diagnostics, cleanup_failures) = close_configured_providers(sessions);
-    ConfiguredRunFailure {
+    Box::new(ConfiguredRunFailure {
         call: Some(call),
         document,
         kind,
         cleanup_diagnostics,
         cleanup_failures,
-    }
+    })
 }
 
 struct CompileOptions {
@@ -586,7 +598,7 @@ struct CommandResult {
         dead_code,
         reason = "keep provider results typed until QSL-655 defines their mapping"
     )]
-    configured_run: Option<Result<ConfiguredRun, ConfiguredRunFailure>>,
+    configured_run: Option<Result<ConfiguredRun, Box<ConfiguredRunFailure>>>,
 }
 
 impl CommandResult {
@@ -644,7 +656,7 @@ impl CommandResult {
         self
     }
 
-    fn configured(run: Result<ConfiguredRun, ConfiguredRunFailure>) -> Self {
+    fn configured(run: Result<ConfiguredRun, Box<ConfiguredRunFailure>>) -> Self {
         let document = match &run {
             Ok(completed) => Some(call_outcome_document(
                 completed.call.package_id,
@@ -725,17 +737,17 @@ fn run(options: RunOptions) -> CommandResult {
     let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
     if !provider_config.providers.is_empty() {
         let configured = crate::signals::run(move |signals| {
-            run_configured_providers(
-                &options.path,
-                &bytes,
+            run_configured_providers(ConfiguredRunRequest {
+                path: &options.path,
+                bytes: &bytes,
                 source,
                 limits,
                 call,
                 packages,
                 dependencies,
-                provider_config,
+                config: provider_config,
                 signals,
-            )
+            })
         });
         return match configured {
             Ok(configured) => CommandResult::configured(configured),
@@ -763,16 +775,19 @@ fn run(options: RunOptions) -> CommandResult {
 }
 
 fn run_configured_providers(
-    path: &str,
-    bytes: &[u8],
-    source: SourceIdentity,
-    limits: SpineLimits,
-    call: Call,
-    packages: BTreeMap<[u8; 32], Vec<u8>>,
-    dependencies: DependencyInput,
-    config: crate::provider_config::ProviderConfig,
-    signals: crate::signals::SignalContext,
-) -> Result<ConfiguredRun, ConfiguredRunFailure> {
+    request: ConfiguredRunRequest<'_>,
+) -> Result<ConfiguredRun, Box<ConfiguredRunFailure>> {
+    let ConfiguredRunRequest {
+        path,
+        bytes,
+        source,
+        limits,
+        call,
+        packages,
+        dependencies,
+        config,
+        signals,
+    } = request;
     let cancel = Cancel::new();
     let objects = ObjectEnvironment::default();
 
@@ -798,21 +813,21 @@ fn run_configured_providers(
             > = Err(refusal);
             let document = OutcomeDocument::from_run(&failed_run);
             let Err(refusal) = failed_run else {
-                return Err(ConfiguredRunFailure {
+                return Err(Box::new(ConfiguredRunFailure {
                     call: None,
                     document,
                     kind: ConfiguredRunErrorKind::PackageMismatch,
                     cleanup_diagnostics: Vec::new(),
                     cleanup_failures: Vec::new(),
-                });
+                }));
             };
-            return Err(ConfiguredRunFailure {
+            return Err(Box::new(ConfiguredRunFailure {
                 call: None,
                 document,
                 kind: ConfiguredRunErrorKind::Call(refusal),
                 cleanup_diagnostics: Vec::new(),
                 cleanup_failures: Vec::new(),
-            });
+            }));
         }
     };
     let (package_id, outcome, requirements) = call_run.into_parts();
@@ -913,13 +928,13 @@ fn run_configured_providers(
                     message,
                 )]);
         let (cleanup_diagnostics, cleanup_failures) = close_configured_providers(active);
-        return Err(ConfiguredRunFailure {
+        return Err(Box::new(ConfiguredRunFailure {
             call: Some(call),
             document,
             kind: ConfiguredRunErrorKind::DuplicateIdentity { backend },
             cleanup_diagnostics,
             cleanup_failures,
-        });
+        }));
     }
 
     let driven = match drive(
@@ -1014,7 +1029,7 @@ fn run_configured_providers(
     let (diagnostics, failures) = close_configured_providers(active);
     if !failures.is_empty() {
         let document = call_outcome_document(call.package_id, &call.outcome);
-        return Err(ConfiguredRunFailure {
+        return Err(Box::new(ConfiguredRunFailure {
             call: Some(call),
             document,
             kind: ConfiguredRunErrorKind::Shutdown {
@@ -1022,7 +1037,7 @@ fn run_configured_providers(
             },
             cleanup_diagnostics: diagnostics,
             cleanup_failures: failures,
-        });
+        }));
     }
     Ok(ConfiguredRun {
         call,
@@ -1712,17 +1727,17 @@ mod configured_run_tests {
             )
             .collect();
 
-        let configured = match run_configured_providers(
+        let configured = match run_configured_providers(ConfiguredRunRequest {
             path,
-            bytes.as_bytes(),
+            bytes: bytes.as_bytes(),
             source,
             limits,
             call,
             packages,
             dependencies,
-            crate::provider_config::ProviderConfig { providers },
-            crate::signals::SignalContext::default(),
-        ) {
+            config: crate::provider_config::ProviderConfig { providers },
+            signals: crate::signals::SignalContext::default(),
+        }) {
             Ok(configured) => configured,
             Err(failure) => panic!("configured provider flow failed: {failure:?}"),
         };
@@ -1887,17 +1902,17 @@ mod configured_run_tests {
             )
             .collect();
 
-        let failure = match run_configured_providers(
+        let failure = match run_configured_providers(ConfiguredRunRequest {
             path,
-            bytes.as_bytes(),
+            bytes: bytes.as_bytes(),
             source,
-            SpineLimits::default(),
+            limits: SpineLimits::default(),
             call,
-            std::collections::BTreeMap::new(),
-            qsl_replay::spine::DependencyInput::default(),
-            crate::provider_config::ProviderConfig { providers },
-            crate::signals::SignalContext::default(),
-        ) {
+            packages: std::collections::BTreeMap::new(),
+            dependencies: qsl_replay::spine::DependencyInput::default(),
+            config: crate::provider_config::ProviderConfig { providers },
+            signals: crate::signals::SignalContext::default(),
+        }) {
             Err(failure) => failure,
             Ok(_) => panic!("idempotent duplicate identities are an input refusal"),
         };
