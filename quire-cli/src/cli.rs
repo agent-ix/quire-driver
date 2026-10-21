@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Parser and command handlers for the user-facing `quire` binary.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -23,7 +23,8 @@ use qsl_semantics::value::supplied::SuppliedLimits;
 use quire_driver::{
     build_linked_providers, drive, execute, CompileInput, Driven, ExecutionEngine,
     ExecutionFailure, ExecutionRequest, GenerationInput, LimitOverrides, ObjectEnvironment,
-    ProcessProviderLimits, ProcessProviderRequest, ProviderRequest, ProviderResults, QslCg,
+    ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
+    ProviderRequest, ProviderResults, QslCg,
 };
 use quire_exact::Cancel;
 use quire_exact::{Integer, Value};
@@ -631,7 +632,7 @@ impl CommandResult {
         };
         let category = document
             .as_ref()
-            .map_or(Category::Fault, OutcomeDocument::category);
+            .map_or(Category::InternalFailure, OutcomeDocument::category);
         Self {
             category,
             document,
@@ -647,7 +648,7 @@ fn call_outcome_document(
     outcome: &CallOutcome,
 ) -> OutcomeDocument {
     OutcomeDocument::from_call(outcome)
-        .with_artifacts(vec![qsl_replay::OutcomeArtifact::package_id(package_id)])
+        .with_artifacts(vec![qsl_replay::OutcomeArtifact::package_id(&package_id)])
 }
 
 fn write_result_diagnostics<W: Write>(result: &CommandResult, sink: &mut W) -> io::Result<()> {
@@ -907,7 +908,7 @@ fn run_configured_providers(
     let mut provider_results = Vec::new();
     let mut invoke_failure = None;
     for provider in &mut active {
-        let backend = provider.session.descriptor().id().as_str();
+        let backend = provider.session.descriptor().id().as_str().to_owned();
         let routed = projection
             .routed
             .iter()
@@ -938,7 +939,7 @@ fn run_configured_providers(
         match provider.session.invoke(request) {
             Ok(results) => provider_results.push(results),
             Err(source) => {
-                invoke_failure = Some((backend.to_owned(), source));
+                invoke_failure = Some((backend, source));
                 break;
             }
         }

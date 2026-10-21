@@ -13,13 +13,14 @@ use qsl_route::{BackendDescriptor, ProviderOrigin};
 use quire_contract_codegen::RoutedItemOutput;
 use quire_driver::{
     ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
-    ProviderResults,
+    ProviderItemResult, ProviderResults,
 };
 use quire_exact::Cancel;
 use quire_plugin_host::{
     FrameLimits, PluginError, PluginSession, RunLimits, SessionFinished, SessionStart,
 };
 use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use serde::Serialize;
 
 /// Closed FR-331 result values retained before a QSL mapping is available.
@@ -551,7 +552,7 @@ mod tests {
             capability_vocabulary: Some("quire.capability-kind/v1".to_owned()),
             manifest: vec![Arc::new(serde_json::json!({
                 "backend": "agent-ix/provider/fr331-fixture",
-                "advertises": [{ "kind": "operation-contract", "mode": "bounded" }],
+                "advertises": [{ "kind": "value-validity", "mode": "bounded" }],
                 "domains": ["integer"]
             }))],
         };
