@@ -10,10 +10,9 @@ use std::sync::Arc;
 use qsl_replay::CallRequirements;
 use qsl_route::request::RequirementItem;
 use qsl_route::{BackendDescriptor, ProviderOrigin};
-use quire_contract_codegen::RoutedItemOutput;
 use quire_driver::{
     ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
-    ProviderItemResult, ProviderResults,
+    ProviderItemResult, ProviderResults, RoutedItemOutput,
 };
 use quire_exact::Cancel;
 use quire_plugin_host::{
