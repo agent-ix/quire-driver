@@ -193,12 +193,22 @@ mod tests {
     use qsl_foundation::Setting;
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::{
-        default_accounting, Call, CallOutcome, CallValue, DependencyInput, SpineLimits,
+        default_accounting, Call, CallArgument, CallOutcome, CallValue, DependencyInput,
+        SpineLimits,
     };
     use qsl_replay::spine::{CompileRefusal, RunRefusal};
     use qsl_replay::OutcomeDocument;
+    use qsl_semantics::model::dispatch::GeneralizationClosure;
+    use qsl_semantics::model::domain_package::DomainPackageRecord;
+    use qsl_semantics::model::intake::package_input;
+    use qsl_semantics::model::key::hex;
     use qsl_semantics::model::object_environment::ObjectEnvironment;
-    use quire_exact::{Cancel, CancelCause};
+    use qsl_semantics::model::population::{
+        admit_binding, AdmissionMeter, AdmissionOutcome, PopulationAdmissionLimits,
+        PopulationDocument, PopulationMember,
+    };
+    use quire_exact::{Cancel, CancelCause, Value};
+    use quire_semantic_value::object_closure::ObjectClosure;
 
     use super::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest};
 
@@ -230,6 +240,209 @@ mod tests {
     static NO_DEPENDENCIES: LazyLock<DependencyInput> = LazyLock::new(DependencyInput::default);
     static EMPTY_OBJECT_ENVIRONMENT: LazyLock<ObjectEnvironment> =
         LazyLock::new(ObjectEnvironment::default);
+
+    const OBJECT_MODEL_DOCUMENT: &str = r#"{
+      "contractVersion": "2.0.0",
+      "canonicalization": {"algorithm": "rfc8785-v1", "digest": "sha256-jcs"},
+      "source": {"identity": "ix://driver/ir608/model", "version": "1.0.0", "dialect": "spec-bundle", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+      "package": {"identity": "driver/ir608-model", "version": "1.0.0", "manifestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "mappingVersions": [], "profileVersions": [], "lockDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+      "occurrences": [],
+      "extensions": [],
+      "constructs": [
+        {"kind": {"module": "driver/ir608-model", "name": "entity"}, "moduleVersion": "1.0.0", "manifestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "construct": {"identity": "none", "shape": "record", "members": {}, "meaning": "quire.meaning.model.object-type/v1"}},
+        {"kind": {"module": "driver/ir608-model", "name": "population"}, "moduleVersion": "1.0.0", "manifestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "construct": {"identity": "none", "shape": "record", "members": {}, "meaning": "quire.meaning.model.population/v1"}}
+      ],
+      "types": [{"identity": "ix://driver/ir608-model/Thing", "displayName": "Thing", "kind": {"module": "driver/ir608-model", "name": "entity"}, "roles": [], "origin": {"generated": {"generatorIdentity": "ix://driver/ir608/model", "generatorVersion": "1.0.0", "inputIdentities": ["ix://driver/ir608-model/Thing"]}}, "constraints": [], "extensions": [], "unknownPolicy": "reject", "supertypes": [], "fields": [], "operations": []}],
+      "populations": [{"identity": "ix://driver/ir608-model/Fleet", "displayName": "Fleet", "kind": {"module": "driver/ir608-model", "name": "population"}, "members": ["ix://driver/ir608-model/Thing"], "extent": "closed", "origin": {"generated": {"generatorIdentity": "ix://driver/ir608-model/Fleet", "generatorVersion": "1.0.0", "inputIdentities": ["ix://driver/ir608-model/Fleet"]}}}]
+    }"#;
+
+    struct ObjectContextFixture {
+        source: String,
+        packages: BTreeMap<[u8; 32], Vec<u8>>,
+        population: quire_exact::PopulationId,
+        empty_population_id: quire_exact::PopulationId,
+        reference: quire_exact::ObjectReference,
+        populated: ObjectEnvironment,
+        empty_context: ObjectEnvironment,
+        empty_population_env: ObjectEnvironment,
+    }
+
+    fn object_context_fixture() -> ObjectContextFixture {
+        let packages = package_input([OBJECT_MODEL_DOCUMENT.as_bytes()]);
+        let digest = packages.keys().next().expect("one admitted model package");
+        let source = format!(
+            "language \"ix:native\" edition \"1-draft\";\n\
+             profile v = \"quire.model.complete/v1\";\n\
+             model M = \"driver/ir608-model\" version \"1.0.0\" digest \"sha256-jcs:{}\";\n\
+             function query_present using v(p: Population<M::Thing>[1], r: M::Thing): M::Thing pure {{ lookup<M::Thing>(p, r) absent refused }}\n\
+             function query_absent using v(p: Population<M::Thing>[1], r: M::Thing): M::Thing pure {{ lookup<M::Thing>(p, r) absent undefined }}\n",
+            hex(digest)
+        );
+        let source_identity =
+            SourceIdentity::new("quire-driver-test", "object-context", "test", "current");
+        let cancel = Cancel::new();
+        let parsed = qsl_replay::spine::parse(
+            &qsl_replay::spine::ParseRequest {
+                source: &source_identity,
+                path: "object-context.qsl",
+                bytes: source.as_bytes(),
+            },
+            SpineLimits::default().source,
+            &cancel,
+        )
+        .expect("model-call source parses")
+        .into_value();
+        let models =
+            qsl_replay::spine::select(&parsed, &packages, SpineLimits::default().model, &cancel)
+                .expect("model-call package selects")
+                .into_value();
+        let checked = qsl_replay::spine::check(
+            &parsed,
+            &models,
+            &DependencyInput::default(),
+            &qsl_replay::spine::LockEvidence::default(),
+            SpineLimits::default(),
+            &cancel,
+        )
+        .expect("model-call source checks")
+        .into_value();
+        let view = &models.models()[0].view;
+        let (type_key, type_identity) = view
+            .type_identities()
+            .iter()
+            .find(|(key, _)| key.node.rsplit('/').next() == Some("Thing"))
+            .map(|(key, identity)| (key.clone(), *identity))
+            .expect("Thing is declared by the model package");
+        let population_key = view
+            .domain_package()
+            .records
+            .iter()
+            .find_map(|record| match record {
+                DomainPackageRecord::Population(population)
+                    if population.key.node.rsplit('/').next() == Some("Fleet") =>
+                {
+                    Some(population.key.clone())
+                }
+                _ => None,
+            })
+            .expect("Fleet is declared by the model package");
+        let admit = |members| {
+            let document = PopulationDocument {
+                model_identity: view.model_selection().identity.clone(),
+                members,
+            };
+            let mut meter = AdmissionMeter::new(PopulationAdmissionLimits::default());
+            let AdmissionOutcome::Admitted(binding) = admit_binding(
+                view,
+                &document,
+                &population_key,
+                GeneralizationClosure::Closed,
+                Some(1),
+                &mut meter,
+            ) else {
+                panic!("the fixture population admits");
+            };
+            binding
+        };
+        let member = PopulationMember {
+            object: "g1".to_owned(),
+            type_identity: type_key.clone(),
+            field_values: Vec::new(),
+        };
+        let populated_binding = admit(vec![member]);
+        let population = populated_binding.population_id();
+        let reference = quire_exact::ObjectReference::new(
+            view.object_universe_of(&type_key)
+                .expect("Thing has an object universe")
+                .identity(),
+            type_identity,
+            quire_exact::ObjectId::new("g1").expect("fixture object id is valid"),
+        );
+        let world = ObjectClosure::new(
+            checked.package().graph().scope().types(),
+            [(reference.clone(), Vec::new())],
+            &[],
+        )
+        .expect("the fixture object world closes");
+        let populated = ObjectEnvironment::new(world)
+            .with_population(populated_binding.clone())
+            .expect("the fixture population is recorded");
+        let empty_context = ObjectEnvironment::new(ObjectClosure::default())
+            .with_population(populated_binding)
+            .expect("the same population remains recorded without its object");
+        let empty_population_binding = admit(Vec::new());
+        let empty_population_id = empty_population_binding.population_id();
+        let empty_population_environment = ObjectEnvironment::new(
+            ObjectClosure::new(
+                checked.package().graph().scope().types(),
+                [(reference.clone(), Vec::new())],
+                &[],
+            )
+            .expect("the lookup object is admitted independently of the empty population"),
+        )
+        .with_population(empty_population_binding)
+        .expect("the empty fixture population is recorded");
+        ObjectContextFixture {
+            source,
+            packages,
+            population,
+            empty_population_id,
+            reference,
+            populated,
+            empty_context,
+            empty_population_env: empty_population_environment,
+        }
+    }
+
+    fn model_request<'a>(
+        fixture: &'a ObjectContextFixture,
+        environment: &'a ObjectEnvironment,
+        function: &str,
+        population: quire_exact::PopulationId,
+        reference: quire_exact::ObjectReference,
+    ) -> ExecutionRequest<'a> {
+        ExecutionRequest {
+            source: SourceIdentity::new("quire-driver-test", "object-context", "test", "current"),
+            path: "object-context.qsl",
+            bytes: fixture.source.as_bytes(),
+            packages: &fixture.packages,
+            dependencies: &NO_DEPENDENCIES,
+            limits: SpineLimits::default(),
+            call: Call {
+                function: function.to_owned(),
+                arguments: vec![
+                    CallArgument {
+                        parameter: "p".to_owned(),
+                        value: Value::Population(population),
+                    },
+                    CallArgument {
+                        parameter: "r".to_owned(),
+                        value: Value::Reference(reference),
+                    },
+                ],
+                accounting: default_accounting(10),
+                supplied: Default::default(),
+            },
+            object_environment: environment,
+            cancel: Cancel::new(),
+            engine: ExecutionEngine::Interpreter,
+        }
+    }
+
+    fn direct_document(request: &ExecutionRequest<'_>) -> OutcomeDocument {
+        let outcome = qsl_replay::spine::run(
+            request.source.clone(),
+            request.path,
+            request.bytes,
+            request.packages,
+            request.dependencies,
+            request.limits,
+            &request.call,
+            request.object_environment,
+            &request.cancel,
+        );
+        OutcomeDocument::from_run(&outcome)
+    }
 
     /// Trace: FR-004-AC-1, default interpreter result is returned unchanged.
     #[test]
@@ -297,6 +510,135 @@ mod tests {
                 .outcome_bytes()
                 .expect("QSL serializes the driver result"),
             expected_bytes
+        );
+    }
+
+    /// Trace: FR-004-AC-6, TC-011. The object member is admitted only by the
+    /// caller's populated environment, and the driver agrees with direct QSL
+    /// for both that environment and the otherwise identical empty context.
+    #[test]
+    fn caller_object_context_controls_lookup_result() {
+        let fixture = object_context_fixture();
+        let populated_request = model_request(
+            &fixture,
+            &fixture.populated,
+            "query_present",
+            fixture.population,
+            fixture.reference.clone(),
+        );
+        let populated_expected = direct_document(&populated_request);
+        let populated_result = execute(populated_request).expect("the populated lookup completes");
+        assert!(matches!(
+            &populated_result.outcome,
+            CallOutcome::Completed(CallValue::Reference(reference)) if reference == &fixture.reference
+        ));
+        assert_eq!(
+            populated_result
+                .outcome_bytes()
+                .expect("driver encodes the populated result"),
+            populated_expected
+                .to_bytes()
+                .expect("direct QSL encodes the populated result")
+        );
+
+        let empty_request = model_request(
+            &fixture,
+            &fixture.empty_context,
+            "query_present",
+            fixture.population,
+            fixture.reference.clone(),
+        );
+        let empty_expected = direct_document(&empty_request);
+        let empty_failure = execute(empty_request).expect_err("the empty context lacks g1");
+        let ExecutionFailure::Run {
+            refusal,
+            document: empty_document,
+        } = empty_failure
+        else {
+            panic!("the empty object context must preserve QSL's typed refusal");
+        };
+        assert!(matches!(
+            refusal.as_ref(),
+            RunRefusal::DanglingReference { position: 1 }
+        ));
+        let empty_bytes = empty_document
+            .to_bytes()
+            .expect("driver encodes the empty-context refusal");
+        assert_eq!(
+            empty_bytes,
+            empty_expected
+                .to_bytes()
+                .expect("direct QSL encodes the empty-context refusal")
+        );
+        assert_ne!(
+            populated_expected
+                .to_bytes()
+                .expect("direct QSL encodes the populated result"),
+            empty_bytes,
+            "a caller-supplied object context changes the QSL result"
+        );
+    }
+
+    /// Trace: FR-004-AC-7, TC-011. QSL defines this absent lookup as
+    /// `Undefined`; the driver retains that outcome and its canonical document.
+    #[test]
+    fn absent_undefined_lookup_matches_direct_qsl() {
+        let fixture = object_context_fixture();
+        let request = model_request(
+            &fixture,
+            &fixture.empty_population_env,
+            "query_absent",
+            fixture.empty_population_id,
+            fixture.reference.clone(),
+        );
+        let expected = direct_document(&request);
+        let actual = execute(request).expect("the absent undefined lookup is an outcome");
+        assert!(matches!(
+            actual.outcome,
+            CallOutcome::Undefined {
+                reason: "absent-key"
+            }
+        ));
+        assert_eq!(
+            actual
+                .outcome_bytes()
+                .expect("driver encodes QSL's undefined outcome"),
+            expected
+                .to_bytes()
+                .expect("direct QSL encodes its undefined outcome")
+        );
+    }
+
+    /// Trace: FR-004-AC-8, TC-011. A caller population identity not present in
+    /// its environment keeps the exact typed QSL refusal and document.
+    #[test]
+    fn unresolved_population_identity_matches_direct_qsl_refusal() {
+        let fixture = object_context_fixture();
+        let environment = ObjectEnvironment::default();
+        let request = model_request(
+            &fixture,
+            &environment,
+            "query_present",
+            fixture.empty_population_id,
+            fixture.reference.clone(),
+        );
+        let expected = direct_document(&request);
+        let failure = execute(request).expect_err("the population identity is not admitted");
+        assert_eq!(failure.category(), Category::Refusal);
+        let ExecutionFailure::Run { refusal, document } = failure else {
+            panic!("the driver must preserve QSL's typed population refusal");
+        };
+        assert!(matches!(
+            refusal.as_ref(),
+            RunRefusal::WrongValueKind { position: 0 }
+        ));
+        assert_eq!(
+            document
+                .to_bytes()
+                .expect("driver encodes QSL's population refusal"),
+            expected
+                .to_bytes()
+                .expect("direct QSL encodes its population refusal")
         );
     }
 
