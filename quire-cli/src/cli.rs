@@ -1583,6 +1583,7 @@ mod configured_run_tests {
     use qsl_replay::spine::{
         default_accounting, Call, CallArgument, SpineLimits, DEFAULT_WORK_UNITS,
     };
+    use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_exact::{Integer, Value};
 
     use super::{run_configured_providers, CommandResult};
@@ -1615,8 +1616,8 @@ mod configured_run_tests {
         )));
         std::fs::create_dir(&directory.0).expect("create temporary test directory");
 
-        let lock = quire_contract_model::DefinitionLock::pinned();
-        let root = lock.entry(quire_contract_model::CatalogRole::Root);
+        let lock = DefinitionLock::pinned();
+        let root = lock.entry(CatalogRole::Root);
         let bytes = format!(
             "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
              function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
@@ -1678,7 +1679,7 @@ mod configured_run_tests {
             )
             .collect();
 
-        let configured = run_configured_providers(
+        let configured = match run_configured_providers(
             path,
             bytes.as_bytes(),
             source,
@@ -1688,8 +1689,10 @@ mod configured_run_tests {
             dependencies,
             crate::provider_config::ProviderConfig { providers },
             crate::signals::SignalContext::default(),
-        )
-        .expect("both providers admit before real QSL/CG routing and cleanup");
+        ) {
+            Ok(configured) => configured,
+            Err(_) => panic!("both providers admit before real QSL/CG routing and cleanup"),
+        };
         let invoked = markers
             .iter()
             .enumerate()
