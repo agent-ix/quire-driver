@@ -20,10 +20,15 @@ Verify workspace membership, executable ownership and the CLI dependency edges,
 including that the CLI composes the process host while the driver core excludes
 it.
 
-CG IR-629's typed process-backend mapping is available. Production
-process-provider invocation and configuration forwarding remain IR-672
-implementation work. Package-graph, adapter-fixture lifecycle, and cleanup
-checks can run independently of production dispatch.
+CG IR-629's typed process-backend mapping is available. Step 6 exercises the
+production `--provider-config` path and selected process-provider invocation:
+the configured-run composition test drives the selected route through the
+host adapter, and binary-process tests cover configuration parsing and the
+production entrypoint. Package-graph checks and adapter-fixture lifecycle
+checks provide separate evidence. Remaining limits are later-start/hello
+failure cleanup and production signal coverage for the starting and
+shutdown-waiting states; the two-provider selection assertion is currently at
+the configured-run composition boundary rather than one binary-process test.
 
 Scope: FR-002-AC-3, FR-002-AC-7, FR-006-AC-1, FR-006-AC-3..FR-006-AC-4,
 FR-006-AC-8,
