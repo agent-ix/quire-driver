@@ -1630,9 +1630,7 @@ mod configured_run_tests {
     use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_exact::{Integer, Value};
 
-    use super::{
-        run_configured_providers, Code, CommandResult, ConfiguredRunRequest,
-    };
+    use super::{run_configured_providers, Code, CommandResult, ConfiguredRunRequest};
 
     struct TempDir(PathBuf);
 
