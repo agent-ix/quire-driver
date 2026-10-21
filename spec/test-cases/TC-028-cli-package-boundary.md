@@ -20,9 +20,10 @@ Verify workspace membership, executable ownership and the CLI dependency edges,
 including that the CLI composes the process host while the driver core excludes
 it.
 
-Only end-to-end process-provider routing requires the process backend mapping
-from CG IR-629. Package-graph, adapter-fixture lifecycle, and cleanup checks do
-not require that mapping and can run independently of it.
+CG IR-629's typed process-backend mapping is available. Production
+process-provider invocation and configuration forwarding remain IR-672
+implementation work. Package-graph, adapter-fixture lifecycle, and cleanup
+checks can run independently of production dispatch.
 
 Scope: FR-002-AC-3, FR-002-AC-7, FR-006-AC-1, FR-006-AC-3..FR-006-AC-4,
 FR-006-AC-24, FR-013-AC-11,
@@ -56,8 +57,8 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    selection and the selected process-provider dispatch uses that executable,
    exact argument vector (including an empty vector in a separate case), and
    the exact `ProcessProviderLimits`; the fixture receives the routed request.
-   This end-to-end routed case remains planned until CG IR-629 supplies the
-   process-backend mapping. Also verify a missing/unreadable config file,
+   This end-to-end routed case remains planned until IR-672 implements
+   production dispatch. Also verify a missing/unreadable config file,
    malformed JSON, absent or wrongly typed required fields, and unknown fields
    at each object level fail before a provider process starts. Verify omitted
    optional CPU or memory fields mean `None`, without an implicit budget. Run
@@ -72,8 +73,8 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    the once-admitted descriptor from the host hello admitter, passes it to the
    driver's existing QSL registry without re-admitting it, and builds no
    second registry. Confirm it connects the descriptor to the process-provider
-   seam. End-to-end provider routing remains blocked on CG IR-629; this
-   admission-boundary check uses an adapter fixture.
+   seam. This admission-boundary check uses an adapter fixture; production
+   provider invocation remains IR-672 implementation work.
 8. On Linux and macOS, using an adapter fixture independent of CG routing and
    a plugin fixture that starts a descendant which remains alive, let a request finish
    normally. Confirm the CLI closes the session and the process tree exits
@@ -141,7 +142,7 @@ Linux/macOS runners provide the signal evidence in step 9.
   arguments and limits reach the selected process-provider dispatch unchanged,
   and omitting the option (or providing an empty `providers` array) registers
   and starts no process providers. End-to-end routed dispatch remains planned
-  until CG IR-629 provides the process-backend mapping.
+  under IR-672.
 - The host hello admitter returns a once-admitted descriptor; the CLI passes it
   to the driver's existing registry without re-admission or a second registry.
 - Normal CLI termination requests graceful shutdown on all supported adapter

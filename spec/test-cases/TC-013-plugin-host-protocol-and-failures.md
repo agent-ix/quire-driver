@@ -33,7 +33,7 @@ and FR-006-AC-5 through FR-006-AC-23.
    its package identity and caller's deadline to the adapter serialization
    check. This step checks field ownership and serialization only; it does not
    imply that the driver dispatches negotiated work through the Process seam,
-   which remains planned under IR-629. TC-028 verifies the production
+   which remains IR-672 implementation work. TC-028 verifies the production
    `--provider-config` input and its forwarding into the process-provider
    composition. An injected internal seam alone does not complete
    FR-006-AC-1/2. Temporal subject proof bounds remain sourced as specified in
@@ -115,16 +115,17 @@ and FR-006-AC-5 through FR-006-AC-23.
 
 The separate host implementation's PL-1 through PL-7 conformance is verified
 by [TC-023](./TC-023-plugin-session-and-admission.md) through
-[TC-026](./TC-026-plugin-resource-bounds-and-cleanup.md). The driver now uses
-CG IR-629's origin-aware descriptor conversion. End-to-end process-provider
-dispatch and settlement remain planned. The current
+[TC-026](./TC-026-plugin-resource-bounds-and-cleanup.md). The driver uses
+CG IR-629's landed origin-aware descriptor conversion. End-to-end
+process-provider dispatch remains planned under IR-672; settlement remains
+planned under QSL result-mapping dependencies. The current
 `RoutedItemOutput` does not carry the full FR-331 request item or deadline. The
 adapter's request index, claim locus, kind, extent/bounds and candidate set
 come from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`,
 using the same request data used to build typed CG negotiation; the selected
-backend comes from CG's routed output. IR-629 still owns end-to-end Process
-dispatch and integration of those sources with the request deadline. Temporal
-subject proof bounds remain a projection gap as stated in FR-006. FR-331
+backend comes from CG's routed output. IR-672 owns production Process dispatch
+and integration of those sources with the request deadline. Temporal subject
+proof bounds remain a projection gap as stated in FR-006. FR-331
 specifies the proof-bound `kind`; QSL-654 owns the pending QSL emitter support
 for writing it. The test must not synthesize QSL-owned item fields from
 unrelated provider evidence.
@@ -133,9 +134,9 @@ Test location: planned `quire-cli` FR-331 hello/request adapter tests and
 driver/provider composition tests. IR-672 PR3 covers the hello/admission and
 request DTO stages. Result conversion and settlement use explicit typed input
 fixtures; the shared carrier preserves generic typed results, while settlement
-remains held for QSL result-mapping APIs;
-end-to-end process-provider dispatch and settlement remain planned under
-IR-672 and the QSL result-mapping dependencies. FR-006-AC-14 through AC-23
+remains held for QSL result-mapping APIs. End-to-end process-provider dispatch
+remains planned under IR-672, and settlement remains planned under the QSL
+result-mapping dependencies. FR-006-AC-14 through AC-23
 remain unclaimed for terminal settlement pending QSL-655; this test does not
 define or infer terminal mappings.
 

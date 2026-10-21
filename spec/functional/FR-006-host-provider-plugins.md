@@ -113,9 +113,10 @@ settlement path used for first-party providers.
   QSL-owned item fields.
 - The `quire-cli` adapter SHALL place temporal proof bounds under
   `items[].temporal.subject.proof_bounds`. The current CG routed output does
-  not retain all these fields; their projection is a named integration gap for
-  IR-629. CG negotiation owns the PV-4 domain-kind comparison defined by QSpec
-  FR-290-AC-13. The adapter SHALL NOT implement or restate that comparison.
+  not retain all these fields; their projection through production composition
+  remains IR-672 implementation work. CG negotiation owns the PV-4 domain-kind
+  comparison defined by QSpec FR-290-AC-13. The adapter SHALL NOT implement or
+  restate that comparison.
   FR-331 specifies the proof-bound `kind`; QSL-654 owns QSL emitter support for
   writing that member, which remains pending.
 - The driver SHALL pass a validated plugin result to the shared settlement
@@ -170,8 +171,8 @@ settlement path used for first-party providers.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the configuration entry associated with that provider's once-admitted hello identity, one `EmittedPackage` value, the caller-supplied deadline, the registered-candidate manifest snapshot and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Planned (TC-013, TC-028; production dispatch and CLI configuration loading remain implementation work; end-to-end routing awaits IR-629) |
-| FR-006-AC-2 | Validated typed results returned through the process-provider seam enter the same driver proof settlement path as first-party provider results when QSL defines their terminal mapping; results without a current QSL mapping remain typed and unmapped, while unrelated routed items retain their own results. | Planned (TC-013; no end-to-end claim from an injected boundary; IR-629, IR-677, QSL-490 and QSL-655) |
+| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the configuration entry associated with that provider's once-admitted hello identity, one `EmittedPackage` value, the caller-supplied deadline, the registered-candidate manifest snapshot and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Planned (TC-013, TC-028; production dispatch and CLI configuration loading remain IR-672 implementation work) |
+| FR-006-AC-2 | Validated typed results returned through the process-provider seam enter the same driver proof settlement path as first-party provider results when QSL defines their terminal mapping; results without a current QSL mapping remain typed and unmapped, while unrelated routed items retain their own results. | Planned (TC-013; no end-to-end claim from an injected boundary; IR-672, IR-677, QSL-490 and QSL-655) |
 | FR-006-AC-3 | Before normal CLI command termination, the adapter requests graceful shutdown of every active plugin session; on Linux and macOS, if `RunLimits.cancellation_grace` expires first, the process tree terminates and cleanup completes within one second. The merged Windows host force-terminates the Job Object through `terminate_tree`/`terminate_job`; native Windows evidence remains planned. Kill-on-close is separately planned under IR-674. | Test (TC-028) |
 | FR-006-AC-4 | On Linux or macOS, handled SIGINT or SIGTERM while a plugin session is starting, running or shutting down requests cancellation through the caller-owned QSL handle, waits for settlement or `RunLimits.cancellation_grace` expiry, and cleans up the plugin process tree before the CLI restores the default disposition and re-raises the signal. No QSL cancellation cause is claimed; with no active session, the platform's default signal disposition is retained. | Test (TC-028) |
 | FR-006-AC-5 | The driver composes the request manifest snapshot from the lossless FR-331 DTO retained in each registered-candidate registry record, covering linked and process providers; the `quire-cli` adapter serializes that snapshot without reconstructing or adding members. | Planned (TC-013) |
@@ -179,10 +180,10 @@ settlement path used for first-party providers.
 | FR-006-AC-7 | The `quire-cli` adapter serializes `package_id` from the same `EmittedPackage` value as the encoded package bytes. | Planned (TC-013) |
 | FR-006-AC-8 | The `quire-cli` adapter serializes `deadline_ms` equal to the caller-supplied process-provider deadline. | Planned (TC-013) |
 | FR-006-AC-9 | The `quire-cli` adapter serializes a request without top-level `domains` or `limits` members. | Planned (TC-013) |
-| FR-006-AC-10 | The `quire-cli` adapter serializes each item's request index, claim locus and kind from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation. | Planned (TC-013; full source projection awaits IR-629) |
-| FR-006-AC-11 | The `quire-cli` adapter serializes each item's selected backend from CG's routed output and its candidate set from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation. | Planned (TC-013; full source projection awaits IR-629) |
-| FR-006-AC-12 | The `quire-cli` adapter serializes each item's extent and bounds from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation. | Planned (TC-013; full source projection awaits IR-629; QSL proof-bound kind emission remains pending) |
-| FR-006-AC-13 | The `quire-cli` adapter serializes each item's temporal proof bounds under `items[].temporal.subject.proof_bounds`. | Planned (TC-013; full source projection awaits IR-629) |
+| FR-006-AC-10 | The `quire-cli` adapter serializes each item's request index, claim locus and kind from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation. | Planned (TC-013; production source projection remains IR-672 implementation work) |
+| FR-006-AC-11 | The `quire-cli` adapter serializes each item's selected backend from CG's routed output and its candidate set from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation. | Planned (TC-013; production source projection remains IR-672 implementation work) |
+| FR-006-AC-12 | The `quire-cli` adapter serializes each item's extent and bounds from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation. | Planned (TC-013; production source projection remains IR-672 implementation work; QSL proof-bound kind emission remains pending) |
+| FR-006-AC-13 | The `quire-cli` adapter serializes each item's temporal proof bounds under `items[].temporal.subject.proof_bounds`. | Planned (TC-013; production source projection remains IR-672 implementation work) |
 | FR-006-AC-14 | The driver's shared settlement path preserves a plugin `declined` result's typed code in QSL `TerminalValue::Declined { code }`. | Planned (TC-013) |
 | FR-006-AC-15 | A validated result without a specified QSL terminal mapping remains typed and unmapped in the driver's shared settlement path. | Planned (TC-013; IR-677 and QSL result-mapping APIs) |
 | FR-006-AC-16 | The driver's shared settlement path carries the FR-272 cause, diagnostic code and available locus and message in a QSL `OutcomeDiagnostic`; free-form message or `detail` text does not select a terminal. | Planned (TC-013) |
@@ -215,7 +216,7 @@ settlement path used for first-party providers.
   Until those APIs land, these result forms are not mapped to terminals.
 - FR-005 defines the first-party `Provider` interface and shared manifest
   admission.
-- CG IR-629 specifies the future process-origin projection under CG FR-019 and
-  FR-022. Until its code lands, the driver does not construct or route a
-  `BackendKind::Process`; the driver passes QSL's origin through unchanged.
+- CG IR-629 specifies the process-origin projection under CG FR-019 and
+  FR-022. Its typed mapping is available; production process-provider
+  invocation and request projection remain IR-672 implementation work.
 - [TC-013](../test-cases/TC-013-plugin-host-protocol-and-failures.md).
