@@ -33,8 +33,8 @@ settlement path used for first-party providers.
 
 - The caller-named plugin executable path.
 - Explicit process-provider configuration supplied to the `quire-cli`
-  composition: the caller-named executable path, its arguments and
-  `ProcessProviderLimits`.
+  composition by `--provider-config <path>`: an executable path, argument
+  vector and `ProcessProviderLimits` per entry.
 - The admitted provider manifest, negotiated provider identity and routed
   request items.
 - The emitted checked-package bytes and provider limits.
@@ -60,12 +60,31 @@ settlement path used for first-party providers.
   lifecycle and failure contract. It SHALL use FR-331's provider envelope and
   QSL-owned typed terminal values; it SHALL NOT define a second wire format or
   infer terminal categories from provider-specific evidence or diagnostics.
-- The `quire-cli` composition SHALL pass explicit process-provider
-  configuration to the seam, consisting of the caller-named executable path,
-  executable arguments and `ProcessProviderLimits`. It SHALL NOT select these
-  values from hidden defaults or ambient environment state. The current `run`
-  caller input has no defined source for this configuration; no CLI syntax or
-  caller-input contract for selecting it is specified yet.
+- The `quire-cli` `run` command SHALL accept `--provider-config <path>` to name
+  the process-provider configuration file. The file SHALL be UTF-8 JSON with
+  one top-level field, `providers`, whose value is an array. Each entry SHALL
+  have exactly `executable` (the executable path), `argv` (an array of argument
+  strings, including an explicit empty array when no arguments are needed), and
+  `limits` fields. The `limits` object SHALL contain exactly the required
+  unsigned integer fields in the `u64` range: `max_frame_bytes`,
+  `max_total_bytes`, `max_stderr_bytes`, and `cancellation_grace_ms`; it MAY
+  contain `max_process_memory_bytes` and `max_process_cpu_time_ms` with the same
+  unsigned-integer representation. Byte fields are byte counts; duration fields
+  are milliseconds. An omitted optional process budget means no budget of that
+  kind is requested; `null` is not an omission.
+- The `quire-cli` composition SHALL reject an unreadable or missing file,
+  malformed JSON, missing or wrongly typed required fields, and unknown fields
+  at every object level before starting any provider.
+- For each configured entry, the `quire-cli` composition SHALL start the named
+  executable and admit its hello before negotiation. The identity in that
+  once-admitted hello descriptor SHALL be the sole identity used to register
+  and route that process provider. The composition SHALL pass the entry's
+  executable, `argv`, and limits unchanged to the process-provider seam.
+- The `quire-cli` composition SHALL NOT read process-provider configuration
+  from ambient environment state, a default file, or a search path. When
+  `--provider-config` is omitted, the run SHALL register no process providers;
+  when the file contains an empty `providers` array, it SHALL also register no
+  process providers.
 - The `quire-cli` adapter SHALL start the host session with the caller-named
   executable path, pass the once-admitted descriptor returned by the host hello
   admitter to the driver's existing registry without re-admitting it or
@@ -151,7 +170,7 @@ settlement path used for first-party providers.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with explicit process-provider configuration (caller-named executable path, arguments and `ProcessProviderLimits`), one `EmittedPackage` value, the caller-supplied deadline, the registered-candidate manifest snapshot and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Planned (TC-013, TC-028; caller-input source is undefined, and process invocation awaits IR-629) |
+| FR-006-AC-1 | When negotiation selects a process provider, the driver invokes its process-provider seam with the configuration entry associated with that provider's once-admitted hello identity, one `EmittedPackage` value, the caller-supplied deadline, the registered-candidate manifest snapshot and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry. | Planned (TC-013, TC-028; production dispatch and CLI configuration loading remain implementation work; end-to-end routing awaits IR-629) |
 | FR-006-AC-2 | Validated typed results returned through the process-provider seam enter the same driver proof settlement path as first-party provider results when QSL defines their terminal mapping; results without a current QSL mapping remain typed and unmapped, while unrelated routed items retain their own results. | Planned (TC-013; no end-to-end claim from an injected boundary; IR-629, IR-677, QSL-490 and QSL-655) |
 | FR-006-AC-3 | Before normal CLI command termination, the adapter requests graceful shutdown of every active plugin session; on Linux and macOS, if `RunLimits.cancellation_grace` expires first, the process tree terminates and cleanup completes within one second. The merged Windows host force-terminates the Job Object through `terminate_tree`/`terminate_job`; native Windows evidence remains planned. Kill-on-close is separately planned under IR-674. | Test (TC-028) |
 | FR-006-AC-4 | On Linux or macOS, handled SIGINT or SIGTERM while a plugin session is starting, running or shutting down requests cancellation through the caller-owned QSL handle, waits for settlement or `RunLimits.cancellation_grace` expiry, and cleans up the plugin process tree before the CLI restores the default disposition and re-raises the signal. No QSL cancellation cause is claimed; with no active session, the platform's default signal disposition is retained. | Test (TC-028) |
@@ -174,6 +193,7 @@ settlement path used for first-party providers.
 | FR-006-AC-21 | For a preserved non-canonical-package response, the driver's shared settlement path maps each failed routed item to QSL `TerminalValue::Failed`. | Planned (TC-013; IR-677 and QSL settlement API) |
 | FR-006-AC-22 | For package-mismatch and non-canonical-package responses, the driver's shared settlement path carries each typed FR-272 diagnostic separately in QSL `OutcomeDiagnostic`. | Planned (TC-013; IR-677 and QSL settlement API) |
 | FR-006-AC-23 | Settling a failed process-provider response leaves unrelated provider results unchanged. | Planned (TC-013; IR-677 and QSL settlement API) |
+| FR-006-AC-24 | The `--provider-config` file accepts only the documented strict JSON shape; missing/unreadable files, malformed JSON, missing or wrongly typed fields, and unknown fields at any object level are rejected before any provider starts. | Test (TC-028) |
 
 ## Dependencies
 

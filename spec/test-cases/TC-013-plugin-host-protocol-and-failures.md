@@ -33,11 +33,11 @@ and FR-006-AC-5 through FR-006-AC-23.
    its package identity and caller's deadline to the adapter serialization
    check. This step checks field ownership and serialization only; it does not
    imply that the driver dispatches negotiated work through the Process seam,
-   which remains planned under IR-629. The production `run` input currently
-   has no caller-named executable or process-provider configuration source.
-   An injected internal seam alone does not verify production caller
-   configuration or complete FR-006-AC-1/2. Temporal subject proof bounds remain
-   sourced as specified in FR-006.
+   which remains planned under IR-629. TC-028 verifies the production
+   `--provider-config` input and its forwarding into the process-provider
+   composition. An injected internal seam alone does not complete
+   FR-006-AC-1/2. Temporal subject proof bounds remain sourced as specified in
+   FR-006.
 2. Have the `quire-cli` adapter serialize the request through the typed FR-331
    adapter. Verify `package`
    contains the emitted package's RFC 8785 bytes as unpadded base64url,

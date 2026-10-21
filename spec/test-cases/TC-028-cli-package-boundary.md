@@ -24,9 +24,10 @@ Only end-to-end process-provider routing requires the process backend mapping
 from CG IR-629. Package-graph, adapter-fixture lifecycle, and cleanup checks do
 not require that mapping and can run independently of it.
 
-Scope: FR-002-AC-3, FR-002-AC-7, FR-006-AC-1, FR-006-AC-3..FR-006-AC-4, FR-013-AC-11,
+Scope: FR-002-AC-3, FR-002-AC-7, FR-006-AC-1, FR-006-AC-3..FR-006-AC-4,
+FR-006-AC-24, FR-013-AC-11,
 FR-013-AC-14..FR-013-AC-15,
-FR-014-AC-1, FR-014-AC-2, FR-014-AC-4 and FR-014-AC-5.
+FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
 
 ## Test Procedure
 
@@ -44,25 +45,43 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4 and FR-014-AC-5.
    definitions are implemented in `quire-cli/src/cli.rs`, the binary entry
    point is `quire-cli/src/main.rs`, and the `quire-driver` package's
    `src/lib.rs` does not export a `cli` module.
-6. Inspect the `quire-cli` process-provider adapter wiring. Confirm it receives
+6. Exercise the production `quire run --provider-config <path>` command with a
+   temporary strict JSON file containing a `providers` array and one entry with
+   `executable`, `argv`, and `limits`. Give the entry explicit
+   `max_frame_bytes`, `max_total_bytes`, `max_stderr_bytes`, and
+   `cancellation_grace_ms` values, plus optional
+   `max_process_memory_bytes` and `max_process_cpu_time_ms` values. Use a real
+   fixture executable whose hello manifest supplies its provider identity.
+   Verify the once-admitted hello identity is the identity used for registry
+   selection and the selected process-provider dispatch uses that executable,
+   exact argument vector (including an empty vector in a separate case), and
+   the exact `ProcessProviderLimits`; the fixture receives the routed request.
+   This end-to-end routed case remains planned until CG IR-629 supplies the
+   process-backend mapping. Also verify a missing/unreadable config file,
+   malformed JSON, absent or wrongly typed required fields, and unknown fields
+   at each object level fail before a provider process starts. Verify omitted
+   optional CPU or memory fields mean `None`, without an implicit budget. Run
+   Verify the config has no caller-supplied identity field: the admitted hello
+   descriptor supplies the provider identity used for selection. Run
+   `quire run` without `--provider-config` and verify no process provider is
+   registered or started; an explicit empty `providers` array has the same
+   result. The command SHALL NOT read a default file, environment variable, or
+   search path for provider configuration. The configuration SHALL NOT carry a
+   second provider identity that could disagree with the admitted hello.
+7. Inspect the `quire-cli` process-provider adapter wiring. Confirm it receives
    the once-admitted descriptor from the host hello admitter, passes it to the
    driver's existing QSL registry without re-admitting it, and builds no
    second registry. Confirm it connects the descriptor to the process-provider
    seam. End-to-end provider routing remains blocked on CG IR-629; this
    admission-boundary check uses an adapter fixture.
-   Separately inspect the `run` input in `quire-cli/src/cli.rs`: record whether
-   a caller can supply explicit process-provider configuration containing an
-   executable path, arguments and `ProcessProviderLimits`. The current input
-   has no such field or defined caller source. An injected internal boundary
-   does not establish end-to-end caller configuration or claim FR-006-AC-1/2.
-7. On Linux and macOS, using an adapter fixture independent of CG routing and
+8. On Linux and macOS, using an adapter fixture independent of CG routing and
    a plugin fixture that starts a descendant which remains alive, let a request finish
    normally. Confirm the CLI closes the session and the process tree exits
    before the CLI exits; if `RunLimits.cancellation_grace` expires first,
    confirm forced cleanup completes within one second. Windows forced cleanup
    uses the existing `terminate_tree`/`terminate_job` path and is verified in
-   step 9; only automatic kill-on-close remains planned under IR-674.
-8. On Linux and macOS only, for each plugin-session state, run one invocation
+   step 10; only automatic kill-on-close remains planned under IR-674.
+9. On Linux and macOS only, for each plugin-session state, run one invocation
    that receives SIGINT and one that receives SIGTERM: wait for a `started`
    marker before hello is written, wait for a request-running marker, and wait
    for a shutdown-waiting marker after the shutdown frame. Confirm the CLI
@@ -74,14 +93,14 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4 and FR-014-AC-5.
    QSL cause is claimed. With no active session, confirm the CLI retains the
    platform's default signal disposition. Windows console control events are
    outside this signal guarantee.
-9. On Windows, verify forced plugin-tree cleanup through the host's existing
+10. On Windows, verify forced plugin-tree cleanup through the host's existing
    `terminate_tree`/`terminate_job` path using a native Windows runner. The
    separate automatic kill-on-close mechanism is planned under IR-674; when
    implemented, verify Job Object assignment before plugin execution and
    descendant termination on owning-handle close. Record this as
    Windows-native evidence; do not count Linux or macOS results as Windows
    evidence.
-10. Inspect the Windows host startup/error path in
+11. Inspect the Windows host startup/error path in
     `quire-plugin-host/src/lib.rs` for Job Object creation and assignment
     failures. Record whether failures are distinguishable as typed start
     errors before provider dispatch and child cleanup. Runtime fault-injection
@@ -102,7 +121,7 @@ driver closure excludes the kit. The planned
 `quire-cli/tests/plugin_lifecycle.rs` will cover adapter session cleanup and
 signals. Windows-specific evidence is planned for a native Windows runner; no
 Windows runtime coverage is claimed from the current Ubuntu-only CI. Native
-Linux/macOS runners provide the signal evidence in step 8.
+Linux/macOS runners provide the signal evidence in step 9.
 
 ## Expected Results
 
@@ -117,6 +136,12 @@ Linux/macOS runners provide the signal evidence in step 8.
 - The parser definitions and binary entry point have the specified
   `quire-cli` locations, and the `quire-driver` package's `src/lib.rs` does
   not export a `cli` module.
+- `quire run --provider-config <path>` reads only the named strict JSON file;
+  malformed/unknown configuration fails before spawn, configured executable,
+  arguments and limits reach the selected process-provider dispatch unchanged,
+  and omitting the option (or providing an empty `providers` array) registers
+  and starts no process providers. End-to-end routed dispatch remains planned
+  until CG IR-629 provides the process-backend mapping.
 - The host hello admitter returns a once-admitted descriptor; the CLI passes it
   to the driver's existing registry without re-admission or a second registry.
 - Normal CLI termination requests graceful shutdown on all supported adapter
