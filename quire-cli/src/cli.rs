@@ -256,6 +256,7 @@ struct ActiveConfiguredProvider {
     session: CliProviderSession,
 }
 
+#[derive(Debug)]
 struct ConfiguredCall {
     package_id: qsl_semantics::library::PackageId,
     outcome: CallOutcome,
