@@ -10,9 +10,9 @@ use qsl_replay::{
     ProofBasis, RequestIndex, TerminalRecord, TerminalValue,
 };
 use quire_contract_codegen::{
-    Candidate, KaniExecutableHarness, KaniExecutionEvidence, KaniExecutionRefusal,
-    KaniExecutionRequest, KaniInstallation, KindOutput, ReplaySettlement, RoutedItemOutput,
-    TerminalPairError, execute_kani_obligation, run_terminal_value,
+    execute_kani_obligation, run_terminal_value, Candidate, KaniExecutableHarness,
+    KaniExecutionEvidence, KaniExecutionRefusal, KaniExecutionRequest, KaniInstallation,
+    KindOutput, ReplaySettlement, RoutedItemOutput, TerminalPairError,
 };
 use quire_exact::{Cancel, CancelCause};
 
@@ -440,8 +440,9 @@ mod tests {
         StatisticalVerdict, UndecidedCause,
     };
     use qsl_replay::{
-        Certification, DependencyInput, IncompleteCause, Operation, OutcomeDocument, OutcomeItem,
-        OutcomeStage, ProofBasis, ReplayLimits, StageLimits, TerminalValue, compile_package,
+        compile_package, Certification, DependencyInput, IncompleteCause, Operation,
+        OutcomeDocument, OutcomeItem, OutcomeStage, ProofBasis, ReplayLimits, StageLimits,
+        TerminalValue,
     };
     use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_contract_codegen::{
@@ -456,14 +457,14 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        KaniExecutionLimits, KaniProvider, KaniProviderFailure, ProviderItemResult, ProviderLimits,
-        ProviderManifest, ProviderOutcomeError, ProviderRequest, ProviderResults,
-        ProviderTerminalError, kani_execution_request,
+        kani_execution_request, KaniExecutionLimits, KaniProvider, KaniProviderFailure,
+        ProviderItemResult, ProviderLimits, ProviderManifest, ProviderOutcomeError,
+        ProviderRequest, ProviderResults, ProviderTerminalError,
     };
     use crate::{CompileInput, GenerationInput, KaniInput};
     use qsl_route::ManifestDigest;
-    use quire_contract_codegen::KaniInstallation;
     use quire_contract_codegen::routed_contract_lowering_profile;
+    use quire_contract_codegen::KaniInstallation;
     use quire_contract_codegen::{
         AdmittedItemAccounting, KaniExecutionEvidence, KindOutput, ObligationDisposition,
         ObligationRecord, ObligationSubject, RoutedItemOutput,
