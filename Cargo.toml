@@ -14,6 +14,14 @@ members = ["quire-cache", "quire-cli", "quire-plugin-host"]
 default-members = [".", "quire-cache", "quire-cli", "quire-plugin-host"]
 resolver = "2"
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = "deny"
+undocumented_unsafe_blocks = "deny"
+
 [lib]
 name = "quire_driver"
 path = "src/lib.rs"
@@ -51,9 +59,5 @@ quire-semantic-value = { git = "https://github.com/agent-ix/quire-semantic-value
 lto = "thin"
 codegen-units = 1
 
-[lints.rust]
-unsafe_code = "forbid"
-missing_docs = "warn"
-
-[lints.clippy]
-all = "deny"
+[lints]
+workspace = true

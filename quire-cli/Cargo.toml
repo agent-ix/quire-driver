@@ -48,9 +48,5 @@ quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", 
 qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 regex = "=1.13.1"
 
-[lints.rust]
-unsafe_code = "forbid"
-missing_docs = "warn"
-
-[lints.clippy]
-all = "deny"
+[lints]
+workspace = true
