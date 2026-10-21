@@ -59,10 +59,12 @@ cache, and process-provider adapter using `quire-plugin-host`.
 - The `quire-cli` composition in `quire-cli/src/cli.rs` SHALL own the
   process-provider configuration input passed into FR-006 composition. The
   `run` command SHALL accept `--provider-config <path>` and use the named file
-  as the sole caller-input source for process providers, with the JSON shape
-  and validation rules defined by FR-006. When the option is omitted, the
-  command SHALL register no process providers. It SHALL NOT search a default
-  location or read this configuration from ambient environment state.
+  as the sole caller-input source for process providers, including each
+  provider's required `deadline_ms`, with the JSON shape and validation rules
+  defined by FR-006. When the option is omitted, the command SHALL register no
+  process providers and no implicit provider deadline applies. It SHALL NOT
+  search a default location or read this configuration from ambient environment
+  state.
 - CLI contract and binary process-boundary tests and their fixtures SHALL
   reside in the `quire-cli` package.
 
@@ -75,7 +77,7 @@ cache, and process-provider adapter using `quire-plugin-host`.
 | FR-014-AC-3 | The workspace root lists `quire-cli` in `default-members`. | Test (TC-005) |
 | FR-014-AC-4 | CLI contract and binary process-boundary tests and their fixtures reside in the `quire-cli` package. | Test (TC-009, TC-018, TC-028) |
 | FR-014-AC-5 | The CLI parser definition resides in `quire-cli/src/cli.rs`, and the binary entry point is in `quire-cli/src/main.rs`; the `quire-driver` package's `src/lib.rs` does not export a `cli` module. | Test (TC-028) |
-| FR-014-AC-6 | The `quire run` command accepts `--provider-config <path>` as its process-provider configuration source; omitting the option registers no process providers and does not read a default file or ambient environment configuration. | Test (TC-028) |
+| FR-014-AC-6 | The `quire run` command accepts `--provider-config <path>` as its sole process-provider configuration source, including the required per-provider `deadline_ms` defined by FR-006; omitting the option registers no process providers and applies no implicit provider deadline or default/ambient configuration. | Test (TC-028) |
 
 ## Dependencies
 
