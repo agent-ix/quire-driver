@@ -1657,7 +1657,8 @@ mod configured_run_tests {
         let capabilities = ["value-validity", "operation-contract"];
         let markers = identities
             .iter()
-            .map(|identity| directory.0.join(format!("{identity}.json")))
+            .enumerate()
+            .map(|(index, _)| directory.0.join(format!("provider-{index}.json")))
             .collect::<Vec<_>>();
         let providers = identities
             .iter()
