@@ -36,3 +36,16 @@ Reviewed the process-level FIFO and Linux `/dev/full` tests, fixture extraction,
 assert_eq!(observation["case"], "refused-range");
 assert_eq!(observation["source_bytes"], serde_json::json!(bytes));
 ```
+
+### Round 2 disposition
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Rechecked on the current head: both child processes still select and assert the `refused-range` observation. The only Rust source delta since round 1 replaces the redundant `LazyLock::new` closure with the function item, resolving the reported Clippy issue; no other source change or regression was present in this delta. |
+
+#### Round 2 after_excerpt
+
+```rust
+assert_eq!(observation["case"], "refused-range");
+assert_eq!(observation["source_bytes"], serde_json::json!(bytes));
+```
