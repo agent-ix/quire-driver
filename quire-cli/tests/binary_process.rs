@@ -387,6 +387,111 @@ fn missing_source_emits_qsl_io_error_document_and_diagnostic() {
     );
 }
 
+fn run_with_provider_config(path: &std::path::Path) -> std::process::Output {
+    Command::new(QUIRE)
+        .args(["run", SOURCE, "yes", "--provider-config"])
+        .arg(path)
+        .args(["--format", "json"])
+        .output()
+        .expect("run quire with provider config")
+}
+
+fn assert_provider_config_refusal(path: &std::path::Path, expected: &str) {
+    let output = run_with_provider_config(path);
+    assert_eq!(output.status.code(), Some(20));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid process-provider configuration"));
+    assert!(stderr.contains(expected), "{stderr}");
+    assert_eq!(
+        output.stdout,
+        expected_document_bytes(Code::InvalidRequest, stderr.trim_end())
+    );
+}
+
+/// Trace: FR-006-AC-24, FR-014-AC-6; strict file errors are refused before any provider starts.
+#[test]
+fn provider_config_file_and_schema_errors_emit_one_invalid_request_document() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock is after the Unix epoch")
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "quire-cli-provider-config-{}-{unique}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&directory).expect("create isolated provider config directory");
+    let missing = directory.join("missing.json");
+    assert_provider_config_refusal(&missing, "could not read");
+
+    let cases = [
+        (
+            "malformed.json",
+            "{ malformed",
+            "provider configuration schema",
+        ),
+        (
+            "missing-field.json",
+            r#"{"providers":[{"argv":[],"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
+            "provider configuration schema",
+        ),
+        (
+            "wrong-type.json",
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"limits":{"max_frame_bytes":"1","max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1}}]}"#,
+            "provider configuration schema",
+        ),
+        (
+            "null-budget.json",
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1,"max_process_memory_bytes":null}}]}"#,
+            "provider configuration schema",
+        ),
+        (
+            "unknown-top-level.json",
+            r#"{"providers":[],"unexpected":true}"#,
+            "provider configuration schema",
+        ),
+        (
+            "unknown-provider.json",
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1},"unexpected":true}]}"#,
+            "provider configuration schema",
+        ),
+        (
+            "unknown-limits.json",
+            r#"{"providers":[{"executable":"/must-not-start","argv":[],"limits":{"max_frame_bytes":1,"max_total_bytes":1,"max_stderr_bytes":1,"cancellation_grace_ms":1,"unexpected":true}}]}"#,
+            "provider configuration schema",
+        ),
+    ];
+    for (name, contents, expected) in cases {
+        let path = directory.join(name);
+        std::fs::write(&path, contents).expect("write provider config fixture");
+        assert_provider_config_refusal(&path, expected);
+    }
+    std::fs::remove_dir_all(directory).expect("remove isolated provider config directory");
+}
+
+/// Trace: FR-006-AC-24, FR-014-AC-6; an explicit empty config is equivalent to no process providers.
+#[test]
+fn empty_provider_config_executes_without_starting_a_provider() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock is after the Unix epoch")
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "quire-cli-empty-provider-config-{}-{unique}.json",
+        std::process::id()
+    ));
+    std::fs::write(&path, r#"{"providers":[]}"#).expect("write empty provider config");
+    let output = Command::new(QUIRE)
+        .args(["run", SOURCE, "yes", "--provider-config"])
+        .arg(&path)
+        .args(["--format", "json"])
+        .output()
+        .expect("run quire with empty provider config");
+    let _ = std::fs::remove_file(path);
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    assert!(serde_json::from_slice::<serde_json::Value>(&output.stdout).is_ok());
+}
+
 /// Trace: FR-002-AC-1, FR-002-AC-8; root argv refusals name the rejected argument.
 #[test]
 fn root_argv_refusal_names_invalid_format_without_result_output() {

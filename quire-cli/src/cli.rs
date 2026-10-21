@@ -216,6 +216,7 @@ struct RunOptions {
     arguments: Vec<CallArgument>,
     limits: LimitOverrides,
     engine: ExecutionEngine,
+    provider_config: Option<std::path::PathBuf>,
 }
 
 struct CompileOptions {
@@ -347,6 +348,7 @@ impl RunOptions {
         let mut positionals = Vec::new();
         let mut limit_operands = Vec::new();
         let mut engine = None;
+        let mut provider_config = None;
         let mut index = 0;
         while index < arguments.len() {
             let arg = arguments[index]
@@ -373,6 +375,16 @@ impl RunOptions {
                         return Err("--engine may be supplied only once".to_owned());
                     }
                     engine = Some(ExecutionEngine::parse(value)?);
+                }
+                "--provider-config" => {
+                    index += 1;
+                    let path = arguments
+                        .get(index)
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| "--provider-config requires a path".to_owned())?;
+                    if provider_config.replace(path.to_owned()).is_some() {
+                        return Err("--provider-config may be supplied only once".to_owned());
+                    }
                 }
                 "--format" | "--color" => {
                     index += 1;
@@ -422,6 +434,7 @@ impl RunOptions {
             arguments: call_arguments,
             limits: LimitOverrides::parse(&limit_operands).map_err(|error| error.to_string())?,
             engine: engine.unwrap_or_default(),
+            provider_config,
         })
     }
 }
@@ -501,6 +514,24 @@ fn write_result_diagnostics<W: Write>(result: &CommandResult, sink: &mut W) -> i
 
 /// Run one complete-V1 function through QSL's interpreter.
 fn run(options: RunOptions) -> CommandResult {
+    let provider_config = match options.provider_config.as_deref() {
+        Some(path) => match crate::provider_config::load(path) {
+            Ok(config) => config,
+            Err(error) => {
+                return CommandResult::input_refusal(
+                    Operation::Execute,
+                    format!("invalid process-provider configuration: {error}"),
+                );
+            }
+        },
+        None => crate::provider_config::ProviderConfig::default(),
+    };
+    if !provider_config.providers.is_empty() {
+        return CommandResult::catalog_failure(
+            Code::UnimplementedCapability,
+            "process-provider dispatch is not available in this command path",
+        );
+    }
     if options.engine != ExecutionEngine::Interpreter {
         let failure = ExecutionFailure::UnsupportedEngine(options.engine);
         return CommandResult::document(failure.into_document());
@@ -757,14 +788,16 @@ fn dispatch(
             Err(error) => CommandResult::input_refusal(Operation::Format, error),
         };
     }
-    if raw_arguments
-        .iter()
-        .any(|argument| matches!(argument.to_str(), Some("--engine" | "--limit")))
-    {
+    if raw_arguments.iter().any(|argument| {
+        matches!(
+            argument.to_str(),
+            Some("--engine" | "--limit" | "--provider-config")
+        )
+    }) {
         let option = raw_arguments
             .iter()
             .find_map(|argument| match argument.to_str() {
-                Some(option @ ("--engine" | "--limit")) => Some(option),
+                Some(option @ ("--engine" | "--limit" | "--provider-config")) => Some(option),
                 _ => None,
             })
             .unwrap_or("--engine or --limit");
@@ -1027,6 +1060,50 @@ mod tests {
                 1024,
             )]
         );
+        assert_eq!(options.provider_config, None);
+    }
+
+    /// Trace: FR-006-AC-24, FR-014-AC-6; accept only one explicitly named config path.
+    #[test]
+    fn run_options_accept_one_provider_config_path() {
+        let args = vec![
+            OsString::from("unit.qsl"),
+            OsString::from("yes"),
+            OsString::from("--provider-config"),
+            OsString::from("providers.json"),
+        ];
+        let options = RunOptions::parse(&args).expect("valid provider config path");
+        assert_eq!(
+            options.provider_config.as_deref(),
+            Some(std::path::Path::new("providers.json"))
+        );
+    }
+
+    /// Trace: FR-006-AC-24, FR-014-AC-6; malformed caller argv is rejected before loading.
+    #[test]
+    fn run_options_reject_missing_or_duplicate_provider_config_path() {
+        let missing = vec![
+            OsString::from("unit.qsl"),
+            OsString::from("yes"),
+            OsString::from("--provider-config"),
+        ];
+        assert!(RunOptions::parse(&missing)
+            .err()
+            .expect("provider config path is required")
+            .contains("--provider-config requires a path"));
+
+        let duplicate = vec![
+            OsString::from("unit.qsl"),
+            OsString::from("yes"),
+            OsString::from("--provider-config"),
+            OsString::from("one.json"),
+            OsString::from("--provider-config"),
+            OsString::from("two.json"),
+        ];
+        assert!(RunOptions::parse(&duplicate)
+            .err()
+            .expect("provider config may be selected once")
+            .contains("only once"));
     }
 
     /// Trace: FR-004-AC-2, an unknown engine fails before any source stage.
