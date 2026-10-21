@@ -71,7 +71,7 @@ settlement path used for first-party providers.
   contain `max_process_memory_bytes` and `max_process_cpu_time_ms` with the same
   unsigned-integer representation. Byte fields are byte counts; duration fields
   are milliseconds. An omitted optional process budget means no budget of that
-  kind is requested; `null` is not an omission.
+  kind is requested; `null` or any other non-unsigned-integer value is invalid.
 - The `quire-cli` composition SHALL reject an unreadable or missing file,
   malformed JSON, missing or wrongly typed required fields, and unknown fields
   at every object level before starting any provider.
@@ -80,6 +80,18 @@ settlement path used for first-party providers.
   once-admitted hello descriptor SHALL be the sole identity used to register
   and route that process provider. The composition SHALL pass the entry's
   executable, `argv`, and limits unchanged to the process-provider seam.
+- The `quire-cli` composition SHALL start and admit every configured entry
+  before beginning negotiation.
+- If distinct configured process sessions return the same identity from their
+  admitted hellos, the `quire-cli` composition SHALL stop before negotiation and
+  close all those sessions. It SHALL preserve any QSL registration refusal
+  unchanged; if QSL reports identical repeated admission as idempotent, the
+  composition SHALL return the existing CLI `InvalidRequest` input refusal
+  rather than route an ambiguous identity.
+- If a configured provider fails to start or its hello fails before all
+  providers are prepared, the `quire-cli` composition SHALL begin no
+  negotiation, close every earlier active session, and preserve the original
+  typed host failure.
 - The `quire-cli` composition SHALL NOT read process-provider configuration
   from ambient environment state, a default file, or a search path. When
   `--provider-config` is omitted, the run SHALL register no process providers;
@@ -194,7 +206,10 @@ settlement path used for first-party providers.
 | FR-006-AC-21 | For a preserved non-canonical-package response, the driver's shared settlement path maps each failed routed item to QSL `TerminalValue::Failed`. | Planned (TC-013; IR-677 and QSL settlement API) |
 | FR-006-AC-22 | For package-mismatch and non-canonical-package responses, the driver's shared settlement path carries each typed FR-272 diagnostic separately in QSL `OutcomeDiagnostic`. | Planned (TC-013; IR-677 and QSL settlement API) |
 | FR-006-AC-23 | Settling a failed process-provider response leaves unrelated provider results unchanged. | Planned (TC-013; IR-677 and QSL settlement API) |
-| FR-006-AC-24 | The `--provider-config` file accepts only the documented strict JSON shape; missing/unreadable files, malformed JSON, missing or wrongly typed fields, and unknown fields at any object level are rejected before any provider starts. | Test (TC-028) |
+| FR-006-AC-24 | The `--provider-config` file accepts only the documented strict JSON shape; missing/unreadable files, malformed JSON, missing or wrongly typed fields, `null` or wrongly typed optional process budgets, and unknown fields at any object level are rejected before any provider starts. In machine mode, these failures use the existing `Operation::Execute` `Code::InvalidRequest` input-refusal result and serialize that typed outcome once. | Planned (TC-028) |
+| FR-006-AC-25 | The `quire-cli` composition starts and admits every configured provider before negotiation, and uses each admitted hello descriptor as the sole provider identity for subsequent selection and dispatch. | Planned (TC-028) |
+| FR-006-AC-26 | If distinct configured sessions return the same admitted identity, the composition begins no negotiation and closes all sessions; it preserves a QSL registration refusal, or returns the existing CLI `InvalidRequest` input refusal when QSL treats repeated identical admission as idempotent. | Planned (TC-028) |
+| FR-006-AC-27 | If a configured provider fails to start or admit its hello, the composition begins no negotiation, closes all earlier active sessions, and preserves the original typed host failure. | Planned (TC-028) |
 
 ## Dependencies
 
