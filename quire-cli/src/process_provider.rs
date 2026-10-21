@@ -480,19 +480,144 @@ mod tests {
     use std::time::Duration;
 
     use qsl_foundation::BackendId;
+    use qsl_foundation::SourceIdentity;
+    use qsl_replay::spine::{default_accounting, Call, CallArgument, DependencyInput, SpineLimits};
     use qsl_route::{
         descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
     };
+    use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_driver::{
-        build_linked_providers, ProcessProvider, ProcessProviderLimits, ProcessProviderRequest,
-        ProcessProviderSession, ProviderItemResult, ProviderManifest, ProviderRequest,
-        ProviderResults,
+        build_linked_providers, drive, CompileInput, GenerationInput, ProcessProvider,
+        ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession, ProviderItemResult,
+        ProviderManifest, ProviderRequest, ProviderResults, QslCg,
     };
-    use quire_exact::Cancel;
+    use quire_exact::{Cancel, Integer, Value};
     use serde::Deserialize;
     use sha2::Digest as _;
 
-    use super::HostProcessProvider;
+    use super::{project_call_items, HostProcessProvider};
+
+    /// Trace: FR-006-AC-1, FR-006-AC-5..FR-006-AC-8, FR-006-AC-13; pair the selected QSL call
+    /// with the driver generation by package, request index and occurrence before writing FR-331.
+    #[test]
+    fn configured_call_projection_sends_only_its_correlated_routed_items() {
+        use crate::backend_provider::ManifestStage;
+
+        let lock = DefinitionLock::pinned();
+        let root = lock.entry(CatalogRole::Root);
+        let bytes = format!(
+            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
+             function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
+             function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
+            root.identity
+        );
+        let source = SourceIdentity::new("agent-ix", "configured-call", "git", "1");
+        let path = "configured-call.native";
+        let packages = std::collections::BTreeMap::new();
+        let dependencies = DependencyInput::default();
+        let limits = SpineLimits::default();
+        let cancel = Cancel::new();
+        let call = Call {
+            function: "eq".to_owned(),
+            arguments: vec![
+                CallArgument {
+                    parameter: "x".to_owned(),
+                    value: Value::Integer(Integer::from(2_i64)),
+                },
+                CallArgument {
+                    parameter: "y".to_owned(),
+                    value: Value::Integer(Integer::from(3_i64)),
+                },
+            ],
+            accounting: default_accounting(1_000_000),
+            supplied: Default::default(),
+        };
+        let objects = qsl_semantics::model::object_environment::ObjectEnvironment::default();
+        let call_run = qsl_replay::run_with_requirements(
+            source.clone(),
+            path,
+            bytes.as_bytes(),
+            &packages,
+            &dependencies,
+            limits,
+            &call,
+            &objects,
+            &cancel,
+        )
+        .expect("the selected call completes with its QSL requirement members");
+
+        let hello = ManifestStage {
+            contract_version: "quire.backend-provider/v1".to_owned(),
+            capability_vocabulary: Some("quire.capability-kind/v1".to_owned()),
+            manifest: vec![Arc::new(serde_json::json!({
+                "backend": "agent-ix/provider/fr331-fixture",
+                "advertises": [{ "kind": "operation-contract", "mode": "bounded" }],
+                "domains": ["integer"]
+            }))],
+        };
+        let admitted = hello
+            .admit_process(4096)
+            .expect("QSL admits the configured process manifest");
+        let mut linked = build_linked_providers(&[]).expect("one registry is built");
+        linked
+            .register_admitted([(admitted.descriptor().clone(), admitted.manifest().clone())])
+            .expect("the already admitted descriptor is registered once");
+        let driven = drive(
+            &QslCg,
+            CompileInput {
+                source,
+                path,
+                bytes: bytes.as_bytes(),
+                packages: &packages,
+                limits,
+                cancel: cancel.clone(),
+            },
+            linked.registry(),
+            None,
+            GenerationInput::default(),
+        )
+        .expect("the same source is negotiated and generated once by the driver");
+
+        assert_eq!(call_run.package_id(), driven.emitted().package_id());
+        assert_eq!(call_run.requirements().members().len(), 1);
+        assert_eq!(
+            driven.request_items.len(),
+            2,
+            "the package has two functions"
+        );
+        let projection =
+            project_call_items(call_run.package_id(), call_run.requirements(), &driven)
+                .expect("same-package call items join the retained driver request");
+        assert_eq!(projection.items.len(), 1);
+        assert_eq!(projection.routed.len(), 1);
+        let member = &call_run.requirements().members()[0];
+        assert_eq!(projection.items[0].index(), member.request_index());
+        assert_eq!(projection.items[0].occurrence(), member.occurrence());
+        assert_eq!(
+            projection.routed[0].request_index,
+            member.request_index().get()
+        );
+
+        let manifest = linked.manifest_snapshot();
+        let request = ProcessProviderRequest {
+            emitted_package: driven.emitted(),
+            deadline_ms: 4096,
+            manifest: &manifest,
+            provider_request: ProviderRequest::new(&projection.routed),
+            qsl_items: &projection.items,
+            cancel: &cancel,
+        };
+        let wire = serde_json::to_value(
+            super::encode_fr331_request(request).expect("the selected call forms one request"),
+        )
+        .expect("FR-331 request serializes");
+        let wire_items = wire["request"]["items"]
+            .as_array()
+            .expect("request items are an array");
+        assert_eq!(wire_items.len(), 1, "unselected package items are excluded");
+        assert_eq!(wire_items[0]["request_index"], member.request_index().get());
+        assert_eq!(wire_items[0]["backend"], "agent-ix/provider/fr331-fixture");
+    }
 
     #[derive(Debug, Deserialize)]
     struct Hello {
