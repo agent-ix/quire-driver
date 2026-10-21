@@ -1651,6 +1651,7 @@ mod configured_run_tests {
             "agent-ix/provider/configured-alpha",
             "agent-ix/provider/configured-zeta",
         ];
+        let capabilities = ["value-validity", "operation-contract"];
         let markers = identities
             .iter()
             .map(|identity| directory.0.join(format!("{identity}.json")))
@@ -1658,13 +1659,15 @@ mod configured_run_tests {
         let providers = identities
             .iter()
             .zip(&markers)
+            .zip(capabilities)
             .map(
-                |(identity, marker)| crate::provider_config::ProcessProviderConfig {
+                |((identity, marker), capability)| crate::provider_config::ProcessProviderConfig {
                     executable: executable.clone(),
                     argv: vec![
                         fixture.display().to_string(),
                         (*identity).to_owned(),
                         marker.display().to_string(),
+                        capability.to_owned(),
                     ],
                     deadline_ms: 4096,
                     limits: crate::provider_config::ProcessProviderLimitsConfig {
@@ -1693,12 +1696,9 @@ mod configured_run_tests {
             Ok(configured) => configured,
             Err(_) => panic!("both providers admit before real QSL/CG routing and cleanup"),
         };
-        eprintln!(
-            "configured projection: call_members={} routed={} provider_results={}",
-            configured.call.requirements.members().len(),
-            configured.driven.generation().items.len(),
-            configured.provider_results.len()
-        );
+        assert_eq!(configured.call.requirements.members().len(), 1);
+        assert_eq!(configured.driven.generation().items.len(), 1);
+        assert_eq!(configured.provider_results.len(), 1);
         let invoked = markers
             .iter()
             .enumerate()

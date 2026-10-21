@@ -27,6 +27,7 @@ def write_frame(value):
 protocol = "quire.plugin-wire/v1"
 identity = sys.argv[1]
 marker = sys.argv[2]
+capability = sys.argv[3]
 write_frame(
     {
         "protocol": protocol,
@@ -38,7 +39,7 @@ write_frame(
             "manifest": [
                 {
                     "backend": identity,
-                    "advertises": [{"kind": "value-validity", "mode": "bounded"}],
+                    "advertises": [{"kind": capability, "mode": "bounded"}],
                     "domains": ["integer"],
                 }
             ],
