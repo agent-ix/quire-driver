@@ -143,7 +143,7 @@ mod tests {
                 "                \"max_process_memory_bytes\": 1048576,\n",
                 "",
             )
-            .replace("                \"max_process_cpu_time_ms\": 2000\n", "");
+            .replace(",\n                \"max_process_cpu_time_ms\": 2000", "");
         let config: ProviderConfig = serde_json::from_str(&omitted).expect("omitted budgets");
         assert_eq!(config.providers[0].limits.max_process_memory_bytes, None);
         assert_eq!(config.providers[0].limits.max_process_cpu_time_ms, None);
