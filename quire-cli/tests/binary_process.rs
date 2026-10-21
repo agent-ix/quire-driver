@@ -657,7 +657,7 @@ fn refusal_keeps_its_exit_code_when_stderr_is_unwritable() {
 }
 
 /// Trace: FR-002-AC-14; a broken primary stdout pipe preserves the QSL category result.
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 #[test]
 fn fifo_broken_pipe_keeps_refusal_exit_without_output_failure_diagnostic() {
     let directory = TestDirectory::new("tc018-broken-pipe");
@@ -718,7 +718,7 @@ fn fifo_broken_pipe_keeps_refusal_exit_without_output_failure_diagnostic() {
 }
 
 /// Trace: FR-002-AC-15, FR-002-AC-16; non-broken stdout I/O errors select InternalFailure and diagnose.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "tc018-test-adapter"))]
 #[test]
 fn full_stdout_device_selects_internal_failure_and_output_failure_diagnostic() {
     let directory = TestDirectory::new("tc018-full-stdout");

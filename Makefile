@@ -42,13 +42,23 @@ test:
 	$(CARGO) fetch --locked
 	$(CARGO) test
 	@set -eu; \
-	output="$$($(CARGO) test --features tc018-test-adapter -p quire-cli --test binary_process reserved_exit_code_uses_internal_failure_fallback -- --exact 2>&1)" || { \
-		printf '%s\n' "$$output"; exit 1; \
+	run_tc018_test() { \
+		name="$$1"; \
+		output="$$($(CARGO) test --features tc018-test-adapter -p quire-cli --test binary_process "$$name" -- --exact 2>&1)" || { \
+			printf '%s\n' "$$output"; exit 1; \
+		}; \
+		printf '%s\n' "$$output"; \
+		printf '%s\n' "$$output" | grep -Fq 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;' || { \
+			echo "expected exactly one TC-018 test: $$name" >&2; exit 1; \
+		}; \
 	}; \
-	printf '%s\n' "$$output"; \
-	printf '%s\n' "$$output" | grep -Fq 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;' || { \
-		echo "expected exactly one TC-018 reserved-exit test" >&2; exit 1; \
-	}
+	run_tc018_test reserved_exit_code_uses_internal_failure_fallback; \
+	run_tc018_test fifo_broken_pipe_keeps_refusal_exit_without_output_failure_diagnostic; \
+	case "$$(uname -s)" in \
+		Linux) run_tc018_test full_stdout_device_selects_internal_failure_and_output_failure_diagnostic ;; \
+		Darwin) ;; \
+		*) echo "TC-018 process tests require macOS or Linux" >&2; exit 1 ;; \
+	esac
 
 .PHONY: build
 build:
