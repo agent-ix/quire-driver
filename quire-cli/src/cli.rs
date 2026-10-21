@@ -79,7 +79,7 @@ fn write_primary_output(bytes: &[u8], description: &str, success: Category) -> C
         Err(error) => {
             emit_diagnostic(
                 "OutputFailure",
-                &format!("could not write {description}: {error}"),
+                &format!("OutputFailure: could not write {description}: {error}"),
             );
             Category::InternalFailure
         }
@@ -594,6 +594,8 @@ fn check_source(options: CheckOptions) -> CommandResult {
     let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
     let packages = BTreeMap::new();
     let cancel = Cancel::new();
+    #[cfg(all(feature = "tc018-test-adapter", debug_assertions))]
+    tc018_record_check_request(&options, &source, &bytes, limits);
     let result = parse(
         &ParseRequest {
             source: &source,
@@ -616,6 +618,39 @@ fn check_source(options: CheckOptions) -> CommandResult {
         })
     });
     CommandResult::document(OutcomeDocument::from_check(&result))
+}
+
+/// Observe the TC-018 refused-range selection at the typed check boundary.
+/// The normal QSL parse/select/check below supplies the result; argv parsing,
+/// source reading, serialization and exit mapping remain the production paths.
+#[cfg(all(feature = "tc018-test-adapter", debug_assertions))]
+fn tc018_record_check_request(
+    options: &CheckOptions,
+    source: &SourceIdentity,
+    bytes: &[u8],
+    limits: SpineLimits,
+) {
+    if std::env::var_os("TC018_CASE").as_deref() != Some(std::ffi::OsStr::new("refused-range")) {
+        return;
+    }
+
+    if let Some(observation_path) = std::env::var_os("TC018_REQUEST_PATH") {
+        let profile = bytes
+            .split(|byte| *byte == b'\n')
+            .find(|line| line.starts_with(b"profile "))
+            .map(String::from_utf8_lossy);
+        let observation = serde_json::json!({
+            "case": "refused-range",
+            "source_identity": source,
+            "path": options.path,
+            "profile": profile.map(|line| line.into_owned()),
+            "limits": format!("{limits:?}"),
+            "source_bytes": bytes,
+        });
+        if let Ok(encoded) = serde_json::to_vec(&observation) {
+            let _ = std::fs::write(observation_path, encoded);
+        }
+    }
 }
 
 /// Parse one source through QSL and serialize its typed parse outcome.

@@ -1,22 +1,220 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Integration checks for CLI run options and QSL results.
 
+#[cfg(unix)]
+use std::fs::File;
+#[cfg(unix)]
+use std::io::{Read, Write};
 use std::process::Command;
 #[cfg(unix)]
-use std::process::{ExitStatus, Stdio};
+use std::process::{Child, ExitStatus, Stdio};
+#[cfg(unix)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(unix)]
+use std::time::{Duration, Instant};
 
 use qsl_foundation::diagnostic::{Category, Code};
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
-    default_accounting, Call, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
+    check, default_accounting, parse, select, Call, DependencyInput, LockEvidence, ParseRequest,
+    SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use qsl_semantics::value::supplied::SuppliedLimits;
 use quire_driver::{execute, ExecutionEngine, ExecutionRequest, ObjectEnvironment};
 use quire_exact::Cancel;
 
+#[cfg(unix)]
+#[path = "../../tests/common/units.rs"]
+mod shared_units;
+
 const QUIRE: &str = env!("CARGO_BIN_EXE_quire");
 const SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ir608-run.qsl");
+
+#[cfg(unix)]
+static TEST_DIRECTORY_ID: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(unix)]
+struct TestDirectory(std::path::PathBuf);
+
+#[cfg(unix)]
+impl TestDirectory {
+    fn new(label: &str) -> Self {
+        let id = TEST_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("quire-cli-{label}-{}-{id}", std::process::id()));
+        std::fs::create_dir(&path).expect("create isolated test directory");
+        Self(path)
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+#[cfg(unix)]
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(unix)]
+struct ChildGuard(Option<Child>);
+
+#[cfg(unix)]
+impl ChildGuard {
+    fn new(child: Child) -> Self {
+        Self(Some(child))
+    }
+
+    fn child(&mut self) -> &mut Child {
+        self.0.as_mut().expect("child remains owned until reaped")
+    }
+
+    fn kill_and_wait(&mut self) {
+        if let Some(child) = self.0.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.0 = None;
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        self.kill_and_wait();
+    }
+}
+
+#[cfg(unix)]
+fn wait_for_child_until(child: &mut ChildGuard, deadline: Instant) -> ExitStatus {
+    loop {
+        if let Some(status) = child.child().try_wait().expect("poll child status") {
+            return status;
+        }
+        if Instant::now() >= deadline {
+            child.kill_and_wait();
+            panic!("child did not exit before the TC-018 deadline");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(unix)]
+fn overflow_fixture_bytes() -> Vec<u8> {
+    shared_units::overflow_unit().into_bytes()
+}
+
+#[cfg(unix)]
+fn assert_tc018_refused_range_observation(path: &std::path::Path, source_path: &str, bytes: &[u8]) {
+    let observation: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(path).expect("the test-only operation adapter records its request"),
+    )
+    .expect("the adapter observation is JSON");
+    assert_eq!(observation["case"], "refused-range");
+    assert_eq!(observation["path"], source_path);
+    assert_eq!(
+        observation["source_identity"],
+        serde_json::json!({
+            "authority": "quire",
+            "identity": source_path,
+            "revision_namespace": "filesystem",
+            "revision": "current",
+        })
+    );
+    assert_eq!(observation["source_bytes"], serde_json::json!(bytes));
+    assert!(
+        observation["profile"]
+            .as_str()
+            .is_some_and(|profile| profile.starts_with("profile v = ")),
+        "the observation retains the selected profile: {observation}"
+    );
+    assert!(
+        observation["limits"]
+            .as_str()
+            .is_some_and(|limits| limits.contains("SpineLimits")),
+        "the observation retains the QSL limits: {observation}"
+    );
+}
+
+#[cfg(unix)]
+fn expected_overflow_check_document(path: &str, bytes: &[u8]) -> Vec<u8> {
+    let source = SourceIdentity::new("quire", path, "filesystem", "current");
+    let limits = SpineLimits::default();
+    let cancel = Cancel::new();
+    let packages = std::collections::BTreeMap::new();
+    let result = parse(
+        &ParseRequest {
+            source: &source,
+            path,
+            bytes,
+        },
+        limits.source,
+        &cancel,
+    )
+    .and_then(|parsed| {
+        select(parsed.value(), &packages, limits.model, &cancel).and_then(|models| {
+            check(
+                parsed.value(),
+                models.value(),
+                &DependencyInput::default(),
+                &LockEvidence::default(),
+                limits,
+                &cancel,
+            )
+        })
+    });
+    OutcomeDocument::from_check(&result)
+        .to_bytes()
+        .expect("QSL serializes the expected check refusal")
+}
+
+#[cfg(unix)]
+fn open_fifo_writer_until(
+    path: &std::path::Path,
+    child: &mut ChildGuard,
+    deadline: Instant,
+) -> File {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    loop {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(path)
+        {
+            Ok(writer) => return writer,
+            Err(error)
+                if error.raw_os_error() == Some(libc::ENXIO)
+                    || error.raw_os_error() == Some(libc::EINTR) =>
+            {
+                if let Some(status) = child.child().try_wait().expect("poll FIFO child") {
+                    panic!("child exited before the source FIFO opened: {status:?}");
+                }
+                if Instant::now() >= deadline {
+                    panic!("source FIFO writer did not open before the TC-018 deadline");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("open source FIFO writer: {error}"),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn read_child_stderr(child: &mut ChildGuard) -> Vec<u8> {
+    let mut stderr = Vec::new();
+    child
+        .child()
+        .stderr
+        .take()
+        .expect("child stderr remains piped")
+        .read_to_end(&mut stderr)
+        .expect("read child stderr after exit");
+    stderr
+}
 
 #[cfg(unix)]
 fn status_with_unwritable_stderr(arguments: &[&str], reserved_exit: bool) -> ExitStatus {
@@ -456,6 +654,114 @@ fn invalid_operand_precedes_recognized_but_unavailable_setting() {
 fn refusal_keeps_its_exit_code_when_stderr_is_unwritable() {
     let status = status_with_unwritable_stderr(&["run", SOURCE, "yes", "--format", "dot"], false);
     assert_eq!(status.code(), Some(20));
+}
+
+/// Trace: FR-002-AC-14; a broken primary stdout pipe preserves the QSL category result.
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
+#[test]
+fn fifo_broken_pipe_keeps_refusal_exit_without_output_failure_diagnostic() {
+    let directory = TestDirectory::new("tc018-broken-pipe");
+    let source_path = directory.path().join("driver-check.native");
+    let source_text = source_path.to_str().expect("temporary path is UTF-8");
+    let fifo_status = Command::new("mkfifo")
+        .arg(&source_path)
+        .status()
+        .expect("create named-pipe source fixture");
+    assert!(fifo_status.success(), "mkfifo exited with {fifo_status}");
+
+    let bytes = overflow_fixture_bytes();
+    let expected = expected_overflow_check_document(source_text, &bytes);
+    let request_path = directory.path().join("tc018-request.json");
+    assert!(
+        expected
+            .windows(b"undefined_expression".len())
+            .any(|window| window == b"undefined_expression"),
+        "the shared overflow fixture must retain its QSL refusal code"
+    );
+    assert!(
+        expected
+            .windows(b"unproved-range".len())
+            .any(|window| window == b"unproved-range"),
+        "the shared overflow fixture must retain its QSL refusal cause"
+    );
+
+    let child = Command::new(QUIRE)
+        .args(["check", source_text, "--format", "json"])
+        .env("TC018_CASE", "refused-range")
+        .env("TC018_REQUEST_PATH", &request_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn quire check with piped stdout");
+    let mut child = ChildGuard::new(child);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut writer = open_fifo_writer_until(&source_path, &mut child, deadline);
+    drop(child.child().stdout.take());
+    writer
+        .write_all(&bytes)
+        .expect("write the shared overflow fixture into the source FIFO");
+    drop(writer);
+
+    let status = wait_for_child_until(&mut child, deadline);
+    assert_tc018_refused_range_observation(&request_path, source_text, &bytes);
+    let stderr_bytes = read_child_stderr(&mut child);
+    let stderr = String::from_utf8_lossy(&stderr_bytes);
+    assert_eq!(
+        status.code(),
+        Some(i32::from(Category::Refusal.exit_code())),
+        "broken pipe preserves the independently computed QSL category exit"
+    );
+    assert!(
+        !stderr.contains("OutputFailure"),
+        "BrokenPipe must not emit OutputFailure: {stderr}"
+    );
+}
+
+/// Trace: FR-002-AC-15, FR-002-AC-16; non-broken stdout I/O errors select InternalFailure and diagnose.
+#[cfg(all(target_os = "linux", feature = "tc018-test-adapter"))]
+#[test]
+fn full_stdout_device_selects_internal_failure_and_output_failure_diagnostic() {
+    let directory = TestDirectory::new("tc018-full-stdout");
+    let source_path = directory.path().join("driver-check.native");
+    let bytes = overflow_fixture_bytes();
+    std::fs::write(&source_path, &bytes).expect("write the shared overflow source fixture");
+    let source_text = source_path.to_str().expect("temporary path is UTF-8");
+    let expected = expected_overflow_check_document(source_text, &bytes);
+    let request_path = directory.path().join("tc018-request.json");
+    assert!(
+        expected
+            .windows(b"undefined_expression".len())
+            .any(|window| window == b"undefined_expression"),
+        "the shared overflow fixture must retain its QSL refusal code"
+    );
+
+    let full = std::fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/full")
+        .expect("open Linux full device");
+    let child = Command::new(QUIRE)
+        .args(["check", source_text, "--format", "json"])
+        .env("TC018_CASE", "refused-range")
+        .env("TC018_REQUEST_PATH", &request_path)
+        .stdout(Stdio::from(full))
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn quire check with /dev/full as stdout");
+    let mut child = ChildGuard::new(child);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = wait_for_child_until(&mut child, deadline);
+    assert_tc018_refused_range_observation(&request_path, source_text, &bytes);
+    let stderr_bytes = read_child_stderr(&mut child);
+    let stderr = String::from_utf8_lossy(&stderr_bytes);
+
+    assert_eq!(
+        status.code(),
+        Some(i32::from(Category::InternalFailure.exit_code()))
+    );
+    assert!(
+        stderr.contains("OutputFailure: could not write outcome document"),
+        "non-BrokenPipe failure is visibly classified and identifies the output: {stderr}"
+    );
 }
 
 /// Trace: FR-002-AC-6, the reserved QSL result falls back without stdout output.

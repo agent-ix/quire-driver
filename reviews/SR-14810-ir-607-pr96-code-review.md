@@ -1,0 +1,81 @@
+---
+id: SR-14810
+title: "Code review with Rust lane of quire-driver PR #96 stdout failure tests"
+type: SpecReview
+analysis: code-review
+scope: "agent-ix/quire-driver PR #96 at 2064cbbb784fd6650524afd71183c5bdaceca1f5; Cargo.lock; quire-cli/Cargo.toml; quire-cli/tests/binary_process.rs; tests/common/units.rs; tests/drive.rs; spec/tests.md; context quire-cli/src/cli.rs; FR-002-AC-14..16; TC-018"
+review_set: subset
+relationships:
+  - { target: ix://agent-ix/quire-driver/FR-002, type: reviews }
+  - { target: ix://agent-ix/quire-driver/TC-018, type: reviews }
+---
+
+## Summary
+
+Reviewed the process-level FIFO and Linux `/dev/full` tests, fixture extraction, dependency/cfg boundaries, resource cleanup, and their FR-002/TC-018 bindings. The test bodies exercise the real CLI output path and clean up children, but both skip TC-018's required `refused-range` operation-adapter case.
+
+## Verdict
+
+**CONDITIONAL** — the assertions cover the intended output failures, but the tests do not execute the operation case TC-018 requires.
+
+## Findings
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-001 | medium | Both new process tests run the default binary against a real `check` invocation and never select or observe TC-018's required `refused-range` adapter case. TC-018 step 5 explicitly requires that case for both failure modes, so the added tests do not satisfy the accepted procedure. | quire-cli/tests/binary_process.rs:655-660, 705-710; spec/test-cases/TC-018-binary-process-boundary.md:49-60, 95-116 |
+
+## Dispositions
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Both process tests now select `refused-range` and assert the test-only observation for the exact source bytes, path, identity, profile, and limits. The shared `overflow_unit` produces the specified `undefined_expression/unproved-range` refusal through real QSL parse/select/check. |
+
+### Round 1 after_excerpt
+
+```rust
+assert_eq!(observation["case"], "refused-range");
+assert_eq!(observation["source_bytes"], serde_json::json!(bytes));
+```
+
+### Round 2 disposition
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | Rechecked on the current head: both child processes still select and assert the `refused-range` observation. The only Rust source delta since round 1 replaces the redundant `LazyLock::new` closure with the function item, resolving the reported Clippy issue; no other source change or regression was present in this delta. |
+
+#### Round 2 after_excerpt
+
+```rust
+assert_eq!(observation["case"], "refused-range");
+assert_eq!(observation["source_bytes"], serde_json::json!(bytes));
+```
+
+### Round 3 disposition
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | The current Makefile explicitly runs the feature-gated reserved-exit and FIFO cases with an exact one-test result check; it adds the `/dev/full` exact-count run only on Linux. The FIFO test is `cfg(unix)` plus the feature and therefore runs on supported macOS/Linux. Production/default tests remain separate and the feature stays opt-in. No regression found in this wiring delta. |
+
+#### Round 3 after_excerpt
+
+```sh
+printf '%s\n' "$$output" | grep -Fq 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;'
+```
+
+## New findings, round 4
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | The prior `/dev/full` stderr assertion failed because `Record::render_human` emits an error record's message but does not render its `kind`; passing kind `OutputFailure` with message `could not write outcome document: ...` therefore did not produce the AC-16 diagnostic marker in human stderr. Prefix the message with the diagnostic name and assert the visible marker plus failed-output description. | quire-cli/src/cli.rs:80-83; quire-cli/tests/binary_process.rs:759-765; ix-cli-kit/src/streams.rs:315-322 |
+
+## Dispositions, round 4
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-002 | fixed | The human message now begins with `OutputFailure:` and names the outcome-document write; the Linux `/dev/full` process test requires that exact prefix. This changes diagnostic wording only; the non-BrokenPipe exit remains InternalFailure and BrokenPipe still keeps the operation result without an OutputFailure diagnostic. |
+
+### Round 4 after_excerpt
+
+```rust
+stderr.contains("OutputFailure: could not write outcome document")
+```
