@@ -2,8 +2,13 @@
 """FR-331 configured-provider fixture that records real request dispatch."""
 
 import json
+import os
+import select
+import signal
 import struct
+import subprocess
 import sys
+import time
 
 
 def read_frame():
@@ -28,6 +33,11 @@ protocol = "quire.plugin-wire/v1"
 identity = sys.argv[1]
 marker = sys.argv[2]
 capability = sys.argv[3]
+mode = sys.argv[4] if len(sys.argv) > 4 else "normal"
+ready_path = sys.argv[5] if len(sys.argv) > 5 else None
+release_path = sys.argv[6] if len(sys.argv) > 6 else None
+descendant_path = sys.argv[7] if len(sys.argv) > 7 else None
+shutdown_path = sys.argv[8] if len(sys.argv) > 8 else (sys.argv[5] if mode == "normal" and len(sys.argv) > 5 else None)
 write_frame(
     {
         "protocol": protocol,
@@ -50,6 +60,9 @@ write_frame(
 while True:
     envelope = read_frame()
     if envelope["kind"] == "shutdown":
+        if shutdown_path is not None:
+            with open(shutdown_path, "wb") as shutdown:
+                shutdown.write(b"closed")
         break
     if envelope["kind"] != "request":
         raise SystemExit(3)
@@ -57,6 +70,32 @@ while True:
     items = request["request"]["items"]
     with open(marker, "wb") as dispatched:
         dispatched.write(json.dumps(request, sort_keys=True).encode())
+    if mode == "signal":
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import pathlib,sys,time; ready,release,done=map(pathlib.Path,sys.argv[1:]); "
+                "ready.touch(); deadline=time.monotonic()+10; "
+                "\nwhile not release.exists() and time.monotonic()<deadline: time.sleep(0.002) "
+                "\nif release.exists(): done.write_text('leaked')",
+                ready_path,
+                release_path,
+                descendant_path,
+            ]
+        )
+        deadline = time.monotonic() + 5
+        while not os.path.exists(ready_path) and time.monotonic() < deadline:
+            time.sleep(0.002)
+        if not os.path.exists(ready_path):
+            raise SystemExit(4)
+        os.kill(os.getppid(), signal.SIGTERM)
+        readable, _, _ = select.select([sys.stdin.buffer], [], [], 2)
+        if readable:
+            control = read_frame()
+            if control["kind"] == "cancel":
+                time.sleep(2)
+        raise SystemExit(0)
     write_frame(
         {
             "protocol": protocol,

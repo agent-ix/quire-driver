@@ -14,8 +14,8 @@ relationships:
 
 Verify that the driver passes negotiated process-provider work through its
 process-provider seam and returns typed provider results through its proof
-path; TC-028 verifies that `quire-cli` composes this seam with
-`quire-plugin-host`.
+path; TC-028 verifies the configured `quire-cli` composition with
+`quire-plugin-host`. Settlement remains pending the QSL result-mapping APIs.
 
 Scope: FR-005-AC-12 through FR-005-AC-19, FR-006-AC-1 through FR-006-AC-2,
 and FR-006-AC-5 through FR-006-AC-23.
@@ -33,13 +33,12 @@ and FR-006-AC-5 through FR-006-AC-23.
    its package identity and the selected configuration entry's `deadline_ms`
    to the adapter serialization check. Verify that value is taken from that
    entry unchanged, not from a default, ambient state, or another provider's
-   entry. This step checks field ownership and serialization only; it does not
-   imply that the driver dispatches negotiated work through the Process seam,
-   which remains IR-672 implementation work. TC-028 verifies the production
-   `--provider-config` input and its forwarding into the process-provider
-   composition. An injected internal seam alone does not complete
-   FR-006-AC-1/2. Temporal subject proof bounds remain sourced as specified in
-   FR-006.
+   entry. The selected-provider production composition test exercises the
+   Process seam and retains its typed result in `CommandResult`; the production
+   binary tests separately cover duplicate-identity refusal and active-session
+   signal cleanup. These checks do not claim QSL terminal settlement for the
+   provider result. Temporal subject proof bounds remain sourced as specified
+   in FR-006.
 2. Have the `quire-cli` adapter serialize the request through the typed FR-331
    adapter. Verify `package`
    contains the emitted package's RFC 8785 bytes as unpadded base64url,
@@ -119,27 +118,25 @@ and FR-006-AC-5 through FR-006-AC-23.
 The separate host implementation's PL-1 through PL-7 conformance is verified
 by [TC-023](./TC-023-plugin-session-and-admission.md) through
 [TC-026](./TC-026-plugin-resource-bounds-and-cleanup.md). The driver uses
-CG IR-629's landed origin-aware descriptor conversion. End-to-end
-process-provider dispatch remains planned under IR-672; settlement remains
-planned under QSL result-mapping dependencies. The current
-`RoutedItemOutput` does not carry the full FR-331 request item or deadline. The
+CG IR-629's landed origin-aware descriptor conversion. Production process-provider
+dispatch and typed-result retention are exercised by the configured composition;
+settlement remains planned under QSL result-mapping dependencies. The current
+`RoutedItemOutput` does not carry every FR-331 request item field or deadline. The
 adapter's request index, claim locus, kind, extent/bounds and candidate set
 come from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`,
 using the same request data used to build typed CG negotiation; the selected
-backend comes from CG's routed output. IR-672 owns production Process dispatch
-and integration of those sources with the request deadline. Temporal subject
+backend comes from CG's routed output. The configured composition integrates those sources with the request deadline. Temporal subject
 proof bounds remain a projection gap as stated in FR-006. FR-331
 specifies the proof-bound `kind`; QSL-654 owns the pending QSL emitter support
 for writing it. The test must not synthesize QSL-owned item fields from
 unrelated provider evidence.
 
-Test location: planned `quire-cli` FR-331 hello/request adapter tests and
-driver/provider composition tests. IR-672 PR3 covers the hello/admission and
-request DTO stages. Result conversion and settlement use explicit typed input
-fixtures; the shared carrier preserves generic typed results, while settlement
-remains held for QSL result-mapping APIs. End-to-end process-provider dispatch
-remains planned under IR-672, and settlement remains planned under the QSL
-result-mapping dependencies. FR-006-AC-14 through AC-23
+Test locations: `quire-cli/src/cli.rs` configured-run composition tests and
+`quire-cli/tests/binary_process.rs` production entrypoint tests. The composition
+test exercises hello/admission, request DTO construction, selected-provider
+dispatch and typed result retention; production tests cover strict config,
+duplicate identity, and active-request SIGTERM cleanup. Settlement remains held
+for QSL result-mapping APIs. FR-006-AC-14 through AC-23
 remain unclaimed for terminal settlement pending QSL-655; this test does not
 define or infer terminal mappings.
 

@@ -21,6 +21,7 @@ use qsl_replay::spine::{
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use qsl_semantics::value::supplied::SuppliedLimits;
+use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_driver::{execute, ExecutionEngine, ExecutionRequest, ObjectEnvironment};
 use quire_exact::Cancel;
 
@@ -520,6 +521,242 @@ fn empty_provider_config_executes_without_starting_a_provider() {
     assert_eq!(output.status.code(), Some(0));
     assert!(output.stderr.is_empty());
     assert!(serde_json::from_slice::<serde_json::Value>(&output.stdout).is_ok());
+}
+
+/// Trace: FR-006-AC-26; duplicate admitted identities refuse before requests and close both sessions.
+#[test]
+fn duplicate_provider_identities_refuse_before_negotiation_and_close_sessions() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock is after the Unix epoch")
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "quire-cli-configured-duplicate-{}-{unique}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&directory).expect("create isolated duplicate test directory");
+    let source_path = directory.join("duplicate.native");
+    let config_path = directory.join("providers.json");
+    let request_markers = [directory.join("request-one"), directory.join("request-two")];
+    let shutdown_markers = [
+        directory.join("shutdown-one"),
+        directory.join("shutdown-two"),
+    ];
+
+    let lock = DefinitionLock::pinned();
+    let root = lock.entry(CatalogRole::Root);
+    let source = format!(
+        "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
+         function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
+         function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
+        root.identity
+    );
+    std::fs::write(&source_path, source).expect("write source fixture");
+
+    let executable = std::env::split_paths(&std::env::var_os("PATH").expect("PATH is set"))
+        .map(|directory| directory.join("python3"))
+        .find(|candidate| candidate.is_file())
+        .expect("duplicate provider fixture requires Python 3");
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/configured-fr331-provider.py"
+    );
+    let providers = (0..2)
+        .map(|index| {
+            serde_json::json!({
+                "executable": executable.display().to_string(),
+                "argv": [
+                    fixture,
+                    "agent-ix/provider/configured-duplicate",
+                    request_markers[index].display().to_string(),
+                    "value-validity",
+                    "normal",
+                    shutdown_markers[index].display().to_string(),
+                ],
+                "deadline_ms": 4096,
+                "limits": {
+                    "max_frame_bytes": 262144,
+                    "max_total_bytes": 1048576,
+                    "max_stderr_bytes": 4096,
+                    "cancellation_grace_ms": 500,
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    std::fs::write(
+        &config_path,
+        serde_json::to_vec(&serde_json::json!({ "providers": providers }))
+            .expect("serialize provider config"),
+    )
+    .expect("write provider config");
+
+    let output = Command::new(QUIRE)
+        .args([
+            "run",
+            source_path.to_str().expect("UTF-8 source path"),
+            "eq",
+            "x=2",
+            "y=3",
+        ])
+        .arg("--provider-config")
+        .arg(&config_path)
+        .args(["--format", "json"])
+        .output()
+        .expect("run production quire binary with duplicate identities");
+    let message = "configured process providers repeat admitted identity `agent-ix/provider/configured-duplicate`";
+    assert_eq!(output.status.code(), Some(20));
+    assert_eq!(
+        output.stdout,
+        expected_document_bytes(Code::InvalidRequest, message)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), message);
+    assert!(request_markers.iter().all(|marker| !marker.exists()));
+    assert!(shutdown_markers.iter().all(|marker| marker.is_file()));
+    std::fs::remove_dir_all(directory).expect("remove duplicate test directory");
+}
+
+/// Trace: FR-006-AC-4; the production binary cancels and reaps a selected provider before re-raising SIGTERM.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn configured_process_sigterm_cleans_active_session_before_reraise() {
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock is after the Unix epoch")
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "quire-cli-configured-signal-{}-{unique}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&directory).expect("create isolated signal test directory");
+    let request_marker = directory.join("request.json");
+    let ready_marker = directory.join("descendant-ready");
+    let release_marker = directory.join("release-descendant");
+    let descendant_marker = directory.join("descendant-leaked");
+    let config_path = directory.join("providers.json");
+    let source_path = directory.join("signal.native");
+
+    let lock = DefinitionLock::pinned();
+    let root = lock.entry(CatalogRole::Root);
+    let source = format!(
+        "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
+         function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
+         function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
+        root.identity
+    );
+    std::fs::write(&source_path, source).expect("write source fixture");
+
+    let executable = std::env::split_paths(&std::env::var_os("PATH").expect("PATH is set"))
+        .map(|directory| directory.join("python3"))
+        .find(|candidate| candidate.is_file())
+        .expect("the signal fixture requires Python 3");
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/configured-fr331-provider.py"
+    );
+    let config = serde_json::json!({
+        "providers": [{
+            "executable": executable,
+            "argv": [
+                fixture,
+                "agent-ix/provider/configured-signal",
+                request_marker,
+                "value-validity",
+                "signal",
+                ready_marker,
+                release_marker,
+                descendant_marker,
+            ],
+            "deadline_ms": 10_000,
+            "limits": {
+                "max_frame_bytes": 262_144,
+                "max_total_bytes": 1_048_576,
+                "max_stderr_bytes": 4096,
+                "cancellation_grace_ms": 250,
+            }
+        }]
+    });
+    std::fs::write(
+        &config_path,
+        serde_json::to_vec(&config).expect("serialize provider config"),
+    )
+    .expect("write provider config");
+
+    let started = Instant::now();
+    let mut child = Command::new(QUIRE)
+        .args([
+            "run",
+            source_path.to_str().expect("UTF-8 source path"),
+            "eq",
+            "x=2",
+            "y=3",
+        ])
+        .arg("--provider-config")
+        .arg(&config_path)
+        .args(["--format", "json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start production quire binary");
+    let deadline = started + Duration::from_secs(5);
+    loop {
+        if child.try_wait().expect("poll quire child").is_some() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let output = child
+                .wait_with_output()
+                .expect("collect timed-out quire child");
+            let _ = std::fs::write(&release_marker, b"release");
+            panic!(
+                "production signal flow did not exit within its bound: status={:?}, stdout={}, stderr={}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let output = child
+        .wait_with_output()
+        .expect("collect signalled quire child");
+    let _ = std::fs::write(&release_marker, b"release");
+
+    assert!(
+        request_marker.is_file(),
+        "fixture received a real FR-331 request"
+    );
+    assert!(
+        ready_marker.is_file(),
+        "descendant reached its ready handshake"
+    );
+    assert_eq!(
+        output.status.signal(),
+        Some(signal_hook::consts::signal::SIGTERM),
+        "the production CLI restores the default action and re-raises SIGTERM"
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "signal cleanup emits no outcome document"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "cleanup remains bounded"
+    );
+
+    let descendant_deadline = Instant::now() + Duration::from_secs(2);
+    while !descendant_marker.exists() && Instant::now() < descendant_deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        !descendant_marker.exists(),
+        "the process-group descendant was reaped before the CLI re-raised SIGTERM"
+    );
+    std::fs::remove_dir_all(directory).expect("remove signal test directory");
 }
 
 /// Trace: FR-002-AC-1, FR-002-AC-8; root argv refusals name the rejected argument.

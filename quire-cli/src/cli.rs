@@ -283,6 +283,9 @@ struct ConfiguredRun {
 #[derive(Debug)]
 enum ConfiguredRunErrorKind {
     Call(Box<RunRefusal>),
+    DuplicateIdentity {
+        backend: String,
+    },
     Start {
         provider: String,
         source: CliProviderError,
@@ -721,17 +724,26 @@ fn run(options: RunOptions) -> CommandResult {
     };
     let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
     if !provider_config.providers.is_empty() {
-        return CommandResult::configured(run_configured_providers(
-            &options.path,
-            &bytes,
-            source,
-            limits,
-            call,
-            packages,
-            dependencies,
-            provider_config,
-            crate::signals::SignalContext::default(),
-        ));
+        let configured = crate::signals::run(move |signals| {
+            run_configured_providers(
+                &options.path,
+                &bytes,
+                source,
+                limits,
+                call,
+                packages,
+                dependencies,
+                provider_config,
+                signals,
+            )
+        });
+        return match configured {
+            Ok(configured) => CommandResult::configured(configured),
+            Err(error) => CommandResult::failure(
+                Category::InternalFailure,
+                format!("could not initialize process signal handling: {error}"),
+            ),
+        };
     }
     match execute(ExecutionRequest {
         source,
@@ -884,6 +896,30 @@ fn run_configured_providers(
             ConfiguredRunErrorKind::Register(source),
             active,
         ));
+    }
+
+    let mut admitted_identities = BTreeSet::new();
+    if let Some(backend) = active.iter().find_map(|provider| {
+        let identity = provider.session.descriptor().id().as_str();
+        (!admitted_identities.insert(identity.to_owned())).then(|| identity.to_owned())
+    }) {
+        let message = format!("configured process providers repeat admitted identity `{backend}`");
+        let document =
+            OutcomeDocument::new(Operation::Execute, None, Code::InvalidRequest.category())
+                .with_diagnostics(vec![OutcomeDiagnostic::new(
+                    None,
+                    Code::InvalidRequest.as_str(),
+                    None,
+                    message,
+                )]);
+        let (cleanup_diagnostics, cleanup_failures) = close_configured_providers(active);
+        return Err(ConfiguredRunFailure {
+            call: Some(call),
+            document,
+            kind: ConfiguredRunErrorKind::DuplicateIdentity { backend },
+            cleanup_diagnostics,
+            cleanup_failures,
+        });
     }
 
     let driven = match drive(
@@ -1163,12 +1199,7 @@ fn read_source(path: &str, source_limit: usize) -> std::io::Result<Vec<u8>> {
 }
 
 /// Dispatch the root verb while preserving its QSL-owned result category.
-fn dispatch(
-    verb: Verb,
-    format: OutputFormat,
-    raw_arguments: &[OsString],
-    _signals: crate::signals::SignalContext,
-) -> CommandResult {
+fn dispatch(verb: Verb, format: OutputFormat, raw_arguments: &[OsString]) -> CommandResult {
     if verb == Verb::Run {
         return match RunOptions::parse(raw_arguments) {
             Ok(_options) if format == OutputFormat::Text => {
@@ -1294,12 +1325,7 @@ pub(super) fn entrypoint() -> ExitCode {
         }) => {
             // Check the exit invariant before output so a rejected reserved
             // result cannot accompany an outcome document.
-            let result = dispatch(
-                verb,
-                format,
-                &raw_arguments,
-                crate::signals::SignalContext::default(),
-            );
+            let result = dispatch(verb, format, &raw_arguments);
             let exit_result = category_exit_result(result.category);
             if exit_result == RESERVED_COMMAND_NOT_FOUND {
                 if format == OutputFormat::Text {
@@ -1589,7 +1615,7 @@ mod configured_run_tests {
     use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_exact::{Integer, Value};
 
-    use super::{run_configured_providers, CommandResult};
+    use super::{run_configured_providers, Code, CommandResult};
 
     struct TempDir(PathBuf);
 
@@ -1606,7 +1632,7 @@ mod configured_run_tests {
             .expect("the process fixture requires Python 3")
     }
 
-    /// Trace: FR-006-AC-1, FR-006-AC-8, FR-006-AC-10..FR-006-AC-11, FR-006-AC-15.
+    /// Trace: FR-006-AC-1, FR-006-AC-3, FR-006-AC-8, FR-006-AC-10..FR-006-AC-11, FR-006-AC-15, FR-006-AC-25.
     #[test]
     fn configured_run_invokes_only_the_selected_process_and_retains_its_typed_result() {
         let unique = std::time::SystemTime::now()
@@ -1782,5 +1808,116 @@ mod configured_run_tests {
             retained.call.package_id,
             retained.driven.emitted().package_id()
         );
+    }
+
+    /// Trace: FR-006-AC-26; identical admitted hellos fail closed before negotiation and close both sessions.
+    #[test]
+    fn configured_run_refuses_idempotent_duplicate_identities_before_dispatch() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time is after the Unix epoch")
+            .as_nanos();
+        let directory = TempDir(std::env::temp_dir().join(format!(
+            "quire-cli-configured-duplicate-{}-{unique}",
+            std::process::id()
+        )));
+        std::fs::create_dir(&directory.0).expect("create temporary test directory");
+
+        let lock = DefinitionLock::pinned();
+        let root = lock.entry(CatalogRole::Root);
+        let bytes = format!(
+            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
+             function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
+             function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
+            root.identity
+        );
+        let path = "configured-duplicate.native";
+        let source = SourceIdentity::new("agent-ix", path, "git", "1");
+        let call = Call {
+            function: "eq".to_owned(),
+            arguments: vec![
+                CallArgument {
+                    parameter: "x".to_owned(),
+                    value: Value::Integer(Integer::from(2_i64)),
+                },
+                CallArgument {
+                    parameter: "y".to_owned(),
+                    value: Value::Integer(Integer::from(3_i64)),
+                },
+            ],
+            accounting: default_accounting(DEFAULT_WORK_UNITS),
+            supplied: Default::default(),
+        };
+        let executable = python_path();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/configured-fr331-provider.py");
+        let identity = "agent-ix/provider/configured-duplicate";
+        let markers = [
+            directory.0.join("duplicate-one.json"),
+            directory.0.join("duplicate-two.json"),
+        ];
+        let shutdown_markers = [
+            directory.0.join("duplicate-one-shutdown"),
+            directory.0.join("duplicate-two-shutdown"),
+        ];
+        let providers = markers
+            .iter()
+            .zip(shutdown_markers.iter())
+            .map(
+                |(marker, shutdown)| crate::provider_config::ProcessProviderConfig {
+                    executable: executable.clone(),
+                    argv: vec![
+                        fixture.display().to_string(),
+                        identity.to_owned(),
+                        marker.display().to_string(),
+                        "value-validity".to_owned(),
+                        "normal".to_owned(),
+                        shutdown.display().to_string(),
+                    ],
+                    deadline_ms: 4096,
+                    limits: crate::provider_config::ProcessProviderLimitsConfig {
+                        max_frame_bytes: 262_144,
+                        max_total_bytes: 1_048_576,
+                        max_stderr_bytes: 4096,
+                        cancellation_grace_ms: 500,
+                        max_process_memory_bytes: None,
+                        max_process_cpu_time_ms: None,
+                    },
+                },
+            )
+            .collect();
+
+        let failure = match run_configured_providers(
+            path,
+            bytes.as_bytes(),
+            source,
+            SpineLimits::default(),
+            call,
+            std::collections::BTreeMap::new(),
+            qsl_replay::spine::DependencyInput::default(),
+            crate::provider_config::ProviderConfig { providers },
+            crate::signals::SignalContext::default(),
+        ) {
+            Err(failure) => failure,
+            Ok(_) => panic!("idempotent duplicate identities are an input refusal"),
+        };
+        assert!(matches!(
+            failure.kind,
+            super::ConfiguredRunErrorKind::DuplicateIdentity { ref backend }
+                if backend == identity
+        ));
+        assert_eq!(
+            failure.document.category(),
+            qsl_foundation::diagnostic::Category::Refusal
+        );
+        assert!(failure
+            .document
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.code() == Code::InvalidRequest.as_str()));
+        assert_eq!(failure.cleanup_diagnostics.len(), 2);
+        assert!(failure.cleanup_failures.is_empty());
+        assert!(markers.iter().all(|marker| !marker.exists()));
+        assert!(shutdown_markers.iter().all(|marker| marker.is_file()));
     }
 }
