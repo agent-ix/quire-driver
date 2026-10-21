@@ -1718,11 +1718,11 @@ mod configured_run_tests {
             &std::fs::read(marker).expect("the selected provider recorded its request"),
         )
         .expect("the provider request is JSON");
-        assert_eq!(request["deadline_ms"], 4096);
-        assert_eq!(request["items"].as_array().map(Vec::len), Some(1));
-        assert_eq!(request["items"][0]["backend"], identities[selected]);
-        assert_eq!(request["items"][0]["kind"], "value-validity");
-        assert!(request["items"][0]["claim"].is_object());
+        assert_eq!(request["request"]["deadline_ms"], 4096);
+        assert_eq!(request["request"]["items"].as_array().map(Vec::len), Some(1));
+        assert_eq!(request["request"]["items"][0]["backend"], identities[selected]);
+        assert_eq!(request["request"]["items"][0]["kind"], "value-validity");
+        assert!(request["request"]["items"][0]["claim"].is_object());
 
         let command = CommandResult::configured(Ok(configured));
         assert!(
