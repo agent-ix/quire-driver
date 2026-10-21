@@ -49,3 +49,15 @@ assert_eq!(observation["source_bytes"], serde_json::json!(bytes));
 assert_eq!(observation["case"], "refused-range");
 assert_eq!(observation["source_bytes"], serde_json::json!(bytes));
 ```
+
+### Round 3 disposition
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | The current Makefile explicitly runs the feature-gated reserved-exit and FIFO cases with an exact one-test result check; it adds the `/dev/full` exact-count run only on Linux. The FIFO test is `cfg(unix)` plus the feature and therefore runs on supported macOS/Linux. Production/default tests remain separate and the feature stays opt-in. No regression found in this wiring delta. |
+
+#### Round 3 after_excerpt
+
+```sh
+printf '%s\n' "$$output" | grep -Fq 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;'
+```
