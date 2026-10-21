@@ -108,6 +108,38 @@ fn overflow_fixture_bytes() -> Vec<u8> {
 }
 
 #[cfg(unix)]
+fn assert_tc018_refused_range_observation(path: &std::path::Path, source_path: &str, bytes: &[u8]) {
+    let observation: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(path).expect("the test-only operation adapter records its request"),
+    )
+    .expect("the adapter observation is JSON");
+    assert_eq!(observation["case"], "refused-range");
+    assert_eq!(observation["path"], source_path);
+    assert_eq!(
+        observation["source_identity"],
+        serde_json::json!({
+            "authority": "quire",
+            "identity": source_path,
+            "revision_namespace": "filesystem",
+            "revision": "current",
+        })
+    );
+    assert_eq!(observation["source_bytes"], serde_json::json!(bytes));
+    assert!(
+        observation["profile"]
+            .as_str()
+            .is_some_and(|profile| profile.starts_with("profile v = ")),
+        "the observation retains the selected profile: {observation}"
+    );
+    assert!(
+        observation["limits"]
+            .as_str()
+            .is_some_and(|limits| limits.contains("SpineLimits")),
+        "the observation retains the QSL limits: {observation}"
+    );
+}
+
+#[cfg(unix)]
 fn expected_overflow_check_document(path: &str, bytes: &[u8]) -> Vec<u8> {
     let source = SourceIdentity::new("quire", path, "filesystem", "current");
     let limits = SpineLimits::default();
@@ -639,6 +671,7 @@ fn fifo_broken_pipe_keeps_refusal_exit_without_output_failure_diagnostic() {
 
     let bytes = overflow_fixture_bytes();
     let expected = expected_overflow_check_document(source_text, &bytes);
+    let request_path = directory.path().join("tc018-request.json");
     assert!(
         expected
             .windows(b"undefined_expression".len())
@@ -654,6 +687,8 @@ fn fifo_broken_pipe_keeps_refusal_exit_without_output_failure_diagnostic() {
 
     let child = Command::new(QUIRE)
         .args(["check", source_text, "--format", "json"])
+        .env("TC018_CASE", "refused-range")
+        .env("TC018_REQUEST_PATH", &request_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -668,6 +703,7 @@ fn fifo_broken_pipe_keeps_refusal_exit_without_output_failure_diagnostic() {
     drop(writer);
 
     let status = wait_for_child_until(&mut child, deadline);
+    assert_tc018_refused_range_observation(&request_path, source_text, &bytes);
     let stderr_bytes = read_child_stderr(&mut child);
     let stderr = String::from_utf8_lossy(&stderr_bytes);
     assert_eq!(
@@ -691,6 +727,7 @@ fn full_stdout_device_selects_internal_failure_and_output_failure_diagnostic() {
     std::fs::write(&source_path, &bytes).expect("write the shared overflow source fixture");
     let source_text = source_path.to_str().expect("temporary path is UTF-8");
     let expected = expected_overflow_check_document(source_text, &bytes);
+    let request_path = directory.path().join("tc018-request.json");
     assert!(
         expected
             .windows(b"undefined_expression".len())
@@ -704,6 +741,8 @@ fn full_stdout_device_selects_internal_failure_and_output_failure_diagnostic() {
         .expect("open Linux full device");
     let child = Command::new(QUIRE)
         .args(["check", source_text, "--format", "json"])
+        .env("TC018_CASE", "refused-range")
+        .env("TC018_REQUEST_PATH", &request_path)
         .stdout(Stdio::from(full))
         .stderr(Stdio::piped())
         .spawn()
@@ -711,6 +750,7 @@ fn full_stdout_device_selects_internal_failure_and_output_failure_diagnostic() {
     let mut child = ChildGuard::new(child);
     let deadline = Instant::now() + Duration::from_secs(10);
     let status = wait_for_child_until(&mut child, deadline);
+    assert_tc018_refused_range_observation(&request_path, source_text, &bytes);
     let stderr_bytes = read_child_stderr(&mut child);
     let stderr = String::from_utf8_lossy(&stderr_bytes);
 
