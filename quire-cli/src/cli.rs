@@ -279,6 +279,7 @@ struct ConfiguredRun {
     dead_code,
     reason = "typed configured-run failures remain unmapped until their QSL contracts land"
 )]
+#[derive(Debug)]
 enum ConfiguredRunErrorKind {
     Call(Box<RunRefusal>),
     Start {
@@ -305,6 +306,7 @@ enum ConfiguredRunErrorKind {
     dead_code,
     reason = "QSL-655 settlement will consume typed failure and cleanup details"
 )]
+#[derive(Debug)]
 struct ConfiguredRunFailure {
     call: Option<ConfiguredCall>,
     document: OutcomeDocument,
@@ -1694,7 +1696,7 @@ mod configured_run_tests {
             crate::signals::SignalContext::default(),
         ) {
             Ok(configured) => configured,
-            Err(_) => panic!("both providers admit before real QSL/CG routing and cleanup"),
+            Err(failure) => panic!("configured provider flow failed: {failure:?}"),
         };
         assert_eq!(configured.call.requirements.members().len(), 1);
         assert_eq!(configured.driven.generation().items.len(), 1);
