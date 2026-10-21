@@ -348,7 +348,7 @@ impl RunOptions {
         let mut positionals = Vec::new();
         let mut limit_operands = Vec::new();
         let mut engine = None;
-        let mut provider_config = None;
+        let mut provider_config: Option<std::path::PathBuf> = None;
         let mut index = 0;
         while index < arguments.len() {
             let arg = arguments[index]
@@ -382,7 +382,10 @@ impl RunOptions {
                         .get(index)
                         .filter(|value| !value.is_empty())
                         .ok_or_else(|| "--provider-config requires a path".to_owned())?;
-                    if provider_config.replace(path.to_owned()).is_some() {
+                    if provider_config
+                        .replace(std::path::PathBuf::from(path))
+                        .is_some()
+                    {
                         return Err("--provider-config may be supplied only once".to_owned());
                     }
                 }
