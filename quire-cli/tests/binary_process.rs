@@ -2,9 +2,9 @@
 //! Integration checks for CLI run options and QSL results.
 
 #[cfg(unix)]
-use std::io::{Read, Write};
-#[cfg(unix)]
 use std::fs::File;
+#[cfg(unix)]
+use std::io::{Read, Write};
 use std::process::Command;
 #[cfg(unix)]
 use std::process::{Child, ExitStatus, Stdio};
@@ -41,10 +41,8 @@ struct TestDirectory(std::path::PathBuf);
 impl TestDirectory {
     fn new(label: &str) -> Self {
         let id = TEST_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "quire-cli-{label}-{}-{id}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("quire-cli-{label}-{}-{id}", std::process::id()));
         std::fs::create_dir(&path).expect("create isolated test directory");
         Self(path)
     }
@@ -142,7 +140,11 @@ fn expected_overflow_check_document(path: &str, bytes: &[u8]) -> Vec<u8> {
 }
 
 #[cfg(unix)]
-fn open_fifo_writer_until(path: &std::path::Path, child: &mut ChildGuard, deadline: Instant) -> File {
+fn open_fifo_writer_until(
+    path: &std::path::Path,
+    child: &mut ChildGuard,
+    deadline: Instant,
+) -> File {
     use std::os::unix::fs::OpenOptionsExt;
 
     loop {
@@ -638,11 +640,15 @@ fn fifo_broken_pipe_keeps_refusal_exit_without_output_failure_diagnostic() {
     let bytes = overflow_fixture_bytes();
     let expected = expected_overflow_check_document(source_text, &bytes);
     assert!(
-        expected.windows(b"undefined_expression".len()).any(|window| window == b"undefined_expression"),
+        expected
+            .windows(b"undefined_expression".len())
+            .any(|window| window == b"undefined_expression"),
         "the shared overflow fixture must retain its QSL refusal code"
     );
     assert!(
-        expected.windows(b"unproved-range".len()).any(|window| window == b"unproved-range"),
+        expected
+            .windows(b"unproved-range".len())
+            .any(|window| window == b"unproved-range"),
         "the shared overflow fixture must retain its QSL refusal cause"
     );
 
@@ -686,7 +692,9 @@ fn full_stdout_device_selects_internal_failure_and_output_failure_diagnostic() {
     let source_text = source_path.to_str().expect("temporary path is UTF-8");
     let expected = expected_overflow_check_document(source_text, &bytes);
     assert!(
-        expected.windows(b"undefined_expression".len()).any(|window| window == b"undefined_expression"),
+        expected
+            .windows(b"undefined_expression".len())
+            .any(|window| window == b"undefined_expression"),
         "the shared overflow fixture must retain its QSL refusal code"
     );
 

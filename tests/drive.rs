@@ -191,9 +191,7 @@ static TWO_PARAM_UNIT: LazyLock<String> = LazyLock::new(|| {
 /// below reaches CG's own `Unsupported`/`ResultBoundUnreachable` for the
 /// identical reachable range, because QSL does not discharge that
 /// coercion at all inside a branch it proves dead.
-static OVERFLOW_UNIT: LazyLock<String> = LazyLock::new(|| {
-    shared_units::overflow_unit()
-});
+static OVERFLOW_UNIT: LazyLock<String> = LazyLock::new(|| shared_units::overflow_unit());
 
 /// A unit whose `+` (`x + 100`) is the same shape `OVERFLOW_UNIT` declares,
 /// but reached only through an `if` branch QSL's checker proves dead
