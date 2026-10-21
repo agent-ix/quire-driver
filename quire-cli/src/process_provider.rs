@@ -7,7 +7,10 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 
+use qsl_replay::CallRequirements;
+use qsl_route::request::RequirementItem;
 use qsl_route::{BackendDescriptor, ProviderOrigin};
+use quire_contract_codegen::RoutedItemOutput;
 use quire_driver::{
     ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
     ProviderResults,
@@ -18,6 +21,249 @@ use quire_plugin_host::{
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+
+/// Closed FR-331 result values retained before a QSL mapping is available.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Fr331ResultKind {
+    Proved,
+    Refuted,
+    Tested,
+    Measured,
+    Inconclusive,
+    Unsupported,
+    Declined,
+    Incomplete,
+    Failed,
+}
+
+/// Closed FR-331 negotiation dispositions retained without terminal mapping.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Fr331DispositionKind {
+    Supported,
+    RequiresBound,
+    Unsupported,
+    InvalidRequest,
+}
+
+/// One result or disposition for a routed item, plus its exact received envelope.
+#[derive(Clone, Debug)]
+pub(crate) struct ProcessProviderOutcome {
+    pub(crate) item: ProcessProviderItemOutcome,
+    pub(crate) response: Arc<serde_json::Value>,
+}
+
+/// The call-selected QSL items, verified against the exact package and driver
+/// request that produced the routed generation.
+pub(crate) struct CallItemProjection {
+    pub(crate) package_id: qsl_semantics::library::PackageId,
+    pub(crate) items: Vec<RequirementItem>,
+    pub(crate) routed: Vec<RoutedItemOutput>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub(crate) enum CallItemProjectionError {
+    #[error("QSL call requirements and driver generation came from different packages")]
+    PackageMismatch,
+    #[error("a call requirement request index does not identify exactly one driver QSL item")]
+    RequestIndex,
+    #[error("a call requirement occurrence differs from the driver QSL item at its index")]
+    Occurrence,
+    #[error("QSL returned a duplicate call requirement request index")]
+    DuplicateIndex,
+}
+
+/// Join QSL's call-aware members to the exact retained driver request items.
+/// The package id is checked before using request indices, then every selected
+/// occurrence must match; package-wide items outside the selected call are
+/// excluded from the returned sidecar.
+pub(crate) fn project_call_items(
+    package_id: qsl_semantics::library::PackageId,
+    requirements: &CallRequirements,
+    driven: &quire_driver::Driven,
+) -> Result<CallItemProjection, CallItemProjectionError> {
+    if package_id != requirements.package_id() || package_id != driven.emitted().package_id() {
+        return Err(CallItemProjectionError::PackageMismatch);
+    }
+
+    let mut indices = std::collections::BTreeSet::new();
+    let mut items = Vec::with_capacity(requirements.members().len());
+    for member in requirements.members() {
+        let index = member.request_index().get();
+        if !indices.insert(index) {
+            return Err(CallItemProjectionError::DuplicateIndex);
+        }
+        let mut matches = driven
+            .request_items
+            .iter()
+            .filter(|item| item.index().get() == index);
+        let item = matches
+            .next()
+            .ok_or(CallItemProjectionError::RequestIndex)?;
+        if matches.next().is_some() {
+            return Err(CallItemProjectionError::RequestIndex);
+        }
+        if item.occurrence() != member.occurrence() {
+            return Err(CallItemProjectionError::Occurrence);
+        }
+        items.push(item.clone());
+    }
+    items.sort_by_key(|item| item.index().get());
+    let selected_indices = indices;
+    let mut routed_indices = std::collections::BTreeSet::new();
+    let mut routed = Vec::new();
+    for generated in &driven.generation().items {
+        if selected_indices.contains(&generated.request_index) {
+            if !routed_indices.insert(generated.request_index) {
+                return Err(CallItemProjectionError::DuplicateIndex);
+            }
+            routed.push(generated.clone());
+        }
+    }
+    Ok(CallItemProjection {
+        package_id,
+        items,
+        routed,
+    })
+}
+
+/// Build one request body from retained driver and QSL values.
+pub(crate) fn encode_fr331_request(
+    request: ProcessProviderRequest<'_>,
+) -> Result<crate::backend_provider::RequestStage, String> {
+    crate::backend_provider::RequestStage::from_process_request(&request)
+        .map_err(|error| error.to_string())
+}
+
+/// Validate an FR-331 outcome against the one admitted hello identity.
+pub(crate) fn validate_fr331_response(
+    manifest: &crate::backend_provider::ManifestStage,
+    response: &serde_json::Value,
+) -> Result<(), String> {
+    let admitted_identity = manifest
+        .manifest
+        .first()
+        .and_then(|descriptor| descriptor.get("backend"))
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "admitted FR-331 hello has no backend identity".to_owned())?;
+    let results = retain_fr331_response(response.clone())?;
+    if results
+        .items
+        .iter()
+        .any(|item| item.backend.identity != admitted_identity)
+    {
+        return Err("FR-331 outcome backend differs from the admitted provider".to_owned());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    if results
+        .items
+        .iter()
+        .any(|item| !seen.insert(item.request_index))
+    {
+        return Err("FR-331 outcome repeats a request index".to_owned());
+    }
+    Ok(())
+}
+
+/// Retain the full FR-331 outcome without selecting QSL terminals.
+pub(crate) fn convert_fr331_response(
+    response: serde_json::Value,
+) -> Result<ProviderResults<ProcessProviderOutcome, String>, String> {
+    retain_fr331_response(response)
+}
+
+/// An FR-331 item state kept distinct until the QSL mapping API is available.
+#[derive(Clone, Debug)]
+pub(crate) enum ProcessProviderItemOutcome {
+    Result {
+        capability_kind: String,
+        kind: Fr331ResultKind,
+        item: serde_json::Value,
+    },
+    Disposition {
+        capability_kind: String,
+        kind: Fr331DispositionKind,
+        item: serde_json::Value,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Fr331ResponseItem {
+    request_index: u64,
+    backend: String,
+    kind: String,
+    #[serde(default)]
+    result: Option<Fr331ResultKind>,
+    #[serde(default)]
+    disposition: Option<Fr331DispositionKind>,
+    #[serde(flatten)]
+    payload: serde_json::Map<String, serde_json::Value>,
+}
+
+fn retain_fr331_response(
+    response: serde_json::Value,
+) -> Result<ProviderResults<ProcessProviderOutcome, String>, String> {
+    let contract = response
+        .get("contract_version")
+        .and_then(serde_json::Value::as_str);
+    let vocabulary = response
+        .get("capability_vocabulary")
+        .and_then(serde_json::Value::as_str);
+    if contract != Some("quire.backend-provider/v1")
+        || vocabulary != Some("quire.capability-kind/v1")
+    {
+        return Err("plugin result has an unsupported FR-331 identity".to_owned());
+    }
+    let response = Arc::new(response);
+    let mut items = Vec::new();
+    for (member, is_result) in [("results", true), ("dispositions", false)] {
+        let entries = response
+            .get(member)
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| format!("plugin result is missing the `{member}` array"))?;
+        for value in entries {
+            let parsed: Fr331ResponseItem = serde_json::from_value(value.clone())
+                .map_err(|error| format!("invalid FR-331 {member} item: {error}"))?;
+            if parsed.result.is_some() != is_result || parsed.disposition.is_some() == is_result {
+                return Err(format!("FR-331 {member} item has the wrong state member"));
+            }
+            let request_index = usize::try_from(parsed.request_index)
+                .map_err(|_| "FR-331 request index does not fit this platform".to_owned())?;
+            let wire = serde_json::Value::Object(parsed.payload);
+            let outcome = if is_result {
+                ProcessProviderItemOutcome::Result {
+                    capability_kind: parsed.kind,
+                    kind: parsed
+                        .result
+                        .ok_or_else(|| "missing result value".to_owned())?,
+                    item: wire,
+                }
+            } else {
+                ProcessProviderItemOutcome::Disposition {
+                    capability_kind: parsed.kind,
+                    kind: parsed
+                        .disposition
+                        .ok_or_else(|| "missing disposition value".to_owned())?,
+                    item: wire,
+                }
+            };
+            items.push(ProviderItemResult {
+                request_index,
+                backend: quire_driver::Candidate {
+                    identity: parsed.backend,
+                },
+                result: Ok(ProcessProviderOutcome {
+                    item: outcome,
+                    response: Arc::clone(&response),
+                }),
+            });
+        }
+    }
+    items.sort_by_key(|item| item.request_index);
+    Ok(ProviderResults { items })
+}
 
 type ProviderWireTypes<M, Q, R, F, A, V, I, E> = fn() -> (M, Q, R, F, A, V, I, E);
 type SessionWireTypes<Q, R, V, I, E> = fn() -> (Q, R, V, I, E);
@@ -39,6 +285,12 @@ pub enum AdapterError<A, V, F> {
     /// Starting the explicit-path process or admitting its hello failed.
     #[error("plugin session start failed: {0}")]
     Start(PluginError<AdmissionFailure<A>, Infallible, F>),
+    /// The typed FR-331 request could not be projected from retained driver inputs.
+    #[error("plugin request projection failed: {0}")]
+    Encode(V),
+    /// The FR-331 result could not be retained in the shared provider carrier.
+    #[error("plugin result conversion failed: {0}")]
+    Convert(V),
     /// Sending a request, validating its result, or process monitoring failed.
     #[error("plugin request failed: {0}")]
     Request(PluginError<AdmissionFailure<A>, V, F>),
@@ -96,9 +348,9 @@ where
     R: DeserializeOwned,
     F: DeserializeOwned,
     Admit: Fn(&M) -> Result<(BackendDescriptor, quire_driver::ProviderManifest), A> + 'static,
-    Encode: for<'a> Fn(ProcessProviderRequest<'a>) -> Q + 'static,
+    Encode: for<'a> Fn(ProcessProviderRequest<'a>) -> Result<Q, V> + 'static,
     Validate: Fn(&M, &R) -> Result<(), V> + 'static,
-    Convert: Fn(R) -> ProviderResults<I, E> + 'static,
+    Convert: Fn(R) -> Result<ProviderResults<I, E>, V> + 'static,
 {
     type Session = HostProcessSession<M, Q, R, F, A, V, I, E, Encode, Validate, Convert>;
     type Error = AdapterError<A, V, F>;
@@ -174,9 +426,9 @@ where
     Q: Serialize,
     R: DeserializeOwned,
     F: DeserializeOwned,
-    Encode: for<'a> Fn(ProcessProviderRequest<'a>) -> Q,
+    Encode: for<'a> Fn(ProcessProviderRequest<'a>) -> Result<Q, V>,
     Validate: Fn(&M, &R) -> Result<(), V>,
-    Convert: Fn(R) -> ProviderResults<I, E>,
+    Convert: Fn(R) -> Result<ProviderResults<I, E>, V>,
 {
     type Error = AdapterError<A, V, F>;
     type ItemResult = I;
@@ -197,14 +449,14 @@ where
     ) -> Result<ProviderResults<Self::ItemResult, Self::ItemFailure>, Self::Error> {
         let cancel = request.cancel;
         let _request_active = self.signals.activate(cancel.clone());
-        let body = (self.encode)(request);
+        let body = (self.encode)(request).map_err(AdapterError::Encode)?;
         let result = self
             .host
             .request(&body, cancel, |manifest, result| {
                 (self.validate)(manifest, result)
             })
             .map_err(AdapterError::Request)?;
-        Ok((self.convert)(result))
+        (self.convert)(result).map_err(AdapterError::Convert)
     }
 
     fn shutdown(self) -> Result<Self::Diagnostics, Self::Error> {
@@ -348,9 +600,9 @@ mod tests {
                 assert!(!request.emitted_package.bytes().is_empty());
                 assert_eq!(request.deadline_ms, 4096);
                 assert!(!request.manifest.is_empty());
-                serde_json::json!({
+                Ok(serde_json::json!({
                     "items": request.provider_request.items().iter().map(|item| item.request_index).collect::<Vec<_>>()
-                })
+                }))
             },
             |manifest: &Hello, result: &serde_json::Value| {
                 if result["identity"] == manifest.identity {
@@ -365,7 +617,7 @@ mod tests {
                     .as_str()
                     .expect("echo fixture returns an identity")
                     .to_owned();
-                ProviderResults::<String, String> {
+                Ok(ProviderResults::<String, String> {
                     items: vec![ProviderItemResult {
                         request_index: 23,
                         backend: quire_driver::Candidate {
@@ -373,7 +625,7 @@ mod tests {
                         },
                         result: Ok(identity),
                     }],
-                }
+                })
             },
         );
         let cancel = Cancel::new();
@@ -414,6 +666,7 @@ mod tests {
             deadline_ms: 4096,
             manifest: &manifest,
             provider_request: ProviderRequest::new(&[]),
+            qsl_items: &[],
             cancel: &cancel,
         };
         let results = session.invoke(request).expect("host returns typed result");
@@ -459,7 +712,7 @@ mod tests {
                     .admit_process(limits().max_frame_bytes)
                     .map(|admitted| (admitted.descriptor().clone(), admitted.manifest().clone()))
             },
-            |_: ProcessProviderRequest<'_>| serde_json::json!({"items": []}),
+            |_: ProcessProviderRequest<'_>| Ok(serde_json::json!({"items": []})),
             |manifest: &ManifestStage, result: &serde_json::Value| {
                 if result["identity"] == manifest.manifest[0]["backend"] {
                     Ok(())
@@ -467,7 +720,7 @@ mod tests {
                     Err("result identity differs from admitted hello".to_owned())
                 }
             },
-            |_| ProviderResults::<serde_json::Value, String>::default(),
+            |_| Ok(ProviderResults::<serde_json::Value, String>::default()),
         );
         let cancel = Cancel::new();
         let fixture = backend_provider_fixture_path();
@@ -528,6 +781,7 @@ mod tests {
             deadline_ms: 4096,
             manifest: &manifest,
             provider_request: ProviderRequest::new(&[]),
+            qsl_items: &[],
             cancel: &cancel,
         };
         session
@@ -559,7 +813,7 @@ mod tests {
         >::new(
             crate::signals::SignalContext::default(),
             |manifest: &Hello| admit_hello(manifest, ProviderOrigin::Process, 9),
-            |_: ProcessProviderRequest<'_>| serde_json::json!({"items": []}),
+            |_: ProcessProviderRequest<'_>| Ok(serde_json::json!({"items": []})),
             |manifest: &Hello, result: &serde_json::Value| {
                 if result["identity"] == manifest.identity {
                     Ok(())
@@ -567,7 +821,7 @@ mod tests {
                     Err("result identity differs from admitted hello".to_owned())
                 }
             },
-            |_: serde_json::Value| ProviderResults::<serde_json::Value, String>::default(),
+            |_: serde_json::Value| Ok(ProviderResults::<serde_json::Value, String>::default()),
         );
         let cancel = Cancel::new();
         let fixture = wrong_result_fixture_path();
@@ -581,6 +835,7 @@ mod tests {
             deadline_ms: 4096,
             manifest: &[],
             provider_request: ProviderRequest::new(&[]),
+            qsl_items: &[],
             cancel: &cancel,
         };
         let error = session.invoke(request);
@@ -617,9 +872,9 @@ mod tests {
         >::new(
             crate::signals::SignalContext::default(),
             |manifest: &Hello| admit_hello(manifest, ProviderOrigin::Linked, 7),
-            |_: ProcessProviderRequest<'_>| serde_json::json!({}),
+            |_: ProcessProviderRequest<'_>| Ok(serde_json::json!({})),
             |_: &Hello, _: &serde_json::Value| Ok::<(), String>(()),
-            |_: serde_json::Value| ProviderResults::<serde_json::Value, String>::default(),
+            |_: serde_json::Value| Ok(ProviderResults::<serde_json::Value, String>::default()),
         );
         let fixture = fixture_path();
         let error = provider.start(

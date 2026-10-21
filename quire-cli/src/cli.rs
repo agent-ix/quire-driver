@@ -17,10 +17,13 @@ use qsl_replay::spine::{
     check, default_accounting, package, parse, select, Call, CallArgument, DependencyInput,
     LockEvidence, PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
 };
+use qsl_replay::{run_with_requirements, CallOutcome, RunRefusal};
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use qsl_semantics::value::supplied::SuppliedLimits;
 use quire_driver::{
-    execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides, ObjectEnvironment,
+    build_linked_providers, drive, execute, CompileInput, Driven, ExecutionEngine,
+    ExecutionFailure, ExecutionRequest, GenerationInput, LimitOverrides, ObjectEnvironment,
+    ProcessProviderLimits, ProcessProviderRequest, ProviderRequest, ProviderResults, QslCg,
 };
 use quire_exact::Cancel;
 use quire_exact::{Integer, Value};
@@ -217,6 +220,118 @@ struct RunOptions {
     limits: LimitOverrides,
     engine: ExecutionEngine,
     provider_config: Option<std::path::PathBuf>,
+}
+
+type CliProviderError = crate::process_provider::AdapterError<
+    crate::backend_provider::ManifestAdmissionError,
+    String,
+    serde_json::Value,
+>;
+type CliProviderEncode =
+    for<'a> fn(ProcessProviderRequest<'a>) -> Result<crate::backend_provider::RequestStage, String>;
+type CliProviderValidate =
+    fn(&crate::backend_provider::ManifestStage, &serde_json::Value) -> Result<(), String>;
+type CliProviderConvert =
+    fn(
+        serde_json::Value,
+    )
+        -> Result<ProviderResults<crate::process_provider::ProcessProviderOutcome, String>, String>;
+type CliProviderSession = crate::process_provider::HostProcessSession<
+    crate::backend_provider::ManifestStage,
+    crate::backend_provider::RequestStage,
+    serde_json::Value,
+    serde_json::Value,
+    crate::backend_provider::ManifestAdmissionError,
+    String,
+    crate::process_provider::ProcessProviderOutcome,
+    String,
+    CliProviderEncode,
+    CliProviderValidate,
+    CliProviderConvert,
+>;
+
+struct ActiveConfiguredProvider {
+    deadline_ms: u64,
+    session: CliProviderSession,
+}
+
+struct ConfiguredCall {
+    package_id: qsl_semantics::library::PackageId,
+    outcome: CallOutcome,
+    requirements: qsl_replay::CallRequirements,
+}
+
+/// The configured run retains both compositions until QSL settlement owns the
+/// provider result mapping. No provider result is converted to a terminal.
+struct ConfiguredRun {
+    call: ConfiguredCall,
+    driven: Driven,
+    provider_results: Vec<ProviderResults<crate::process_provider::ProcessProviderOutcome, String>>,
+    diagnostics: Vec<quire_plugin_host::SessionFinished<crate::backend_provider::ManifestStage>>,
+}
+
+enum ConfiguredRunErrorKind {
+    Call(Box<RunRefusal>),
+    Start {
+        provider: String,
+        source: CliProviderError,
+    },
+    Register(quire_driver::DriverRefusal),
+    Drive(quire_driver::DriverRefusal),
+    PackageMismatch,
+    Pairing(crate::process_provider::CallItemProjectionError),
+    Invoke {
+        provider: String,
+        source: CliProviderError,
+        partial_results:
+            Vec<ProviderResults<crate::process_provider::ProcessProviderOutcome, String>>,
+    },
+    Shutdown {
+        partial_results:
+            Vec<ProviderResults<crate::process_provider::ProcessProviderOutcome, String>>,
+    },
+}
+
+struct ConfiguredRunFailure {
+    call: Option<ConfiguredCall>,
+    document: OutcomeDocument,
+    kind: ConfiguredRunErrorKind,
+    cleanup_diagnostics:
+        Vec<quire_plugin_host::SessionFinished<crate::backend_provider::ManifestStage>>,
+    cleanup_failures: Vec<CliProviderError>,
+}
+
+fn close_configured_providers(
+    sessions: Vec<ActiveConfiguredProvider>,
+) -> (
+    Vec<quire_plugin_host::SessionFinished<crate::backend_provider::ManifestStage>>,
+    Vec<CliProviderError>,
+) {
+    let mut diagnostics = Vec::new();
+    let mut failures = Vec::new();
+    for active in sessions {
+        match active.session.shutdown() {
+            Ok(finished) => diagnostics.push(finished),
+            Err(error) => failures.push(error),
+        }
+    }
+    (diagnostics, failures)
+}
+
+fn configured_failure_after_call(
+    call: ConfiguredCall,
+    kind: ConfiguredRunErrorKind,
+    sessions: Vec<ActiveConfiguredProvider>,
+) -> ConfiguredRunFailure {
+    let document = call_outcome_document(call.package_id, &call.outcome);
+    let (cleanup_diagnostics, cleanup_failures) = close_configured_providers(sessions);
+    ConfiguredRunFailure {
+        call: Some(call),
+        document,
+        kind,
+        cleanup_diagnostics,
+        cleanup_failures,
+    }
 }
 
 struct CompileOptions {
@@ -448,6 +563,7 @@ struct CommandResult {
     document: Option<OutcomeDocument>,
     diagnostic: Option<String>,
     text_output: Option<String>,
+    configured_run: Option<Result<ConfiguredRun, ConfiguredRunFailure>>,
 }
 
 impl CommandResult {
@@ -457,6 +573,7 @@ impl CommandResult {
             document: Some(document),
             diagnostic: None,
             text_output: None,
+            configured_run: None,
         }
     }
 
@@ -466,6 +583,7 @@ impl CommandResult {
             document: None,
             diagnostic: Some(message.into()),
             text_output: None,
+            configured_run: None,
         }
     }
 
@@ -475,6 +593,7 @@ impl CommandResult {
             document: Some(document),
             diagnostic: None,
             text_output,
+            configured_run: None,
         }
     }
 
@@ -501,6 +620,34 @@ impl CommandResult {
         self.diagnostic = Some(message.into());
         self
     }
+
+    fn configured(run: Result<ConfiguredRun, ConfiguredRunFailure>) -> Self {
+        let document = match &run {
+            Ok(completed) => Some(call_outcome_document(
+                completed.call.package_id,
+                &completed.call.outcome,
+            )),
+            Err(failure) => Some(failure.document.clone()),
+        };
+        let category = document
+            .as_ref()
+            .map_or(Category::Fault, OutcomeDocument::category);
+        Self {
+            category,
+            document,
+            diagnostic: None,
+            text_output: None,
+            configured_run: Some(run),
+        }
+    }
+}
+
+fn call_outcome_document(
+    package_id: qsl_semantics::library::PackageId,
+    outcome: &CallOutcome,
+) -> OutcomeDocument {
+    OutcomeDocument::from_call(outcome)
+        .with_artifacts(vec![qsl_replay::OutcomeArtifact::package_id(package_id)])
 }
 
 fn write_result_diagnostics<W: Write>(result: &CommandResult, sink: &mut W) -> io::Result<()> {
@@ -529,12 +676,6 @@ fn run(options: RunOptions) -> CommandResult {
         },
         None => crate::provider_config::ProviderConfig::default(),
     };
-    if !provider_config.providers.is_empty() {
-        return CommandResult::catalog_failure(
-            Code::UnimplementedCapability,
-            "process-provider dispatch is not available in this command path",
-        );
-    }
     if options.engine != ExecutionEngine::Interpreter {
         let failure = ExecutionFailure::UnsupportedEngine(options.engine);
         return CommandResult::document(failure.into_document());
@@ -559,6 +700,19 @@ fn run(options: RunOptions) -> CommandResult {
         }
     };
     let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
+    if !provider_config.providers.is_empty() {
+        return CommandResult::configured(run_configured_providers(
+            &options.path,
+            &bytes,
+            source,
+            limits,
+            call,
+            packages,
+            dependencies,
+            provider_config,
+            crate::signals::SignalContext::default(),
+        ));
+    }
     match execute(ExecutionRequest {
         source,
         path: &options.path,
@@ -574,6 +728,252 @@ fn run(options: RunOptions) -> CommandResult {
         Ok(result) => CommandResult::document(result.document),
         Err(failure) => CommandResult::document(failure.into_document()),
     }
+}
+
+fn run_configured_providers(
+    path: &str,
+    bytes: &[u8],
+    source: SourceIdentity,
+    limits: SpineLimits,
+    call: Call,
+    packages: BTreeMap<[u8; 32], Vec<u8>>,
+    dependencies: DependencyInput,
+    config: crate::provider_config::ProviderConfig,
+    signals: crate::signals::SignalContext,
+) -> Result<ConfiguredRun, ConfiguredRunFailure> {
+    let cancel = Cancel::new();
+    let objects = ObjectEnvironment::default();
+
+    // This is the one interpreter call. The driver performs the separate
+    // package negotiation/generation pipeline below and does not call execute.
+    let call_run = run_with_requirements(
+        source.clone(),
+        path,
+        bytes,
+        &packages,
+        &dependencies,
+        limits,
+        &call,
+        &objects,
+        &cancel,
+    );
+    let call_run = match call_run {
+        Ok(run) => run,
+        Err(refusal) => {
+            let failed_run: Result<
+                (qsl_semantics::library::PackageId, CallOutcome),
+                Box<RunRefusal>,
+            > = Err(refusal);
+            let document = OutcomeDocument::from_run(&failed_run);
+            let Err(refusal) = failed_run else {
+                return Err(ConfiguredRunFailure {
+                    call: None,
+                    document,
+                    kind: ConfiguredRunErrorKind::PackageMismatch,
+                    cleanup_diagnostics: Vec::new(),
+                    cleanup_failures: Vec::new(),
+                });
+            };
+            return Err(ConfiguredRunFailure {
+                call: None,
+                document,
+                kind: ConfiguredRunErrorKind::Call(refusal),
+                cleanup_diagnostics: Vec::new(),
+                cleanup_failures: Vec::new(),
+            });
+        }
+    };
+    let (package_id, outcome, requirements) = call_run.into_parts();
+    let call = ConfiguredCall {
+        package_id,
+        outcome,
+        requirements,
+    };
+
+    // Start and admit every configured process before the driver's negotiation.
+    let mut active = Vec::with_capacity(config.providers.len());
+    for configured in config.providers {
+        let provider_name = configured.executable.display().to_string();
+        let max_frame_bytes = configured.limits.max_frame_bytes;
+        let provider = crate::process_provider::HostProcessProvider::new(
+            signals.clone(),
+            move |manifest: &crate::backend_provider::ManifestStage| {
+                manifest
+                    .admit_process(max_frame_bytes)
+                    .map(|admitted| (admitted.descriptor().clone(), admitted.manifest().clone()))
+            },
+            crate::process_provider::encode_fr331_request as CliProviderEncode,
+            crate::process_provider::validate_fr331_response as CliProviderValidate,
+            crate::process_provider::convert_fr331_response as CliProviderConvert,
+        );
+        let arguments = configured
+            .argv
+            .into_iter()
+            .map(OsString::from)
+            .collect::<Vec<_>>();
+        let process_limits = ProcessProviderLimits {
+            max_frame_bytes: configured.limits.max_frame_bytes,
+            max_total_bytes: configured.limits.max_total_bytes,
+            max_stderr_bytes: configured.limits.max_stderr_bytes,
+            cancellation_grace: std::time::Duration::from_millis(
+                configured.limits.cancellation_grace_ms,
+            ),
+            max_process_memory_bytes: configured.limits.max_process_memory_bytes,
+            max_process_cpu_time: configured
+                .limits
+                .max_process_cpu_time_ms
+                .map(std::time::Duration::from_millis),
+        };
+        match provider.start(&configured.executable, &arguments, process_limits, &cancel) {
+            Ok(session) => active.push(ActiveConfiguredProvider {
+                deadline_ms: configured.deadline_ms,
+                session,
+            }),
+            Err(source) => {
+                return Err(configured_failure_after_call(
+                    call,
+                    ConfiguredRunErrorKind::Start {
+                        provider: provider_name,
+                        source,
+                    },
+                    active,
+                ));
+            }
+        }
+    }
+
+    let admissions = active.iter().map(|provider| {
+        (
+            provider.session.descriptor().clone(),
+            provider.session.manifest().clone(),
+        )
+    });
+    let mut linked = match build_linked_providers(&[]) {
+        Ok(linked) => linked,
+        Err(source) => {
+            return Err(configured_failure_after_call(
+                call,
+                ConfiguredRunErrorKind::Register(source),
+                active,
+            ));
+        }
+    };
+    if let Err(source) = linked.register_admitted(admissions) {
+        return Err(configured_failure_after_call(
+            call,
+            ConfiguredRunErrorKind::Register(source),
+            active,
+        ));
+    }
+
+    let driven = match drive(
+        &QslCg,
+        CompileInput {
+            source,
+            path,
+            bytes,
+            packages: &packages,
+            limits,
+            cancel: cancel.clone(),
+        },
+        linked.registry(),
+        None,
+        GenerationInput::default(),
+    ) {
+        Ok(driven) => driven,
+        Err(source) => {
+            return Err(configured_failure_after_call(
+                call,
+                ConfiguredRunErrorKind::Drive(source),
+                active,
+            ));
+        }
+    };
+    let projection = match crate::process_provider::project_call_items(
+        call.package_id,
+        &call.requirements,
+        &driven,
+    ) {
+        Ok(projection) => projection,
+        Err(source) => {
+            return Err(configured_failure_after_call(
+                call,
+                ConfiguredRunErrorKind::Pairing(source),
+                active,
+            ));
+        }
+    };
+    let manifest_snapshot = linked.manifest_snapshot();
+    let mut provider_results = Vec::new();
+    let mut invoke_failure = None;
+    for provider in &mut active {
+        let backend = provider.session.descriptor().id().as_str();
+        let routed = projection
+            .routed
+            .iter()
+            .filter(|item| item.backend.identity == backend)
+            .cloned()
+            .collect::<Vec<_>>();
+        if routed.is_empty() {
+            continue;
+        }
+        let routed_indices = routed
+            .iter()
+            .map(|item| item.request_index)
+            .collect::<BTreeSet<_>>();
+        let qsl_items = projection
+            .items
+            .iter()
+            .filter(|item| routed_indices.contains(&item.index().get()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let request = ProcessProviderRequest {
+            emitted_package: driven.emitted(),
+            deadline_ms: provider.deadline_ms,
+            manifest: &manifest_snapshot,
+            provider_request: ProviderRequest::new(&routed),
+            qsl_items: &qsl_items,
+            cancel: &cancel,
+        };
+        match provider.session.invoke(request) {
+            Ok(results) => provider_results.push(results),
+            Err(source) => {
+                invoke_failure = Some((backend.to_owned(), source));
+                break;
+            }
+        }
+    }
+    if let Some((provider, source)) = invoke_failure {
+        return Err(configured_failure_after_call(
+            call,
+            ConfiguredRunErrorKind::Invoke {
+                provider,
+                source,
+                partial_results: provider_results,
+            },
+            active,
+        ));
+    }
+
+    let (diagnostics, failures) = close_configured_providers(active);
+    if !failures.is_empty() {
+        let document = call_outcome_document(call.package_id, &call.outcome);
+        return Err(ConfiguredRunFailure {
+            call: Some(call),
+            document,
+            kind: ConfiguredRunErrorKind::Shutdown {
+                partial_results: provider_results,
+            },
+            cleanup_diagnostics: diagnostics,
+            cleanup_failures: failures,
+        });
+    }
+    Ok(ConfiguredRun {
+        call,
+        driven,
+        provider_results,
+        diagnostics,
+    })
 }
 
 /// Compile one source through QSL's typed spine and serialize its package outcome.
@@ -814,6 +1214,7 @@ fn dispatch(
         document: None,
         diagnostic: None,
         text_output: None,
+        configured_run: None,
     }
 }
 

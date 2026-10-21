@@ -351,9 +351,48 @@ pub enum RequestStageError {
     /// The request index does not identify exactly one QSL-produced item.
     #[error("the routed request index has no matching QSL request item")]
     MissingQslRequestItem,
+    /// The retained QSL sidecar contains the same request index more than once.
+    #[error("the routed request index has multiple matching QSL request items")]
+    AmbiguousQslRequestItem,
+    /// The generated backend identity cannot be represented as a QSL id.
+    #[error("the generated process backend identity is invalid")]
+    RoutedBackendIdentity,
 }
 
 impl RequestStage {
+    /// Build the FR-331 request from the exact production process request,
+    /// joining each generated item to its retained QSL request item.
+    pub fn from_process_request(
+        request: &quire_driver::ProcessProviderRequest<'_>,
+    ) -> Result<Self, RequestStageError> {
+        let items = request
+            .provider_request
+            .items()
+            .iter()
+            .map(|generated| {
+                let backend = BackendId::from_wire(&generated.backend.identity)
+                    .map_err(|_| RequestStageError::RoutedBackendIdentity)?;
+                let mut matching_items = request
+                    .qsl_items
+                    .iter()
+                    .filter(|item| item.index().get() == generated.request_index);
+                let item = matching_items
+                    .next()
+                    .ok_or(RequestStageError::MissingQslRequestItem)?;
+                if matching_items.next().is_some() {
+                    return Err(RequestStageError::AmbiguousQslRequestItem);
+                }
+                RequestItem::from_qsl(item, &backend)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Self::from_emitted(
+            request.emitted_package,
+            request.manifest,
+            request.deadline_ms,
+            items,
+        )
+    }
+
     /// Build one process-provider request from the routed items, the exact
     /// QSL request items used for CG negotiation, and the retained registry
     /// manifest.

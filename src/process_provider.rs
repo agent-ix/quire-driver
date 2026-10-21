@@ -12,6 +12,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use qsl_package::EmittedPackage;
+use qsl_route::request::RequirementItem;
 use qsl_route::BackendDescriptor;
 use quire_exact::Cancel;
 
@@ -47,6 +48,9 @@ pub struct ProcessProviderRequest<'a> {
     pub manifest: &'a [ProviderManifest],
     /// Driver-owned typed request for this provider's negotiated items.
     pub provider_request: ProviderRequest<'a>,
+    /// The exact QSL request items from the `Driven` value, indexed by each
+    /// routed generation item's original request index.
+    pub qsl_items: &'a [RequirementItem],
     /// Caller-owned cancellation handle for this request.
     pub cancel: &'a Cancel,
 }
