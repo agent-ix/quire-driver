@@ -18,9 +18,8 @@ help:
 	@echo "  make tools            - Install/check rustfmt, clippy, cargo-deny, and quire"
 	@echo "  make deny             - cargo deny check licenses sources"
 	@echo "  make spec             - quire validate over spec/"
-	@echo "  make audit-unsafe     - Enforce // SAFETY: comments on unsafe blocks"
 	@echo "  make docs             - cargo doc, denying missing/broken doc links"
-	@echo "  make ci               - All CI gates locally (fmt-check + lint + test + deny + audit-unsafe + docs + spec)"
+	@echo "  make ci               - All CI gates locally (fmt-check + lint + test + deny + docs + spec)"
 
 # =============================================================================
 # Format / Lint / Test
@@ -107,10 +106,6 @@ deny:
 cargo-audit:
 	$(CARGO) audit
 
-.PHONY: audit-unsafe
-audit-unsafe:
-	bash scripts/check_unsafe_comments.sh
-
 # =============================================================================
 # Documentation
 # =============================================================================
@@ -134,4 +129,4 @@ spec:
 # =============================================================================
 
 .PHONY: ci
-ci: fmt-check lint test deny audit-unsafe docs spec
+ci: fmt-check lint test deny docs spec

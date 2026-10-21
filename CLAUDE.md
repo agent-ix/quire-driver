@@ -24,8 +24,7 @@ make clean          # cargo clean
 make tools          # install/check rustfmt, clippy, cargo-deny, and quire
 make deny           # cargo deny check licenses sources
 make spec           # quire validate 'spec/**/*.md'
-make audit-unsafe   # check that every unsafe block has a // SAFETY: comment
-make ci             # fmt-check + lint + test + deny + audit-unsafe + docs + spec
+make ci             # fmt-check + lint + test + deny + docs + spec
 ```
 
 The `quire-cli` tests `signal_is_forwarded_after_active_cleanup_and_defaults_without_a_session`
@@ -39,7 +38,7 @@ or exceed a bounded wait (observed in about 6–7 s in sandbox runs versus about
 
 - `clippy.toml` caps cognitive complexity / arg count
 - `deny.toml` allow-lists licenses and denies unknown registries/git sources
-- `scripts/check_unsafe_comments.sh` runs in CI and locally via `make audit-unsafe`. Every `unsafe {` block must have a `// SAFETY:` comment within the 3 preceding lines, or be listed in `scripts/unsafe_comment_baseline.txt`. Update the baseline with `bash scripts/check_unsafe_comments.sh --update-baseline`.
+- Workspace Clippy `undocumented_unsafe_blocks` checks safety comments. Every workspace crate also forbids unsafe code at compile time.
 - `rustfmt.toml` uses 100-char width and `StdExternalCrate` import grouping. CI fails on drift.
 
 ## Layout

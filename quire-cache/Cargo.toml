@@ -23,9 +23,5 @@ qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.190"
 
-[lints.rust]
-unsafe_code = "forbid"
-missing_docs = "warn"
-
-[lints.clippy]
-all = "deny"
+[lints]
+workspace = true
