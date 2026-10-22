@@ -148,3 +148,5 @@ contributor notes and the crate layout.
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE) and
 [CONTENT_RIGHTS.md](CONTENT_RIGHTS.md).
+
+<!-- STD-30 language-boundary canary: inert README change. -->
