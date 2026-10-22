@@ -202,8 +202,8 @@ static OVERFLOW_UNIT: LazyLock<String> = LazyLock::new(shared_units::overflow_un
 /// dead), so routing this `+` to Kani settles the same
 /// `Unsupported`/`ResultBoundUnreachable` `OVERFLOW_UNIT`'s direct case
 /// never reaches CG to report. The `if` guard (`x > 20`) is itself a scalar
-/// comparison, so this unit has two requirement records: the guard and the
-/// `+`, keyed in occurrence order (the `+`'s node digest sorts first).
+/// comparison, so this unit has two requirement records in QSL occurrence-key
+/// order: the guard first and the `+` second for this checked package.
 static DEAD_BRANCH_UNIT: LazyLock<String> = LazyLock::new(|| {
     unit("function unreachable_branch using v(x: Int[0, 9]): Int[0, 10] pure { if x > 20 then x + 100 else 0 }\n")
 });
@@ -2303,7 +2303,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
     assert!(driven.routed.is_empty());
     assert!(driven.generation().items.is_empty());
     assert!(matches!(
-        &driven.settlements[0].backend.as_ref().expect("a lowered item settles").disposition,
+        &driven.settlements[1].backend.as_ref().expect("a lowered item settles").disposition,
         Disposition::Unsupported {
             cause: Cause::KaniFormRefused {
                 refusal: UnsupportedObligation::ResultBoundUnreachable {
@@ -2320,7 +2320,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
             && reachable_upper == "109"
     ));
     assert!(matches!(
-        &driven.settlements[1].backend.as_ref().expect("a lowered item settles").disposition,
+        &driven.settlements[0].backend.as_ref().expect("a lowered item settles").disposition,
         Disposition::Unsupported {
             cause: Cause::KaniFormRefused {
                 refusal: UnsupportedObligation::OperationNotRendered {
