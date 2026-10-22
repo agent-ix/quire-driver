@@ -11,6 +11,12 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-contract-codegen/FR-029
     type: depends_on
+  - target: ix://agent-ix/quire-specification/FR-323
+    type: depends_on
+  - target: ix://agent-ix/quire-spec-language/FR-121
+    type: depends_on
+  - target: ix://agent-ix/quire-contract-codegen/FR-024
+    type: depends_on
 ---
 # FR-009: Settle executions after replaying counterexamples
 
@@ -34,6 +40,10 @@ replay context through QSL evaluation and report handling.
 - The request items, provider results, generated artifacts and cancellation
   handle.
 - The QSL replay result for each provider counterexample.
+- For an operation-frame replay, QSL's validated typed `frame_operation`
+  selection containing the declaring object type and operation identifier,
+  paired with the selected CG item by the same admitted package and request
+  index.
 - For a routed scalar replay, one retained context containing the exact
   generated artifact and emitted package, scalar identity and occurrence,
   ordered operands, original `ScalarLimits` and `ReplayLimits`, and the
@@ -95,6 +105,30 @@ replay context through QSL evaluation and report handling.
   `GeneratedFault`, `RefusedInput`, `Incomplete`, and other typed refusals
   retain the meanings those contracts define.
 - The driver SHALL NOT settle a scalar operator-parity result as `refuted`.
+- For an operation-frame counterexample, the driver SHALL project the exact
+  QSL `OperationSite.frame_operation` value to the CG selected item associated
+  with the same admitted package identity and request index. It SHALL preserve
+  the typed pair unchanged. QSL FR-121 owns the pair's shape and declaring
+  object resolution; QSpec FR-323 owns the replay-target and packet/request
+  shape. The driver does not derive the pair from CG's function selection or
+  caller-supplied operation spelling.
+- The driver SHALL NOT infer a function target, select a different package or
+  request index, or add another routed item for an operation-frame replay.
+- When QSL call-site selection returns a typed refusal, the driver SHALL
+  preserve that refusal unchanged and stop before CG frame-target construction,
+  replay, settlement, or terminal creation. It SHALL NOT recast that upstream
+  refusal as a driver join fault.
+- When QSL call-site selection succeeds but the driver's retained association
+  between that result and its CG selected item contains a package identity or
+  request index that differs from the corresponding value on the CG item,
+  the driver SHALL return FR-001's typed `runtime_invariant` fault and stop
+  before CG frame-target construction, replay, settlement, or terminal
+  creation. A typed refusal actually returned by CG is preserved under its
+  owning contract; it is not the driver's join-fault condition.
+- This driver mapping covers object-type operations selected through QSL's
+  current call-site API. Process/state-machine operations are not selectable
+  through that API. State-clause target projection is outside this requirement
+  pending QSL-973 and its applicable CG contract.
 - When QSL replay refuses, the driver SHALL preserve its typed replay cause.
 - When QSL replay faults, the driver SHALL settle the item as a failed
   internal result and SHALL NOT report a reproduced counterexample.
@@ -185,9 +219,19 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-14 | For a Kani result, the driver passes the original CG `KaniExecutionEvidence` and optional replay settlement to CG `run_terminal_value`; it preserves the resulting typed terminal without adding a driver mapping. The map receives the evidence's actual optional `failure_cause`; the driver invents or infers no cause. | Test (`src/provider.rs::falsified_scalar_does_not_guess_a_replay_settlement`, `src/provider.rs::cg_terminal_mapping_reads_original_failure_cause_not_diagnostics`; TC-016) |
 | FR-009-AC-15 | Changing or omitting optional CG diagnostics while holding the outcome, success-check count, failure cause, and replay settlement fixed does not change the terminal produced by CG `run_terminal_value`; the driver does not parse diagnostic content to classify or map a result. | Test (`src/provider.rs::cg_terminal_mapping_reads_original_failure_cause_not_diagnostics`; TC-016; CG FR-017-AC-36 and FR-029) |
 | FR-009-AC-16 | For the FR-010-AC-4 vector and a proof request that reaches per-item settlement, the outcome holds one terminal record for each of A and C and none for B, whose refusal appears only in `Driven`'s per-item refusal member. | Test (TC-017) |
+| FR-009-AC-17 | For an operation-frame replay selected from an admitted package, the driver projects QSL's exact typed `OperationSite.frame_operation` value to the CG selected item associated with the same admitted package identity and request index, without changing the pair or deriving it from CG selection or caller spelling. QSL FR-121 owns pair shape and declaring-object resolution; QSpec FR-323 owns replay-target and packet/request shape. This driver criterion covers only object-type operations exposed by QSL's current call-site API; process/state-machine operations and state-clause projection are outside scope. | Planned (TC-016; QSL FR-121 / QSL-972; QSpec FR-323; CG IR-958 public API) |
+| FR-009-AC-18 | When QSL call-site selection returns a typed refusal for a frame operation, the driver preserves that refusal unchanged and stops before CG frame-target construction, replay, settlement, or terminal creation; it does not recast the refusal as a driver join fault. | Planned (TC-016; QSL FR-121 / QSL-972) |
+| FR-009-AC-19 | When QSL call-site selection succeeds but the driver detects that its retained association of the QSL result to the CG selected item has a package identity or request index that differs from the corresponding value on the CG item, the driver returns FR-001's typed `runtime_invariant` fault and stops before CG frame-target construction, replay, settlement, or terminal creation. A typed refusal actually returned by CG is preserved under CG's contract and is not this driver-detected join fault. | Planned (TC-016; CG IR-958 public API; FR-001) |
 
 ## Dependencies
 
+- QSL FR-323 owns the three replay-target alternatives and the frame-request
+  omission of arguments and occurrence key; QSL FR-121 / QSL #1215 owns the
+  validated typed operation call-site result and its declaring object for
+  inherited and redefined object-type operations. CG FR-024 / IR-958 owns the
+  selected-item packet projection and its typed failure behavior. The driver
+  mapping in FR-009-AC-17 through FR-009-AC-19 is planned until those public
+  APIs are available. QSL-973 owns the separate state-clause target API.
 - QSL ADR-029 LC-1, CB-4 and library operation `prove`; ADR-013 O-16 and
   C-09; QSL FR-357 observation-digest and report-claim contract; CG FR-032
   native-observation and scalar-replay binding contract; CG FR-017 owns Kani
