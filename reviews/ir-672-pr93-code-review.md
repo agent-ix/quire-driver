@@ -76,3 +76,9 @@ Reviewed scope: the frozen final PR diff and supported-cohort/rebase delta, as i
 PASS: narrow gate-fix review. TC-006 and its test now identify the guard at request index 0 and the add at index 1 in this checked package. Pinned QSL items_from_requirements enumerates the BTreeMap of OccurrenceKey records; driver validates settlement request order. Both exact typed disposition oracles remain intact: integer.gt OperationNotRendered with the same derived integer range, and integer.add ResultBoundUnreachable with result [0,10] and reachable [100,109]. Neither item is routed/generated. The fix changes no production code, failure category, assertion strength or settlement behavior. No new finding. No builds/tests/gates run by reviewer.
 
 Examined: `TC-006` step 10/expected result (tests and spec agree on ascending occurrence-key request order); `FR-001-AC-6` (generation only after routing, keyed by request index); `tests/drive.rs::tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable` (exact typed refusals and empty routed/generated sets preserved).
+
+## Approved lock-only revalidation
+
+PASS: narrow approved lock-only delta. Only Cargo.lock changes: all nine QSL packages resolve 485ccaa3bd289ae94baa74e96a976adce99fd0d8 and quire-exact resolves 72b254219fd65a058b8cf93cefadda1c4c249fca. CG 2c1db3e3, IR d0737774, FCD ac62202a, quire-rs fd1cdd9d, QSV 1a38c06f, runtime 3cc88c48 and ix-trace-rs 9378a677 are retained. TOML inspection verifies one revision per first-party repository. No source/spec delta; prior findings remain fixed. Scope is the explicitly approved QSL/exact update, with no claim that an unpublished future CG/FCD cohort has landed. No builds/tests/gates run by reviewer.
+
+Examined: Cargo.lock source identities and package records; prior source/spec dispositions remain valid because neither source nor spec changed.
