@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Parser and command handlers for the user-facing `quire` binary.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -17,10 +17,14 @@ use qsl_replay::spine::{
     check, default_accounting, package, parse, select, Call, CallArgument, DependencyInput,
     LockEvidence, PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
 };
+use qsl_replay::{run_with_requirements, CallOutcome, RunRefusal};
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use qsl_semantics::value::supplied::SuppliedLimits;
 use quire_driver::{
-    execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, LimitOverrides, ObjectEnvironment,
+    build_linked_providers, drive, execute, CompileInput, Driven, ExecutionEngine,
+    ExecutionFailure, ExecutionRequest, GenerationInput, LimitOverrides, ObjectEnvironment,
+    ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,
+    ProviderRequest, ProviderResults, QslCg,
 };
 use quire_exact::Cancel;
 use quire_exact::{Integer, Value};
@@ -216,6 +220,149 @@ struct RunOptions {
     arguments: Vec<CallArgument>,
     limits: LimitOverrides,
     engine: ExecutionEngine,
+    provider_config: Option<std::path::PathBuf>,
+}
+
+type CliProviderError = crate::process_provider::AdapterError<
+    crate::backend_provider::ManifestAdmissionError,
+    String,
+    serde_json::Value,
+>;
+type CliProviderEncode =
+    for<'a> fn(ProcessProviderRequest<'a>) -> Result<crate::backend_provider::RequestStage, String>;
+type CliProviderValidate =
+    fn(&crate::backend_provider::ManifestStage, &serde_json::Value) -> Result<(), String>;
+type CliProviderConvert =
+    fn(
+        serde_json::Value,
+    )
+        -> Result<ProviderResults<crate::process_provider::ProcessProviderOutcome, String>, String>;
+type CliProviderSession = crate::process_provider::HostProcessSession<
+    crate::backend_provider::ManifestStage,
+    crate::backend_provider::RequestStage,
+    serde_json::Value,
+    serde_json::Value,
+    crate::backend_provider::ManifestAdmissionError,
+    String,
+    crate::process_provider::ProcessProviderOutcome,
+    String,
+    CliProviderEncode,
+    CliProviderValidate,
+    CliProviderConvert,
+>;
+
+struct ActiveConfiguredProvider {
+    deadline_ms: u64,
+    session: CliProviderSession,
+}
+
+#[derive(Debug)]
+struct ConfiguredCall {
+    package_id: qsl_semantics::library::PackageId,
+    outcome: CallOutcome,
+    requirements: qsl_replay::CallRequirements,
+}
+
+/// The configured run retains both compositions until QSL settlement owns the
+/// provider result mapping. No provider result is converted to a terminal.
+#[allow(
+    dead_code,
+    reason = "QSL-655 settlement will consume the retained typed composition"
+)]
+struct ConfiguredRun {
+    call: ConfiguredCall,
+    driven: Driven,
+    provider_results: Vec<ProviderResults<crate::process_provider::ProcessProviderOutcome, String>>,
+    diagnostics: Vec<quire_plugin_host::SessionFinished<crate::backend_provider::ManifestStage>>,
+}
+
+#[allow(
+    dead_code,
+    reason = "typed configured-run failures remain unmapped until their QSL contracts land"
+)]
+#[derive(Debug)]
+enum ConfiguredRunErrorKind {
+    Call(Box<RunRefusal>),
+    DuplicateIdentity {
+        backend: String,
+    },
+    Start {
+        provider: String,
+        source: CliProviderError,
+    },
+    Register(quire_driver::DriverRefusal),
+    Drive(quire_driver::DriverRefusal),
+    PackageMismatch,
+    Pairing(crate::process_provider::CallItemProjectionError),
+    Invoke {
+        provider: String,
+        source: CliProviderError,
+        partial_results:
+            Vec<ProviderResults<crate::process_provider::ProcessProviderOutcome, String>>,
+    },
+    Shutdown {
+        partial_results:
+            Vec<ProviderResults<crate::process_provider::ProcessProviderOutcome, String>>,
+    },
+}
+
+#[allow(
+    dead_code,
+    reason = "QSL-655 settlement will consume typed failure and cleanup details"
+)]
+#[derive(Debug)]
+struct ConfiguredRunFailure {
+    call: Option<ConfiguredCall>,
+    document: OutcomeDocument,
+    kind: ConfiguredRunErrorKind,
+    cleanup_diagnostics:
+        Vec<quire_plugin_host::SessionFinished<crate::backend_provider::ManifestStage>>,
+    cleanup_failures: Vec<CliProviderError>,
+}
+
+struct ConfiguredRunRequest<'a> {
+    path: &'a str,
+    bytes: &'a [u8],
+    source: SourceIdentity,
+    limits: SpineLimits,
+    call: Call,
+    packages: BTreeMap<[u8; 32], Vec<u8>>,
+    dependencies: DependencyInput,
+    config: crate::provider_config::ProviderConfig,
+    signals: crate::signals::SignalContext,
+}
+
+fn close_configured_providers(
+    sessions: Vec<ActiveConfiguredProvider>,
+) -> (
+    Vec<quire_plugin_host::SessionFinished<crate::backend_provider::ManifestStage>>,
+    Vec<CliProviderError>,
+) {
+    let mut diagnostics = Vec::new();
+    let mut failures = Vec::new();
+    for active in sessions {
+        match active.session.shutdown() {
+            Ok(finished) => diagnostics.push(finished),
+            Err(error) => failures.push(error),
+        }
+    }
+    (diagnostics, failures)
+}
+
+fn configured_failure_after_call(
+    call: ConfiguredCall,
+    kind: ConfiguredRunErrorKind,
+    sessions: Vec<ActiveConfiguredProvider>,
+) -> Box<ConfiguredRunFailure> {
+    let document = call_outcome_document(call.package_id, &call.outcome);
+    let (cleanup_diagnostics, cleanup_failures) = close_configured_providers(sessions);
+    Box::new(ConfiguredRunFailure {
+        call: Some(call),
+        document,
+        kind,
+        cleanup_diagnostics,
+        cleanup_failures,
+    })
 }
 
 struct CompileOptions {
@@ -347,6 +494,7 @@ impl RunOptions {
         let mut positionals = Vec::new();
         let mut limit_operands = Vec::new();
         let mut engine = None;
+        let mut provider_config: Option<std::path::PathBuf> = None;
         let mut index = 0;
         while index < arguments.len() {
             let arg = arguments[index]
@@ -373,6 +521,19 @@ impl RunOptions {
                         return Err("--engine may be supplied only once".to_owned());
                     }
                     engine = Some(ExecutionEngine::parse(value)?);
+                }
+                "--provider-config" => {
+                    index += 1;
+                    let path = arguments
+                        .get(index)
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| "--provider-config requires a path".to_owned())?;
+                    if provider_config
+                        .replace(std::path::PathBuf::from(path))
+                        .is_some()
+                    {
+                        return Err("--provider-config may be supplied only once".to_owned());
+                    }
                 }
                 "--format" | "--color" => {
                     index += 1;
@@ -422,6 +583,7 @@ impl RunOptions {
             arguments: call_arguments,
             limits: LimitOverrides::parse(&limit_operands).map_err(|error| error.to_string())?,
             engine: engine.unwrap_or_default(),
+            provider_config,
         })
     }
 }
@@ -432,6 +594,11 @@ struct CommandResult {
     document: Option<OutcomeDocument>,
     diagnostic: Option<String>,
     text_output: Option<String>,
+    #[allow(
+        dead_code,
+        reason = "keep provider results typed until QSL-655 defines their mapping"
+    )]
+    configured_run: Option<Result<ConfiguredRun, Box<ConfiguredRunFailure>>>,
 }
 
 impl CommandResult {
@@ -441,6 +608,7 @@ impl CommandResult {
             document: Some(document),
             diagnostic: None,
             text_output: None,
+            configured_run: None,
         }
     }
 
@@ -450,6 +618,7 @@ impl CommandResult {
             document: None,
             diagnostic: Some(message.into()),
             text_output: None,
+            configured_run: None,
         }
     }
 
@@ -459,6 +628,7 @@ impl CommandResult {
             document: Some(document),
             diagnostic: None,
             text_output,
+            configured_run: None,
         }
     }
 
@@ -485,6 +655,34 @@ impl CommandResult {
         self.diagnostic = Some(message.into());
         self
     }
+
+    fn configured(run: Result<ConfiguredRun, Box<ConfiguredRunFailure>>) -> Self {
+        let document = match &run {
+            Ok(completed) => Some(call_outcome_document(
+                completed.call.package_id,
+                &completed.call.outcome,
+            )),
+            Err(failure) => Some(failure.document.clone()),
+        };
+        let category = document
+            .as_ref()
+            .map_or(Category::InternalFailure, OutcomeDocument::category);
+        Self {
+            category,
+            document,
+            diagnostic: None,
+            text_output: None,
+            configured_run: Some(run),
+        }
+    }
+}
+
+fn call_outcome_document(
+    package_id: qsl_semantics::library::PackageId,
+    outcome: &CallOutcome,
+) -> OutcomeDocument {
+    OutcomeDocument::from_call(outcome)
+        .with_artifacts(vec![qsl_replay::OutcomeArtifact::package_id(&package_id)])
 }
 
 fn write_result_diagnostics<W: Write>(result: &CommandResult, sink: &mut W) -> io::Result<()> {
@@ -501,6 +699,18 @@ fn write_result_diagnostics<W: Write>(result: &CommandResult, sink: &mut W) -> i
 
 /// Run one complete-V1 function through QSL's interpreter.
 fn run(options: RunOptions) -> CommandResult {
+    let provider_config = match options.provider_config.as_deref() {
+        Some(path) => match crate::provider_config::load(path) {
+            Ok(config) => config,
+            Err(error) => {
+                return CommandResult::input_refusal(
+                    Operation::Execute,
+                    format!("invalid process-provider configuration: {error}"),
+                );
+            }
+        },
+        None => crate::provider_config::ProviderConfig::default(),
+    };
     if options.engine != ExecutionEngine::Interpreter {
         let failure = ExecutionFailure::UnsupportedEngine(options.engine);
         return CommandResult::document(failure.into_document());
@@ -525,6 +735,28 @@ fn run(options: RunOptions) -> CommandResult {
         }
     };
     let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
+    if !provider_config.providers.is_empty() {
+        let configured = crate::signals::run(move |signals| {
+            run_configured_providers(ConfiguredRunRequest {
+                path: &options.path,
+                bytes: &bytes,
+                source,
+                limits,
+                call,
+                packages,
+                dependencies,
+                config: provider_config,
+                signals,
+            })
+        });
+        return match configured {
+            Ok(configured) => CommandResult::configured(configured),
+            Err(error) => CommandResult::failure(
+                Category::InternalFailure,
+                format!("could not initialize process signal handling: {error}"),
+            ),
+        };
+    }
     match execute(ExecutionRequest {
         source,
         path: &options.path,
@@ -540,6 +772,279 @@ fn run(options: RunOptions) -> CommandResult {
         Ok(result) => CommandResult::document(result.document),
         Err(failure) => CommandResult::document(failure.into_document()),
     }
+}
+
+fn run_configured_providers(
+    request: ConfiguredRunRequest<'_>,
+) -> Result<ConfiguredRun, Box<ConfiguredRunFailure>> {
+    let ConfiguredRunRequest {
+        path,
+        bytes,
+        source,
+        limits,
+        call,
+        packages,
+        dependencies,
+        config,
+        signals,
+    } = request;
+    let cancel = Cancel::new();
+    let objects = ObjectEnvironment::default();
+
+    // This is the one interpreter call. The driver performs the separate
+    // package negotiation/generation pipeline below and does not call execute.
+    let call_run = run_with_requirements(
+        source.clone(),
+        path,
+        bytes,
+        &packages,
+        &dependencies,
+        limits,
+        &call,
+        &objects,
+        &cancel,
+    );
+    let call_run = match call_run {
+        Ok(run) => run,
+        Err(refusal) => {
+            let failed_run: Result<
+                (qsl_semantics::library::PackageId, CallOutcome),
+                Box<RunRefusal>,
+            > = Err(refusal);
+            let document = OutcomeDocument::from_run(&failed_run);
+            let Err(refusal) = failed_run else {
+                return Err(Box::new(ConfiguredRunFailure {
+                    call: None,
+                    document,
+                    kind: ConfiguredRunErrorKind::PackageMismatch,
+                    cleanup_diagnostics: Vec::new(),
+                    cleanup_failures: Vec::new(),
+                }));
+            };
+            return Err(Box::new(ConfiguredRunFailure {
+                call: None,
+                document,
+                kind: ConfiguredRunErrorKind::Call(refusal),
+                cleanup_diagnostics: Vec::new(),
+                cleanup_failures: Vec::new(),
+            }));
+        }
+    };
+    let (package_id, outcome, requirements) = call_run.into_parts();
+    let call = ConfiguredCall {
+        package_id,
+        outcome,
+        requirements,
+    };
+
+    // Start and admit every configured process before the driver's negotiation.
+    let mut active = Vec::with_capacity(config.providers.len());
+    for configured in config.providers {
+        let provider_name = configured.executable.display().to_string();
+        let max_frame_bytes = configured.limits.max_frame_bytes;
+        let provider = crate::process_provider::HostProcessProvider::new(
+            signals.clone(),
+            move |manifest: &crate::backend_provider::ManifestStage| {
+                manifest
+                    .admit_process(max_frame_bytes)
+                    .map(|admitted| (admitted.descriptor().clone(), admitted.manifest().clone()))
+            },
+            crate::process_provider::encode_fr331_request as CliProviderEncode,
+            crate::process_provider::validate_fr331_response as CliProviderValidate,
+            crate::process_provider::convert_fr331_response as CliProviderConvert,
+        );
+        let arguments = configured
+            .argv
+            .into_iter()
+            .map(OsString::from)
+            .collect::<Vec<_>>();
+        let process_limits = ProcessProviderLimits {
+            max_frame_bytes: configured.limits.max_frame_bytes,
+            max_total_bytes: configured.limits.max_total_bytes,
+            max_stderr_bytes: configured.limits.max_stderr_bytes,
+            cancellation_grace: std::time::Duration::from_millis(
+                configured.limits.cancellation_grace_ms,
+            ),
+            max_process_memory_bytes: configured.limits.max_process_memory_bytes,
+            max_process_cpu_time: configured
+                .limits
+                .max_process_cpu_time_ms
+                .map(std::time::Duration::from_millis),
+        };
+        match provider.start(&configured.executable, &arguments, process_limits, &cancel) {
+            Ok(session) => active.push(ActiveConfiguredProvider {
+                deadline_ms: configured.deadline_ms,
+                session,
+            }),
+            Err(source) => {
+                return Err(configured_failure_after_call(
+                    call,
+                    ConfiguredRunErrorKind::Start {
+                        provider: provider_name,
+                        source,
+                    },
+                    active,
+                ));
+            }
+        }
+    }
+
+    let admissions = active.iter().map(|provider| {
+        (
+            provider.session.descriptor().clone(),
+            provider.session.manifest().clone(),
+        )
+    });
+    let mut linked = match build_linked_providers(&[]) {
+        Ok(linked) => linked,
+        Err(source) => {
+            return Err(configured_failure_after_call(
+                call,
+                ConfiguredRunErrorKind::Register(source),
+                active,
+            ));
+        }
+    };
+    if let Err(source) = linked.register_admitted(admissions) {
+        return Err(configured_failure_after_call(
+            call,
+            ConfiguredRunErrorKind::Register(source),
+            active,
+        ));
+    }
+
+    let mut admitted_identities = BTreeSet::new();
+    if let Some(backend) = active.iter().find_map(|provider| {
+        let identity = provider.session.descriptor().id().as_str();
+        (!admitted_identities.insert(identity.to_owned())).then(|| identity.to_owned())
+    }) {
+        let message = format!("configured process providers repeat admitted identity `{backend}`");
+        let document =
+            OutcomeDocument::new(Operation::Execute, None, Code::InvalidRequest.category())
+                .with_diagnostics(vec![OutcomeDiagnostic::new(
+                    None,
+                    Code::InvalidRequest.as_str(),
+                    None,
+                    message,
+                )]);
+        let (cleanup_diagnostics, cleanup_failures) = close_configured_providers(active);
+        return Err(Box::new(ConfiguredRunFailure {
+            call: Some(call),
+            document,
+            kind: ConfiguredRunErrorKind::DuplicateIdentity { backend },
+            cleanup_diagnostics,
+            cleanup_failures,
+        }));
+    }
+
+    let driven = match drive(
+        &QslCg,
+        CompileInput {
+            source,
+            path,
+            bytes,
+            packages: &packages,
+            limits,
+            cancel: cancel.clone(),
+        },
+        linked.registry(),
+        None,
+        GenerationInput::default(),
+    ) {
+        Ok(driven) => driven,
+        Err(source) => {
+            return Err(configured_failure_after_call(
+                call,
+                ConfiguredRunErrorKind::Drive(source),
+                active,
+            ));
+        }
+    };
+    let projection = match crate::process_provider::project_call_items(
+        call.package_id,
+        &call.requirements,
+        &driven,
+    ) {
+        Ok(projection) => projection,
+        Err(source) => {
+            return Err(configured_failure_after_call(
+                call,
+                ConfiguredRunErrorKind::Pairing(source),
+                active,
+            ));
+        }
+    };
+    let manifest_snapshot = linked.manifest_snapshot();
+    let mut provider_results = Vec::new();
+    let mut invoke_failure = None;
+    for provider in &mut active {
+        let backend = provider.session.descriptor().id().as_str().to_owned();
+        let routed = projection
+            .routed
+            .iter()
+            .filter(|item| item.backend.identity == backend)
+            .cloned()
+            .collect::<Vec<_>>();
+        if routed.is_empty() {
+            continue;
+        }
+        let routed_indices = routed
+            .iter()
+            .map(|item| item.request_index)
+            .collect::<BTreeSet<_>>();
+        let qsl_items = projection
+            .items
+            .iter()
+            .filter(|item| routed_indices.contains(&item.index().get()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let request = ProcessProviderRequest {
+            emitted_package: driven.emitted(),
+            deadline_ms: provider.deadline_ms,
+            manifest: &manifest_snapshot,
+            provider_request: ProviderRequest::new(&routed),
+            qsl_items: &qsl_items,
+            cancel: &cancel,
+        };
+        match provider.session.invoke(request) {
+            Ok(results) => provider_results.push(results),
+            Err(source) => {
+                invoke_failure = Some((backend, source));
+                break;
+            }
+        }
+    }
+    if let Some((provider, source)) = invoke_failure {
+        return Err(configured_failure_after_call(
+            call,
+            ConfiguredRunErrorKind::Invoke {
+                provider,
+                source,
+                partial_results: provider_results,
+            },
+            active,
+        ));
+    }
+
+    let (diagnostics, failures) = close_configured_providers(active);
+    if !failures.is_empty() {
+        let document = call_outcome_document(call.package_id, &call.outcome);
+        return Err(Box::new(ConfiguredRunFailure {
+            call: Some(call),
+            document,
+            kind: ConfiguredRunErrorKind::Shutdown {
+                partial_results: provider_results,
+            },
+            cleanup_diagnostics: diagnostics,
+            cleanup_failures: failures,
+        }));
+    }
+    Ok(ConfiguredRun {
+        call,
+        driven,
+        provider_results,
+        diagnostics,
+    })
 }
 
 /// Compile one source through QSL's typed spine and serialize its package outcome.
@@ -709,12 +1214,7 @@ fn read_source(path: &str, source_limit: usize) -> std::io::Result<Vec<u8>> {
 }
 
 /// Dispatch the root verb while preserving its QSL-owned result category.
-fn dispatch(
-    verb: Verb,
-    format: OutputFormat,
-    raw_arguments: &[OsString],
-    _signals: crate::signals::SignalContext,
-) -> CommandResult {
+fn dispatch(verb: Verb, format: OutputFormat, raw_arguments: &[OsString]) -> CommandResult {
     if verb == Verb::Run {
         return match RunOptions::parse(raw_arguments) {
             Ok(_options) if format == OutputFormat::Text => {
@@ -757,14 +1257,16 @@ fn dispatch(
             Err(error) => CommandResult::input_refusal(Operation::Format, error),
         };
     }
-    if raw_arguments
-        .iter()
-        .any(|argument| matches!(argument.to_str(), Some("--engine" | "--limit")))
-    {
+    if raw_arguments.iter().any(|argument| {
+        matches!(
+            argument.to_str(),
+            Some("--engine" | "--limit" | "--provider-config")
+        )
+    }) {
         let option = raw_arguments
             .iter()
             .find_map(|argument| match argument.to_str() {
-                Some(option @ ("--engine" | "--limit")) => Some(option),
+                Some(option @ ("--engine" | "--limit" | "--provider-config")) => Some(option),
                 _ => None,
             })
             .unwrap_or("--engine or --limit");
@@ -778,6 +1280,7 @@ fn dispatch(
         document: None,
         diagnostic: None,
         text_output: None,
+        configured_run: None,
     }
 }
 
@@ -837,12 +1340,7 @@ pub(super) fn entrypoint() -> ExitCode {
         }) => {
             // Check the exit invariant before output so a rejected reserved
             // result cannot accompany an outcome document.
-            let result = dispatch(
-                verb,
-                format,
-                &raw_arguments,
-                crate::signals::SignalContext::default(),
-            );
+            let result = dispatch(verb, format, &raw_arguments);
             let exit_result = category_exit_result(result.category);
             if exit_result == RESERVED_COMMAND_NOT_FOUND {
                 if format == OutputFormat::Text {
@@ -1027,6 +1525,50 @@ mod tests {
                 1024,
             )]
         );
+        assert_eq!(options.provider_config, None);
+    }
+
+    /// Trace: FR-006-AC-24, FR-014-AC-6; accept only one explicitly named config path.
+    #[test]
+    fn run_options_accept_one_provider_config_path() {
+        let args = vec![
+            OsString::from("unit.qsl"),
+            OsString::from("yes"),
+            OsString::from("--provider-config"),
+            OsString::from("providers.json"),
+        ];
+        let options = RunOptions::parse(&args).expect("valid provider config path");
+        assert_eq!(
+            options.provider_config.as_deref(),
+            Some(std::path::Path::new("providers.json"))
+        );
+    }
+
+    /// Trace: FR-006-AC-24, FR-014-AC-6; malformed caller argv is rejected before loading.
+    #[test]
+    fn run_options_reject_missing_or_duplicate_provider_config_path() {
+        let missing = vec![
+            OsString::from("unit.qsl"),
+            OsString::from("yes"),
+            OsString::from("--provider-config"),
+        ];
+        assert!(RunOptions::parse(&missing)
+            .err()
+            .expect("provider config path is required")
+            .contains("--provider-config requires a path"));
+
+        let duplicate = vec![
+            OsString::from("unit.qsl"),
+            OsString::from("yes"),
+            OsString::from("--provider-config"),
+            OsString::from("one.json"),
+            OsString::from("--provider-config"),
+            OsString::from("two.json"),
+        ];
+        assert!(RunOptions::parse(&duplicate)
+            .err()
+            .expect("provider config may be selected once")
+            .contains("only once"));
     }
 
     /// Trace: FR-004-AC-2, an unknown engine fails before any source stage.
@@ -1069,5 +1611,328 @@ mod tests {
             "read is bounded to the limit plus one sentinel byte"
         );
         assert_eq!(actual, expected[..=limit]);
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "configured provider integration assertions are the test failure report"
+)]
+mod configured_run_tests {
+    use std::path::{Path, PathBuf};
+
+    use qsl_foundation::SourceIdentity;
+    use qsl_replay::spine::{
+        default_accounting, Call, CallArgument, SpineLimits, DEFAULT_WORK_UNITS,
+    };
+    use qsl_semantics::value::{CatalogRole, DefinitionLock};
+    use quire_exact::{Integer, Value};
+
+    use super::{run_configured_providers, Code, CommandResult, ConfiguredRunRequest};
+
+    struct TempDir(PathBuf);
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn python_path() -> PathBuf {
+        std::env::split_paths(&std::env::var_os("PATH").expect("PATH is set"))
+            .map(|directory| directory.join("python3"))
+            .find(|candidate| candidate.is_file())
+            .expect("the process fixture requires Python 3")
+    }
+
+    /// Trace: FR-006-AC-1, FR-006-AC-3, FR-006-AC-8, FR-006-AC-10..FR-006-AC-11, FR-006-AC-15, FR-006-AC-25.
+    #[test]
+    fn configured_run_invokes_only_the_selected_process_and_retains_its_typed_result() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time is after the Unix epoch")
+            .as_nanos();
+        let directory = TempDir(std::env::temp_dir().join(format!(
+            "quire-cli-configured-run-{}-{unique}",
+            std::process::id()
+        )));
+        std::fs::create_dir(&directory.0).expect("create temporary test directory");
+
+        let lock = DefinitionLock::pinned();
+        let root = lock.entry(CatalogRole::Root);
+        let bytes = format!(
+            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
+             function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
+             function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
+            root.identity
+        );
+        let path = "configured-run.native";
+        let source = SourceIdentity::new("agent-ix", path, "git", "1");
+        let packages = std::collections::BTreeMap::new();
+        let dependencies = qsl_replay::spine::DependencyInput::default();
+        let limits = SpineLimits::default();
+        let call = Call {
+            function: "eq".to_owned(),
+            arguments: vec![
+                CallArgument {
+                    parameter: "x".to_owned(),
+                    value: Value::Integer(Integer::from(2_i64)),
+                },
+                CallArgument {
+                    parameter: "y".to_owned(),
+                    value: Value::Integer(Integer::from(3_i64)),
+                },
+            ],
+            accounting: default_accounting(DEFAULT_WORK_UNITS),
+            supplied: Default::default(),
+        };
+        let executable = python_path();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/configured-fr331-provider.py");
+        let identities = [
+            "agent-ix/provider/configured-alpha",
+            "agent-ix/provider/configured-zeta",
+        ];
+        let capabilities = ["value-validity", "operation-contract"];
+        let markers = identities
+            .iter()
+            .enumerate()
+            .map(|(index, _)| directory.0.join(format!("provider-{index}.json")))
+            .collect::<Vec<_>>();
+        let providers = identities
+            .iter()
+            .zip(&markers)
+            .zip(capabilities)
+            .map(
+                |((identity, marker), capability)| crate::provider_config::ProcessProviderConfig {
+                    executable: executable.clone(),
+                    argv: vec![
+                        fixture.display().to_string(),
+                        (*identity).to_owned(),
+                        marker.display().to_string(),
+                        capability.to_owned(),
+                    ],
+                    deadline_ms: 4096,
+                    limits: crate::provider_config::ProcessProviderLimitsConfig {
+                        max_frame_bytes: 262_144,
+                        max_total_bytes: 1_048_576,
+                        max_stderr_bytes: 4096,
+                        cancellation_grace_ms: 500,
+                        max_process_memory_bytes: None,
+                        max_process_cpu_time_ms: None,
+                    },
+                },
+            )
+            .collect();
+
+        let configured = match run_configured_providers(ConfiguredRunRequest {
+            path,
+            bytes: bytes.as_bytes(),
+            source,
+            limits,
+            call,
+            packages,
+            dependencies,
+            config: crate::provider_config::ProviderConfig { providers },
+            signals: crate::signals::SignalContext::default(),
+        }) {
+            Ok(configured) => configured,
+            Err(failure) => panic!("configured provider flow failed: {failure:?}"),
+        };
+        assert_eq!(configured.call.requirements.members().len(), 1);
+        assert_eq!(configured.driven.generation().items.len(), 2);
+        assert_eq!(configured.provider_results.len(), 1);
+        let invoked = markers
+            .iter()
+            .enumerate()
+            .filter(|(_, marker)| marker.is_file())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            invoked.len(),
+            1,
+            "only the selected provider receives a request"
+        );
+        let (selected, marker) = invoked[0];
+        let request: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(marker).expect("the selected provider recorded its request"),
+        )
+        .expect("the provider request is JSON");
+        let member = &configured.call.requirements.members()[0];
+        assert_eq!(request["request"]["deadline_ms"], 4096);
+        assert_eq!(
+            request["request"]["items"].as_array().map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            request["request"]["items"][0]["backend"],
+            identities[selected]
+        );
+        assert_eq!(
+            request["request"]["items"][0]["request_index"],
+            member.request_index().get()
+        );
+        assert_eq!(request["request"]["items"][0]["kind"], "value-validity");
+        assert!(request["request"]["items"][0]["claim"].is_object());
+        assert_eq!(request["request"]["items"][0]["candidates"]["type"], "set");
+        assert!(request["request"]["items"][0]["candidates"]["backends"]
+            .as_array()
+            .expect("candidate set is an array")
+            .iter()
+            .any(|candidate| candidate == identities[selected]));
+        assert!(request["request"]["items"][0]["extent"].is_object());
+
+        let command = CommandResult::configured(Ok(configured));
+        assert!(
+            command.document.is_some(),
+            "existing QSL call result is retained"
+        );
+        assert!(
+            command
+                .document
+                .as_ref()
+                .expect("QSL call document remains available")
+                .items()
+                .is_empty(),
+            "provider results are not fabricated as QSL terminals"
+        );
+        let Some(Ok(retained)) = command.configured_run.as_ref() else {
+            panic!("typed configured result remains owned by the command result");
+        };
+        assert_eq!(retained.provider_results.len(), 1);
+        assert_eq!(retained.provider_results[0].items.len(), 1);
+        let outcome = retained.provider_results[0].items[0]
+            .result
+            .as_ref()
+            .expect("the fixture returned a typed provider result");
+        assert!(matches!(
+            &outcome.item,
+            crate::process_provider::ProcessProviderItemOutcome::Result {
+                kind: crate::process_provider::Fr331ResultKind::Tested,
+                ..
+            }
+        ));
+        assert_eq!(retained.diagnostics.len(), 2);
+        assert!(retained
+            .diagnostics
+            .iter()
+            .all(|finished| String::from_utf8_lossy(&finished.stderr)
+                .contains("configured provider completed")));
+        assert_eq!(
+            retained.call.package_id,
+            retained.driven.emitted().package_id()
+        );
+    }
+
+    /// Trace: FR-006-AC-26; identical admitted hellos fail closed before negotiation and close both sessions.
+    #[test]
+    fn configured_run_refuses_idempotent_duplicate_identities_before_dispatch() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time is after the Unix epoch")
+            .as_nanos();
+        let directory = TempDir(std::env::temp_dir().join(format!(
+            "quire-cli-configured-duplicate-{}-{unique}",
+            std::process::id()
+        )));
+        std::fs::create_dir(&directory.0).expect("create temporary test directory");
+
+        let lock = DefinitionLock::pinned();
+        let root = lock.entry(CatalogRole::Root);
+        let bytes = format!(
+            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
+             function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
+             function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
+            root.identity
+        );
+        let path = "configured-duplicate.native";
+        let source = SourceIdentity::new("agent-ix", path, "git", "1");
+        let call = Call {
+            function: "eq".to_owned(),
+            arguments: vec![
+                CallArgument {
+                    parameter: "x".to_owned(),
+                    value: Value::Integer(Integer::from(2_i64)),
+                },
+                CallArgument {
+                    parameter: "y".to_owned(),
+                    value: Value::Integer(Integer::from(3_i64)),
+                },
+            ],
+            accounting: default_accounting(DEFAULT_WORK_UNITS),
+            supplied: Default::default(),
+        };
+        let executable = python_path();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/configured-fr331-provider.py");
+        let identity = "agent-ix/provider/configured-duplicate";
+        let markers = [
+            directory.0.join("duplicate-one.json"),
+            directory.0.join("duplicate-two.json"),
+        ];
+        let shutdown_markers = [
+            directory.0.join("duplicate-one-shutdown"),
+            directory.0.join("duplicate-two-shutdown"),
+        ];
+        let providers = markers
+            .iter()
+            .zip(shutdown_markers.iter())
+            .map(
+                |(marker, shutdown)| crate::provider_config::ProcessProviderConfig {
+                    executable: executable.clone(),
+                    argv: vec![
+                        fixture.display().to_string(),
+                        identity.to_owned(),
+                        marker.display().to_string(),
+                        "value-validity".to_owned(),
+                        "normal".to_owned(),
+                        shutdown.display().to_string(),
+                    ],
+                    deadline_ms: 4096,
+                    limits: crate::provider_config::ProcessProviderLimitsConfig {
+                        max_frame_bytes: 262_144,
+                        max_total_bytes: 1_048_576,
+                        max_stderr_bytes: 4096,
+                        cancellation_grace_ms: 500,
+                        max_process_memory_bytes: None,
+                        max_process_cpu_time_ms: None,
+                    },
+                },
+            )
+            .collect();
+
+        let failure = match run_configured_providers(ConfiguredRunRequest {
+            path,
+            bytes: bytes.as_bytes(),
+            source,
+            limits: SpineLimits::default(),
+            call,
+            packages: std::collections::BTreeMap::new(),
+            dependencies: qsl_replay::spine::DependencyInput::default(),
+            config: crate::provider_config::ProviderConfig { providers },
+            signals: crate::signals::SignalContext::default(),
+        }) {
+            Err(failure) => failure,
+            Ok(_) => panic!("idempotent duplicate identities are an input refusal"),
+        };
+        assert!(matches!(
+            failure.kind,
+            super::ConfiguredRunErrorKind::DuplicateIdentity { ref backend }
+                if backend == identity
+        ));
+        assert_eq!(
+            failure.document.category(),
+            qsl_foundation::diagnostic::Category::Refusal
+        );
+        assert!(failure
+            .document
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.code() == Code::InvalidRequest.as_str()));
+        assert_eq!(failure.cleanup_diagnostics.len(), 2);
+        assert!(failure.cleanup_failures.is_empty());
+        assert!(markers.iter().all(|marker| !marker.exists()));
+        assert!(shutdown_markers.iter().all(|marker| marker.is_file()));
     }
 }

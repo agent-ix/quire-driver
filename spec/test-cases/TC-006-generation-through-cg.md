@@ -54,7 +54,8 @@ application, in occurrence-key order.
 10. Drive `function unreachable_branch using v(x: Int[0, 9]): Int[0, 10]
     pure { if x > 20 then x + 100 else 0 }`. The unit's `if` guard
     (`x > 20`) is itself a scalar comparison, so this writes two
-    requirement records: the `+` at index 0 and the guard `>` at index 1.
+    requirement records in ascending QSL occurrence-key order: the guard
+    `>` at index 0 and the `+` at index 1.
     Neither item has a selected conversion context, so both settle as
     unsupported before routing or generation.
 11. Drive the ordinary unit with caller-supplied FR-056 domain package
@@ -187,10 +188,11 @@ the rational projection or candidate-control cases.
 - Step 10's unit compiles: QSL's `Facts::walk` proves `x > 20` is never
   true over `x: Int[0, 9]` and never discharges the dead branch's
   coercion, so the checked package still emits. Neither item has a selected
-  conversion context. The add settles as
+  conversion context. In QSL occurrence-key order, the guard at index 0
+  settles as
+  `Unsupported`/`OperationNotRendered`; the `+` at index 1 settles as
   `Unsupported`/`ResultBoundUnreachable` (`quire.op.integer.add`, result
-  `[0, 10]`, reachable `[100, 109]`); the guard settles as
-  `Unsupported`/`OperationNotRendered`. Neither item is routed or generated.
+  `[0, 10]`, reachable `[100, 109]`). Neither item is routed or generated.
 - Step 11's E5 evidence contains every caller-supplied domain-package
   document under the original digest and with the original bytes, and still
   contains the supported root feature. Dropping or changing that evidence

@@ -12,6 +12,7 @@ mod cli;
     reason = "process routing awaits the CG IR-629 process BackendKind mapping"
 )]
 mod process_provider;
+mod provider_config;
 mod signals;
 #[cfg(test)]
 mod test_support;

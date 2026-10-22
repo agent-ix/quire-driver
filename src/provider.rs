@@ -85,6 +85,14 @@ impl ProviderItemResult<KaniExecutionEvidence, KaniProviderFailure> {
         let value = self.terminal_value_with_settlement(None)?;
         let request_index = RequestIndex::new(self.request_index);
         let backend = BackendId::new(self.backend.identity.clone());
+        Self::terminal_record_for_value(value, request_index, backend)
+    }
+
+    fn terminal_record_for_value(
+        value: TerminalValue,
+        request_index: RequestIndex,
+        backend: BackendId,
+    ) -> Result<TerminalRecord, ProviderTerminalError> {
         match value {
             TerminalValue::Proved {
                 basis: ProofBasis::Checks { success_checks },
@@ -115,6 +123,9 @@ impl ProviderItemResult<KaniExecutionEvidence, KaniProviderFailure> {
             TerminalValue::Refuted => {
                 Err(ProviderTerminalError::ReplayUnavailableForScalarObligation)
             }
+            // Statistical measurements are an independent FR-192 result axis, not proof
+            // evidence. This Kani-only projection has no matching terminal constructor.
+            TerminalValue::Measured(_) => Err(ProviderTerminalError::UnsupportedTerminalValue),
         }
     }
 
@@ -424,6 +435,10 @@ mod tests {
 
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::SpineLimits;
+    use qsl_replay::statistical::{
+        Confidence, Coverage, Decision, StatisticalBasis, StatisticalMethod, StatisticalProvenance,
+        StatisticalVerdict, UndecidedCause,
+    };
     use qsl_replay::{
         compile_package, Certification, DependencyInput, IncompleteCause, Operation,
         OutcomeDocument, OutcomeItem, OutcomeStage, ProofBasis, ReplayLimits, StageLimits,
@@ -438,7 +453,7 @@ mod tests {
         KaniExecutableHarness, KaniFailureCause, KaniFailurePhase, KaniNoVerdictDiagnostics,
         KaniStreamExcerpt, ReplaySettlement,
     };
-    use quire_exact::{Cancel, CancelCause};
+    use quire_exact::{Cancel, CancelCause, Integer, Rational};
     use serde_json::Value;
 
     use super::{
@@ -1106,6 +1121,51 @@ mod tests {
             item.terminal_record().expect_err("there is no evidence"),
             ProviderTerminalError::ExecutionDidNotProduceEvidence
         );
+    }
+
+    /// Trace: FR-006-AC-15; statistical measurements are not Kani proof terminals.
+    #[test]
+    fn measured_qsl_value_remains_unmapped_in_kani_terminal_projection() {
+        let half = Rational::new(Integer::one(), Integer::from(2_i64))
+            .expect("one-half is a valid rational");
+        let confidence = Confidence::new(half.clone(), half.clone(), half.clone())
+            .expect("one-half is a valid confidence value");
+        let verdict = StatisticalVerdict {
+            decision: Decision::Undecided(UndecidedCause::IndifferenceRegion),
+            estimate: None,
+            interval: None,
+            quantile: None,
+            basis: StatisticalBasis {
+                method: StatisticalMethod::Okamoto,
+                confidence,
+                samples: 0,
+                draws: 0,
+                tests: 0,
+                alpha_per_test: half.clone(),
+                beta_per_test: half,
+                coverage: Coverage::FiniteSample,
+            },
+            provenance: StatisticalProvenance {
+                seed: 0,
+                sampler: qsl_foundation::selection::DefinitionRef::new(
+                    "agent-ix",
+                    "quire.simulation.sampler/v1",
+                )
+                .expect("sampler has a valid identity"),
+                tests: Vec::new(),
+            },
+            tests: Vec::new(),
+            witnesses: Vec::new(),
+        };
+
+        assert!(matches!(
+            ProviderItemResult::<KaniExecutionEvidence, KaniProviderFailure>::terminal_record_for_value(
+                TerminalValue::Measured(Box::new(verdict)),
+                qsl_replay::RequestIndex::new(0),
+                qsl_foundation::BackendId::new("agent-ix/provider/kani"),
+            ),
+            Err(ProviderTerminalError::UnsupportedTerminalValue)
+        ), "a statistical measurement must not produce a Kani terminal");
     }
 
     /// Trace: FR-005-AC-2.

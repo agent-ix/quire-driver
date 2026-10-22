@@ -565,9 +565,9 @@ mod tests {
                             },
                         ))
                     },
-                    |_: ProcessProviderRequest<'_>| serde_json::json!({"items": []}),
+                    |_: ProcessProviderRequest<'_>| Ok(serde_json::json!({"items": []})),
                     |_: &Value, _: &Value| Ok::<(), String>(()),
-                    |_: Value| ProviderResults::<Value, String>::default(),
+                    |_: Value| Ok(ProviderResults::<Value, String>::default()),
                 );
                 let limits = ProcessProviderLimits {
                     max_frame_bytes: 4096,
@@ -591,6 +591,7 @@ mod tests {
                         deadline_ms: 4096,
                         manifest: &[],
                         provider_request: ProviderRequest::new(&[]),
+                        qsl_items: &[],
                         cancel: &request_cancel,
                     };
                     let _ = session.invoke(request);

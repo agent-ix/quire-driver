@@ -20,10 +20,15 @@ Verify workspace membership, executable ownership and the CLI dependency edges,
 including that the CLI composes the process host while the driver core excludes
 it.
 
-CG IR-629's typed process-backend mapping is available. Production
-process-provider invocation and configuration forwarding remain IR-672
-implementation work. Package-graph, adapter-fixture lifecycle, and cleanup
-checks can run independently of production dispatch.
+CG IR-629's typed process-backend mapping is available. Step 6 exercises the
+production `--provider-config` path and selected process-provider invocation:
+the configured-run composition test drives the selected route through the
+host adapter, and binary-process tests cover configuration parsing and the
+production entrypoint. Package-graph checks and adapter-fixture lifecycle
+checks provide separate evidence. Remaining limits are later-start/hello
+failure cleanup and production signal coverage for the starting and
+shutdown-waiting states; the two-provider selection assertion is currently at
+the configured-run composition boundary rather than one binary-process test.
 
 Scope: FR-002-AC-3, FR-002-AC-7, FR-006-AC-1, FR-006-AC-3..FR-006-AC-4,
 FR-006-AC-8,
@@ -63,8 +68,11 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    that entry's exact `deadline_ms`, unchanged.
    Include a separate entry with `argv: []` and verify the executable receives
    no extra arguments. The admitted hello is the sole source of each provider
-   identity; the config contains no identity field. This end-to-end routed case
-   remains planned until IR-672 implements production dispatch.
+   identity; the config contains no identity field. The
+   `configured_run_invokes_only_the_selected_process_and_retains_its_typed_result`
+   composition test exercises selection with two real fixture providers. Binary
+   process tests separately cover the production `--provider-config` entrypoint,
+   duplicate-identity refusal and active-request signal cleanup.
 7. Run `quire run` without `--provider-config` and verify no process provider
    is registered or started. An explicit empty `providers` array has the same
    result. Verify the command does not read a default file, environment
@@ -89,7 +97,11 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    refusal, if any, is preserved. If QSL treats identical repeated admission as
    idempotent, verify the CLI returns its existing `InvalidRequest` input
    refusal instead. In either case, verify negotiation does not start, no
-   request is sent, and all started sessions are closed.
+   request is sent, and all started sessions are closed. The binary-process
+   test `duplicate_provider_identities_refuse_before_negotiation_and_close_sessions`
+   asserts the exact machine `InvalidRequest`, no request markers and shutdown
+   markers for both fixture processes; the composition test checks the typed
+   refusal and cleanup diagnostics.
 10. Start the first configured fixture successfully, then make the later
     provider fail to start; repeat with a later provider that starts but returns
     an invalid hello. For each case, verify negotiation does not start, the
@@ -99,8 +111,8 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    the once-admitted descriptor from the host hello admitter, passes it to the
    driver's existing QSL registry without re-admitting it, and builds no
    second registry. Confirm it connects the descriptor to the process-provider
-   seam. This admission-boundary check uses an adapter fixture; production
-   provider invocation remains IR-672 implementation work.
+   seam. This admission-boundary check uses an adapter fixture; the selected
+   production composition path is exercised by the configured-run fixture.
 12. On Linux and macOS, using an adapter fixture independent of CG routing and
    a plugin fixture that starts a descendant which remains alive, let a request finish
    normally. Confirm the CLI closes the session and the process tree exits
@@ -119,7 +131,10 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    an integer exit code), stdout contains no `quire-outcome/1` document, and no
    QSL cause is claimed. With no active session, confirm the CLI retains the
    platform's default signal disposition. Windows console control events are
-   outside this signal guarantee.
+   outside this signal guarantee. The production binary regression currently
+   exercises SIGTERM during a running request; SIGINT and the starting and
+   shutdown-waiting states remain covered by the signal-adapter tests, not by a
+   production-entrypoint subprocess test.
 14. On Windows, verify forced plugin-tree cleanup through the host's existing
    `terminate_tree`/`terminate_job` path using a native Windows runner. The
    separate automatic kill-on-close mechanism is planned under IR-674; when
@@ -144,9 +159,10 @@ The package-boundary test currently asserts
 `!dependencies.contains("ix-cli-kit")`, the opposite of the new CLI-to-kit
 requirement, so its FR-014-AC-2 Trace tag is removed until the IR-607 code slice
 inverts that assertion, verifies the positive CLI-to-kit edge, and asserts the
-driver closure excludes the kit. The planned
-`quire-cli/tests/plugin_lifecycle.rs` will cover adapter session cleanup and
-signals. Windows-specific evidence is planned for a native Windows runner; no
+driver closure excludes the kit. `quire-cli/tests/binary_process.rs` covers
+production duplicate-identity refusal and active-request SIGTERM cleanup;
+`quire-cli/src/cli.rs` composition tests cover selected-provider dispatch and
+typed-result retention. Windows-specific evidence is planned for a native Windows runner; no
 Windows runtime coverage is claimed from the current Ubuntu-only CI. Native
 Linux/macOS runners provide the signal evidence in step 13.
 
@@ -168,8 +184,9 @@ Linux/macOS runners provide the signal evidence in step 13.
   spawn; each configured provider's executable, arguments, limits and
   `deadline_ms` reach the selected process-provider dispatch unchanged; and
   omitting the option (or providing an empty `providers` array) registers and
-  starts no process providers, with no implicit deadline. End-to-end routed
-  dispatch remains planned under IR-672. Invalid config in machine mode uses
+  starts no process providers, with no implicit deadline. The selected-provider
+  route is exercised by the configured composition test; production binary
+  regressions cover duplicate refusal and active-request signal cleanup. Invalid config in machine mode uses
   the existing
   `Operation::Execute` `Code::InvalidRequest` input-refusal document and
   refusal exit category, with no new code or cause. Optional CPU/RSS fields

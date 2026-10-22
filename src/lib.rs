@@ -78,6 +78,7 @@ pub use provider::{
     ProviderResults, ProviderTerminalError,
 };
 pub use qsl_semantics::model::object_environment::ObjectEnvironment;
+pub use quire_contract_codegen::RoutedItemOutput;
 pub use quire_contract_codegen::{Candidate, ProofCeilings};
 pub use refusal::{
     DriverFault, DriverRefusal, DriverStage, OutcomeKind, PackageReadDiagnostic,
