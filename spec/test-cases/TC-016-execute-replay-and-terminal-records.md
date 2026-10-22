@@ -15,7 +15,7 @@ Verify the available proved-provider terminal path uses QSL's canonical
 for every item in the CG request, including the routed scalar observation producer
 and report-claim guard, remains planned.
 
-Scope: FR-009-AC-1 through FR-009-AC-18.
+Scope: FR-009-AC-1 through FR-009-AC-19.
 
 ## Test Procedure
 
@@ -102,33 +102,38 @@ Test location for Kani request/evidence forwarding and terminal mapping:
 full prove/replay integration remains planned.
 
 For the frame-target projection scenario, use object-type operation fixtures
-with one inherited operation and one redefined operation. Read each typed
-`frame_operation` from QSL's validated call-site result, and correlate that QSL
-result with the CG selected item only by the same admitted package identity and
-request index. Verify the CG packet's `frame_operation` target is the unchanged
-QSL `{object, operation}` pair; do not derive it from a CG-side function
-selection or caller operation spelling. The inherited pair names the declaring
-supertype; the redefined pair names the redefining type. The replay request has
-no `arguments` or `occurrence_key`, while the packet/envelope retains the frame
-identities required by QSpec FR-323. An unavailable pair or a package/index
-mismatch stops before replay, settlement, and terminal creation and preserves
-the owning QSL/CG typed refusal. A driver-detected inconsistent join returns
-FR-001's typed `runtime_invariant` fault. No process/state-machine operation or
-state-clause target is included in this driver criterion. This planned scenario
-waits for the public QSL-972 and CG IR-958 APIs.
+covering an inherited operation and a redefined operation. Obtain the
+`OperationSite.frame_operation` values from QSL's validated call-site result
+and compare each value unchanged with the target placed on the CG selected item
+joined by the same admitted package identity and request index. QSL FR-121 is
+the oracle for how the declaring object is resolved; this driver check asserts
+only lossless projection. QSpec FR-323 is the oracle for packet/request shape.
+Do not infer the target from CG function selection or caller spelling, and do
+not add a routed item.
+
+For the negative partition, first make QSL call-site selection return its typed
+refusal and assert the driver returns that same refusal before CG frame-target
+construction or replay. Separately, provide a successful QSL result whose driver-retained association
+(package identity or request index) has a value that differs from the
+corresponding value on the CG selected item;
+assert the driver returns FR-001's typed `runtime_invariant` fault before CG
+frame-target construction or replay. A typed refusal returned by CG itself is
+propagated unchanged and is not treated as a driver join mismatch. Both cases
+produce no settlement or terminal. These checks remain planned until QSL-972
+and the CG IR-958 API are public.
 
 ## Expected Results
 
-- For a frame counterexample, the CG selected item's target is projected
-  from QSL's validated `frame_operation` pair for the same admitted package and
-  request index. The target preserves the declaring object and operation
-  exactly, with inherited and redefined operations naming their resolved
-  declaring object. No function target or additional routed item is created;
-  the frame replay request carries no `arguments` or `occurrence_key`.
-- If the QSL frame selection is unavailable or its package/item join does not
-  match, the driver stops before replay or settlement and preserves the owning
-  typed refusal, or returns its typed `runtime_invariant` fault for a detected
-  internal join inconsistency. It does not infer a target or local refusal map.
+- For a frame counterexample, the CG selected item's target equals the exact
+  `OperationSite.frame_operation` value returned by QSL for the same admitted
+  package identity and request index. QSL FR-121 defines the declaring-owner
+  resolution and QSpec FR-323 defines the packet/request shape; this driver
+  projection adds no target inference or routed item.
+- A typed QSL call-site refusal is preserved unchanged. A successful QSL result
+  that the driver detects cannot be joined to the CG item by equal package
+  identity and request index returns FR-001's typed `runtime_invariant` fault.
+  A CG-returned typed refusal remains under CG's refusal contract. Neither path
+  proceeds to replay, settlement, or terminal creation.
 - Available proved-provider outcomes are serialized by QSL's
   `OutcomeDocument`; the driver defines no JSON document shape.
 - A falsified scalar without QSL replay does not produce a terminal document.
