@@ -230,7 +230,7 @@ replay context through QSL evaluation and report handling.
   validated typed operation call-site result and its declaring object for
   inherited and redefined object-type operations. CG FR-024 / IR-958 owns the
   selected-item packet projection and its typed failure behavior. The driver
-  mapping in FR-009-AC-17 through FR-009-AC-18 is planned until those public
+  mapping in FR-009-AC-17 through FR-009-AC-19 is planned until those public
   APIs are available. QSL-973 owns the separate state-clause target API.
 - QSL ADR-029 LC-1, CB-4 and library operation `prove`; ADR-013 O-16 and
   C-09; QSL FR-357 observation-digest and report-claim contract; CG FR-032
