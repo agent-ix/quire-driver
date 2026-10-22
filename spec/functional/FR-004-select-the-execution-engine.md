@@ -120,9 +120,11 @@ object-context input, its handler SHALL explicitly supply an empty
   or an upstream-supported shared dispatch contract that represents a
   selected engine's typed `Unsupported` result and makes every reachable
   engine invocation observable through one test boundary. The current private
-  callback returns only QSL run success or `RunRefusal`; it cannot represent
-  the driver's pre-invocation `ExecutionFailure::UnsupportedEngine`, and a
-  callback-only count cannot observe a direct invocation outside that callback.
+  callback can return QSL `RunRefusal::UnsupportedResult` with category
+  `Unsupported`, as well as typed preparation refusals. This is distinct from
+  the driver's pre-invocation `ExecutionFailure::UnsupportedEngine` for an
+  engine not linked into the binary. A callback-only count cannot observe a
+  direct invocation outside that callback.
 - [FR-002](FR-002-expose-driver-cli-and-outcome-contract.md) defines the
   command entry point and exit function.
 - [TC-011](../test-cases/TC-011-execution-engine-selection.md).

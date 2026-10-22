@@ -72,3 +72,37 @@ bindings: []
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | TC-011 step 5 injects only a typed preparation refusal, leaving the selected-engine Unsupported branch of FR-004-AC-4 without a planned no-fallback exercise. Step 3 covers an engine absent before invocation, a different path. Specify a selected-callback Unsupported result as well, or explicitly retain that portion as Partial pending a supported carrier. | spec/test-cases/TC-011-execution-engine-selection.md:30-36 |
+
+## Disposition pass 1
+
+Reviewed exact head 7dc323493a1401cf724c2ace246fe9925a2affec against base d07a573e8833e00b9add842c396d13149af68842. **CONDITIONAL**.
+
+Exact head and clean working tree confirmed. All eight committed SR artifacts matched the original scratch bytes before this disposition pass. Full spec validation: exit 0, 71/71 grammar-clean, zero grammar findings. Matrix strict: exit 1 with the same 35 untagged and one ignored-only criterion; only the AC-10 statement differs from the previous reviewed matrix. Properties, trace and quoin advise exit 0; diff-check exits 0. No Cargo/make/Kani/tests.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1: TC-011 step 7 now explicitly plans selected-engine Unsupported and preparation failure, while full AC-4 remains Partial. The new incorrect carrier-availability explanation is a separate FND-002 below. |
+
+### Fixed text
+
+```text
+7. Full AC-4 verification remains blocked until a second production engine
+   or upstream-supported shared dispatch contract makes every reachable
+   engine invocation observable through the same test boundary. At that
+   boundary, inject a typed `Unsupported` result and a typed preparation
+   failure from the selected engine; assert exact result preservation, one
+   selected-engine invocation, and zero invocations of every alternative
+```
+
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | medium | TC-011 step 6 incorrectly says the existing callback cannot produce selected-engine Unsupported. The locked QSL RunRefusal::UnsupportedResult maps through Code::UnsupportedConstruct to Category::Unsupported and fits the callback's Box<RunRefusal> error type. Distinguish this supported selected-engine result from pre-invocation UnsupportedEngine; correct the repeated carrier-unavailability claims while retaining Partial for the all-invocation observation gap. | spec/test-cases/TC-011-execution-engine-selection.md:36 |
+
+Source inspection used the QSL revision resolved by Cargo.lock (485ccaa3bd289ae94baa74e96a976adce99fd0d8): qsl-replay/src/spine/call.rs:252 declares public RunRefusal::UnsupportedResult { function: String }; line 390 maps it to Code::UnsupportedConstruct; lines 407-408 read that code's category. qsl-foundation/src/diagnostic.rs:331 lists UnsupportedConstruct as unsupported and lines 345-349 return Category::Unsupported. Driver src/execute.rs:162 accepts Box<RunRefusal>; lines 175-177 preserve it in ExecutionFailure::Run; line 118 delegates its category. Thus Err(Box::new(RunRefusal::UnsupportedResult { function: "designated".to_owned() })) is a supported callback return carrier. The unavailable-engine guard is a different variant and does not imply absence of this carrier. No Rust execution or compilation was used for this evidence.
+
+FND-002 has no disposition yet and requires the next fix round.

@@ -120,3 +120,21 @@ bindings: []
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | low | The new AC-10 Verification cell contains Inspection (TC-011), but the review contract requires a verification method only. Use Inspection and retain the TC relationship in the existing verifies edge. | spec/functional/FR-004-select-the-execution-engine.md:109 |
+
+## Disposition pass 1
+
+Reviewed exact head 7dc323493a1401cf724c2ace246fe9925a2affec against base d07a573e8833e00b9add842c396d13149af68842. **PASS**.
+
+Exact head and clean working tree confirmed. All eight committed SR artifacts matched the original scratch bytes before this disposition pass. Full spec validation: exit 0, 71/71 grammar-clean, zero grammar findings. Matrix strict: exit 1 with the same 35 untagged and one ignored-only criterion; only the AC-10 statement differs from the previous reviewed matrix. Properties, trace and quoin advise exit 0; diff-check exits 0. No Cargo/make/Kani/tests.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1: AC-10 now declares Inspection alone; TC-011 still has its verifies edge and the FR retains its TC dependency link. |
+
+### Fixed text
+
+```text
+| FR-004-AC-10 | The engine-invocation callback is private to the driver implementation; public `execute` supplies QSL `spine::run`, and the public API, CLI, configuration, environment, and production default expose no callback selector. | Inspection |
+```

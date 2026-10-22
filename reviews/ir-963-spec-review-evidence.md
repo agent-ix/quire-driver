@@ -86,3 +86,26 @@ bindings: []
 | ID | Severity | Summary | Refs |
 | --- | --- | --- | --- |
 | FND-001 | medium | Counting only the injected callback does not detect an engine invocation that bypasses that callback. A dispatcher can call it once, invoke QSL directly afterward, and still return the original refusal/document, passing the stated assertions. Require inspection that every reachable engine invocation uses the counted boundary, and an adversarial oracle that rejects any extra or alternate invocation before claiming AC-4 complete. | spec/test-cases/TC-011-execution-engine-selection.md:30-40 |
+
+## Disposition pass 1
+
+Reviewed exact head 7dc323493a1401cf724c2ace246fe9925a2affec against base d07a573e8833e00b9add842c396d13149af68842. **PASS**.
+
+Exact head and clean working tree confirmed. All eight committed SR artifacts matched the original scratch bytes before this disposition pass. Full spec validation: exit 0, 71/71 grammar-clean, zero grammar findings. Matrix strict: exit 1 with the same 35 untagged and one ignored-only criterion; only the AC-10 statement differs from the previous reviewed matrix. Properties, trace and quoin advise exit 0; diff-check exits 0. No Cargo/make/Kani/tests.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1: TC-011 explicitly denies no-substitution evidence from callback counting alone and requires an all-invocation boundary with one selected invocation, zero alternatives, and failure for a direct bypass. Both inventory rows keep full AC-4 Partial. |
+
+### Fixed text
+
+```text
+   boundary, inject a typed `Unsupported` result and a typed preparation
+   failure from the selected engine; assert exact result preservation, one
+   selected-engine invocation, and zero invocations of every alternative
+   engine. An added direct engine call outside the counted boundary SHALL make
+   this test fail; if the seam cannot enforce that property, AC-4 remains
+   Partial.
+```

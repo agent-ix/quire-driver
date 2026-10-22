@@ -27,21 +27,21 @@ Scope: FR-004-AC-1 through FR-004-AC-10.
 4. Run the linked interpreter with a source-byte bound that causes a typed
    preparation refusal. Compare the driver's exact typed refusal with a direct
    `qsl_replay::spine::run` using the same source, call and limits.
-5. The current private callback can characterize only a typed QSL run
-   refusal: inject a callback through the same selection and dispatch function
-   called by public `execute`, return a designated preparation refusal, and
-   assert the exact refusal and QSL document are returned. An invocation
-   count may confirm that this callback ran once, but this result alone SHALL
-   NOT be reported as proof of no substitution.
+5. Exercise the current private callback through the same selection and
+   dispatch function called by public `execute` with two designated failures:
+   QSL `RunRefusal::UnsupportedResult` and a typed preparation refusal. For
+   each case, assert the exact refusal and QSL document are returned and the
+   callback ran exactly once. This callback count alone SHALL NOT be reported
+   as proof of no substitution.
 6. Inspect `src/execute.rs`: confirm the callback type returns only QSL run
-   success or `RunRefusal`, while `ExecutionFailure::UnsupportedEngine` is
-   produced before callback invocation for an engine not linked into the
-   binary. The current callback therefore cannot produce a selected engine's
-   typed `Unsupported` result.
+   success or `RunRefusal`, including `RunRefusal::UnsupportedResult` whose
+   category is `Unsupported`. Distinguish this selected-engine result from
+   `ExecutionFailure::UnsupportedEngine`, which is produced before callback
+   invocation when an engine is not linked into the binary.
 7. Full AC-4 verification remains blocked until a second production engine
    or upstream-supported shared dispatch contract makes every reachable
    engine invocation observable through the same test boundary. At that
-   boundary, inject a typed `Unsupported` result and a typed preparation
+   boundary, inject `RunRefusal::UnsupportedResult` and a typed preparation
    failure from the selected engine; assert exact result preservation, one
    selected-engine invocation, and zero invocations of every alternative
    engine. An added direct engine call outside the counted boundary SHALL make
@@ -78,14 +78,15 @@ Test locations: `src/execute.rs`, `quire-cli/src/cli.rs`, and
 - The CLI run handler explicitly supplies an empty environment under its
   caller policy; the public library request requires its caller to provide an
   environment, and the nonempty public-library case is tested separately.
-- A callback-injected typed-preparation test can verify exact QSL failure
-  preservation through the current shared dispatch function. Its callback
-  count does not establish that an alternate engine was never invoked.
+- Callback-injected tests can verify exact QSL failure preservation through
+  the current shared dispatch function for both `RunRefusal::UnsupportedResult`
+  and a typed preparation refusal. Their callback counts do not establish
+  that an alternate engine was never invoked.
 - Full no-substitution verification remains Partial until a second production
   engine or upstream-supported shared dispatch boundary can represent the
-  selected-engine `Unsupported` result and make all engine invocations
-  observable; the oracle checks exact failure, one selected invocation, and
-  zero alternative invocations, and fails if any invocation bypasses it.
+  selected-engine result and make all engine invocations observable; the
+  oracle checks exact failure, one selected invocation, and zero alternative
+  invocations, and fails if any invocation bypasses it.
 - Inspection confirms the callback is private, public `execute` supplies QSL
   `spine::run`, and no API/CLI/configuration/environment/default surface
   selects a callback.
