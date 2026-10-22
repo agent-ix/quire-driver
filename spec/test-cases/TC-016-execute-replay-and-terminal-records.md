@@ -15,7 +15,7 @@ Verify the available proved-provider terminal path uses QSL's canonical
 for every item in the CG request, including the routed scalar observation producer
 and report-claim guard, remains planned.
 
-Scope: FR-009-AC-1 through FR-009-AC-15.
+Scope: FR-009-AC-1 through FR-009-AC-18.
 
 ## Test Procedure
 
@@ -101,8 +101,34 @@ Test location for Kani request/evidence forwarding and terminal mapping:
 `src/provider.rs`. Test location for native receipt and settlement qualification: `src/provider.rs`;
 full prove/replay integration remains planned.
 
+For the frame-target projection scenario, use object-type operation fixtures
+with one inherited operation and one redefined operation. Read each typed
+`frame_operation` from QSL's validated call-site result, and correlate that QSL
+result with the CG selected item only by the same admitted package identity and
+request index. Verify the CG packet's `frame_operation` target is the unchanged
+QSL `{object, operation}` pair; do not derive it from a CG-side function
+selection or caller operation spelling. The inherited pair names the declaring
+supertype; the redefined pair names the redefining type. The replay request has
+no `arguments` or `occurrence_key`, while the packet/envelope retains the frame
+identities required by QSpec FR-323. An unavailable pair or a package/index
+mismatch stops before replay, settlement, and terminal creation and preserves
+the owning QSL/CG typed refusal. A driver-detected inconsistent join returns
+FR-001's typed `runtime_invariant` fault. No process/state-machine operation or
+state-clause target is included in this driver criterion. This planned scenario
+waits for the public QSL-972 and CG IR-958 APIs.
+
 ## Expected Results
 
+- For a frame counterexample, the CG selected item's target is projected
+  from QSL's validated `frame_operation` pair for the same admitted package and
+  request index. The target preserves the declaring object and operation
+  exactly, with inherited and redefined operations naming their resolved
+  declaring object. No function target or additional routed item is created;
+  the frame replay request carries no `arguments` or `occurrence_key`.
+- If the QSL frame selection is unavailable or its package/item join does not
+  match, the driver stops before replay or settlement and preserves the owning
+  typed refusal, or returns its typed `runtime_invariant` fault for a detected
+  internal join inconsistency. It does not infer a target or local refusal map.
 - Available proved-provider outcomes are serialized by QSL's
   `OutcomeDocument`; the driver defines no JSON document shape.
 - A falsified scalar without QSL replay does not produce a terminal document.
