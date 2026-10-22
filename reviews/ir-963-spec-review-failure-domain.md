@@ -84,6 +84,7 @@ Exact head and clean working tree confirmed. All eight committed SR artifacts ma
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Round 1: TC-011 step 7 now explicitly plans selected-engine Unsupported and preparation failure, while full AC-4 remains Partial. The new incorrect carrier-availability explanation is a separate FND-002 below. |
+| FND-002 | fixed | Round 2: TC-011 now specifies both RunRefusal::UnsupportedResult and typed preparation refusal through the existing shared dispatcher, preserves exact result/document assertions, and distinguishes selected-engine Unsupported from pre-invocation UnsupportedEngine. FR-004 and both inventory rows agree; Partial remains for direct/alternate invocation observability. |
 
 ### Fixed text
 
@@ -106,3 +107,21 @@ Exact head and clean working tree confirmed. All eight committed SR artifacts ma
 Source inspection used the QSL revision resolved by Cargo.lock (485ccaa3bd289ae94baa74e96a976adce99fd0d8): qsl-replay/src/spine/call.rs:252 declares public RunRefusal::UnsupportedResult { function: String }; line 390 maps it to Code::UnsupportedConstruct; lines 407-408 read that code's category. qsl-foundation/src/diagnostic.rs:331 lists UnsupportedConstruct as unsupported and lines 345-349 return Category::Unsupported. Driver src/execute.rs:162 accepts Box<RunRefusal>; lines 175-177 preserve it in ExecutionFailure::Run; line 118 delegates its category. Thus Err(Box::new(RunRefusal::UnsupportedResult { function: "designated".to_owned() })) is a supported callback return carrier. The unavailable-engine guard is a different variant and does not imply absence of this carrier. No Rust execution or compilation was used for this evidence.
 
 FND-002 has no disposition yet and requires the next fix round.
+
+## Disposition pass 2
+
+Reviewed exact head 1ffbbddd363147086faa70858047a00b88b8498b against base d07a573e8833e00b9add842c396d13149af68842. **PASS**: FND-002 is fixed, all earlier findings remain fixed, and no new findings were found.
+
+TC-011 step 5 specifies the two callback-injected failure cases, exact refusal/document equality and one callback call. Step 6 correctly identifies the supported QSL carrier and distinguishes the unavailable-engine guard. Step 7 and Expected Results preserve the all-invocation oracle prerequisite and Partial status. FR-004 and tests.md contain no remaining carrier-unavailability claim. AC-10 still uses Inspection alone, callback exposure remains forbidden and helper-only bypasses remain invalid evidence. The three earlier FND-001 outcomes remain fixed; no regressions or new findings were found.
+
+Full spec validation passed, 71/71 grammar-clean, zero grammar findings. Matrix strict exits 1 for the same 35 untagged and one ignored-only criterion; the matrix is byte-for-byte data-equivalent to disposition round 1. Trace, properties and quoin advise passed; git diff --check passed. No Cargo/make/Kani/tests were run.
+
+### Fixed text (round 2)
+
+```text
+6. Inspect `src/execute.rs`: confirm the callback type returns only QSL run
+   success or `RunRefusal`, including `RunRefusal::UnsupportedResult` whose
+   category is `Unsupported`. Distinguish this selected-engine result from
+   `ExecutionFailure::UnsupportedEngine`, which is produced before callback
+   invocation when an engine is not linked into the binary.
+```
