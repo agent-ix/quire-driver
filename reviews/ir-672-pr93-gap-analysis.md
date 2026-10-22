@@ -75,3 +75,9 @@ Reviewed scope: the frozen final PR diff and supported-cohort/rebase delta, as i
 - `FR-006-AC-25` (role: examined): The `quire-cli` composition starts and admits every configured provider before negotiation, and uses each admitted hello descriptor as the sole provider identity for subsequent selection and dispatch.
 - `FR-006-AC-26` (role: examined): If distinct configured sessions return the same admitted identity, the composition begins no negotiation and closes all sessions; it preserves a QSL registration refusal, or returns the existing CLI `InvalidRequest` input refusal when QSL treats repeated identical admission as idempotent.
 - `FR-006-AC-27` (role: examined): If a configured provider fails to start or admit its hello, the composition begins no negotiation, closes all earlier active sessions, and preserves the original typed host failure.
+
+## Gate-fix narrow revalidation
+
+PASS: narrow gate-fix review. TC-006 and its test now identify the guard at request index 0 and the add at index 1 in this checked package. Pinned QSL items_from_requirements enumerates the BTreeMap of OccurrenceKey records; driver validates settlement request order. Both exact typed disposition oracles remain intact: integer.gt OperationNotRendered with the same derived integer range, and integer.add ResultBoundUnreachable with result [0,10] and reachable [100,109]. Neither item is routed/generated. The fix changes no production code, failure category, assertion strength or settlement behavior. No new finding. No builds/tests/gates run by reviewer.
+
+Examined: `TC-006` step 10/expected result (tests and spec agree on ascending occurrence-key request order); `FR-001-AC-6` (generation only after routing, keyed by request index); `tests/drive.rs::tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable` (exact typed refusals and empty routed/generated sets preserved).

@@ -42,3 +42,9 @@ TC-013 and TC-028 (role: examined): production configured invocation coverage an
 spec/tests.md TC-011 (role: examined): preserves direct-QSL object-context parity evidence and cross-engine partial status after rebase.
 
 No applicable AssuranceProfile was found. No source edits, builds, tests or aggregate gates were run.
+
+## Gate-fix narrow revalidation
+
+PASS: narrow gate-fix review. TC-006 and its test now identify the guard at request index 0 and the add at index 1 in this checked package. Pinned QSL items_from_requirements enumerates the BTreeMap of OccurrenceKey records; driver validates settlement request order. Both exact typed disposition oracles remain intact: integer.gt OperationNotRendered with the same derived integer range, and integer.add ResultBoundUnreachable with result [0,10] and reachable [100,109]. Neither item is routed/generated. The fix changes no production code, failure category, assertion strength or settlement behavior. No new finding. No builds/tests/gates run by reviewer.
+
+Examined: `TC-006` step 10/expected result (tests and spec agree on ascending occurrence-key request order); `FR-001-AC-6` (generation only after routing, keyed by request index); `tests/drive.rs::tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable` (exact typed refusals and empty routed/generated sets preserved).
