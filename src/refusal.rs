@@ -765,8 +765,6 @@ fn package_read_refusal_cause(cause: CheckedPackageRefusalCause) -> &'static str
         CheckedPackageRefusalCause::MissingMember => "missing-member",
         CheckedPackageRefusalCause::UnknownMember => "unknown-member",
         CheckedPackageRefusalCause::WrongValueKind => "wrong-value-kind",
-        CheckedPackageRefusalCause::UnsupportedWire => "unsupported-wire",
-        CheckedPackageRefusalCause::UnsupportedFeature => "unsupported-feature",
         CheckedPackageRefusalCause::DefinitionCycle => "definition-cycle",
         CheckedPackageRefusalCause::IncompatibleDefinition => "incompatible-definition",
         CheckedPackageRefusalCause::FeatureSetMismatch => "feature-set-mismatch",
@@ -1284,6 +1282,22 @@ mod tests {
             refusal.package_read_refusal_projection(),
             Some(&projection_without_optional_payloads)
         );
+
+        let invalid_value_projection = ContractPackageRefusalProjection {
+            code: CheckedPackageRefusalCode::InvalidPackage,
+            path: Some("/package/cause".to_owned()),
+            cause: Some(CheckedPackageRefusalCause::InvalidValue),
+            locus: None,
+            contract_version: None,
+            document_pointer: Some("/package/cause".to_owned()),
+            expected: None,
+            actual: None,
+        };
+        let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadRefused {
+            refusal: invalid_value_projection,
+        });
+        assert_eq!(refusal.code(), "invalid_package");
+        assert_eq!(refusal.package_read_cause(), Some("invalid-value"));
     }
 
     #[trace("TC-004", "FR-001-AC-22")]

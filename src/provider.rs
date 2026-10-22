@@ -1134,6 +1134,7 @@ mod tests {
             decision: Decision::Undecided(UndecidedCause::IndifferenceRegion),
             estimate: None,
             interval: None,
+            quantile: None,
             basis: StatisticalBasis {
                 method: StatisticalMethod::Okamoto,
                 confidence,
