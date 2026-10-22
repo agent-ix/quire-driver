@@ -64,18 +64,18 @@ object-context input, its handler SHALL explicitly supply an empty
   the CLI SHALL refuse before any stage as unsupported, naming the engine.
 - The driver SHALL invoke only the selected engine, including after a
   preparation failure or unsupported result.
-- When a test verifies no substitution after a selected engine returns a typed
-  failure, it SHALL inject only the engine-invocation callback into the same
-  private selection and dispatch function called by the public `execute`
-  function. The test SHALL observe the callback invocation count and the exact
-  typed failure returned by that function; a separate selector, a constructed
-  `ExecutionFailure`, or a helper that does not traverse this shared dispatch
-  function SHALL NOT count as evidence for AC-4.
+- When a test injects an engine-invocation callback into the private selection
+  and dispatch function called by public `execute`, the test SHALL observe the
+  exact typed failure returned by that function. A separate selector, a
+  constructed `ExecutionFailure`, or a helper that does not traverse this
+  shared dispatch function SHALL NOT count as evidence for AC-4. A callback
+  invocation count alone SHALL NOT establish no substitution unless the test
+  boundary observes every reachable engine invocation.
 - When the public `execute` function runs in production, the driver SHALL
   supply QSL `spine::run` as the engine-invocation callback.
-- When tests inject a callback to verify AC-4, the driver SHALL keep that
-  injection private and SHALL NOT expose it through the public API, CLI,
-  configuration, environment, or a production default.
+- The driver SHALL keep the engine-invocation callback private.
+- The driver public API, CLI, configuration, environment, and production
+  defaults SHALL NOT expose selection of an injected callback.
 - The driver execution boundary SHALL require the caller-owned
   `ObjectEnvironment`; it SHALL pass the same value unchanged to QSL
   `spine::run` for the selected interpreter.
@@ -106,7 +106,7 @@ object-context input, its handler SHALL explicitly supply an empty
 | FR-004-AC-7 | Given a QSL-defined absent object lookup whose QSL result is `Undefined`, the driver returns that `Undefined` outcome unchanged and does not replace it with a refusal or another outcome. | Test |
 | FR-004-AC-8 | Given a population argument whose identity has no binding in the caller-supplied environment, the driver returns QSL's existing typed refusal unchanged, as required by QSL FR-089-AC-4. | Test |
 | FR-004-AC-9 | The current CLI handler explicitly supplies an empty `ObjectEnvironment` as its caller policy because its invocation surface has no object-context input; public library callers still must supply the required environment themselves. | Inspection (TC-011) |
-| FR-004-AC-10 | The no-substitution test seam injects only the engine invocation callback into the private selection and dispatch function shared with public `execute`; the test verifies the exact typed failure and one invocation, while the public API, CLI, configuration, environment, and production default expose no callback selector. | Inspection (TC-011) |
+| FR-004-AC-10 | The engine-invocation callback is private to the driver implementation; public `execute` supplies QSL `spine::run`, and the public API, CLI, configuration, environment, and production default expose no callback selector. | Inspection |
 
 ## Dependencies
 
@@ -116,6 +116,13 @@ object-context input, its handler SHALL explicitly supply an empty
   carries the caller's value to the run boundary.
 - QSL FR-089-AC-4 defines typed refusal for an unresolved population identity;
   QSL FR-090 defines `Undefined` for the absent-lookup mode that requests it.
+- Full no-substitution evidence for AC-4 requires a second production engine
+  or an upstream-supported shared dispatch contract that represents a
+  selected engine's typed `Unsupported` result and makes every reachable
+  engine invocation observable through one test boundary. The current private
+  callback returns only QSL run success or `RunRefusal`; it cannot represent
+  the driver's pre-invocation `ExecutionFailure::UnsupportedEngine`, and a
+  callback-only count cannot observe a direct invocation outside that callback.
 - [FR-002](FR-002-expose-driver-cli-and-outcome-contract.md) defines the
   command entry point and exit function.
 - [TC-011](../test-cases/TC-011-execution-engine-selection.md).
