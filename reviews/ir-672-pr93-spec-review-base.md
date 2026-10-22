@@ -31,3 +31,36 @@ Examined units:
 - `FR-006-AC-1`, `FR-006-AC-8`, and `FR-006-AC-24` (examined): Requirement verification cells still show planned status.
 - `TC-013` (examined): The test procedure's statement of driver dispatch and current implementation status.
 - `TC-028` (examined): The test procedure's statement of production configuration and routed dispatch status.
+
+## Dispositions
+
+Historical dispositions restored verbatim in meaning from the existing tracker records.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | still-open | The narrow spec/tests.md edits do not resolve the original stale FR-006 verification cells and TC-013/TC-028 procedure statements. |
+| FND-002 | still-open | Before the next wording correction, FR-001 said production Process dispatch remained planned under IR-672 and TC-012 said full process-provider invocation remained planned. |
+| FND-002 | fixed | Configured Process-provider invocation is exercised under TC-013 and TC-028. Configured process-provider invocation is exercised under TC-013 and TC-028. |
+| FND-001 | fixed | CG IR-629's typed process-backend mapping is available. Step 6 exercises the production `--provider-config` path and selected process-provider invocation: the configured-run composition test drives the selected route through the host adapter, and binary-process tests cover configuration parsing and the production entrypoint. Package-graph checks and adapter-fixture lifecycle checks provide separate evidence. Remaining limits are later-start/hello failure cleanup and production signal coverage for the starting and shutdown-waiting states; the two-provider selection assertion is currently at the configured-run composition boundary rather than one binary-process test. |
+
+## Current revalidation
+
+PASS — prior findings remain closed. The rebase keeps the merged object-environment parity evidence and removes only the contradictory trailing planned sentence in TC-011. FR-006 and TC-013/TC-028 consistently describe implemented configured dispatch, production SIGTERM coverage, and remaining settlement/lifecycle/projection gaps. Original status-truthfulness findings remain fixed. No requirement, AC identifier, dependency or behavioral obligation was introduced by the rebase delta.
+
+Reviewed scope: the frozen final PR diff and supported-cohort/rebase delta, as identified by the tracker comment.
+
+## Revalidated scope excerpts
+
+- `FR-006-AC-1` (role: examined): When negotiation selects a process provider, the driver invokes its process-provider seam with the configuration entry associated with that provider's once-admitted hello identity, one `EmittedPackage` value, that entry's caller-supplied deadline, the registered-candidate manifest snapshot and exactly that provider's negotiated items; `quire-cli` implements the seam with `quire-plugin-host` and passes the once-admitted hello descriptor to the driver's existing registry.
+- `FR-006-AC-3` (role: examined): Before normal CLI command termination, the adapter requests graceful shutdown of every active plugin session; on Linux and macOS, if `RunLimits.cancellation_grace` expires first, the process tree terminates and cleanup completes within one second. The merged Windows host force-terminates the Job Object through `terminate_tree`/`terminate_job`; native Windows evidence remains planned. Kill-on-close is separately planned under IR-674.
+- `FR-006-AC-4` (role: examined): On Linux or macOS, handled SIGINT or SIGTERM while a plugin session is starting, running or shutting down requests cancellation through the caller-owned QSL handle, waits for settlement or `RunLimits.cancellation_grace` expiry, and cleans up the plugin process tree before the CLI restores the default disposition and re-raises the signal. No QSL cancellation cause is claimed; with no active session, the platform's default signal disposition is retained.
+- `FR-006-AC-8` (role: examined): The `quire-cli` adapter serializes `deadline_ms` equal to the `deadline_ms` in the selected provider's validated `--provider-config` entry, unchanged.
+- `FR-006-AC-10` (role: examined): The `quire-cli` adapter serializes each item's request index, claim locus and kind from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation.
+- `FR-006-AC-11` (role: examined): The `quire-cli` adapter serializes each item's selected backend from CG's routed output and its candidate set from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation.
+- `FR-006-AC-12` (role: examined): The `quire-cli` adapter serializes each item's extent and bounds from the corresponding retained QSL `RequirementItem`/`CandidateOutcome`, using the same request data used to build typed CG negotiation.
+- `FR-006-AC-13` (role: examined): The `quire-cli` adapter serializes each item's temporal proof bounds under `items[].temporal.subject.proof_bounds`.
+- `FR-006-AC-15` (role: examined): A validated result without a specified QSL terminal mapping remains typed and unmapped in the driver's shared settlement path.
+- `FR-006-AC-24` (role: examined): The `--provider-config` file accepts only the documented strict JSON shape; missing/unreadable files, malformed JSON, missing or wrongly typed fields, a `deadline_ms` that is missing, non-integer, outside 1..=9,007,199,254,740,991, `null` or wrongly typed optional process budgets, and unknown fields at any object level are rejected before any provider starts. In machine mode, these failures use the existing `Operation::Execute` `Code::InvalidRequest` input-refusal result and serialize that typed outcome once.
+- `FR-006-AC-25` (role: examined): The `quire-cli` composition starts and admits every configured provider before negotiation, and uses each admitted hello descriptor as the sole provider identity for subsequent selection and dispatch.
+- `FR-006-AC-26` (role: examined): If distinct configured sessions return the same admitted identity, the composition begins no negotiation and closes all sessions; it preserves a QSL registration refusal, or returns the existing CLI `InvalidRequest` input refusal when QSL treats repeated identical admission as idempotent.
+- `FR-006-AC-27` (role: examined): If a configured provider fails to start or admit its hello, the composition begins no negotiation, closes all earlier active sessions, and preserves the original typed host failure.
