@@ -1451,6 +1451,7 @@ dependencies = [
  "quire-driver",
  "quire-exact",
  "quire-plugin-host",
+ "quire-semantic-value",
  "regex",
  "serde",
  "serde_json",

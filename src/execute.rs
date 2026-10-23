@@ -228,7 +228,7 @@ mod tests {
                 function: "yes".to_owned(),
                 arguments: Vec::new(),
                 accounting: default_accounting(10),
-                supplied: qsl_semantics::value::supplied::SuppliedLimits::default(),
+                supplied: quire_semantic_value::supplied_stop::SuppliedLimits::default(),
             },
             object_environment: &EMPTY_OBJECT_ENVIRONMENT,
             cancel: Cancel::new(),
