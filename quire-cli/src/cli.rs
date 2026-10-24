@@ -19,7 +19,6 @@ use qsl_replay::spine::{
 };
 use qsl_replay::{run_with_requirements, CallOutcome, RunRefusal};
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
-use quire_semantic_value::supplied_stop::SuppliedLimits;
 use quire_driver::{
     build_linked_providers, drive, execute, CompileInput, Driven, ExecutionEngine,
     ExecutionFailure, ExecutionRequest, GenerationInput, LimitOverrides, ObjectEnvironment,
@@ -29,6 +28,7 @@ use quire_driver::{
 use quire_exact::Cancel;
 use quire_exact::{Integer, Value};
 use quire_semantic_value::catalog::Category;
+use quire_semantic_value::supplied_stop::SuppliedLimits;
 
 /// Pass QSL's category result through the kit without converting it to an `Outcome`.
 #[must_use]
