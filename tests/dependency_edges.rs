@@ -32,6 +32,7 @@ struct Graph {
     /// Package id -> the package ids it reaches by a normal or build edge.
     deps: BTreeMap<String, Vec<String>>,
     root: String,
+    driver_dev_dependencies: BTreeSet<String>,
     workspace_default_members: BTreeSet<String>,
 }
 
@@ -88,6 +89,23 @@ impl Graph {
             .as_str()
             .expect("root")
             .to_owned();
+        let driver_dev_dependencies = metadata["packages"]
+            .as_array()
+            .expect("packages")
+            .iter()
+            .find(|package| package["id"].as_str() == Some(root.as_str()))
+            .expect("root package")["dependencies"]
+            .as_array()
+            .expect("root dependencies")
+            .iter()
+            .filter(|dependency| dependency["kind"] == "dev")
+            .map(|dependency| {
+                dependency["name"]
+                    .as_str()
+                    .expect("dependency name")
+                    .to_owned()
+            })
+            .collect();
         let workspace_default_members = metadata["workspace_default_members"]
             .as_array()
             .expect("workspace default members")
@@ -98,6 +116,7 @@ impl Graph {
             packages,
             deps,
             root,
+            driver_dev_dependencies,
             workspace_default_members,
         }
     }
@@ -165,6 +184,12 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     .into_iter()
     .collect();
     assert_eq!(direct, expected);
+    assert_eq!(
+        graph.driver_dev_dependencies,
+        ["ix-trace-rs".to_owned(), "quire-checked".to_owned()]
+            .into_iter()
+            .collect()
+    );
     assert!(
         graph.reachable_from(&graph.root).iter().all(|id| !matches!(
             graph.package(id).name.as_str(),

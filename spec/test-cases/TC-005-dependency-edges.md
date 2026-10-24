@@ -55,6 +55,10 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
   `quire-plugin-host` is not in the driver's normal or build dependency
   closure. No package in the driver's transitive normal/build dependency
   closure is `quire-cache`.
+- The driver's direct development dependencies are exactly `ix-trace-rs`
+  and `quire-checked`. The latter is test-only and supplies the existing
+  `DeclarationKey` owner type relocated from QSL; it adds no normal/build
+  edge or driver API. `serde_json` remains a normal dependency used by tests.
 - The driver's `quire-contract-model` is the package CG's
   `quire-contract-ir` depends on.
 - If the workspace has a `quire-cache` package, it is separate from

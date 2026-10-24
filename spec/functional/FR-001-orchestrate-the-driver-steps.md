@@ -267,6 +267,12 @@ the admitted package only at the `package_id` E4 emitted.
   follows that owner move; it does not authorize a QSL re-export shim or a
   new driver API.
   The cache boundary is specified separately in FR-001-AC-11 and FR-012.
+- The driver's direct development dependencies SHALL be exactly
+  `ix-trace-rs` and `quire-checked`. The test-only `quire-checked` edge uses
+  the existing `DeclarationKey` plain-value owner after extraction from
+  QSL; it grants no normal/build edge or new driver API. `serde_json`
+  remains in the normal inventory above and is also used by tests.
+
 
 ## Acceptance Criteria
 
