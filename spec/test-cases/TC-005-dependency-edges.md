@@ -46,9 +46,12 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
 - The driver's normal and build dependencies are exactly `qsl-foundation`,
   `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`,
   `quire-exact`, `quire-contract-codegen`, `quire-contract-model`,
-  `quire-canonical`, `serde`, `serde_json` and `thiserror`. `serde_json` is a
+  `quire-canonical`, `quire-semantic-value`, `serde`, `serde_json` and `thiserror`. `serde_json` is a
   normal edge for production projection of FR-331's retained optional
-  `bounds` member. The QSL root crate and `quire-cache` are not direct edges.
+  `bounds` member. The direct `quire-semantic-value` normal edge supplies
+  existing shared catalog owner types after their ownership moved out of
+  QSL; this is not a re-export shim or an additional driver API. The
+  dependency assertion remains exact-set equality. The QSL root crate and `quire-cache` are not direct edges.
   `quire-plugin-host` is not in the driver's normal or build dependency
   closure. No package in the driver's transitive normal/build dependency
   closure is `quire-cache`.
