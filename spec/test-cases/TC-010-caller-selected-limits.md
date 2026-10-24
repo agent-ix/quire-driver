@@ -42,13 +42,17 @@ Scope: FR-003-AC-1 through FR-003-AC-10.
    code `invalid-request`; unknown-name, malformed and duplicate refusals
    identify their respective causes. When multiple operands are invalid,
    confirm QSL parser refusals are reported before checking whether recognized
-   settings are available to the operation. Pass the bare accounting names
+   settings are available to the operation. Pass the `accounting.<counter>` setting names
    defined by QSL FR-255 and verify QSL's operand API resolves them to
    `SettingName::Accounting` values.
-4. Apply a bare accounting operand such as `work_units=0`. Inspect that QSL
+4. Apply a QSL-named accounting operand such as `accounting.work_units=0`. Inspect that QSL
    `AccountingLimits::set_bound` changes `Call.accounting` while the stage
    limits remain unchanged, then run an input that exhausts that accounting
-   budget and verify QSL reports the accounting limit. Separately, run an
+   budget and verify QSL reports the accounting limit and setting
+   `accounting.work_units`. Separately, pass bare `work_units=0` with a
+   missing source: QSL refuses the unknown setting before any source read,
+   preserving its refusal category rather than treating it as an alias.
+   Separately, run an
    input that exceeds a chosen stage limit. Through the driver's
    typed execution wrapper, inspect the returned `LimitExceeded` configured
    bound and `setting()`; then repeat with the limit raised to fit the input.
@@ -68,8 +72,9 @@ Test location: `src/limits.rs`, `src/execute.rs`, `quire-cli/src/cli.rs`, and
 - A QSL-recognized stage setting absent from the operation's bounds is refused with
   `invalid-request` and an operation-unavailable diagnostic, not the
   unknown-name diagnostic.
-- The driver adds no name parser, namespace or aliases. QSL owns the bare
-  accounting names defined by FR-255.
+- The driver adds no name parser, driver-defined namespace or aliases. QSL
+  owns the `accounting.<counter>` names defined by FR-255 and refuses bare
+  counter names as unknown settings.
 - QSL owns platform-sized bound application; the driver adds no overflow rule.
 - The low limit returns QSL's typed `LimitExceeded`; the driver wrapper
   preserves its configured bound and `setting()` and has category
