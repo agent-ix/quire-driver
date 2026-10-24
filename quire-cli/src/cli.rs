@@ -19,7 +19,7 @@ use qsl_replay::spine::{
 };
 use qsl_replay::{run_with_requirements, CallOutcome, RunRefusal};
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
-use qsl_semantics::value::supplied::SuppliedLimits;
+use quire_semantic_value::supplied_stop::SuppliedLimits;
 use quire_driver::{
     build_linked_providers, drive, execute, CompileInput, Driven, ExecutionEngine,
     ExecutionFailure, ExecutionRequest, GenerationInput, LimitOverrides, ObjectEnvironment,

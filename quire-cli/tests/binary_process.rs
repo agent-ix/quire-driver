@@ -20,7 +20,7 @@ use qsl_replay::spine::{
     SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
-use qsl_semantics::value::supplied::SuppliedLimits;
+use quire_semantic_value::supplied_stop::SuppliedLimits;
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_driver::{execute, ExecutionEngine, ExecutionRequest, ObjectEnvironment};
 use quire_exact::Cancel;
