@@ -19,7 +19,6 @@ use std::thread;
 use std::time::Duration;
 
 use ix_trace_rs::trace;
-use qsl_foundation::diagnostic::Category;
 use qsl_foundation::BackendId;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
@@ -51,6 +50,7 @@ use quire_driver::{
     ScalarExecutionInput, Upstream,
 };
 use quire_exact::{Cancel, CancelCause, Integer, Value};
+use quire_semantic_value::catalog::Category;
 
 #[path = "common/units.rs"]
 mod shared_units;
@@ -343,7 +343,7 @@ impl Upstream for Recorder {
                     Err(qsl_package::ExportRefusal::UnknownItem { item: item.clone() })
                 } else if self.export_fault_at == Some(index) {
                     Err(qsl_package::ExportRefusal::Fault(
-                        qsl_foundation::diagnostic::InternalFault::new("export", "fixture"),
+                        quire_semantic_value::catalog::InternalFault::new("export", "fixture"),
                     ))
                 } else if self.export_wrong_unbound_at == Some(index) {
                     Err(fixture_unbound(&items[1]))

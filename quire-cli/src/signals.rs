@@ -551,6 +551,7 @@ mod tests {
                             Vec::<(Option<&str>, Option<&str>)>::new(),
                             None,
                             None,
+                            None,
                         )
                         .map_err(|e| format!("{e:?}"))?;
                         Ok((

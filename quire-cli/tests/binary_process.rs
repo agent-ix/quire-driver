@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
-use qsl_foundation::diagnostic::{Category, Code};
+use qsl_foundation::diagnostic::Code;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, default_accounting, parse, select, Call, DependencyInput, LockEvidence, ParseRequest,
@@ -24,6 +24,7 @@ use qsl_semantics::value::supplied::SuppliedLimits;
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_driver::{execute, ExecutionEngine, ExecutionRequest, ObjectEnvironment};
 use quire_exact::Cancel;
+use quire_semantic_value::catalog::Category;
 
 #[cfg(unix)]
 #[path = "../../tests/common/units.rs"]

@@ -10,8 +10,8 @@ use std::process::ExitCode;
 use ix_cli_kit::exit::{caller_exit_code, RESERVED_COMMAND_NOT_FOUND};
 use ix_cli_kit::streams::{self, Diagnostics};
 use qsl_cst::format::{format_with_limits, FormatLimits, FormatRefusal};
+use qsl_foundation::diagnostic::Code;
 use qsl_foundation::diagnostic::Staged;
-use qsl_foundation::diagnostic::{Category, Code};
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, default_accounting, package, parse, select, Call, CallArgument, DependencyInput,
@@ -28,6 +28,7 @@ use quire_driver::{
 };
 use quire_exact::Cancel;
 use quire_exact::{Integer, Value};
+use quire_semantic_value::catalog::Category;
 
 /// Pass QSL's category result through the kit without converting it to an `Outcome`.
 #[must_use]
@@ -1369,8 +1370,8 @@ mod outcome_tests {
     use std::io;
     use std::process::ExitCode;
 
-    use qsl_foundation::diagnostic::Category;
     use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
+    use quire_semantic_value::catalog::Category;
 
     use super::{process_exit_code, write_diagnostic, write_result_diagnostics, CommandResult};
 
@@ -1923,7 +1924,7 @@ mod configured_run_tests {
         ));
         assert_eq!(
             failure.document.category(),
-            qsl_foundation::diagnostic::Category::Refusal
+            quire_semantic_value::catalog::Category::Refusal
         );
         assert!(failure
             .document

@@ -19,6 +19,7 @@ path = "src/main.rs"
 tc018-test-adapter = []
 
 [dependencies]
+quire-semantic-value = { git = "https://github.com/agent-ix/quire-semantic-value", branch = "main" }
 base64 = "=0.22.1"
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-cst = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }

@@ -156,6 +156,7 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         "quire-contract-codegen",
         "quire-contract-model",
         "quire-canonical",
+        "quire-semantic-value",
         "serde",
         "serde_json",
         "thiserror",
@@ -183,6 +184,7 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         "quire-cache",
         "quire-plugin-host",
         "ix-cli-kit",
+        "quire-semantic-value",
     ] {
         assert!(
             cli_direct.contains(required),

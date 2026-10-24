@@ -219,10 +219,11 @@ impl Upstream for QslCg {
 
 #[cfg(test)]
 mod tests {
-    use qsl_foundation::diagnostic::{InternalFault, LimitExceeded, StageFailure};
+    use qsl_foundation::diagnostic::{LimitExceeded, StageFailure};
     use qsl_foundation::Setting;
     use qsl_replay::spine::CompileRefusal;
     use quire_exact::CancelCause;
+    use quire_semantic_value::catalog::InternalFault;
 
     use super::{driver_refusal, DriverFault, DriverRefusal, LifecycleOperation, SpineStage};
     use crate::{DriverStage, OutcomeKind};
@@ -261,7 +262,7 @@ mod tests {
                 assert_eq!(refusal.stage(), DriverStage::Compile(expected_stage));
                 assert_eq!(
                     refusal.qsl_category(),
-                    Some(qsl_replay::Category::Incomplete)
+                    Some(quire_semantic_value::catalog::Category::Incomplete)
                 );
                 let DriverRefusal::Cancelled { stage, cause: seen } = refusal else {
                     panic!("QSL cancellation must remain a distinct typed result");

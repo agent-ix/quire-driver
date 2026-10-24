@@ -10,7 +10,7 @@ use std::process::Command;
 
 use ix_cli_kit::version::Agreement;
 use qsl_cst::format::{format_with_limits, FormatLimits, FormatRefusal};
-use qsl_foundation::diagnostic::{Category, Code, Staged};
+use qsl_foundation::diagnostic::{Code, Staged};
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, package, parse, select, DependencyInput, LockEvidence, PackageLimits, ParseRequest,
@@ -18,6 +18,7 @@ use qsl_replay::spine::{
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use quire_exact::Cancel;
+use quire_semantic_value::catalog::Category;
 
 const QUIRE: &str = env!("CARGO_BIN_EXE_quire");
 const SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ir608-run.qsl");
