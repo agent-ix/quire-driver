@@ -1479,7 +1479,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-codegen"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#5155360abbe1c9a01444aaa90ac73a0d658d9933"
+source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#8d81a87c89fc61d9ec36d1bc40131b575560644f"
 dependencies = [
  "command-fds",
  "ix-trace-rs",
@@ -1501,9 +1501,8 @@ dependencies = [
 [[package]]
 name = "quire-contract-ir"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#1e177e071216b005eb2a7fe286d23ec717aeb791"
+source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#d6d3e32a536dcd785b9bb07cb81072cac0989f4e"
 dependencies = [
- "ix-cli-kit",
  "quire-contract-model",
  "serde",
  "serde_json",
@@ -1513,7 +1512,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-model"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#1e177e071216b005eb2a7fe286d23ec717aeb791"
+source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#d6d3e32a536dcd785b9bb07cb81072cac0989f4e"
 dependencies = [
  "ix-trace-rs",
  "jsonschema 0.17.1",
