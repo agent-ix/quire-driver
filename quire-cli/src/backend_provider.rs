@@ -13,7 +13,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use qsl_foundation::backend::EmptyBackendIdentity;
 use qsl_foundation::bound::DomainKind;
-use qsl_foundation::diagnostic::{category_of, CatalogCode, Category};
+use qsl_foundation::diagnostic::category_of;
 use qsl_foundation::BackendId;
 use qsl_package::EmittedPackage;
 use qsl_route::request::RequirementItem;
@@ -24,6 +24,7 @@ use qsl_route::{
 };
 use quire_driver::Driven;
 use quire_driver::ProviderManifest;
+use quire_semantic_value::catalog::{CatalogCode, Category};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
@@ -289,6 +290,7 @@ impl ManifestStage {
                 .map(|pair| (pair.kind.as_deref(), pair.mode.as_deref())),
             domain_labels.as_deref(),
             fairness_member,
+            None,
         )?;
         Ok(AdmittedManifest {
             descriptor,

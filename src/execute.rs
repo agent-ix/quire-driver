@@ -3,7 +3,6 @@
 
 use std::collections::BTreeMap;
 
-use qsl_foundation::diagnostic::Category;
 use qsl_foundation::Code;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{Call, CallOutcome, DependencyInput, RunRefusal, SpineLimits};
@@ -11,6 +10,7 @@ use qsl_replay::{OutcomeDocument, OutcomeWriteError};
 use qsl_semantics::library::PackageId;
 use qsl_semantics::model::object_environment::ObjectEnvironment;
 use quire_exact::Cancel;
+use quire_semantic_value::catalog::Category;
 
 /// The engine selected for one execution request.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -189,7 +189,6 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::LazyLock;
 
-    use qsl_foundation::diagnostic::Category;
     use qsl_foundation::Setting;
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::{
@@ -208,6 +207,7 @@ mod tests {
         PopulationDocument, PopulationMember,
     };
     use quire_exact::{Cancel, CancelCause, Value};
+    use quire_semantic_value::catalog::Category;
     use quire_semantic_value::object_closure::ObjectClosure;
 
     use super::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest};
@@ -228,7 +228,7 @@ mod tests {
                 function: "yes".to_owned(),
                 arguments: Vec::new(),
                 accounting: default_accounting(10),
-                supplied: qsl_semantics::value::supplied::SuppliedLimits::default(),
+                supplied: quire_semantic_value::supplied_stop::SuppliedLimits::default(),
             },
             object_environment: &EMPTY_OBJECT_ENVIRONMENT,
             cancel: Cancel::new(),

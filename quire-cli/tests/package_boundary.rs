@@ -121,6 +121,7 @@ fn cargo_target_and_dependencies_belong_to_quire_cli() {
     assert!(dependencies.contains("quire-cache"));
     assert!(dependencies.contains("quire-plugin-host"));
     assert!(dependencies.contains("ix-cli-kit"));
+    assert!(dependencies.contains("quire-semantic-value"));
 }
 
 /// Trace: FR-014-AC-4, FR-014-AC-5, the parser, binary entry point, CLI tests and

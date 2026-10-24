@@ -13,17 +13,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
-use qsl_foundation::diagnostic::{Category, Code};
+use qsl_foundation::diagnostic::Code;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, default_accounting, parse, select, Call, DependencyInput, LockEvidence, ParseRequest,
     SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
-use qsl_semantics::value::supplied::SuppliedLimits;
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_driver::{execute, ExecutionEngine, ExecutionRequest, ObjectEnvironment};
 use quire_exact::Cancel;
+use quire_semantic_value::catalog::Category;
+use quire_semantic_value::supplied_stop::SuppliedLimits;
 
 #[cfg(unix)]
 #[path = "../../tests/common/units.rs"]
@@ -875,16 +876,16 @@ fn checking_work_limit_changes_the_call_outcome() {
     );
 }
 
-/// Trace: FR-003-AC-9, FR-003-AC-10. Bare accounting reaches QSL's call.
+/// Trace: FR-003-AC-9, FR-003-AC-10. QSL-named accounting reaches QSL's call.
 #[test]
-fn bare_work_units_limit_reaches_qsl_call_accounting() {
+fn named_accounting_work_units_limit_reaches_qsl_call_accounting() {
     let output = Command::new(QUIRE)
         .args([
             "run",
             SOURCE,
             "yes",
             "--limit",
-            "work_units=0",
+            "accounting.work_units=0",
             "--format",
             "json",
         ])
@@ -898,7 +899,10 @@ fn bare_work_units_limit_reaches_qsl_call_accounting() {
         serde_json::from_slice(&output.stdout).expect("QSL writes an incomplete document");
     assert_eq!(document["category"], "incomplete");
     assert_eq!(document["result"]["kind"], "incomplete");
-    assert_eq!(document["result"]["limit"]["setting"], "work_units");
+    assert_eq!(
+        document["result"]["limit"]["setting"],
+        "accounting.work_units"
+    );
 }
 
 /// Trace: FR-003-AC-3 / TC-010, a lifecycle stage limit uses QSL's exit code.
@@ -937,6 +941,7 @@ fn lifecycle_stage_limit_uses_incomplete_exit_code() {
 #[test]
 fn qsl_rejects_unknown_malformed_and_duplicate_limits_before_source_read() {
     for operand in [
+        "work_units=0", // A bare counter is not a setting (QSL FR-255 Behavior 8).
         "normalization.work_units=1",
         "s1.input_bytes=invalid",
         "s1.input_bytes=1", // duplicated below using the same option twice
@@ -955,6 +960,9 @@ fn qsl_rejects_unknown_malformed_and_duplicate_limits_before_source_read() {
         assert!(output.stdout.is_empty(), "{operand}");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains(operand), "{operand}: {stderr}");
+        if operand == "work_units=0" {
+            assert!(stderr.contains("UnknownSetting"), "{stderr}");
+        }
         assert!(
             !stderr.contains("could not read source"),
             "{operand}: {stderr}"

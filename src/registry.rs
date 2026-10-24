@@ -226,6 +226,7 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
                 .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
             domain_labels.as_deref(),
             None,
+            None,
         );
         match admitted {
             Ok(descriptor) => {
@@ -497,9 +498,39 @@ mod tests {
             crate::DriverRefusal::EmptyLinkedManifestAdvertisements
         ));
         assert_eq!(refusal.code(), "invalid_capability");
-        assert_eq!(refusal.qsl_category(), Some(qsl_replay::Category::Refusal));
+        assert_eq!(
+            refusal.qsl_category(),
+            Some(quire_semantic_value::catalog::Category::Refusal)
+        );
         assert_eq!(refusal.stage(), crate::DriverStage::Registry);
         assert_eq!(refusal.kind(), crate::OutcomeKind::Refused);
+    }
+
+    #[ix_trace_rs::trace("TC-004", "FR-001-AC-5")]
+    #[test]
+    fn linked_probabilistic_manifest_retains_the_absent_evidence_kind_refusal() {
+        let manifest = ProviderManifest {
+            identity: "agent-ix/provider/probabilistic".to_owned(),
+            manifest_digest: ManifestDigest::from_digest([6; 32]),
+            advertises: vec![(
+                Some("probabilistic-satisfaction".to_owned()),
+                Some("unbounded".to_owned()),
+            )],
+            domains: None,
+            bounds: None,
+            wire: None,
+        };
+        let refusal = super::build_registry(&[manifest])
+            .expect_err("the driver's manifest has no evidence-kinds member to supply");
+        assert_eq!(refusal.code(), "invalid_capability/unknown-evidence-kind");
+        assert_eq!(refusal.kind(), crate::OutcomeKind::Refused);
+        assert_eq!(refusal.stage(), crate::DriverStage::Registry);
+        assert!(
+            matches!(refusal, crate::DriverRefusal::Registration(ref errors)
+            if errors.len() == 1 && errors[0].cause() == &qsl_route::RegistrationCause::UnknownEvidenceKind(
+                qsl_route::EvidenceKindsDefect::Absent
+            ))
+        );
     }
 
     /// A bounded advertisement without QSL's required domain labels preserves
@@ -544,6 +575,7 @@ mod tests {
             ManifestDigest::from_digest([8; 32]),
             [(Some("operation-contract"), Some("bounded"))],
             Some(&["integer"]),
+            None,
             None,
         )
         .expect("the host hello admitter returns a QSL-admitted descriptor");
@@ -595,6 +627,7 @@ mod tests {
             [(Some("operation-contract"), Some("bounded"))],
             Some(&["integer"]),
             None,
+            None,
         )
         .expect("process descriptor admits");
 
@@ -624,6 +657,7 @@ mod tests {
                         ManifestDigest::from_digest([4; 32]),
                         [(Some("operation-contract"), Some("bounded"))],
                         Some(&["integer"]),
+                        None,
                         None,
                     )
                     .expect("later descriptor admits"),
@@ -693,6 +727,7 @@ mod tests {
             ManifestDigest::from_digest([2; 32]),
             [(Some("operation-contract"), Some("bounded"))],
             Some(&["integer"]),
+            None,
             None,
         )
         .expect("process descriptor admits");

@@ -649,6 +649,7 @@ mod tests {
                 .map(|domains| domains.iter().map(String::as_str).collect::<Vec<_>>())
                 .as_deref(),
             None,
+            None,
         )
         .map_err(|error| format!("{error:?}"))?;
         let retained = ProviderManifest {

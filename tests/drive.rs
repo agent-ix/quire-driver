@@ -19,7 +19,6 @@ use std::thread;
 use std::time::Duration;
 
 use ix_trace_rs::trace;
-use qsl_foundation::diagnostic::Category;
 use qsl_foundation::BackendId;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
@@ -42,7 +41,7 @@ use quire_contract_codegen::{
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageReadLimits,
-    CheckedPackageV2, ContractPackageV1,
+    CheckedPackageV2, CheckedTerm, ContractPackageV1,
 };
 use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
@@ -51,6 +50,7 @@ use quire_driver::{
     ScalarExecutionInput, Upstream,
 };
 use quire_exact::{Cancel, CancelCause, Integer, Value};
+use quire_semantic_value::catalog::Category;
 
 #[path = "common/units.rs"]
 mod shared_units;
@@ -343,7 +343,7 @@ impl Upstream for Recorder {
                     Err(qsl_package::ExportRefusal::UnknownItem { item: item.clone() })
                 } else if self.export_fault_at == Some(index) {
                     Err(qsl_package::ExportRefusal::Fault(
-                        qsl_foundation::diagnostic::InternalFault::new("export", "fixture"),
+                        quire_semantic_value::catalog::InternalFault::new("export", "fixture"),
                     ))
                 } else if self.export_wrong_unbound_at == Some(index) {
                     Err(fixture_unbound(&items[1]))
@@ -474,7 +474,7 @@ fn fixture_unbound(
         item: item.clone(),
         elements: vec![qsl_package::UnboundElement {
             key: qsl_semantics::check::AbstractionKey::Population(
-                qsl_semantics::model::key::DeclarationKey {
+                quire_checked::key::DeclarationKey {
                     package: "test/ir914".to_owned(),
                     node: "ConfigVersion".to_owned(),
                 },
@@ -871,7 +871,9 @@ fn expression_by_identity(package: &CheckedPackageV2, identity: &str) -> Checked
         .iter()
         .find(|node| {
             node.node_tag.as_ref() == "expression"
-                && node.body["operation"]["identity"].as_str() == Some(identity)
+                && matches!(package.term(&node.node_id), Some(CheckedTerm::Application {
+                    operation, ..
+                }) if operation.get("identity").and_then(serde_json::Value::as_str) == Some(identity))
         })
         .unwrap_or_else(|| panic!("the unit has a {identity} expression"));
     node.node_id.clone()
@@ -888,22 +890,34 @@ fn integer_range_bound(package: &CheckedPackageV2, lower: &str, upper: &str) -> 
         .find(|node| {
             node.node_tag.as_ref() == "bounded_domain"
                 && node.semantic_form.as_ref() == "integer_range"
-                && member_literal(&node.body, "min") == Some(lower)
-                && member_literal(&node.body, "max") == Some(upper)
+                && package
+                    .term(&node.node_id)
+                    .and_then(|term| member_literal(term, "min"))
+                    == Some(lower)
+                && package
+                    .term(&node.node_id)
+                    .and_then(|term| member_literal(term, "max"))
+                    == Some(upper)
         })
         .unwrap_or_else(|| panic!("the package has an integer_range[{lower}, {upper}] bound"));
     node.node_id.clone()
 }
 
 /// The literal text value of member `name` in an `aggregate` node's `body`.
-fn member_literal<'a>(body: &'a serde_json::Value, name: &str) -> Option<&'a str> {
-    body["members"]
-        .as_array()?
-        .iter()
-        .find(|member| member["name"].as_str() == Some(name))?
-        .get("value")?
-        .get("value")?
-        .as_str()
+fn member_literal<'a>(body: &'a CheckedTerm, name: &str) -> Option<&'a str> {
+    let CheckedTerm::Aggregate { members } = body else {
+        return None;
+    };
+    let binding = members.iter().find(|member| {
+        matches!(member, CheckedTerm::Binding { name: member_name, .. } if member_name.as_ref() == name)
+    })?;
+    let CheckedTerm::Binding { value, .. } = binding else {
+        return None;
+    };
+    let CheckedTerm::Literal { value, .. } = value.as_ref() else {
+        return None;
+    };
+    value.as_str()
 }
 
 /// The Kani generation input. IR-294 has CG derive each routed item's claim

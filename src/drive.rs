@@ -1598,6 +1598,7 @@ mod origin_projection_tests {
             [(Some("value-validity"), Some("bounded"))],
             Some(&domains),
             None,
+            None,
         )
         .expect("QSL accepts the typed descriptor")
     }

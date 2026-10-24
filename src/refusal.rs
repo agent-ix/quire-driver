@@ -3,14 +3,12 @@
 //! AGE-394 (the lifecycle and CLI design) renders them; this module only types
 //! them.
 
-use qsl_foundation::diagnostic::InternalFault;
 use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::source::provenance::OccurrenceKey;
 use qsl_foundation::{BackendId, Code, EmptyBackendIdentity};
 use qsl_package::ExportRefusal;
 use qsl_replay::spine::{BindRefusal, CompileRefusal, RunRefusal, SpineStage};
-use qsl_replay::Category;
 use qsl_route::RegistrationRefusal;
 use quire_contract_codegen::{
     ContractNegotiationError, ContractScalarError, EnvelopeRefusal, KaniObligationError,
@@ -22,6 +20,8 @@ use quire_contract_model::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode,
 };
 use quire_exact::CancelCause;
+use quire_semantic_value::catalog::Category;
+use quire_semantic_value::catalog::InternalFault;
 
 /// Why [`crate::drive`] or [`crate::build_registry`] produced no result.
 #[derive(Debug, thiserror::Error)]
@@ -761,6 +761,13 @@ fn package_read_refusal_code(code: CheckedPackageRefusalCode) -> &'static str {
 
 fn package_read_refusal_cause(cause: CheckedPackageRefusalCause) -> &'static str {
     match cause {
+        CheckedPackageRefusalCause::NonBooleanRoot => "non-boolean-root",
+        CheckedPackageRefusalCause::MissingTimedModel => "missing-timed-model",
+        CheckedPackageRefusalCause::TimedNodeReference => "timed-node-reference",
+        CheckedPackageRefusalCause::DuplicateClockPlace => "duplicate-clock-place",
+        CheckedPackageRefusalCause::MalformedClockPlace => "malformed-clock-place",
+        CheckedPackageRefusalCause::InvalidTimeQuantity => "invalid-time-quantity",
+        CheckedPackageRefusalCause::ClockWithoutDenseTime => "clock-without-dense-time",
         CheckedPackageRefusalCause::MalformedJson => "malformed-json",
         CheckedPackageRefusalCause::MissingMember => "missing-member",
         CheckedPackageRefusalCause::UnknownMember => "unknown-member",
@@ -886,6 +893,18 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
 /// The catalog code of a whole-generation FR-014 oracle failure.
 fn oracle_code(error: &OracleGenerationError) -> Code {
     match error {
+        OracleGenerationError::ContextPackageMismatch { .. } => Code::InvalidRequest,
+        OracleGenerationError::EnumReconstruction(_) => Code::InvalidPackage,
+        OracleGenerationError::EnvironmentAdmission(failure) => match failure {
+            quire_semantic_value::declaration::EnvironmentFailure::Refused(_) => {
+                Code::InvalidPackage
+            }
+            quire_semantic_value::declaration::EnvironmentFailure::Limit(_)
+            | quire_semantic_value::declaration::EnvironmentFailure::Allocation(_)
+            | quire_semantic_value::declaration::EnvironmentFailure::Capacity(_) => {
+                Code::ResourceExhausted
+            }
+        },
         OracleGenerationError::SourceTooLarge { .. }
         | OracleGenerationError::ArtifactTooLarge { .. }
         | OracleGenerationError::ArtifactCountExceeded { .. }
@@ -1006,6 +1025,15 @@ fn generation_message(error: &RoutedGenerationError) -> String {
 
 fn oracle_message(error: &OracleGenerationError) -> String {
     match error {
+        OracleGenerationError::ContextPackageMismatch { .. } => {
+            format!("the selected command context does not belong to its package: {error:?}")
+        }
+        OracleGenerationError::EnumReconstruction(_) => {
+            format!("the admitted enum graph could not be reconstructed: {error:?}")
+        }
+        OracleGenerationError::EnvironmentAdmission(_) => {
+            format!("semantic environment admission stopped: {error:?}")
+        }
         OracleGenerationError::PackageRequest(error) => {
             format!("the admitted package request was inconsistent: {error:?}")
         }
@@ -1086,7 +1114,6 @@ mod tests {
     use ix_trace_rs::trace;
     use qsl_foundation::digest::WireNodeId;
     use qsl_foundation::EmptyBackendIdentity;
-    use qsl_replay::Category;
     use quire_contract_codegen::{
         ContractNegotiationError, ContractPackageIncompleteProjection,
         ContractPackageRefusalProjection, ContractScalarError, EnvelopeRefusal, HarnessPath,
@@ -1099,8 +1126,159 @@ mod tests {
         CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusalCause,
         CheckedPackageRefusalCode,
     };
+    use quire_semantic_value::catalog::Category;
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    // Typed upstream-error projections, not admission or solver-origin fixtures.
+    #[trace("TC-004", "FR-001-AC-5")]
+    #[test]
+    fn new_oracle_failures_preserve_code_kind_stage_and_exact_payload() {
+        use quire_semantic_value::declaration::{
+            DeclarationCause, EnvironmentFailure, EnvironmentLimit, EnvironmentLimitKind,
+            InvalidDeclaration, StorageRequest, StorageUnit,
+        };
+        use quire_semantic_value::semantic_node::{InvalidSemanticGraph, SemanticGraphCause};
+
+        let cases = [
+            (
+                OracleGenerationError::ContextPackageMismatch {
+                    expected: CheckedSemanticId {
+                        domain: "quire.contract-package/v2".into(),
+                        algorithm: "sha-256".into(),
+                        digest: "expected-package".into(),
+                    },
+                    actual_domain: "other-domain".to_owned(),
+                    actual_digest: "actual-package".to_owned(),
+                },
+                "invalid-request",
+                OutcomeKind::Refused,
+            ),
+            (
+                OracleGenerationError::EnumReconstruction(InvalidSemanticGraph {
+                    cause: SemanticGraphCause::NonCanonicalPreimage,
+                }),
+                "invalid_package",
+                OutcomeKind::Refused,
+            ),
+            (
+                OracleGenerationError::EnvironmentAdmission(EnvironmentFailure::Refused(
+                    InvalidDeclaration {
+                        declaration: "Repeated".to_owned(),
+                        cause: DeclarationCause::DuplicateKey,
+                    },
+                )),
+                "invalid_package",
+                OutcomeKind::Refused,
+            ),
+            (
+                OracleGenerationError::EnvironmentAdmission(EnvironmentFailure::Limit(
+                    EnvironmentLimit::new(EnvironmentLimitKind::WorkUnits, 17, 18),
+                )),
+                "resource_exhausted",
+                OutcomeKind::Limit,
+            ),
+            (
+                OracleGenerationError::EnvironmentAdmission(EnvironmentFailure::Allocation(
+                    StorageRequest::new(23, StorageUnit::Bytes),
+                )),
+                "resource_exhausted",
+                OutcomeKind::Limit,
+            ),
+            (
+                OracleGenerationError::EnvironmentAdmission(EnvironmentFailure::Capacity(
+                    StorageRequest::new(31, StorageUnit::AdditionalElements),
+                )),
+                "resource_exhausted",
+                OutcomeKind::Limit,
+            ),
+        ];
+        for (error, code, kind) in cases {
+            let payload = format!("{error:?}");
+            let refusal = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(
+                ContractScalarError::Oracle(error.clone()),
+            ));
+            assert_eq!(refusal.code(), code, "{error:?}");
+            assert_eq!(refusal.kind(), kind, "{error:?}");
+            assert_eq!(refusal.stage(), DriverStage::Generation, "{error:?}");
+            assert!(
+                refusal.to_string().contains(&payload),
+                "{refusal}: missing {payload}"
+            );
+            if matches!(
+                &error,
+                OracleGenerationError::EnvironmentAdmission(
+                    EnvironmentFailure::Allocation(_) | EnvironmentFailure::Capacity(_)
+                )
+            ) {
+                assert!(!refusal.to_string().contains("configured_bound"));
+            }
+            assert!(matches!(refusal, DriverRefusal::Generation(
+                RoutedGenerationError::ContractScalar(ContractScalarError::Oracle(actual))
+            ) if actual == error));
+        }
+    }
+
+    #[trace("TC-004", "FR-001-AC-5", "FR-001-AC-22")]
+    #[test]
+    fn new_reader_causes_preserve_the_entire_typed_projection() {
+        // The driver projects the supplied code; it does not reclassify an
+        // owner's cause/code pairing or construct an admitted package here.
+        let cases = [
+            (
+                CheckedPackageRefusalCause::NonBooleanRoot,
+                "non-boolean-root",
+            ),
+            (
+                CheckedPackageRefusalCause::MissingTimedModel,
+                "missing-timed-model",
+            ),
+            (
+                CheckedPackageRefusalCause::TimedNodeReference,
+                "timed-node-reference",
+            ),
+            (
+                CheckedPackageRefusalCause::DuplicateClockPlace,
+                "duplicate-clock-place",
+            ),
+            (
+                CheckedPackageRefusalCause::MalformedClockPlace,
+                "malformed-clock-place",
+            ),
+            (
+                CheckedPackageRefusalCause::InvalidTimeQuantity,
+                "invalid-time-quantity",
+            ),
+            (
+                CheckedPackageRefusalCause::ClockWithoutDenseTime,
+                "clock-without-dense-time",
+            ),
+        ];
+        for (cause, spelling) in cases {
+            let projection = ContractPackageRefusalProjection {
+                code: CheckedPackageRefusalCode::InvalidPackage,
+                path: Some("/package/nodes/0".to_owned()),
+                cause: Some(cause),
+                locus: Some(CheckedNodeId {
+                    domain: "quire.node/v2".into(),
+                    digest: "node".into(),
+                }),
+                contract_version: Some("2.0.0".to_owned()),
+                document_pointer: Some("/package/nodes/0".to_owned()),
+                expected: None,
+                actual: None,
+            };
+            let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadRefused {
+                refusal: projection.clone(),
+            });
+            assert_eq!(refusal.code(), "invalid_package");
+            assert_eq!(refusal.kind(), OutcomeKind::Refused);
+            assert_eq!(refusal.stage(), DriverStage::PackageRead);
+            assert_eq!(refusal.package_read_cause(), Some(spelling));
+            assert_eq!(refusal.package_read_refusal_projection(), Some(&projection));
+            assert!(refusal.to_string().contains(&format!("{cause:?}")));
+        }
+    }
 
     #[trace("FR-001-AC-16")]
     #[test]

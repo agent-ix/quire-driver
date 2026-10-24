@@ -94,7 +94,7 @@ mod tests {
             function: "run".to_owned(),
             arguments: Vec::new(),
             accounting: default_accounting(100),
-            supplied: qsl_semantics::value::supplied::SuppliedLimits::default(),
+            supplied: quire_semantic_value::supplied_stop::SuppliedLimits::default(),
         }
     }
 
@@ -248,9 +248,9 @@ mod tests {
         assert_eq!(limits.checking, original_checking.with_nodes(7));
     }
 
-    /// Trace: FR-003-AC-9, FR-003-AC-10. Bare accounting names update only the call.
+    /// Trace: FR-003-AC-9, FR-003-AC-10. QSL-named accounting settings update only the call.
     #[test]
-    fn each_bare_accounting_name_updates_only_call_accounting() {
+    fn each_named_accounting_setting_updates_only_call_accounting() {
         let defaults = call().accounting;
         let default_bounds = AccountingLimits(defaults).bounds();
         for setting in AccountingSetting::ALL {
