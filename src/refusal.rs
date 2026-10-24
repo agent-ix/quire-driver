@@ -1151,7 +1151,7 @@ mod tests {
                     actual_domain: "other-domain".to_owned(),
                     actual_digest: "actual-package".to_owned(),
                 },
-                "invalid_request",
+                "invalid-request",
                 OutcomeKind::Refused,
             ),
             (

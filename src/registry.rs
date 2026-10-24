@@ -522,7 +522,7 @@ mod tests {
         };
         let refusal = super::build_registry(&[manifest])
             .expect_err("the driver's manifest has no evidence-kinds member to supply");
-        assert_eq!(refusal.code(), "invalid_capability");
+        assert_eq!(refusal.code(), "invalid_capability/unknown-evidence-kind");
         assert_eq!(refusal.kind(), crate::OutcomeKind::Refused);
         assert_eq!(refusal.stage(), crate::DriverStage::Registry);
         assert!(
