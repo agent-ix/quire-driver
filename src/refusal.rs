@@ -1102,6 +1102,102 @@ mod tests {
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
 
+    // Typed upstream-error projections, not admission or solver-origin fixtures.
+    #[trace("TC-004", "FR-001-AC-5")]
+    #[test]
+    fn new_oracle_failures_preserve_code_kind_stage_and_exact_payload() {
+        use quire_semantic_value::declaration::{
+            DeclarationCause, EnvironmentFailure, EnvironmentLimit, EnvironmentLimitKind,
+            InvalidDeclaration, StorageRequest, StorageUnit,
+        };
+        use quire_semantic_value::semantic_node::{InvalidSemanticGraph, SemanticGraphCause};
+
+        let cases = [
+            (OracleGenerationError::ContextPackageMismatch {
+                expected: CheckedSemanticId {
+                    domain: "quire.contract-package/v2".into(),
+                    algorithm: "sha-256".into(),
+                    digest: "expected-package".into(),
+                },
+                actual_domain: "other-domain".to_owned(),
+                actual_digest: "actual-package".to_owned(),
+            }, "invalid_request", OutcomeKind::Refused),
+            (OracleGenerationError::EnumReconstruction(InvalidSemanticGraph {
+                cause: SemanticGraphCause::NonCanonicalPreimage,
+            }), "invalid_package", OutcomeKind::Refused),
+            (OracleGenerationError::EnvironmentAdmission(EnvironmentFailure::Refused(
+                InvalidDeclaration {
+                    declaration: "Repeated".to_owned(),
+                    cause: DeclarationCause::DuplicateKey,
+                },
+            )), "invalid_package", OutcomeKind::Refused),
+            (OracleGenerationError::EnvironmentAdmission(EnvironmentFailure::Limit(
+                EnvironmentLimit::new(EnvironmentLimitKind::WorkUnits, 17, 18),
+            )), "resource_exhausted", OutcomeKind::Limit),
+            (OracleGenerationError::EnvironmentAdmission(EnvironmentFailure::Allocation(
+                StorageRequest::new(23, StorageUnit::Bytes),
+            )), "resource_exhausted", OutcomeKind::Limit),
+            (OracleGenerationError::EnvironmentAdmission(EnvironmentFailure::Capacity(
+                StorageRequest::new(31, StorageUnit::AdditionalElements),
+            )), "resource_exhausted", OutcomeKind::Limit),
+        ];
+        for (error, code, kind) in cases {
+            let payload = format!("{error:?}");
+            let refusal = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(
+                ContractScalarError::Oracle(error.clone()),
+            ));
+            assert_eq!(refusal.code(), code, "{error:?}");
+            assert_eq!(refusal.kind(), kind, "{error:?}");
+            assert_eq!(refusal.stage(), DriverStage::Generation, "{error:?}");
+            assert!(refusal.to_string().contains(&payload), "{refusal}: missing {payload}");
+            if matches!(&error, OracleGenerationError::EnvironmentAdmission(
+                EnvironmentFailure::Allocation(_) | EnvironmentFailure::Capacity(_)
+            )) {
+                assert!(!refusal.to_string().contains("configured_bound"));
+            }
+            assert!(matches!(refusal, DriverRefusal::Generation(
+                RoutedGenerationError::ContractScalar(ContractScalarError::Oracle(actual))
+            ) if actual == error));
+        }
+    }
+
+    #[trace("TC-004", "FR-001-AC-5", "FR-001-AC-22")]
+    #[test]
+    fn new_reader_causes_preserve_the_entire_typed_projection() {
+        // The driver projects the supplied code; it does not reclassify an
+        // owner's cause/code pairing or construct an admitted package here.
+        let cases = [
+            (CheckedPackageRefusalCause::NonBooleanRoot, "non-boolean-root"),
+            (CheckedPackageRefusalCause::MissingTimedModel, "missing-timed-model"),
+            (CheckedPackageRefusalCause::TimedNodeReference, "timed-node-reference"),
+            (CheckedPackageRefusalCause::DuplicateClockPlace, "duplicate-clock-place"),
+            (CheckedPackageRefusalCause::MalformedClockPlace, "malformed-clock-place"),
+            (CheckedPackageRefusalCause::InvalidTimeQuantity, "invalid-time-quantity"),
+            (CheckedPackageRefusalCause::ClockWithoutDenseTime, "clock-without-dense-time"),
+        ];
+        for (cause, spelling) in cases {
+            let projection = ContractPackageRefusalProjection {
+                code: CheckedPackageRefusalCode::InvalidPackage,
+                path: Some("/package/nodes/0".to_owned()),
+                cause: Some(cause),
+                locus: Some(CheckedNodeId { domain: "quire.node/v2".into(), digest: "node".into() }),
+                contract_version: Some("2.0.0".to_owned()),
+                document_pointer: Some("/package/nodes/0".to_owned()),
+                expected: None,
+                actual: None,
+            };
+            let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadRefused {
+                refusal: projection.clone(),
+            });
+            assert_eq!(refusal.code(), "invalid_package");
+            assert_eq!(refusal.kind(), OutcomeKind::Refused);
+            assert_eq!(refusal.stage(), DriverStage::PackageRead);
+            assert_eq!(refusal.package_read_cause(), Some(spelling));
+            assert_eq!(refusal.package_read_refusal_projection(), Some(&projection));
+            assert!(refusal.to_string().contains(&format!("{cause:?}")));
+        }
+    }
+
     #[trace("FR-001-AC-16")]
     #[test]
     fn excluded_package_position_is_an_internal_join_fault_at_every_cg_boundary() {
