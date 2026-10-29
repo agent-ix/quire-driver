@@ -15,7 +15,7 @@ Verify the available proved-provider terminal path uses QSL's canonical
 for every item in the CG request, including the routed scalar observation producer
 and report-claim guard, remains planned.
 
-Scope: FR-009-AC-1 through FR-009-AC-22.
+Scope: FR-009-AC-1 through FR-009-AC-24 and FR-001-AC-23/24.
 
 ## Test Procedure
 
@@ -55,9 +55,41 @@ call/occurrence binding must not yield an accepted receipt or reach QSL replay,
 settlement, or terminal creation. The production composition and the producer
 qualification remain planned until each owning slice is implemented.
 
-The function playback intake scenarios remain planned until CG PR #621's typed
-`Playback` entry is available to the driver and IR-610 wires E9 production
-replay. Drive a falsified function item through the production provider result
+The function proof producer and join scenarios remain planned until IR-1121
+supplies CG’s current-V2 generated function harness and proving-run identity.
+From one QSL source and dependency lock, select two function proof items that
+name the same checked node at different application occurrences. Record each
+original request index, QSL-selected function declaration and exact occurrence,
+E5-admitted package identity, CG generated item and `KaniObligationIdentity`.
+Invoke the selected provider once per matching item with a one-item
+`ProviderRequest`, retaining a private invocation slot that binds its request
+index and backend to the occurrence, admitted package and full CG identity.
+Require exactly one `ProviderItemResult` with that index and backend. Compare
+the successful `KaniExecutionEvidence` harness path, ceilings, contract kind,
+symbolic argument bounds, solver and unwind with the selected generated harness
+and identity; do not read occurrence, package or full identity from the provider
+result, which carries none of them. Verify CG `ReplayInputs`
+carry the original source, dependency lock, accounting and stage limits, declared
+domains and replay limits; check playback intake uses the smaller caller/proving-run
+byte and value decode limits, and playback/replay receives the same item’s package and
+identity. Swap the two retained occurrences or identities while leaving the
+node equal; assert a driver `runtime_invariant` fault before provider execution.
+Remove one context, duplicate a request index, or mismatch the retained package,
+declaration or generated identity; assert the same pre-execution fault. After a
+valid invocation, return zero or two items, a wrong request index or backend,
+or one successful evidence record with another item’s harness path or different
+ceilings, kind, argument bounds, solver or unwind. Assert a driver
+`runtime_invariant` fault before playback intake, no fallback selection, and
+no settlement or terminal. This mutation changes actual provider-result fields
+or the private invocation slot, never imaginary occurrence/package/identity
+fields on `ProviderItemResult`. Independently make QSL selection, IR admission,
+CG generation and the provider return their own typed refusals; assert each is
+preserved unchanged at its owning stage, with no driver join fault substituted.
+Do not mint an identity from caller text, a diagnostic or a Kani transcript.
+
+The function playback intake scenarios remain planned until IR-1121 supplies
+the current-V2 proof producer and IR-610 wires E9 production replay. CG PR #621
+has merged the typed `Playback` entry. Drive a falsified function item through the production provider result
 with its complete retained `KaniRunOutcome::Falsified.counterexample`, exact
 selected proving-run identity and admitted package. Set finite, distinct
 caller and proving-run byte and value ceilings; record the parser call and CG

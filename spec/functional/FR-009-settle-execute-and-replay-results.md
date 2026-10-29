@@ -40,6 +40,12 @@ replay context through QSL evaluation and report handling.
 - The request items, provider results, generated artifacts and cancellation
   handle.
 - The QSL replay result for each provider counterexample.
+- For a selected function proof item, the one driver-retained E9 context
+  described by FR-001-AC-23: request index, exact QSL function declaration and
+  application occurrence, admitted package identity, source and dependency lock,
+  CG generated item and `KaniObligationIdentity`, proving-run accounting and
+  stage limits, declared domains, replay limits, and caller/proving-run decode
+  limits.
 - For a falsified function item, the complete `counterexample` transcript retained
   in its original CG `KaniExecutionEvidence`, the same selected proving-run
   identity and admitted package, and the applicable caller and proving-run
@@ -99,6 +105,23 @@ replay context through QSL evaluation and report handling.
   `KaniFailureCause`, infer one from diagnostics or other text, or alter the
   evidence before this call. CG's function reads the outcome, success-check
   count and optional failure cause from that evidence.
+- When executing a selected function proof item, the driver SHALL use its
+  FR-001-AC-23 retained context to invoke the selected provider with a request
+  containing only that matching generated item. The driver SHALL retain the
+  invocation-to-result association privately with its request index, backend,
+  occurrence, admitted package and full CG proving-run identity. It SHALL
+  require exactly one returned `ProviderItemResult` with the same request index
+  and backend, then compare the successful `KaniExecutionEvidence` fields that
+  identify the invoked harness and run (including harness path, proof ceilings,
+  contract kind, symbolic argument bounds, solver and unwind) with the selected
+  generated harness and its identity. The driver SHALL NOT assume that the
+  provider result carries an occurrence, package identity or full
+  `KaniObligationIdentity`; those come only from the retained invocation
+  context. It SHALL NOT accept execution evidence from another item or use a
+  fallback generated harness. When the provider returns a typed refusal, the
+  driver SHALL preserve it unchanged. When the provider succeeds but its
+  observable result fields or retained association mismatch, the driver SHALL
+  return a `runtime_invariant` fault before playback intake.
 - When function replay is requested for a falsified item, the driver SHALL call CG's
   `parse_assertion_playback` exactly once on the complete retained
   `KaniRunOutcome::Falsified.counterexample` transcript, with the selected
@@ -251,17 +274,19 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-17 | For an operation-frame replay selected from an admitted package, the driver projects QSL's exact typed `OperationSite.frame_operation` value to the CG selected item associated with the same admitted package identity and request index, without changing the pair or deriving it from CG selection or caller spelling. QSL FR-121 owns pair shape and declaring-object resolution; QSpec FR-323 owns replay-target and packet/request shape. This driver criterion covers only object-type operations exposed by QSL's current call-site API; process/state-machine operations and state-clause projection are outside scope. | Planned (TC-016; QSL FR-121 / QSL-972; QSpec FR-323; CG IR-958 public API) |
 | FR-009-AC-18 | When QSL call-site selection returns a typed refusal for a frame operation, the driver preserves that refusal unchanged and stops before CG frame-target construction, replay, settlement, or terminal creation; it does not recast the refusal as a driver join fault. | Planned (TC-016; QSL FR-121 / QSL-972) |
 | FR-009-AC-19 | When QSL call-site selection succeeds but the driver detects that its retained association of the QSL result to the CG selected item has a package identity or request index that differs from the corresponding value on the CG item, the driver returns FR-001's typed `runtime_invariant` fault and stops before CG frame-target construction, replay, settlement, or terminal creation. A typed refusal actually returned by CG is preserved under CG's contract and is not this driver-detected join fault. | Planned (TC-016; CG IR-958 public API; FR-001) |
-| FR-009-AC-20 | For a falsified function item with a complete valid transcript at the byte and value ceilings, the driver calls CG `parse_assertion_playback` once on exactly the retained `KaniRunOutcome::Falsified.counterexample`, with the selected item's retained source identity and context and the smaller caller/proving-run ceilings in each dimension. It passes the resulting typed `Playback`, exact proving-run identity and same admitted package to CG function replay. A reproducing replay remains subject to FR-009-AC-2 and CG terminal mapping. | Planned (TC-016; CG PR #621 typed function replay API; IR-610 E9 integration) |
-| FR-009-AC-21 | A full transcript that exceeds the byte ceiling, has more values than the value ceiling, or has no unique valid assertion yields CG's corresponding typed `PlaybackRefusal` from that single parse, even if a shortened assertion block would fit. The driver neither uses optional diagnostics nor invokes function replay, creates settlement, or creates a terminal for the refused item. | Planned (TC-016; CG PR #621 typed function replay API; IR-610 E9 integration) |
-| FR-009-AC-22 | A typed upstream refusal before playback intake is preserved before any parse, settlement, or terminal creation. A parser refusal is preserved without replay settlement or terminal creation and is not recast as replay parity or a driver join fault. After a successful parse, a CG typed identity, decode, or replay refusal or evidence failure follows CG's `ReplaySettlement` conversion and `run_terminal_value` mapping with the original execution evidence; the driver preserves the resulting typed terminal and never settles that result as `refuted`. | Planned (TC-016; CG PR #621 typed function replay API; IR-610 E9 integration) |
+| FR-009-AC-20 | For a falsified function item with a complete valid transcript at the byte and value ceilings, the driver calls CG `parse_assertion_playback` once on exactly the retained `KaniRunOutcome::Falsified.counterexample`, with the selected item's retained source identity and context and the smaller caller/proving-run ceilings in each dimension. It passes the resulting typed `Playback`, exact proving-run identity and same admitted package to CG function replay. A reproducing replay remains subject to FR-009-AC-2 and CG terminal mapping. | Planned (TC-016; CG #621 typed function replay API merged; IR-610 E9 integration) |
+| FR-009-AC-21 | A full transcript that exceeds the byte ceiling, has more values than the value ceiling, or has no unique valid assertion yields CG's corresponding typed `PlaybackRefusal` from that single parse, even if a shortened assertion block would fit. The driver neither uses optional diagnostics nor invokes function replay, creates settlement, or creates a terminal for the refused item. | Planned (TC-016; CG #621 typed function replay API merged; IR-610 E9 integration) |
+| FR-009-AC-22 | A typed upstream refusal before playback intake is preserved before any parse, settlement, or terminal creation. A parser refusal is preserved without replay settlement or terminal creation and is not recast as replay parity or a driver join fault. After a successful parse, a CG typed identity, decode, or replay refusal or evidence failure follows CG's `ReplaySettlement` conversion and `run_terminal_value` mapping with the original execution evidence; the driver preserves the resulting typed terminal and never settles that result as `refuted`. | Planned (TC-016; CG #621 typed function replay API merged; IR-610 E9 integration) |
+| FR-009-AC-23 | For two function proof items sharing a checked node but naming distinct exact application occurrences, the driver invokes the selected provider once per matching generated item, retains each typed result with its own request index and CG `KaniObligationIdentity`, and supplies the corresponding retained source, dependency lock, admitted package, accounting/stage/domain/replay inputs and smaller caller/proving-run decode limits to function playback and replay. Neither result or context is selected by node alone. | Planned (TC-016; IR-610 E9 function producer; IR-1121 CG current-V2 function proof producer) |
+| FR-009-AC-24 | The driver invokes the selected provider with exactly one generated function item and privately retains that invocation’s request index, backend, occurrence, admitted package and full CG proving-run identity. A typed provider refusal is preserved before playback intake. A returned item count other than one, a returned request index or backend different from the invocation, or successful `KaniExecutionEvidence` whose harness path, proof ceilings, contract kind, symbolic argument bounds, solver or unwind differ from the selected generated harness and identity returns a driver `runtime_invariant` fault before playback intake, replay, settlement or terminal creation. The provider result is not assumed to carry occurrence, package or full identity; those are read from the retained invocation context, never another item’s context. | Planned (TC-016; IR-610 E9 function producer; IR-1121 CG current-V2 function proof producer) |
 
 ## Dependencies
 
-- CG PR #621 / IR-1085 provides the typed `Playback` function replay entry and
-  bounded `parse_assertion_playback` API; the driver integration in
-  FR-009-AC-20 through FR-009-AC-22 is sequenced after that dependency and
-  with IR-610's E9 replay/settlement work. Neither dependency's merge nor a
-  production function replay path is asserted here.
+- IR-1121 must first supply a current-V2 generated function harness and typed proving-run `KaniObligationIdentity`; until then the driver cannot execute or join an authentic function proof item.
+- CG #621 / IR-1085 provides the merged typed `Playback` function replay entry
+  and bounded `parse_assertion_playback` API. Driver integration in
+  FR-009-AC-20 through FR-009-AC-24 remains planned under IR-610 E9 and
+  IR-1121; no production function replay path is claimed here.
 - QSL FR-323 owns the three replay-target alternatives and the frame-request
   omission of arguments and occurrence key; QSL FR-121 / QSL #1215 owns the
   validated typed operation call-site result and its declaring object for
