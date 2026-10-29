@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Downstream implementation of the driver's content-addressed cache boundary.
+//! Downstream implementation of the driver's structural-key cache boundary.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime};
 use qsl_foundation::BackendId;
 #[cfg(test)]
 use qsl_route::ManifestDigest;
-use quire_canonical::{sha256_with_domain, to_vec, Limits, Sha256Digest};
+use quire_canonical::{to_vec, Limits};
 use quire_driver::{
     Cache, CacheEligibility, CacheFault, CacheLookup, CacheOperation, CacheRequest,
     CacheValueCodec, CacheWriteOutcome,
@@ -22,25 +22,18 @@ use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
 
-/// QSL ADR-029 CA-2 / QSpec FR-201 cache-key identity domain.
-const CACHE_KEY_DOMAIN: &[u8] = b"quire.cache-key/v1";
-
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 const STALE_TEMPORARY_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// A content key and the canonical preimage it binds.
+/// A structural cache key: the canonical JSON preimage itself, never hashed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct CacheKey {
-    digest: Sha256Digest,
     preimage: Vec<u8>,
 }
 
 impl CacheKey {
-    /// Derive a key from the operation, package, request, provider identity,
-    /// and the registry-admitted manifest digest.
-    ///
-    /// The manifest digest is supplied by the registry descriptor and is not
-    /// recomputed here. No recorded version, git revision or caller-supplied
+    /// Derive a key from the operation, package, request and provider
+    /// identity. No digest, recorded version, git revision or caller-supplied
     /// spelling participates in this key.
     fn derive(request: &CacheRequest<'_>, max_preimage_bytes: u64) -> Result<Self, CacheError> {
         if request.operation() == CacheOperation::Generate && request.target().is_none() {
@@ -60,23 +53,12 @@ impl CacheKey {
             "package_id": request.package_id(),
             "request": request_value,
             "backend": request.backend().as_str(),
-            "manifest": {
-                "domain": request.manifest().record().domain().as_str(),
-                "digest": request.manifest().hex(),
-            },
         });
         if let Some(target) = request.target() {
             preimage_value["target"] = serde_json::from_slice(target)?;
         }
         let preimage = to_vec(&preimage_value, limits)?;
-        let digest = sha256_with_domain(CACHE_KEY_DOMAIN, &preimage_value, limits)?;
-        Ok(Self { digest, preimage })
-    }
-
-    /// The lowercase hexadecimal cache key used as the entry name.
-    #[must_use]
-    fn as_str(&self) -> String {
-        self.digest.to_string()
+        Ok(Self { preimage })
     }
 
     #[cfg(test)]
@@ -156,15 +138,58 @@ impl DirectoryCache {
     /// Read an entry through the caller's typed result reader.
     ///
     /// A missing, noncanonical, mismatched or unreadable typed value is a
-    /// cache miss. Files are accepted only when their canonical bytes, stored
-    /// preimage, digest and requested key agree.
+    /// cache miss. An owned entry is accepted only when its canonical bytes
+    /// are valid and its stored preimage equals the requested preimage.
     fn read_value(&self, key: &CacheKey) -> Result<Option<Value>, CacheError> {
         let _guard = self
             .operation
             .lock()
             .map_err(|_| CacheError::LockPoisoned)?;
-        let path = self.entry_path(key);
-        let metadata = match fs::symlink_metadata(&path) {
+        let Some(path) = self.find_entry(key)? else {
+            return Ok(None);
+        };
+        Ok(self
+            .read_entry(&path)?
+            .filter(|(preimage, _)| preimage.as_bytes() == key.preimage)
+            .map(|(_, value)| value))
+    }
+
+    /// The owned entry file names in the cache directory, with their sequence.
+    fn owned_names(&self) -> Result<Vec<(u64, PathBuf)>, CacheError> {
+        let mut names = Vec::new();
+        match fs::read_dir(&self.directory) {
+            Ok(directory) => {
+                for item in directory {
+                    let item = item?;
+                    let name = item.file_name().to_string_lossy().into_owned();
+                    if let Some(sequence) = entry_sequence(&name) {
+                        names.push((sequence, item.path()));
+                    }
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(CacheError::Io(error)),
+        }
+        names.sort();
+        Ok(names)
+    }
+
+    /// The valid owned entry whose stored preimage equals the key's.
+    fn find_entry(&self, key: &CacheKey) -> Result<Option<PathBuf>, CacheError> {
+        for (_, path) in self.owned_names()? {
+            if let Some((preimage, _)) = self.read_entry(&path)? {
+                if preimage.as_bytes() == key.preimage {
+                    return Ok(Some(path));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Read one entry file: its stored preimage and typed value, or `None`
+    /// when the file is not a valid canonical entry within the size limit.
+    fn read_entry(&self, path: &Path) -> Result<Option<(String, Value)>, CacheError> {
+        let metadata = match fs::symlink_metadata(path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(CacheError::Io(error)),
@@ -175,7 +200,7 @@ impl DirectoryCache {
         if metadata.len() > self.max_entry_bytes {
             return Ok(None);
         }
-        let file = match open_regular_file_no_follow(&path) {
+        let file = match open_regular_file_no_follow(path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(CacheError::Io(error)),
@@ -186,16 +211,12 @@ impl DirectoryCache {
         if bytes.len() as u64 > self.max_entry_bytes {
             return Ok(None);
         }
-        let entry: Value = match serde_json::from_slice(&bytes) {
-            Ok(entry) => entry,
-            Err(_) => return Ok(None),
-        };
-        let canonical = match to_vec(&entry, Limits::new(self.max_entry_bytes)) {
-            Ok(canonical) => canonical,
-            Err(_) => return Ok(None),
-        };
-        if canonical != bytes {
+        let Ok(entry) = serde_json::from_slice::<Value>(&bytes) else {
             return Ok(None);
+        };
+        match to_vec(&entry, Limits::new(self.max_entry_bytes)) {
+            Ok(canonical) if canonical == bytes => {}
+            _ => return Ok(None),
         }
         let Some(object) = entry.as_object() else {
             return Ok(None);
@@ -203,41 +224,20 @@ impl DirectoryCache {
         if object.len() != 2 {
             return Ok(None);
         }
-        let Some(stored_preimage) = object.get("preimage").and_then(Value::as_str) else {
+        let (Some(preimage), Some(value)) = (
+            object.get("preimage").and_then(Value::as_str),
+            object.get("value"),
+        ) else {
             return Ok(None);
         };
-        if stored_preimage.as_bytes() != key.preimage {
+        let Ok(preimage_value) = serde_json::from_str::<Value>(preimage) else {
             return Ok(None);
+        };
+        match to_vec(&preimage_value, Limits::new(self.max_entry_bytes)) {
+            Ok(canonical) if canonical.as_slice() == preimage.as_bytes() => {}
+            _ => return Ok(None),
         }
-        let stored_value = match object.get("value") {
-            Some(value) => value.clone(),
-            None => return Ok(None),
-        };
-        let stored_preimage_value: Value = match serde_json::from_slice(stored_preimage.as_bytes())
-        {
-            Ok(value) => value,
-            Err(_) => return Ok(None),
-        };
-        let canonical_preimage =
-            match to_vec(&stored_preimage_value, Limits::new(self.max_entry_bytes)) {
-                Ok(canonical) => canonical,
-                Err(_) => return Ok(None),
-            };
-        if canonical_preimage.as_slice() != stored_preimage.as_bytes() {
-            return Ok(None);
-        }
-        let stored_digest = match sha256_with_domain(
-            CACHE_KEY_DOMAIN,
-            &stored_preimage_value,
-            Limits::new(self.max_entry_bytes),
-        ) {
-            Ok(digest) => digest,
-            Err(_) => return Ok(None),
-        };
-        if stored_digest != key.digest {
-            return Ok(None);
-        }
-        Ok(Some(stored_value))
+        Ok(Some((preimage.to_owned(), value.clone())))
     }
 
     /// Store a typed value if its policy permits caching.
@@ -301,8 +301,18 @@ impl DirectoryCache {
         }
     }
 
+    /// The path of the entry holding this key, or else the next unused
+    /// sequence name. Names carry no key meaning.
     fn entry_path(&self, key: &CacheKey) -> PathBuf {
-        self.directory.join(format!("{}.json", key.as_str()))
+        if let Ok(Some(path)) = self.find_entry(key) {
+            return path;
+        }
+        let next = self
+            .owned_names()
+            .ok()
+            .and_then(|names| names.last().map(|(sequence, _)| sequence.saturating_add(1)))
+            .unwrap_or(0);
+        self.directory.join(format!("entry-{next}.json"))
     }
 
     fn create_temporary(&self, entry: &Path) -> Result<(PathBuf, File), CacheError> {
@@ -410,58 +420,16 @@ impl DirectoryCache {
     }
 
     fn is_owned_entry(&self, path: &Path, name: &str) -> bool {
-        let Some(key_name) = name.strip_suffix(".json") else {
-            return false;
-        };
-        if !is_hex_digest(key_name) {
-            return false;
-        }
-        let Ok(file) = open_regular_file_no_follow(path) else {
-            return false;
-        };
-        let mut bytes = Vec::new();
-        if file
-            .take(self.max_entry_bytes.saturating_add(1))
-            .read_to_end(&mut bytes)
-            .is_err()
-            || u64::try_from(bytes.len()).unwrap_or(u64::MAX) > self.max_entry_bytes
-        {
-            return false;
-        }
-        let Ok(entry) = serde_json::from_slice::<Value>(&bytes) else {
-            return false;
-        };
-        let Ok(canonical) = to_vec(&entry, Limits::new(self.max_entry_bytes)) else {
-            return false;
-        };
-        if canonical != bytes {
-            return false;
-        }
-        let Some(object) = entry.as_object() else {
-            return false;
-        };
-        if object.len() != 2 {
-            return false;
-        }
-        let Some(preimage) = object.get("preimage").and_then(Value::as_str) else {
-            return false;
-        };
-        let Ok(value) = serde_json::from_str::<Value>(preimage) else {
-            return false;
-        };
-        let Ok(preimage_bytes) = to_vec(&value, Limits::new(self.max_entry_bytes)) else {
-            return false;
-        };
-        if preimage_bytes != preimage.as_bytes() {
-            return false;
-        }
-        let Ok(digest) =
-            sha256_with_domain(CACHE_KEY_DOMAIN, &value, Limits::new(self.max_entry_bytes))
-        else {
-            return false;
-        };
-        digest.to_string() == key_name
+        entry_sequence(name).is_some() && matches!(self.read_entry(path), Ok(Some(_)))
     }
+}
+
+/// The sequence of an owned entry name `entry-<decimal>.json`.
+fn entry_sequence(name: &str) -> Option<u64> {
+    let digits = name.strip_prefix("entry-")?.strip_suffix(".json")?;
+    (!digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| digits.parse().ok())
+        .flatten()
 }
 
 fn remove_eviction_candidate(path: &Path) -> Result<(), CacheError> {
@@ -472,13 +440,6 @@ fn remove_eviction_candidate(path: &Path) -> Result<(), CacheError> {
     }
 }
 
-fn is_hex_digest(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-}
-
 fn is_temporary_name(name: &str) -> bool {
     let Some(rest) = name.strip_prefix('.') else {
         return false;
@@ -486,7 +447,8 @@ fn is_temporary_name(name: &str) -> bool {
     let Some((key, suffix)) = rest.split_once(".json.tmp-") else {
         return false;
     };
-    is_hex_digest(key)
+    let key = format!("{key}.json");
+    entry_sequence(&key).is_some()
         && suffix.split_once('-').is_some_and(|(pid, sequence)| {
             !pid.is_empty()
                 && pid.bytes().all(|byte| byte.is_ascii_digit())
@@ -697,7 +659,7 @@ mod tests {
         });
         key_for(
             CacheOperation::Prove,
-            "package-1",
+            &format!("package-{digest}"),
             &request,
             &backend,
             digest,
@@ -751,12 +713,6 @@ mod tests {
         value: &T,
     ) -> Result<CacheWriteOutcome, CacheError> {
         store.insert_value(key, serde_json::to_value(value)?)
-    }
-
-    /// Trace: FR-012-AC-2.
-    #[test]
-    fn admitted_manifest_digest_changes_the_key() {
-        assert_ne!(key(1), key(2));
     }
 
     /// Trace: FR-012-AC-6; invalid typed entries are misses for the requested reader.
@@ -856,17 +812,13 @@ mod tests {
             serde_json::from_slice(generated_a.preimage()).expect("JCS object");
         assert!(prove_preimage.get("target").is_none());
         assert!(generated_preimage.get("target").is_some());
-        assert_eq!(prove_preimage.as_object().expect("object").len(), 5);
-        assert_eq!(generated_preimage.as_object().expect("object").len(), 6);
+        assert_eq!(prove_preimage.as_object().expect("object").len(), 4);
+        assert_eq!(generated_preimage.as_object().expect("object").len(), 5);
         let expected = serde_json::json!({
             "operation": "prove",
             "package_id": "package-1",
             "request": request,
             "backend": "agent-ix/provider/test",
-            "manifest": {
-                "domain": ManifestDigest::DOMAIN.as_str(),
-                "digest": ManifestDigest::from_digest([1; 32]).hex(),
-            },
         });
         assert_eq!(prove_preimage, expected);
         assert_ne!(
@@ -1007,11 +959,11 @@ mod tests {
             CacheExclusion::ContainsWallTime,
         ];
         for (index, reason) in exclusions.into_iter().enumerate() {
-            let excluded_manifest = ManifestDigest::from_digest([(index + 2) as u8; 32]);
+            let excluded_request_bytes = format!(r#"{{"items":[],"work_limit":{}}}"#, 30 + index);
             let excluded_registry =
                 quire_driver::build_registry(&[quire_driver::ProviderManifest {
                     identity: backend.as_str().to_owned(),
-                    manifest_digest: excluded_manifest,
+                    manifest_digest: ManifestDigest::from_digest([2; 32]),
                     advertises: vec![(
                         Some("value-validity".to_owned()),
                         Some("bounded".to_owned()),
@@ -1021,7 +973,11 @@ mod tests {
                     wire: None,
                 }])
                 .expect("excluded descriptor is admitted");
-            let excluded_request = admitted_request(&excluded_registry, &backend, request_bytes);
+            let excluded_request = admitted_request(
+                &excluded_registry,
+                &backend,
+                excluded_request_bytes.as_bytes(),
+            );
             assert_eq!(
                 Cache::record(
                     &store,
@@ -1118,7 +1074,7 @@ mod tests {
             read_typed::<u64>(&store, &cache_key).expect("cache read succeeds"),
             None
         );
-        let path = directory.join(format!("{}.json", cache_key.as_str()));
+        let path = store.entry_path(&cache_key);
         fs::write(path, b"{\"preimage\":\"{}\",\"value\":3}")
             .expect("corrupt test entry is writable");
         assert_eq!(
@@ -1157,11 +1113,13 @@ mod tests {
             &other_path,
             to_vec(&valid_for_requested, Limits::new(512)).expect("entry encodes"),
         )
-        .expect("wrongly named entry is written");
+        .expect("entry for another preimage is written");
         assert_eq!(
             read_typed::<Value>(&store, &other).expect("read succeeds"),
-            None
+            None,
+            "an entry is matched by its stored preimage, never by its name"
         );
+        fs::remove_file(&other_path).expect("foreign entry is removed");
 
         fs::write(&requested_path, vec![b'x'; 513]).expect("oversized entry is written");
         assert_eq!(
@@ -1181,11 +1139,7 @@ mod tests {
             Limits::new(u64::MAX),
         )
         .expect("valid entry encodes");
-        fs::write(
-            directory.join(format!("{}.json", cache_key.as_str())),
-            bytes,
-        )
-        .expect("oversized valid entry is written");
+        fs::write(directory.join("entry-0.json"), bytes).expect("oversized valid entry is written");
         let store = DirectoryCache::new(&directory, 128, 4096);
         assert_eq!(
             read_typed::<Value>(&store, &cache_key).expect("read succeeds"),
@@ -1352,7 +1306,7 @@ mod tests {
     #[test]
     fn oversized_or_corrupt_entry_shaped_file_blocks_over_capacity_write() {
         let directory = temporary_directory();
-        let malformed = directory.join(format!("{}.json", key(53).as_str()));
+        let malformed = directory.join("entry-53.json");
         fs::write(&malformed, vec![b'x'; 32]).expect("oversized malformed entry exists");
         let store = DirectoryCache::new(&directory, 8, 16);
         assert!(!store
@@ -1447,7 +1401,7 @@ mod tests {
     fn temporary_capacity_and_abandoned_cleanup_are_enforced() {
         let directory = temporary_directory();
         fs::create_dir_all(&directory).expect("test directory is created");
-        let abandoned = directory.join(format!(".{}.json.tmp-999999999-1", key(3).as_str()));
+        let abandoned = directory.join(".entry-3.json.tmp-999999999-1");
         fs::write(&abandoned, vec![b'x'; 150]).expect("stale temporary file is created");
         let old = fs::FileTimes::new().set_modified(SystemTime::UNIX_EPOCH);
         fs::OpenOptions::new()
@@ -1456,16 +1410,12 @@ mod tests {
             .expect("abandoned file opens")
             .set_times(old)
             .expect("abandoned timestamp is set");
-        let active = directory.join(format!(
-            ".{}.json.tmp-{}-1",
-            key(4).as_str(),
-            std::process::id()
-        ));
+        let active = directory.join(format!(".entry-4.json.tmp-{}-1", std::process::id()));
         fs::write(&active, vec![b'y'; 650]).expect("live temporary file is created");
         let outside_directory = temporary_directory();
         let outside = outside_directory.join("outside");
         fs::write(&outside, b"outside").expect("outside target is created");
-        let link = directory.join(format!("{}.json", key(9).as_str()));
+        let link = directory.join("entry-0.json");
         #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, &link).expect("symlink is created");
         #[cfg(unix)]

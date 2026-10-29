@@ -192,7 +192,7 @@ implementation; FR-013 specifies the in-repository plugin host; FR-014 specifies
 | [FR-009](functional/FR-009-settle-execute-and-replay-results.md) | Settle executions after replaying counterexamples |
 | [FR-010](functional/FR-010-send-only-bound-items-to-codegen.md) | Send only abstraction-relation-bound items to code generation |
 | [FR-011](functional/FR-011-cancel-a-driver-library-operation.md) | Cancel driver lifecycle stages through a caller-owned handle |
-| [FR-012](functional/FR-012-implement-the-downstream-content-addressed-cache.md) | Implement the downstream content-addressed cache |
+| [FR-012](functional/FR-012-implement-the-downstream-content-addressed-cache.md) | Implement the downstream structural-key cache |
 | [FR-013](functional/FR-013-host-process-plugins.md) | Host process providers through a bounded session |
 | [FR-014](functional/FR-014-separate-the-user-cli-package.md) | Place the user CLI in a separate workspace package |
 | [TC-001](test-cases/TC-001-steps-run-in-order.md) | The steps run in ADR-011 T-13 order |

@@ -1,12 +1,12 @@
 ---
 id: TC-020
-title: "Derive cache identity from meaning inputs and manifest content"
+title: "Derive the structural cache key from meaning inputs"
 type: TC
 relationships:
   - target: ix://agent-ix/quire-driver/FR-012
     type: verifies
 ---
-# TC-020: Derive cache identity from meaning inputs and manifest content
+# TC-020: Derive the structural cache key from meaning inputs
 
 ## Description
 

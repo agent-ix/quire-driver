@@ -2775,24 +2775,13 @@ fn registration_refusals(
         .collect()
 }
 
-/// FR-001-AC-5 and FR-001-AC-7 (TC-004): E5 accepts only the package it
-/// emitted. An IR answer admitting another package, or refusing the bytes,
+/// FR-001-AC-5 and FR-001-AC-7 (TC-004): an IR refusal of the emitted bytes
 /// is an internal fault at the hand-off, and nothing after the IR read runs.
 #[test]
-fn tc_004_e5_identity_and_refusal_are_faults() {
+fn tc_004_e5_refusal_is_a_fault() {
     let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
-    let other = drive(
-        &QslCg,
-        input(&packages),
-        &build_registry(&[]).expect("an empty registry builds"),
-        None,
-        GenerationInput::default(),
-    )
-    .expect("UNIT drives")
-    .checked()
-    .clone();
     let CheckedPackageDispatchResult::Refused(refusal) = quire_contract_model::read_checked_package(
         b"not a JSON document",
         CheckedPackageReadLimits::bounded(),
@@ -2801,41 +2790,26 @@ fn tc_004_e5_identity_and_refusal_are_faults() {
         panic!("malformed reader bytes must produce a typed refusal");
     };
 
-    for answer in [
-        CheckedPackageDispatchResult::AdmittedV2(Box::new(other.clone())),
-        CheckedPackageDispatchResult::Refused(refusal.clone()),
-    ] {
-        let recorder = Recorder {
-            read_answer: Some(answer.clone()),
-            ..Recorder::default()
-        };
-        let driven = drive(
-            &recorder,
-            int_input(&packages),
-            &registry,
-            None,
-            GenerationInput::default(),
-        )
-        .expect_err("E5 refuses a package it did not emit");
-        match (&answer, &driven) {
-            (
-                CheckedPackageDispatchResult::AdmittedV2(_),
-                DriverRefusal::Fault(DriverFault::PackageIdMismatch { emitted, admitted }),
-            ) => {
-                assert_eq!(admitted, other.package_id().digest.as_ref());
-                assert_ne!(emitted, admitted);
-            }
-            (
-                CheckedPackageDispatchResult::Refused(_),
-                DriverRefusal::Fault(DriverFault::HandoffRefused(refused)),
-            ) => assert_eq!(refused.as_ref(), &refusal),
-            _ => panic!("unexpected refusal {driven:?} for {answer:?}"),
-        }
-        assert_eq!(driven.stage(), DriverStage::Handoff);
-        assert_eq!(driven.kind(), OutcomeKind::Fault);
-        assert_eq!(driven.code(), "runtime_invariant");
-        assert_eq!(recorder.calls(), [Call::Compile, Call::ReadPackage]);
-    }
+    let recorder = Recorder {
+        read_answer: Some(CheckedPackageDispatchResult::Refused(refusal.clone())),
+        ..Recorder::default()
+    };
+    let driven = drive(
+        &recorder,
+        int_input(&packages),
+        &registry,
+        None,
+        GenerationInput::default(),
+    )
+    .expect_err("E5 refuses the emitted bytes");
+    let DriverRefusal::Fault(DriverFault::HandoffRefused(refused)) = &driven else {
+        panic!("unexpected refusal {driven:?}");
+    };
+    assert_eq!(refused.as_ref(), &refusal);
+    assert_eq!(driven.stage(), DriverStage::Handoff);
+    assert_eq!(driven.kind(), OutcomeKind::Fault);
+    assert_eq!(driven.code(), "runtime_invariant");
+    assert_eq!(recorder.calls(), [Call::Compile, Call::ReadPackage]);
 }
 
 /// FR-001-AC-7 (TC-006): E5 admits units with text and rational parameter

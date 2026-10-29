@@ -102,7 +102,7 @@ outcome unchanged.
 | `quire-driver` (root) | The library: `drive`, `execute`, the registry, limits and the cache interface. Depends on QSL and the code generator, and on neither the cache nor the CLI. |
 | `quire-cli` | The `quire` binary: argument parsing and the command handlers. Depends on the driver and the cache. |
 | `quire-plugin-host` | The process boundary for out-of-process backend providers: framing, wire types and lifecycle for the `quire.plugin-wire/v1` protocol. |
-| `quire-cache` | A content-addressed on-disk cache that implements the driver's cache interface. The CLI does not call it yet. |
+| `quire-cache` | A structural-key on-disk cache that implements the driver's cache interface. The CLI does not call it yet. |
 
 The driver defines the cache interface and the cache implements it, so the
 library never depends on its own cache. `tests/dependency_edges.rs` fails if

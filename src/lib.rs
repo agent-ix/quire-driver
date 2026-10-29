@@ -33,8 +33,7 @@
 //!    `CheckedNodeId` the item's `WireNodeId` names.
 //!
 //! E5 runs after step 2: IR's checked-package reader admits the emitted v2
-//! bytes, and the admitted `package_id` must be the emitted one
-//! ([`Driven::checked`]).
+//! bytes ([`Driven::checked`]).
 //!
 //! Command-level refusals are [`DriverRefusal`]. AGE-394 (the lifecycle and CLI
 //! design) renders them.

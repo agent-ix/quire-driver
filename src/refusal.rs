@@ -180,14 +180,6 @@ pub enum DriverFault {
     /// IR's reader refused the bytes QSL's E4 emitter just wrote.
     #[error("IR refused the emitted checked package: {:?}", .0.code)]
     HandoffRefused(Box<CheckedPackageRefusal>),
-    /// IR admitted the bytes at a `package_id` other than the emitted one.
-    #[error("IR admitted package {admitted}, not the emitted {emitted}")]
-    PackageIdMismatch {
-        /// The emitted `package_id` digest.
-        emitted: String,
-        /// The admitted `package_id` digest.
-        admitted: String,
-    },
     /// QSL admitted a linked manifest whose advertised pair was incomplete.
     #[error("QSL admitted a linked manifest with an incomplete advertised pair")]
     AdmittedManifestMissingLabel,
@@ -598,8 +590,7 @@ impl DriverRefusal {
                 DriverFault::NativeExecutionLimitsMismatch | DriverFault::NativeReceiptMismatch,
             ) => DriverStage::Replay,
             Self::Fault(DriverFault::Spine { stage, .. }) => DriverStage::Compile(*stage),
-            Self::HandoffLimit(_)
-            | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
+            Self::HandoffLimit(_) | Self::Fault(DriverFault::HandoffRefused(_)) => {
                 DriverStage::Handoff
             }
             Self::Generation(_)
@@ -1659,14 +1650,6 @@ mod tests {
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.code(), "runtime_invariant");
         assert_eq!(fault.stage(), DriverStage::Conversion);
-
-        let fault = DriverRefusal::Fault(DriverFault::PackageIdMismatch {
-            emitted: "a".to_owned(),
-            admitted: "b".to_owned(),
-        });
-        assert_eq!(fault.kind(), OutcomeKind::Fault);
-        assert_eq!(fault.code(), "runtime_invariant");
-        assert_eq!(fault.stage(), DriverStage::Handoff);
 
         let fault = DriverRefusal::Generation(RoutedGenerationError::DuplicateRequestIndex {
             request_index: 0,

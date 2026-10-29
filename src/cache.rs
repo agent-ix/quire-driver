@@ -2,7 +2,6 @@
 //! The driver-owned cache boundary (FR-007).
 
 use qsl_foundation::BackendId;
-use qsl_route::ManifestDigest;
 
 /// A cache-eligible operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -26,8 +25,6 @@ pub struct CacheRequest<'a> {
     request: &'a [u8],
     /// Selected provider identity admitted by QSL.
     backend: &'a BackendId,
-    /// Provider manifest digest admitted by the same registry descriptor.
-    manifest: ManifestDigest,
     /// Target and output-affecting options, required only for generation.
     target: Option<&'a [u8]>,
 }
@@ -57,7 +54,6 @@ impl<'a> CacheRequest<'a> {
             package_id,
             request,
             backend: descriptor.candidate().id(),
-            manifest: descriptor.manifest_digest(),
             target,
         })
     }
@@ -80,11 +76,6 @@ impl<'a> CacheRequest<'a> {
     /// The admitted provider identity.
     pub fn backend(&self) -> &BackendId {
         self.backend
-    }
-
-    /// The admitted provider manifest digest.
-    pub const fn manifest(&self) -> ManifestDigest {
-        self.manifest
     }
 
     /// Generation target and output-affecting options, if applicable.
@@ -392,7 +383,6 @@ mod tests {
     /// Unit check of request shape; provider-dispatch integration remains planned (FR-007-AC-1/6).
     #[test]
     fn cache_request_has_the_typed_meaning_and_admission_inputs() {
-        let digest = qsl_route::ManifestDigest::from_digest([7; 32]);
         let (registry, backend) = registry("kani", [7; 32]);
         let request = CacheRequest::new(
             CacheOperation::Generate,
@@ -406,7 +396,6 @@ mod tests {
         assert_eq!(request.operation(), CacheOperation::Generate);
         assert_eq!(request.package_id(), "checked-package");
         assert_eq!(request.backend().as_str(), "kani");
-        assert_eq!(request.manifest(), digest);
         assert_eq!(request.target(), Some(EMPTY_REQUEST));
     }
 
@@ -489,15 +478,7 @@ mod tests {
         )
         .expect("second backend is registered");
         assert_eq!(first_request.backend(), &first);
-        assert_eq!(
-            first_request.manifest(),
-            qsl_route::ManifestDigest::from_digest([1; 32])
-        );
         assert_eq!(second_request.backend(), &second);
-        assert_eq!(
-            second_request.manifest(),
-            qsl_route::ManifestDigest::from_digest([2; 32])
-        );
     }
 
     /// Builder check only; provider-dispatch refusal-to-cache integration remains planned (FR-007-AC-6).
