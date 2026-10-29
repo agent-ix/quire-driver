@@ -76,6 +76,10 @@ the admitted package only at the `package_id` E4 emitted.
   with the compile input as one driver-library operation. This is an internal
   library composition input; it adds no CLI syntax. The driver does not accept
   a second caller-built package for this call.
+- For function proof execution, the selected request’s retained QSL source and
+  dependency selections, admitted package identity, selected function declaration
+  and exact application occurrence, CG generated item and its proving-run
+  `KaniObligationIdentity`, and the caller’s and proving run’s decode limits.
 
 ## Outputs
 
@@ -176,6 +180,23 @@ the admitted package only at the `package_id` E4 emitted.
   receives only its admitted `ContractPackageV1`, complete position vector,
   routed items, and generation contexts. The QSL `Call` and bound operands
   remain in the driver's per-item context and are not added to CG's API.
+- For each generated function item selected for proof, the driver SHALL retain
+  one execution context keyed by its request index. It SHALL join the QSL
+  selected function declaration and exact application `OccurrenceKey`, the
+  source and dependency lock that produced that declaration, the E5-admitted
+  package identity, and the CG generated item’s `KaniObligationIdentity` by
+  that request index and occurrence. Two selections of one node with distinct
+  occurrences SHALL retain distinct contexts. The driver SHALL construct CG
+  `ReplayInputs` from the retained source, dependency lock, proving-run
+  accounting and stage limits, declared domains and replay limits; the smaller
+  caller/proving-run byte and value decode limits apply to playback intake.
+  It SHALL NOT reconstruct any identity, source, dependency selection or
+  function target from caller text or proof output.
+  A typed refusal from QSL selection, IR admission or CG generation SHALL be
+  preserved with its owning stage. If those stages succeed but the driver
+  detects a missing, duplicate or mismatched retained association, it SHALL
+  return a `runtime_invariant` driver fault before provider execution or replay;
+  it SHALL NOT choose another item, declaration or occurrence.
 - When no scalar item is selected for routed native proof, the driver SHALL
   skip scalar binding and native execution. It SHALL select no fallback item
   or synthesize a scalar request.
@@ -300,9 +321,12 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-20 | An occurrence key the driver built that the export reports as naming no requirement record is a `runtime_invariant` internal fault. | Test (TC-017) |
 | FR-001-AC-21 | When the package declares no abstraction relation, the driver does not call the export, every item goes to CG, and the per-item refusal member is empty. | Test (TC-017) |
 | FR-001-AC-22 | When CG returns `EnvelopeRefusal::ContractPackageReadRefused`, the driver emits an FR-272 refusal diagnostic at `package_read`, retaining the complete CG projection unchanged as typed source data: `code`, `path`, `cause`, `locus`, `contract_version`, `document_pointer`, `expected` and `actual`. The diagnostic carries the same code and cause, has category `refusal`, maps `path` to the FR-274 `json_path` location, and carries `locus` as a `CheckedNodeId` payload when present; every returned code has an FR-271 row. When CG returns `ContractPackageReadIncomplete`, the driver emits `stage_limit_exceeded` at `package_read` with category `incomplete` (numeric category 22) and retains the complete CG projection unchanged (`limit_kind`, `limit`, `consumed`, `path`). The closed map is `Bytes` → `input-bytes-exceeded` / `CheckedPackageReadLimits.bytes`; `Nodes` → `node-count-exceeded` / `CheckedPackageReadLimits.nodes`; `Edges` → `edge-count-exceeded` / `CheckedPackageReadLimits.edges`; `Occurrences` → `occurrence-count-exceeded` / `CheckedPackageReadLimits.occurrences`; `Work` → `work-budget-exceeded` / `CheckedPackageReadLimits.work`. For each mapped case, `bound` is `limit`, `actual` is `consumed`, `kind` is the cause tag, `setting` is the listed limits-argument member, and `path` supplies the FR-274 `json_path` location when present (absent for `Bytes`). Although `CheckedPackageReadLimits` includes `diagnostics`, the ContractPackage reader reports no diagnostics stop. If CG nevertheless returns `Diagnostics`, the driver returns a `runtime_invariant` fault at `package_read` while retaining the CG projection unchanged, with no FR-272 limit diagnostic. No reader variant is converted to the E5 result, and no other `limit_kind` branch is accepted. Registration of these limits under FR-460/FR-461 entry points/defaults is a deferred follow-up under IR-896. | Test (TC-004) |
+| FR-001-AC-23 | Two generated function items that select the same checked node at different application occurrences retain two distinct contexts keyed by their original request indices. Each context contains the QSL-selected function declaration and exact occurrence, its producing source and dependency lock, the same E5-admitted package identity, and the matching CG `KaniObligationIdentity`; CG `ReplayInputs` use those retained source, lock, accounting, stage, domain and replay inputs; playback intake uses the smaller caller/proving-run byte and value decode limits. No identity or source is reconstructed from caller text or proof output. | Planned (TC-016; IR-610 E9 function producer; IR-1121 CG current-V2 function proof producer) |
+| FR-001-AC-24 | A QSL selection, IR admission or CG generation refusal is preserved as that owner’s typed refusal. After all three succeed, a missing, duplicate or mismatched request-index, occurrence, package, declaration or generated-identity association returns a driver `runtime_invariant` fault before provider execution or replay, without selecting another item or fallback context. | Planned (TC-016; IR-610 E9 function producer; IR-1121 CG current-V2 function proof producer) |
 
 ## Dependencies
 
+- IR-1121 supplies CG’s current-V2 generated function harness and typed proving-run identity. Until it lands, the function context and provider join in AC-23/24 remain Planned; the driver cannot manufacture either value.
 - QSL ADR-011 §2.1, §6.1 driver row, §7.1 and T-13; ADR-012 §7.1 and §7.2.
 - QSL `qsl-replay` (typed spine lifecycle) and `qsl-route` (registry, candidate
   step, routing step).
