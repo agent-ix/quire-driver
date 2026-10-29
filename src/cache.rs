@@ -343,14 +343,10 @@ mod tests {
         }
     }
 
-    fn registry(
-        identity: &str,
-        digest: [u8; 32],
-    ) -> (crate::AdmittedRegistry, qsl_foundation::BackendId) {
+    fn registry(identity: &str) -> (crate::AdmittedRegistry, qsl_foundation::BackendId) {
         let backend = qsl_foundation::BackendId::from_wire(identity).expect("valid id");
         let registry = crate::build_registry(&[crate::ProviderManifest {
             identity: identity.to_owned(),
-            manifest_digest: qsl_route::ManifestDigest::from_digest(digest),
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -383,7 +379,7 @@ mod tests {
     /// Unit check of request shape; provider-dispatch integration remains planned (FR-007-AC-1/6).
     #[test]
     fn cache_request_has_the_typed_meaning_and_admission_inputs() {
-        let (registry, backend) = registry("kani", [7; 32]);
+        let (registry, backend) = registry("kani");
         let request = CacheRequest::new(
             CacheOperation::Generate,
             "checked-package",
@@ -402,7 +398,7 @@ mod tests {
     /// Unit check of operation target shape; provider-dispatch integration remains planned (FR-007-AC-1).
     #[test]
     fn cache_request_rejects_missing_and_unexpected_generation_target() {
-        let (registry, backend) = registry("kani", [1; 32]);
+        let (registry, backend) = registry("kani");
         assert_eq!(
             CacheRequest::new(
                 CacheOperation::Generate,
@@ -437,7 +433,6 @@ mod tests {
         let registry = crate::build_registry(&[
             crate::ProviderManifest {
                 identity: first.as_str().to_owned(),
-                manifest_digest: qsl_route::ManifestDigest::from_digest([1; 32]),
                 advertises: vec![(
                     Some("value-validity".to_owned()),
                     Some("bounded".to_owned()),
@@ -448,7 +443,6 @@ mod tests {
             },
             crate::ProviderManifest {
                 identity: second.as_str().to_owned(),
-                manifest_digest: qsl_route::ManifestDigest::from_digest([2; 32]),
                 advertises: vec![(
                     Some("value-validity".to_owned()),
                     Some("bounded".to_owned()),
@@ -487,7 +481,6 @@ mod tests {
         let backend = qsl_foundation::BackendId::from_wire("kani").expect("valid id");
         let registration = crate::build_registry(&[crate::ProviderManifest {
             identity: String::new(),
-            manifest_digest: qsl_route::ManifestDigest::from_digest([3; 32]),
             advertises: Vec::new(),
             domains: Some(vec!["integer".to_owned()]),
             bounds: None,
@@ -511,7 +504,7 @@ mod tests {
     /// Helper contract test; `drive()` cache-hit dispatch remains planned (FR-007-AC-2).
     #[test]
     fn valid_hit_is_returned_without_calling_the_provider() {
-        let (registry, backend) = registry("kani", [0; 32]);
+        let (registry, backend) = registry("kani");
         let cache = MemoryCache {
             value: std::cell::RefCell::new(Some(br#""cached""#.to_vec())),
             ..MemoryCache::default()
@@ -537,7 +530,7 @@ mod tests {
     /// Trace: FR-007-AC-3, FR-007-AC-5; a miss records and returns the provider value.
     #[test]
     fn miss_calls_provider_once_and_records_its_result() {
-        let (registry, backend) = registry("kani", [0; 32]);
+        let (registry, backend) = registry("kani");
         let cache = MemoryCache::default();
         let calls = Cell::new(0);
         let codec = JsonCodec;
@@ -564,7 +557,7 @@ mod tests {
     /// Trace: FR-007-AC-5, NeverStore/NotStored do not replace or fail the provider result.
     #[test]
     fn non_store_outcomes_preserve_the_provider_result() {
-        let (registry, backend) = registry("kani", [0; 32]);
+        let (registry, backend) = registry("kani");
         let codec = JsonCodec;
         for store_outcome in [CacheWriteOutcome::NeverStore, CacheWriteOutcome::NotStored] {
             let cache = MemoryCache {
@@ -590,7 +583,7 @@ mod tests {
     /// Trace: FR-007-AC-5; a result encoding refusal is NotStored, not an operation failure.
     #[test]
     fn result_encoding_refusal_preserves_provider_result() {
-        let (registry, backend) = registry("kani", [0; 32]);
+        let (registry, backend) = registry("kani");
         let cache = MemoryCache::default();
         let value = run_cached(
             &cache,
@@ -607,7 +600,7 @@ mod tests {
     /// Trace: FR-007-AC-4, cache I/O faults remain typed errors.
     #[test]
     fn cache_fault_is_not_converted_to_a_miss() {
-        let (registry, backend) = registry("kani", [0; 32]);
+        let (registry, backend) = registry("kani");
         let cache = MemoryCache {
             fail_lookup: true,
             ..MemoryCache::default()
@@ -631,7 +624,7 @@ mod tests {
     /// Trace: FR-007-AC-4; typed I/O sources survive cache error propagation.
     #[test]
     fn recording_io_fault_remains_typed_after_provider_success() {
-        let (registry, backend) = registry("kani", [0; 32]);
+        let (registry, backend) = registry("kani");
         let cache = MemoryCache {
             fail_record: true,
             ..MemoryCache::default()

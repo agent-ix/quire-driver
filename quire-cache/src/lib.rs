@@ -10,8 +10,6 @@ use std::time::{Duration, SystemTime};
 
 #[cfg(test)]
 use qsl_foundation::BackendId;
-#[cfg(test)]
-use qsl_route::ManifestDigest;
 use quire_canonical::{to_vec, Limits};
 use quire_driver::{
     Cache, CacheEligibility, CacheFault, CacheLookup, CacheOperation, CacheRequest,
@@ -622,14 +620,12 @@ mod tests {
         package_id: &str,
         request: &Value,
         backend: &BackendId,
-        digest: u8,
         target: Option<&Value>,
     ) -> CacheKey {
         let request_bytes = serde_json::to_vec(request).expect("request encodes");
         let target_bytes = target.map(|value| serde_json::to_vec(value).expect("target encodes"));
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
-            manifest_digest: ManifestDigest::from_digest([digest; 32]),
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -662,7 +658,6 @@ mod tests {
             &format!("package-{digest}"),
             &request,
             &backend,
-            digest,
             None,
         )
     }
@@ -719,10 +714,8 @@ mod tests {
     #[test]
     fn directory_cache_uses_the_driver_request_and_typed_reader() {
         let backend = BackendId::from_wire("agent-ix/provider/test").expect("backend is valid");
-        let digest = ManifestDigest::from_digest([4; 32]);
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
-            manifest_digest: digest,
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -773,20 +766,12 @@ mod tests {
         let request = serde_json::json!({"items": [], "work_limit": 20});
         let target_a = serde_json::json!({"name": "wasm32-wasi", "options": {"opt": 1}});
         let target_b = serde_json::json!({"name": "wasm32-wasi", "options": {"opt": 2}});
-        let prove = key_for(
-            CacheOperation::Prove,
-            "package-1",
-            &request,
-            &backend,
-            1,
-            None,
-        );
+        let prove = key_for(CacheOperation::Prove, "package-1", &request, &backend, None);
         let analyze = key_for(
             CacheOperation::Analyze,
             "package-1",
             &request,
             &backend,
-            1,
             None,
         );
         let generated_a = key_for(
@@ -794,7 +779,6 @@ mod tests {
             "package-1",
             &request,
             &backend,
-            1,
             Some(&target_a),
         );
         let generated_b = key_for(
@@ -802,7 +786,6 @@ mod tests {
             "package-1",
             &request,
             &backend,
-            1,
             Some(&target_b),
         );
         assert_ne!(prove, analyze);
@@ -828,7 +811,6 @@ mod tests {
                 "package-2",
                 &serde_json::json!({"items": [], "work_limit": 20}),
                 &backend,
-                1,
                 None,
             )
         );
@@ -839,7 +821,6 @@ mod tests {
                 "package-1",
                 &serde_json::json!({"items": [], "work_limit": 21}),
                 &backend,
-                1,
                 None,
             )
         );
@@ -851,7 +832,6 @@ mod tests {
                 "package-1",
                 &request,
                 &other_backend,
-                1,
                 None,
             )
         );
@@ -867,7 +847,6 @@ mod tests {
             "package-1",
             &baseline,
             &backend,
-            5,
             None,
         );
         let excluded = serde_json::json!({
@@ -882,7 +861,6 @@ mod tests {
                 "package-1",
                 &excluded,
                 &backend,
-                5,
                 None
             )
         );
@@ -896,7 +874,6 @@ mod tests {
                 "package-1",
                 &nested_meaning,
                 &backend,
-                5,
                 None
             ),
             "nested request fields remain meaningful when named path"
@@ -909,10 +886,8 @@ mod tests {
         let directory = temporary_directory();
         let store = DirectoryCache::new(&directory, 2048, 4096);
         let backend = BackendId::from_wire("agent-ix/provider/test").expect("backend is valid");
-        let manifest = ManifestDigest::from_digest([1; 32]);
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
-            manifest_digest: manifest,
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -963,7 +938,6 @@ mod tests {
             let excluded_registry =
                 quire_driver::build_registry(&[quire_driver::ProviderManifest {
                     identity: backend.as_str().to_owned(),
-                    manifest_digest: ManifestDigest::from_digest([2; 32]),
                     advertises: vec![(
                         Some("value-validity".to_owned()),
                         Some("bounded".to_owned()),
@@ -1004,7 +978,6 @@ mod tests {
         let backend = BackendId::from_wire("agent-ix/provider/test").expect("id is valid");
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
-            manifest_digest: ManifestDigest::from_digest([27; 32]),
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -1040,7 +1013,6 @@ mod tests {
         let backend = BackendId::from_wire("agent-ix/provider/test").expect("id is valid");
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
-            manifest_digest: ManifestDigest::from_digest([28; 32]),
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -1154,7 +1126,6 @@ mod tests {
         let backend = BackendId::from_wire("agent-ix/provider/test").expect("id is valid");
         let registry = quire_driver::build_registry(&[quire_driver::ProviderManifest {
             identity: backend.as_str().to_owned(),
-            manifest_digest: ManifestDigest::from_digest([23; 32]),
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),

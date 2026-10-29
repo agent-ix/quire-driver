@@ -4,8 +4,8 @@
 
 use qsl_foundation::BackendId;
 use qsl_route::{
-    descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
-    RegistrationRefusal, Registry,
+    descriptor_from_manifest, BackendDescriptor, Candidate, ProviderOrigin, RegistrationRefusal,
+    Registry,
 };
 use std::collections::BTreeMap;
 use std::ops::Deref;
@@ -44,8 +44,6 @@ struct AdvertisedPairWire<'a> {
 pub struct ProviderManifest {
     /// The backend identity (`backend.identity`).
     pub identity: String,
-    /// The digest of this manifest (`backend.manifest_digest`).
-    pub manifest_digest: ManifestDigest,
     /// Each advertised `(kind, mode)` label pair; `None` is an absent label.
     pub advertises: Vec<(Option<String>, Option<String>)>,
     /// FR-331 domains retained for linked projection or process admission.
@@ -101,10 +99,10 @@ impl LinkedProviders<'_> {
             .manifests
             .iter()
             .filter(|manifest| {
-                self.admitted.registry.descriptors().any(|descriptor| {
-                    descriptor.id().as_str() == manifest.identity
-                        && descriptor.manifest_digest() == manifest.manifest_digest
-                })
+                self.admitted
+                    .registry
+                    .descriptors()
+                    .any(|descriptor| descriptor.id().as_str() == manifest.identity)
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -126,18 +124,20 @@ impl LinkedProviders<'_> {
             admissions.iter().map(|(descriptor, _)| descriptor.clone()),
         );
         for (_, manifest) in admissions {
-            if !self.admitted.manifests.iter().any(|retained| {
-                retained.identity == manifest.identity
-                    && retained.manifest_digest == manifest.manifest_digest
-            }) {
+            if !self
+                .admitted
+                .manifests
+                .iter()
+                .any(|retained| retained.identity == manifest.identity)
+            {
                 self.admitted.manifests.push(manifest);
             }
         }
         self.admitted.manifests.retain(|manifest| {
-            self.admitted.registry.descriptors().any(|descriptor| {
-                descriptor.id().as_str() == manifest.identity
-                    && descriptor.manifest_digest() == manifest.manifest_digest
-            })
+            self.admitted
+                .registry
+                .descriptors()
+                .any(|descriptor| descriptor.id().as_str() == manifest.identity)
         });
         registration_result
     }
@@ -191,7 +191,7 @@ impl Deref for AdmittedRegistry {
 /// `ProviderOrigin::Process` under ADR-029 PV-1. When any registration is
 /// refused (an absent or unknown kind or mode, invalid domains, or a duplicate
 /// backend identity), the run is refused with every refusal, ordered by
-/// backend identity then manifest digest.
+/// backend identity.
 ///
 /// `Registry::register`'s own `Err` is what that one call caused or
 /// observed, not a diff against the registry's prior state, so it can
@@ -219,14 +219,14 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
         let admitted = descriptor_from_manifest(
             backend,
             ProviderOrigin::Linked,
-            manifest.manifest_digest,
             manifest
                 .advertises
                 .iter()
                 .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
-            domain_labels.as_deref(),
-            None,
-            None,
+            qsl_route::ManifestMembers {
+                domains: domain_labels.as_deref(),
+                ..qsl_route::ManifestMembers::default()
+            },
         );
         match admitted {
             Ok(descriptor) => {
@@ -236,10 +236,7 @@ pub fn build_registry(manifests: &[ProviderManifest]) -> Result<AdmittedRegistry
                 let _ = registry.register(descriptor);
                 if !admitted_manifests
                     .iter()
-                    .any(|retained: &ProviderManifest| {
-                        retained.identity == manifest.identity
-                            && retained.manifest_digest == manifest.manifest_digest
-                    })
+                    .any(|retained: &ProviderManifest| retained.identity == manifest.identity)
                 {
                     let mut retained = manifest.clone();
                     retained.wire = Some(wire);
@@ -338,16 +335,15 @@ mod tests {
     use std::collections::BTreeMap;
 
     use qsl_foundation::BackendId;
-    use qsl_route::{descriptor_from_manifest, Candidate, ManifestDigest, ProviderOrigin};
+    use qsl_route::{descriptor_from_manifest, Candidate, ProviderOrigin};
 
     use crate::{KaniProvider, Provider, ProviderManifest};
 
     use super::build_linked_providers;
 
-    fn provider(identity: &str, digest: u8) -> KaniProvider {
+    fn provider(identity: &str) -> KaniProvider {
         KaniProvider::new(ProviderManifest {
             identity: identity.to_owned(),
-            manifest_digest: ManifestDigest::from_digest([digest; 32]),
             advertises: vec![(
                 Some("operation-contract".to_owned()),
                 Some("bounded".to_owned()),
@@ -361,8 +357,8 @@ mod tests {
     /// Trace: FR-006-AC-5.
     #[test]
     fn linked_manifest_snapshot_is_independent_of_registration_order() {
-        let first = provider("agent-ix/provider/first", 1);
-        let second = provider("agent-ix/provider/second", 2);
+        let first = provider("agent-ix/provider/first");
+        let second = provider("agent-ix/provider/second");
         let admitted = build_linked_providers(&[&first, &second]).expect("both providers admit");
         assert!(admitted
             .registry()
@@ -386,7 +382,6 @@ mod tests {
     fn linked_registry_populates_canonical_manifest_wire_and_preserves_absence() {
         let absent_optional = KaniProvider::new(ProviderManifest {
             identity: "agent-ix/provider/without-optional".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([3; 32]),
             advertises: vec![(
                 Some("operation-contract".to_owned()),
                 Some("unbounded".to_owned()),
@@ -397,7 +392,6 @@ mod tests {
         });
         let present_optional = KaniProvider::new(ProviderManifest {
             identity: "agent-ix/provider/with-optional".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([4; 32]),
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -437,7 +431,6 @@ mod tests {
         );
         let provider = KaniProvider::new(ProviderManifest {
             identity: "agent-ix/provider/full-wire".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([7; 32]),
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -459,7 +452,6 @@ mod tests {
         let identity = format!("agent-ix/provider/{}", "x".repeat(1_048_577));
         let provider = KaniProvider::new(ProviderManifest {
             identity,
-            manifest_digest: ManifestDigest::from_digest([5; 32]),
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -484,7 +476,6 @@ mod tests {
     fn linked_registry_refuses_empty_advertisements_before_wire_emission() {
         let manifest = ProviderManifest {
             identity: "agent-ix/provider/empty-advertisements".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([6; 32]),
             advertises: Vec::new(),
             domains: Some(vec!["integer".to_owned()]),
             bounds: None,
@@ -511,7 +502,6 @@ mod tests {
     fn linked_probabilistic_manifest_retains_the_absent_evidence_kind_refusal() {
         let manifest = ProviderManifest {
             identity: "agent-ix/provider/probabilistic".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([6; 32]),
             advertises: vec![(
                 Some("probabilistic-satisfaction".to_owned()),
                 Some("unbounded".to_owned()),
@@ -539,7 +529,6 @@ mod tests {
     fn linked_registry_preserves_absent_domains_refusal() {
         let manifest = ProviderManifest {
             identity: "agent-ix/provider/missing-domains".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([8; 32]),
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -564,7 +553,7 @@ mod tests {
     /// Caller-admitted Process origin is preserved by registration.
     #[test]
     fn caller_admitted_process_descriptor_joins_the_existing_registry() {
-        let linked_provider = provider("agent-ix/provider/linked", 7);
+        let linked_provider = provider("agent-ix/provider/linked");
         let mut linked =
             build_linked_providers(&[&linked_provider]).expect("linked provider admits");
         let descriptor = descriptor_from_manifest(
@@ -572,11 +561,11 @@ mod tests {
                 BackendId::from_wire("agent-ix/plugin/test").expect("nonempty identity"),
             ),
             ProviderOrigin::Process,
-            ManifestDigest::from_digest([8; 32]),
             [(Some("operation-contract"), Some("bounded"))],
-            Some(&["integer"]),
-            None,
-            None,
+            qsl_route::ManifestMembers {
+                domains: Some(&["integer"]),
+                ..qsl_route::ManifestMembers::default()
+            },
         )
         .expect("the host hello admitter returns a QSL-admitted descriptor");
         let id = BackendId::from_wire("agent-ix/plugin/test").expect("nonempty identity");
@@ -585,7 +574,6 @@ mod tests {
                 descriptor,
                 ProviderManifest {
                     identity: "agent-ix/plugin/test".to_owned(),
-                    manifest_digest: ManifestDigest::from_digest([8; 32]),
                     advertises: vec![(
                         Some("operation-contract".to_owned()),
                         Some("bounded".to_owned()),
@@ -612,22 +600,22 @@ mod tests {
 
     /// Trace: FR-005-AC-4.
     /// Unequal linked/process descriptors withdraw their shared identity and
-    /// retain each distinct manifest digest in QSL's refusal.
+    /// are refused once by identity in QSL's refusal.
     #[test]
     fn linked_process_conflict_returns_qsl_refusals_and_withdraws_identity() {
         let identity = "agent-ix/provider/shared";
-        let linked_provider = provider(identity, 1);
-        let other_linked = provider("agent-ix/provider/linked", 3);
+        let linked_provider = provider(identity);
+        let other_linked = provider("agent-ix/provider/linked");
         let mut linked = build_linked_providers(&[&linked_provider, &other_linked])
             .expect("linked providers admit");
         let process = descriptor_from_manifest(
             Candidate::new(BackendId::from_wire(identity).expect("nonempty identity")),
             ProviderOrigin::Process,
-            ManifestDigest::from_digest([2; 32]),
             [(Some("operation-contract"), Some("bounded"))],
-            Some(&["integer"]),
-            None,
-            None,
+            qsl_route::ManifestMembers {
+                domains: Some(&["integer"]),
+                ..qsl_route::ManifestMembers::default()
+            },
         )
         .expect("process descriptor admits");
 
@@ -637,7 +625,6 @@ mod tests {
                     process,
                     ProviderManifest {
                         identity: identity.to_owned(),
-                        manifest_digest: ManifestDigest::from_digest([2; 32]),
                         advertises: vec![(
                             Some("operation-contract".to_owned()),
                             Some("bounded".to_owned()),
@@ -654,16 +641,15 @@ mod tests {
                                 .expect("nonempty identity"),
                         ),
                         ProviderOrigin::Process,
-                        ManifestDigest::from_digest([4; 32]),
                         [(Some("operation-contract"), Some("bounded"))],
-                        Some(&["integer"]),
-                        None,
-                        None,
+                        qsl_route::ManifestMembers {
+                            domains: Some(&["integer"]),
+                            ..qsl_route::ManifestMembers::default()
+                        },
                     )
                     .expect("later descriptor admits"),
                     ProviderManifest {
                         identity: "agent-ix/provider/later".to_owned(),
-                        manifest_digest: ManifestDigest::from_digest([4; 32]),
                         advertises: vec![(
                             Some("operation-contract".to_owned()),
                             Some("bounded".to_owned()),
@@ -679,19 +665,8 @@ mod tests {
             crate::DriverRefusal::Registration(refusals) => refusals,
             _ => Vec::new(),
         };
-        assert_eq!(refusals.len(), 2);
+        assert_eq!(refusals.len(), 1);
         assert_eq!(refusals[0].identity().as_str(), identity);
-        assert_eq!(refusals[1].identity().as_str(), identity);
-        assert_eq!(
-            refusals
-                .iter()
-                .map(|refusal| refusal.manifest_digest())
-                .collect::<Vec<_>>(),
-            [
-                ManifestDigest::from_digest([1; 32]),
-                ManifestDigest::from_digest([2; 32])
-            ]
-        );
         let id = BackendId::from_wire(identity).expect("nonempty identity");
         assert!(linked
             .registry()
@@ -716,7 +691,7 @@ mod tests {
     /// the QSL registry.
     #[test]
     fn repeated_process_descriptor_is_idempotent() {
-        let linked_provider = provider("agent-ix/provider/linked", 1);
+        let linked_provider = provider("agent-ix/provider/linked");
         let mut linked =
             build_linked_providers(&[&linked_provider]).expect("linked provider admits");
         let process = descriptor_from_manifest(
@@ -724,11 +699,11 @@ mod tests {
                 BackendId::from_wire("agent-ix/provider/process").expect("nonempty identity"),
             ),
             ProviderOrigin::Process,
-            ManifestDigest::from_digest([2; 32]),
             [(Some("operation-contract"), Some("bounded"))],
-            Some(&["integer"]),
-            None,
-            None,
+            qsl_route::ManifestMembers {
+                domains: Some(&["integer"]),
+                ..qsl_route::ManifestMembers::default()
+            },
         )
         .expect("process descriptor admits");
 
@@ -738,7 +713,6 @@ mod tests {
                     process.clone(),
                     ProviderManifest {
                         identity: "agent-ix/provider/process".to_owned(),
-                        manifest_digest: ManifestDigest::from_digest([2; 32]),
                         advertises: vec![(
                             Some("operation-contract".to_owned()),
                             Some("bounded".to_owned()),
@@ -752,7 +726,6 @@ mod tests {
                     process,
                     ProviderManifest {
                         identity: "agent-ix/provider/process".to_owned(),
-                        manifest_digest: ManifestDigest::from_digest([2; 32]),
                         advertises: vec![(
                             Some("operation-contract".to_owned()),
                             Some("bounded".to_owned()),
@@ -771,8 +744,8 @@ mod tests {
     /// Trace: FR-005-AC-1, FR-005-AC-3.
     #[test]
     fn linked_manifests_admit_distinct_identities_and_resolve_provider_lookup() {
-        let first = provider("agent-ix/provider/first", 1);
-        let second = provider("agent-ix/provider/second", 2);
+        let first = provider("agent-ix/provider/first");
+        let second = provider("agent-ix/provider/second");
         let providers: [&dyn Provider; 2] = [&first, &second];
         let linked = build_linked_providers(&providers).expect("both manifests admit");
 
@@ -800,8 +773,8 @@ mod tests {
     /// Trace: FR-005-AC-4.
     #[test]
     fn identical_linked_manifests_are_idempotent_without_order_dependent_lookup() {
-        let first = provider("agent-ix/provider/same", 1);
-        let second = provider("agent-ix/provider/same", 1);
+        let first = provider("agent-ix/provider/same");
+        let second = provider("agent-ix/provider/same");
         let first_order: [&dyn Provider; 2] = [&first, &second];
         let reverse_order: [&dyn Provider; 2] = [&second, &first];
 

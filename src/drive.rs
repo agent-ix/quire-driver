@@ -929,7 +929,6 @@ mod scalar_receipt_tests {
 mod native_receipt_integration_tests {
     use super::*;
     use qsl_replay::spine::{default_accounting, CallArgument};
-    use qsl_route::ManifestDigest;
     use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_contract_codegen::{KaniInstallation, ProofCeilings};
     use quire_exact::{Integer, Value};
@@ -1005,7 +1004,6 @@ mod native_receipt_integration_tests {
         let target_directory = NativeTargetDirectory::new();
         let registry = crate::build_registry(&[crate::ProviderManifest {
             identity: "kani".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([7; 32]),
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -1172,10 +1170,7 @@ fn envelope(
         .map(|descriptor| {
             let retained = manifests
                 .iter()
-                .find(|manifest| {
-                    manifest.identity == descriptor.id().as_str()
-                        && manifest.manifest_digest == descriptor.manifest_digest()
-                })
+                .find(|manifest| manifest.identity == descriptor.id().as_str())
                 .ok_or(DriverRefusal::Fault(DriverFault::AdmittedManifestMissing))?;
             project_descriptor(descriptor, retained.bounds.as_ref())
         })
@@ -1485,7 +1480,7 @@ fn cg_extent(item: &RequirementItem) -> cg::ExtentClassification {
 #[cfg(test)]
 mod origin_projection_tests {
     use qsl_foundation::BackendId;
-    use qsl_route::{BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin, Registry};
+    use qsl_route::{BackendDescriptor, Candidate, ProviderOrigin, Registry};
     use std::collections::BTreeMap;
 
     use quire_contract_codegen as cg;
@@ -1499,11 +1494,11 @@ mod origin_projection_tests {
         qsl_route::descriptor_from_manifest(
             candidate,
             origin,
-            ManifestDigest::from_digest([7; 32]),
             [(Some("value-validity"), Some("bounded"))],
-            Some(&domains),
-            None,
-            None,
+            qsl_route::ManifestMembers {
+                domains: Some(&domains),
+                ..qsl_route::ManifestMembers::default()
+            },
         )
         .expect("QSL accepts the typed descriptor")
     }

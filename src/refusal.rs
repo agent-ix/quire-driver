@@ -747,6 +747,7 @@ fn package_read_refusal_code(code: CheckedPackageRefusalCode) -> &'static str {
         CheckedPackageRefusalCode::AmbiguousDeclaration => "ambiguous_declaration",
         CheckedPackageRefusalCode::MissingImport => "missing_import",
         CheckedPackageRefusalCode::UnknownProfile => "unknown_profile",
+        CheckedPackageRefusalCode::WrongSnapshot => "wrong_snapshot",
     }
 }
 
@@ -797,6 +798,10 @@ fn package_read_refusal_cause(cause: CheckedPackageRefusalCause) -> &'static str
         CheckedPackageRefusalCause::WrongSelectionRole => "wrong-selection-role",
         CheckedPackageRefusalCause::InexactInteger => "inexact-integer",
         CheckedPackageRefusalCause::InexactNumber => "inexact-number",
+        CheckedPackageRefusalCause::WrongObservation => "wrong-observation",
+        CheckedPackageRefusalCause::DeclarationForm => "declaration-form",
+        CheckedPackageRefusalCause::WrongExport => "wrong-export",
+        CheckedPackageRefusalCause::InvalidDerivedShape => "invalid-derived-shape",
     }
 }
 
@@ -862,6 +867,7 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
         | RoutedGenerationError::ExcludedDriverIndex { .. }
         | RoutedGenerationError::DuplicateRequestIndex { .. }
         | RoutedGenerationError::DuplicateHarness { .. }
+        | RoutedGenerationError::UnauthenticatedOperationView { .. }
         | RoutedGenerationError::KaniRecordCountMismatch { .. }
         | RoutedGenerationError::KaniDuplicatePositionOutOfRange { .. }
         | RoutedGenerationError::Kani(KaniObligationError::EmptyRequest) => Code::RuntimeInvariant,
@@ -903,7 +909,8 @@ fn oracle_code(error: &OracleGenerationError) -> Code {
         OracleGenerationError::PackageRequest(error) => package_request_code(error),
         OracleGenerationError::ContractPackageUnavailable
         | OracleGenerationError::InvalidTypeResolutionWorkLimit => Code::InvalidRequest,
-        OracleGenerationError::ClaimMapSerialization
+        OracleGenerationError::UnauthenticatedRequestedRootKind { .. }
+        | OracleGenerationError::ClaimMapSerialization
         | OracleGenerationError::LocationMapSerialization
         | OracleGenerationError::InvalidPlanState
         | OracleGenerationError::UnknownRuntimeVariant { .. } => Code::RuntimeInvariant,
@@ -970,6 +977,12 @@ fn generation_message(error: &RoutedGenerationError) -> String {
         RoutedGenerationError::ScalarSelectionMismatch { request_index } => {
             format!("request item {request_index} did not match its admitted scalar selection")
         }
+        RoutedGenerationError::UnauthenticatedOperationView {
+            request_index,
+            node_id,
+        } => format!(
+            "request item {request_index} names operation {node_id:?} without an authenticated view"
+        ),
         RoutedGenerationError::Package(error) => {
             format!("the admitted package request was inconsistent: {error:?}")
         }
@@ -1025,6 +1038,12 @@ fn oracle_message(error: &OracleGenerationError) -> String {
         OracleGenerationError::EnvironmentAdmission(_) => {
             format!("semantic environment admission stopped: {error:?}")
         }
+        OracleGenerationError::UnauthenticatedRequestedRootKind {
+            request_index,
+            node_id,
+        } => format!(
+            "request item {request_index} root {node_id:?} has no authenticated temporal kind"
+        ),
         OracleGenerationError::PackageRequest(error) => {
             format!("the admitted package request was inconsistent: {error:?}")
         }

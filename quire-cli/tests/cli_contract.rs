@@ -13,8 +13,7 @@ use qsl_cst::format::{format_with_limits, FormatLimits, FormatRefusal};
 use qsl_foundation::diagnostic::{Code, Staged};
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
-    check, package, parse, select, DependencyInput, LockEvidence, PackageLimits, ParseRequest,
-    SpineLimits,
+    check, package, parse, select, DependencyInput, PackageLimits, ParseRequest, SpineLimits,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use quire_exact::Cancel;
@@ -69,7 +68,6 @@ fn check_outcome_bytes(path: &'static str) -> Vec<u8> {
                 parsed.value(),
                 models.value(),
                 &DependencyInput::default(),
-                &LockEvidence::default(),
                 limits,
                 &cancel,
             )
@@ -102,7 +100,6 @@ fn package_outcome_bytes(path: &'static str) -> Vec<u8> {
                 parsed.value(),
                 models.value(),
                 &dependencies,
-                &LockEvidence::default(),
                 limits,
                 &cancel,
             )

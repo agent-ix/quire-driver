@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 use qsl_foundation::diagnostic::Code;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
-    check, default_accounting, parse, select, Call, DependencyInput, LockEvidence, ParseRequest,
-    SpineLimits, DEFAULT_WORK_UNITS,
+    check, default_accounting, parse, select, Call, DependencyInput, ParseRequest, SpineLimits,
+    DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
@@ -162,7 +162,6 @@ fn expected_overflow_check_document(path: &str, bytes: &[u8]) -> Vec<u8> {
                 parsed.value(),
                 models.value(),
                 &DependencyInput::default(),
-                &LockEvidence::default(),
                 limits,
                 &cancel,
             )

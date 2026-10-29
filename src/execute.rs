@@ -300,7 +300,6 @@ mod tests {
             &parsed,
             &models,
             &DependencyInput::default(),
-            &qsl_replay::spine::LockEvidence::default(),
             SpineLimits::default(),
             &cancel,
         )

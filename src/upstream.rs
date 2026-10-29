@@ -14,8 +14,7 @@ use qsl_foundation::SourceIdentity;
 use qsl_package::{BoundItem, CheckedPackage, ExportRefusal};
 use qsl_replay::spine::{
     check, package, parse, refusal_or_fault, select, AdmittedModels, CheckedUnit, DependencyInput,
-    EmittedUnit, FrontEndFailure, LockEvidence, PackageLimits, ParseRequest, SpineLimits,
-    SpineStage,
+    EmittedUnit, FrontEndFailure, PackageLimits, ParseRequest, SpineLimits, SpineStage,
 };
 use qsl_route::routing::{route, Disposition};
 use qsl_route::Candidate;
@@ -168,7 +167,6 @@ impl Upstream for QslCg {
             &parsed,
             &models,
             &DependencyInput::default(),
-            &LockEvidence::default(),
             limits,
             cancel,
         )

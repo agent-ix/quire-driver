@@ -15,7 +15,7 @@ use qsl_foundation::diagnostic::Staged;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, default_accounting, package, parse, select, Call, CallArgument, DependencyInput,
-    LockEvidence, PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
+    PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{run_with_requirements, CallOutcome, RunRefusal};
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
@@ -1077,7 +1077,6 @@ fn compile(options: CompileOptions) -> CommandResult {
                 parsed.value(),
                 models.value(),
                 &dependencies,
-                &LockEvidence::default(),
                 limits,
                 &cancel,
             )
@@ -1117,7 +1116,6 @@ fn check_source(options: CheckOptions) -> CommandResult {
                 parsed.value(),
                 models.value(),
                 &DependencyInput::default(),
-                &LockEvidence::default(),
                 limits,
                 &cancel,
             )
