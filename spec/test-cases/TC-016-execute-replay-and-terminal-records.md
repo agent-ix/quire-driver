@@ -122,20 +122,12 @@ generation-only `drive()` path performs replay.
 
 When IR-773 adds the native producer after the production mapping exists,
 send the retained `ReplayLimits` unchanged in the QSL replay request and execute
-the artifact with the retained scalar inputs and `ScalarLimits`. Recompute QSL FR-357's artifact-only `sha256-jcs`
-`DigestRecord` from every staged `(path, bytes)` entry exposed by the CG
-receipt, then compare it with the receipt's attested proof-content identity.
-Use the same record version, digest domain, and mapping defined by the merged
-IR-846 contract for
-both values; do not compare records until that mapping is available. Preserve
+the artifact with the retained scalar inputs and `ScalarLimits`. Compare every driver-owned staged `(path, bytes)` entry exposed by the CG receipt directly, byte for byte, with the retained originals; a receipt that also carries digest fields is accepted and those fields are never read. Preserve
 upstream typed completion refusals according to the merged IR-847 refusal
 classification contract. Request/meter/returned `ScalarLimits` attestation is
 owned by the CG API tracked in IR-857; until it is available, this comparison
 and AC-7 remain planned.
-Check driver-owned staged entries against retained originals; the opaque CG
-receipt attests that CG-generated runner entries are part of the immutable
-snapshot CG executed. The digest preimage excludes operands, limits, and the
-native outcome, which is carried separately as the claim. The oracle compares
+The oracle compares
 the retained and sent `ReplayLimits` for equality. It must reject missing or
 mismatched evidence without invoking QSL or creating settlement. The
 report-claim mismatch case remains planned until CG exports its FR-032 public
@@ -144,7 +136,7 @@ converter, verify it compares `report.claim()` with the
 exact claim sent, and assert that an absent report or mismatch returns CG's
 typed binding refusal without settlement or terminal creation. The driver
 surfaces that refusal unchanged and creates no local mapping. A
-caller-supplied outcome/digest echo or regenerated artifact is not a valid
+caller-supplied outcome echo or regenerated artifact is not a valid
 positive case.
 
 For the scalar-limit provenance mismatch case, retain original limits `L0`,
