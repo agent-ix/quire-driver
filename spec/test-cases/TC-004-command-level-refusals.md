@@ -26,8 +26,7 @@ Scope: FR-001-AC-5 and FR-001-AC-22.
    A).
 4. Build a registry from a manifest advertising `not-a-kind`.
 5. Take a `DriverRefusal::Fault` for a `supported` settlement outside its
-   candidates, one for a vocabulary mismatch, one for an E5 `package_id`
-   mismatch, a generation refusal for a duplicate request index, and one
+   candidates, one for a vocabulary mismatch, a generation refusal for a duplicate request index, and one
    for a duplicate harness, a Kani record-count mismatch, a Kani duplicate
    position out of range, and a routed item naming a node the checked package
    does not hold
@@ -75,8 +74,7 @@ and `tc_004_handoff_and_generation_limits_are_limits`, plus
 - Step 5's faults have outcome kind fault and code `runtime_invariant`, at
   the negotiation, conversion, hand-off and generation steps; the
   `UnknownNode` fault is at the generation step.
-- Step 7 faults with `PackageIdMismatch`, then `HandoffRefused`, both at
-  the hand-off step with `runtime_invariant`; the call log ends at the IR
+- Step 7 faults with `HandoffRefused` at the hand-off step with `runtime_invariant`; the call log ends at the IR
   read, with no backend conversion and no negotiation.
 - Step 6's are limit refusals: `stage_limit_exceeded` at the hand-off and
   `resource_exhausted` at generation.

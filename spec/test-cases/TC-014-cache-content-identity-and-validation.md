@@ -19,12 +19,10 @@ Scope: FR-007-AC-1 through FR-007-AC-6.
 
 Inject a recording `Cache` and provider spy. Return a miss, then a provider
 result; inspect lookup's operation, package identity, canonical request,
-`BackendId`, admitted `ManifestDigest`, generation target/options and the exact
-typed value passed to `record`. Attempt registry admission with a mismatched
-identity/digest and verify no cache lookup occurs. Next return a valid typed hit and inspect the
-unchanged result and provider call count. Change manifest content while keeping
-identity and recorded pin fixed; provide the corresponding newly admitted
-`ManifestDigest` and verify it reaches the interface. Exercise a typed cache
+`BackendId`, generation target/options and the exact
+typed value passed to `record`. Attempt registry admission with a conflicting
+identity and verify no cache lookup occurs. Next return a valid typed hit and inspect the
+unchanged result and provider call count. Exercise a typed cache
 I/O error and excluded/oversize record outcomes.
 
 ## Expected Results
@@ -34,9 +32,7 @@ I/O error and excluded/oversize record outcomes.
   typed result.
 - A valid typed hit is returned unchanged and does not increment provider calls;
   an always-miss fake fails this assertion.
-- Changed manifest content is represented by its newly admitted
-  `ManifestDigest`, regardless of unchanged identity or pin.
-- An identity/digest admission refusal yields no cache request or lookup.
+- An identity admission refusal yields no cache request or lookup.
 - Typed I/O faults are not converted to misses; `NeverStore` and `NotStored`
   preserve the provider result.
 - The recording interface is supplied by the test; the `quire-driver`

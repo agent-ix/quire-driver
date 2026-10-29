@@ -1,6 +1,6 @@
 ---
 id: FR-012
-title: "Implement the downstream content-addressed cache"
+title: "Implement the downstream structural-key cache"
 type: FR
 relationships:
   - target: ix://agent-ix/quire-driver/US-001
@@ -10,7 +10,7 @@ relationships:
   - target: ix://agent-ix/quire-spec-language/ADR-029
     type: depends_on
 ---
-# FR-012: Implement the downstream content-addressed cache
+# FR-012: Implement the downstream structural-key cache
 
 ## Description
 
@@ -22,9 +22,8 @@ CA-5. It is a separate package and SHALL depend on the driver interface; the
 ## Inputs
 
 - `CacheRequest`: operation (`prove`, `analyze` or `generate`), package
-  identity, canonical typed request, selected `qsl_route::BackendId`, the
-  registry-admitted `qsl_route::ManifestDigest`, and for `generate` the target
-  and output-affecting options.
+  identity, canonical typed request, selected `qsl_route::BackendId`, and for
+  `generate` the target and output-affecting options.
 - A caller-named storage directory, maximum entry size and total stored-byte
   limit, plus the typed value reader for the requested result.
 - An eligible typed result for insertion.
@@ -42,29 +41,32 @@ CA-5. It is a separate package and SHALL depend on the driver interface; the
 
 ## Behavior
 
-- The cache key SHALL be SHA-256 over JCS of an object with members `operation`,
-  `package_id`, `request`, `backend`, `manifest`, and `target` for `generate`
-  only. `backend` is the identity string from `BackendId`; `manifest` is the
-  admitted `ManifestDigest`, using QSL's canonical serialization for that
-  typed digest. The cache SHALL use the `ManifestDigest` value supplied by the
-  registry descriptor and SHALL NOT rehash the manifest or invent a separate
-  digest spelling. QSL-636 amends QSpec FR-201/FR-306 and ADR-029 CA-2 to
-  require this content identity in the key.
+- The cache key SHALL be the canonical JSON (JCS) preimage of an object with
+  members `operation`, `package_id`, `request`, `backend`, and `target` for
+  `generate` only. `backend` is the identity string from `BackendId`. The key is
+  that structure itself: the cache SHALL NOT hash, digest or fingerprint it and
+  SHALL NOT include a manifest digest, version, revision or other recorded pin.
+- Withdrawn: the earlier SHA-256 cache-key digest and the `manifest` member
+  carrying QSL's `ManifestDigest`. Reason: a hash and a recorded manifest digest
+  are pins; the structural preimage is compared directly.
 - The cache represents generation target and output-affecting options in the
   `target` member. For other operations, the cache omits that member. When
   deriving a key, the cache SHALL exclude paths, timestamps, deadlines,
   recorded pins/revisions, application version, wall time and execution-backend
   labels.
-- A lookup SHALL return a hit only when the named entry is present, canonical,
-  within the per-entry limit, has a filename matching the requested key, has a
-  preimage and digest matching the requested `CacheRequest`, and is accepted by
-  the same typed reader used for a fresh value. An invalid entry is a miss.
+- A lookup SHALL return a hit only when an owned entry is present, canonical,
+  within the per-entry limit, has a stored preimage byte-equal to the requested
+  `CacheRequest` preimage, and is accepted by the same typed reader used for a
+  fresh value. The cache finds that entry by reading its owned entries in the
+  caller-named directory; entry file names are `entry-<decimal sequence>.json`
+  and carry no key meaning. An invalid entry is a miss.
 - The cache stores only values eligible under ADR-029 CA-5. The cache stores
   deterministic budget-incomplete results when within size limits; time-limited
   incomplete values are not eligible.
 - The cache writes each entry to a unique temporary file in the caller's store,
-  flushes and closes it, then atomically renames it to its final key name. The
-  cache never writes directly to the final name. A process-local lock
+  flushes and closes it, then atomically renames it to its final entry name. The
+  cache never writes directly to the final name. An insertion whose preimage is
+  already stored replaces that entry. A process-local lock
   serializes local eviction and insertion. If another process has already
   removed an eviction candidate, the cache ignores `NotFound` and continues
   insertion. Temporary files count toward total-store bytes until removed. The
@@ -73,21 +75,21 @@ CA-5. It is a separate package and SHALL depend on the driver interface; the
   choices under ADR-029 CA-3 and CA-4; they include the per-entry size bound
   and `NotStored` on an over-capacity insertion.
 - Capacity accounting includes every regular file in the caller-named cache
-  directory. The cache evicts only validated entries with its owned key-name
+  directory. The cache evicts only validated entries with its owned entry-name
   format and its own temporary files; unrelated or invalid files count toward
   the byte limit but are never removed.
 - The cache returns `NotStored` for an entry above the per-entry limit or one
   that cannot fit the configured total-store limit after eviction. The cache
-  uses no index or ledger; it derives keys from entries and request input
+  uses no index or ledger; it finds entries by their stored preimages
   (ADR-029 CA-3).
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-012-AC-1 | The key preimage is JCS with operation, package identity, canonical request, backend identity and the QSL-serialized `ManifestDigest`; `generate` also has a target member. | Test (TC-020) |
-| FR-012-AC-2 | Given identical other key members, different admitted `ManifestDigest` values produce different cache keys. | Test (TC-020) |
-| FR-012-AC-3 | Changing a meaning input changes the derived key. | Test (TC-020) |
+| FR-012-AC-1 | The key is the JCS preimage with operation, package identity, canonical request and backend identity, and no hash or manifest digest; `generate` also has a target member. | Test (TC-020) |
+| FR-012-AC-2 | Withdrawn: manifest-digest key member and hashed key (see Behavior); id not reused. | none |
+| FR-012-AC-3 | Changing a meaning input changes the derived key (preimage). | Test (TC-020) |
 | FR-012-AC-4 | Changing top-level excluded path, time, deadline, pin, revision, application version or execution-backend label leaves the key unchanged; nested operation-request fields retain their meaning. | Test (TC-020) |
 | FR-012-AC-5 | The `target` member occurs for generate and is absent for prove and analyze. | Test (TC-020) |
 | FR-012-AC-6 | A valid present entry accepted by the requested typed reader is returned as a hit; absent or invalid entries are misses. | Test (TC-021) |

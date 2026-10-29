@@ -19,8 +19,8 @@ Scope: FR-012-AC-6 through FR-012-AC-8.
 
 Insert an eligible deterministic-budget incomplete result and confirm a typed
 hit; an always-miss fake must fail this assertion. Then try a missing entry and
-entries with malformed JSON, noncanonical bytes, an incorrect filename, a
-changed stored preimage, a wrong preimage digest, an entry above the per-entry
+entries with malformed JSON, noncanonical bytes, a non-owned file name, a
+changed stored preimage, an entry above the per-entry
 limit, and a value the requested typed reader rejects. Attempt to store each
 excluded result category separately: internal failure, cancellation, deadline,
 time-limited incomplete result, plugin result and a value containing wall time.

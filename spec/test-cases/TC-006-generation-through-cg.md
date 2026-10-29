@@ -139,8 +139,7 @@ The exact-node resolver cases are unit-tested in `src/drive.rs`:
 Steps 12 and 13 below describe planned evidence only; no current test exercises
 the rational projection or candidate-control cases.
 
-- The admitted package's `package_id` digest is the emitted `package_id`,
-  and it equals step 1's package.
+- The admitted package is the one admitted from step 1's emitted bytes.
 - The driver's generation output equals step 3's, with one item at request
   index 0 and the `kani` wire pair. Its record is `Supported` with a scalar
   harness ranging its one argument over `z`'s `[0, 9]` domain: QSL-261 is

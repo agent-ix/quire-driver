@@ -10,16 +10,14 @@ relationships:
 
 ## Description
 
-Verify the cache key binds every meaning input and uses the QSL-admitted
-manifest content identity instead of a recorded revision or version pin.
+Verify the cache key (a structural preimage, no hash) binds every meaning input
+and records no revision, version pin or manifest digest.
 
 Scope: FR-012-AC-1 through FR-012-AC-5.
 
 ## Test Procedure
 
-Derive keys for prove, analyze and generate requests. Hold all other key
-members and recorded pin fixed while supplying different admitted
-`ManifestDigest` values. Then vary each meaning key member in turn. For
+Derive keys for prove, analyze and generate requests. Vary each meaning key member in turn. For
 generate, vary the target and an output-affecting option separately, and verify
 the target member is absent for prove/analyze. Vary the explicitly excluded
 top-level path, timestamp, wall-clock deadline, recorded pin, revision,
@@ -29,8 +27,7 @@ it remains a meaning input.
 
 ## Expected Results
 
-- Different admitted `ManifestDigest` values change the cache key even when
-  identity and pin remain unchanged; this test treats the digest as QSL input.
+- The key holds no digest, hash or version member.
 - Each meaning-input change, including a generate target or option, changes the
   key; the target member occurs only for generate.
 - Changes to excluded top-level path, timestamp, deadline, pin, revision,
