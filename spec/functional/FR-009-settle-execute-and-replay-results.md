@@ -106,14 +106,22 @@ replay context through QSL evaluation and report handling.
   evidence before this call. CG's function reads the outcome, success-check
   count and optional failure cause from that evidence.
 - When executing a selected function proof item, the driver SHALL use its
-  FR-001-AC-23 retained context to invoke the selected provider for the matching
-  generated item. It SHALL retain the provider’s typed execution evidence under
-  the same request index, occurrence and CG proving-run identity. It SHALL NOT
-  accept execution evidence from another item or use a fallback generated
-  harness. When the provider returns a typed refusal, the driver SHALL preserve
-  it unchanged. When the provider succeeds but the driver detects a mismatched
-  retained association, the driver SHALL return a `runtime_invariant` fault
-  before playback intake.
+  FR-001-AC-23 retained context to invoke the selected provider with a request
+  containing only that matching generated item. The driver SHALL retain the
+  invocation-to-result association privately with its request index, backend,
+  occurrence, admitted package and full CG proving-run identity. It SHALL
+  require exactly one returned `ProviderItemResult` with the same request index
+  and backend, then compare the successful `KaniExecutionEvidence` fields that
+  identify the invoked harness and run (including harness path, proof ceilings,
+  contract kind, symbolic argument bounds, solver and unwind) with the selected
+  generated harness and its identity. The driver SHALL NOT assume that the
+  provider result carries an occurrence, package identity or full
+  `KaniObligationIdentity`; those come only from the retained invocation
+  context. It SHALL NOT accept execution evidence from another item or use a
+  fallback generated harness. When the provider returns a typed refusal, the
+  driver SHALL preserve it unchanged. When the provider succeeds but its
+  observable result fields or retained association mismatch, the driver SHALL
+  return a `runtime_invariant` fault before playback intake.
 - When function replay is requested for a falsified item, the driver SHALL call CG's
   `parse_assertion_playback` exactly once on the complete retained
   `KaniRunOutcome::Falsified.counterexample` transcript, with the selected
@@ -270,7 +278,7 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-21 | A full transcript that exceeds the byte ceiling, has more values than the value ceiling, or has no unique valid assertion yields CG's corresponding typed `PlaybackRefusal` from that single parse, even if a shortened assertion block would fit. The driver neither uses optional diagnostics nor invokes function replay, creates settlement, or creates a terminal for the refused item. | Planned (TC-016; CG #621 typed function replay API merged; IR-610 E9 integration) |
 | FR-009-AC-22 | A typed upstream refusal before playback intake is preserved before any parse, settlement, or terminal creation. A parser refusal is preserved without replay settlement or terminal creation and is not recast as replay parity or a driver join fault. After a successful parse, a CG typed identity, decode, or replay refusal or evidence failure follows CG's `ReplaySettlement` conversion and `run_terminal_value` mapping with the original execution evidence; the driver preserves the resulting typed terminal and never settles that result as `refuted`. | Planned (TC-016; CG #621 typed function replay API merged; IR-610 E9 integration) |
 | FR-009-AC-23 | For two function proof items sharing a checked node but naming distinct exact application occurrences, the driver invokes the selected provider once per matching generated item, retains each typed result with its own request index and CG `KaniObligationIdentity`, and supplies the corresponding retained source, dependency lock, admitted package, accounting/stage/domain/replay inputs and smaller caller/proving-run decode limits to function playback and replay. Neither result or context is selected by node alone. | Planned (TC-016; IR-610 E9 function producer; IR-1121 CG current-V2 function proof producer) |
-| FR-009-AC-24 | A typed provider execution refusal is preserved before playback intake. If a provider result is successful but the driver detects that its request index, occurrence, package or CG proving-run identity differs from the retained selected context, it returns a driver `runtime_invariant` fault before playback intake, replay, settlement or terminal creation; no other item’s context is substituted. | Planned (TC-016; IR-610 E9 function producer; IR-1121 CG current-V2 function proof producer) |
+| FR-009-AC-24 | The driver invokes the selected provider with exactly one generated function item and privately retains that invocation’s request index, backend, occurrence, admitted package and full CG proving-run identity. A typed provider refusal is preserved before playback intake. A returned item count other than one, a returned request index or backend different from the invocation, or successful `KaniExecutionEvidence` whose harness path, proof ceilings, contract kind, symbolic argument bounds, solver or unwind differ from the selected generated harness and identity returns a driver `runtime_invariant` fault before playback intake, replay, settlement or terminal creation. The provider result is not assumed to carry occurrence, package or full identity; those are read from the retained invocation context, never another item’s context. | Planned (TC-016; IR-610 E9 function producer; IR-1121 CG current-V2 function proof producer) |
 
 ## Dependencies
 
