@@ -34,3 +34,9 @@ Reviewed PR #107 frozen head b9600ff65d138053915329e6a0735cc821f46ef2. No applic
 ## Verdict
 
 CONDITIONAL: clarify the post-execution result identity oracle.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | FR-009-AC-24 now checks the one-item ProviderRequest, private invocation slot, observable result index/backend and evidence fields; TC-016 mutates those actual fields. |
