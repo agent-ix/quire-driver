@@ -78,11 +78,15 @@ diagnostics cannot supply a replacement transcript or change the result.
 First return a typed upstream refusal before intake and assert no parser call;
 then parse a valid transcript with a mismatched proving-run identity or
 package and assert CG's typed replay failure takes precedence over any
-reproduction or terminal. A successful parse with a typed CG decode or replay
-refusal likewise retains that cause; the driver does not recast these paths as
-parity or join faults. The parser's retained full-source length and CG replay's
-independent limit and identity checks are part of the oracle. These checks do
-not claim the current generation-only `drive()` path performs replay.
+reproduction. For that failure and for a successful parse followed by a typed
+CG decode or replay refusal, assert that the driver passes CG's corresponding
+`ReplaySettlement` and the original execution evidence to
+`run_terminal_value`, then preserves CG's typed terminal. Compare each result
+with CG's direct conversion and terminal mapping; none is `refuted`, and the
+driver does not recast these paths as parity or join faults. The parser's
+retained full-source length and CG replay's independent limit and identity
+checks are part of the oracle. These checks do not claim the current
+generation-only `drive()` path performs replay.
 
 When IR-773 adds the native producer after the production mapping exists,
 send the retained `ReplayLimits` unchanged in the QSL replay request and execute
@@ -172,9 +176,11 @@ and the CG IR-958 API are public.
   replay fault is an internal failure.
 - A falsified function result reaches replay only after one bounded CG parse
   of its complete retained transcript, with the exact selected identity and
-  package. A typed upstream refusal precedes the parse; a CG parse or replay
-  refusal retains its cause and produces no replay settlement or terminal for
-  the refused item.
+  package. A typed upstream or CG parser refusal before replay produces no
+  replay settlement or terminal for the refused item. A CG replay refusal or
+  evidence failure after successful parsing follows CG's typed settlement and
+  terminal mapping with the original execution evidence; its terminal is not
+  `refuted`.
 - Scalar operator-parity reports preserve QSL FR-357's typed `Agrees`,
   `Diverged`, `GeneratedFault`, `RefusedInput`, `Incomplete`, or refusal
   outcome through CG FR-032's typed settlement conversion. No scalar

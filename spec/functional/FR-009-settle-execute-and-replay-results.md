@@ -113,13 +113,16 @@ replay context through QSL evaluation and report handling.
   full-transcript length accounting; CG replay independently checks the parsed
   playback against the proving-run limits and identity.
 - When a typed upstream refusal occurs before function playback intake, the
-  driver SHALL preserve it before parsing.
+  driver SHALL preserve it before parsing, without replay settlement or a
+  terminal record for that item.
 - If the bounded parser refuses the transcript, the driver SHALL preserve its
   typed `PlaybackRefusal` without invoking function replay or creating replay
   settlement or a terminal record for that item.
 - If parsing succeeds but CG function replay returns a typed refusal or
-  evidence failure, the driver SHALL preserve that result under CG's replay
-  and terminal contracts without treating it as reproduction.
+  evidence failure, the driver SHALL pass its typed CG `ReplaySettlement`
+  conversion with the original execution evidence to `run_terminal_value` and
+  preserve CG's resulting terminal under the governing contracts without
+  treating the result as reproduction.
 - The driver SHALL NOT infer an intake refusal from optional diagnostics.
 - For predicate/function counterexamples, when QSL replay reproduces the
   counterexample, the driver SHALL settle that item as `refuted`.
@@ -250,7 +253,7 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-19 | When QSL call-site selection succeeds but the driver detects that its retained association of the QSL result to the CG selected item has a package identity or request index that differs from the corresponding value on the CG item, the driver returns FR-001's typed `runtime_invariant` fault and stops before CG frame-target construction, replay, settlement, or terminal creation. A typed refusal actually returned by CG is preserved under CG's contract and is not this driver-detected join fault. | Planned (TC-016; CG IR-958 public API; FR-001) |
 | FR-009-AC-20 | For a falsified function item with a complete valid transcript at the byte and value ceilings, the driver calls CG `parse_assertion_playback` once on exactly the retained `KaniRunOutcome::Falsified.counterexample`, with the selected item's retained source identity and context and the smaller caller/proving-run ceilings in each dimension. It passes the resulting typed `Playback`, exact proving-run identity and same admitted package to CG function replay. A reproducing replay remains subject to FR-009-AC-2 and CG terminal mapping. | Planned (TC-016; CG PR #621 typed function replay API; IR-610 E9 integration) |
 | FR-009-AC-21 | A full transcript that exceeds the byte ceiling, has more values than the value ceiling, or has no unique valid assertion yields CG's corresponding typed `PlaybackRefusal` from that single parse, even if a shortened assertion block would fit. The driver neither uses optional diagnostics nor invokes function replay, creates settlement, or creates a terminal for the refused item. | Planned (TC-016; CG PR #621 typed function replay API; IR-610 E9 integration) |
-| FR-009-AC-22 | A typed upstream refusal before playback intake is preserved before any parse; a successful parse followed by CG's typed identity, decode, or replay refusal is preserved under CG's contract and cannot settle as `refuted`. A parser refusal is not recast as replay parity or a driver join fault. No refused path creates a replay settlement or terminal for the item. | Planned (TC-016; CG PR #621 typed function replay API; IR-610 E9 integration) |
+| FR-009-AC-22 | A typed upstream refusal before playback intake is preserved before any parse, settlement, or terminal creation. A parser refusal is preserved without replay settlement or terminal creation and is not recast as replay parity or a driver join fault. After a successful parse, a CG typed identity, decode, or replay refusal or evidence failure follows CG's `ReplaySettlement` conversion and `run_terminal_value` mapping with the original execution evidence; the driver preserves the resulting typed terminal and never settles that result as `refuted`. | Planned (TC-016; CG PR #621 typed function replay API; IR-610 E9 integration) |
 
 ## Dependencies
 
