@@ -264,10 +264,12 @@ bytes already binds them and the check was a recorded digest comparison.
   that includes IR refusing the bytes QSL just emitted, and a routed item naming a node the checked package does
   not hold.
 - `build_registry` registers every manifest first, then reads
-  `Registry::refusals()` once: one duplicate-backend refusal per distinct
-  conflicting digest, not one per conflicting `register` call. Repeating an
-  already-conflicting digest (manifests A, B, then A again) does not add a
-  third refusal for it.
+  `Registry::refusals()` once: one duplicate-backend refusal per conflicted
+  backend identity, not one per conflicting `register` call. Repeating an
+  already-conflicting manifest (A, B, then A again) does not add a second
+  refusal. The driver carries no manifest digest: registrations are told apart
+  by identity and descriptor members alone (Withdrawn: the earlier per-digest
+  refusal keying, because QSL no longer takes or reports a manifest digest).
 - A cancellation failure from any QSL stage propagates as a typed result.
   QSL owns its category and exit function (ADR-029 CB-4); the driver defines
   no cancellation-specific category or exit mapping.

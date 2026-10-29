@@ -21,9 +21,8 @@ Scope: FR-001-AC-5 and FR-001-AC-22.
 1. Drive a unit that does not parse.
 2. Drive a valid unit with `limits.source.source_bytes = 8`, then with
    `limits.checking.with_work_budget(1)`.
-3. Build a registry from two manifests of `kani` with different digests, then
-   from three: the same two, plus a third repeating the first digest (A, B,
-   A).
+3. Build a registry from two manifests of `kani` advertising different kinds,
+   then from three: the same two, plus a third repeating the first (A, B, A).
 4. Build a registry from a manifest advertising `not-a-kind`.
 5. Take a `DriverRefusal::Fault` for a `supported` settlement outside its
    candidates, one for a vocabulary mismatch, a generation refusal for a duplicate request index, and one
@@ -65,9 +64,8 @@ and `tc_004_handoff_and_generation_limits_are_limits`, plus
   `stage_limit_exceeded/input-bytes-exceeded`. Only the compile call is made
   in either case.
 - Step 3 refuses at the registry with `invalid_capability`/`duplicate-backend`,
-  one refusal per distinct conflicting digest (two), ascending: the A, B, A
-  case still yields exactly those same two, not a third for the repeated
-  digest -- `build_registry` reads `Registry::refusals()` once, after every
+  one refusal for the conflicted identity: the A, B, A case still yields
+  exactly that one, not a second for the repeated manifest -- `build_registry` reads `Registry::refusals()` once, after every
   manifest is registered, rather than accumulating what each `register` call
   individually returned.
 - Step 4 refuses with `invalid_capability`/`unknown-kind`.
