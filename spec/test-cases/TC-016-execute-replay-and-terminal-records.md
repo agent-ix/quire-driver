@@ -15,7 +15,7 @@ Verify the available proved-provider terminal path uses QSL's canonical
 for every item in the CG request, including the routed scalar observation producer
 and report-claim guard, remains planned.
 
-Scope: FR-009-AC-1 through FR-009-AC-19.
+Scope: FR-009-AC-1 through FR-009-AC-22.
 
 ## Test Procedure
 
@@ -54,6 +54,35 @@ different call is a valid positive case. Missing, ambiguous, or mismatched
 call/occurrence binding must not yield an accepted receipt or reach QSL replay,
 settlement, or terminal creation. The production composition and the producer
 qualification remain planned until each owning slice is implemented.
+
+The function playback intake scenarios remain planned until CG PR #621's typed
+`Playback` entry is available to the driver and IR-610 wires E9 production
+replay. Drive a falsified function item through the production provider result
+with its complete retained `KaniRunOutcome::Falsified.counterexample`, exact
+selected proving-run identity and admitted package. Set finite, distinct
+caller and proving-run byte and value ceilings; record the parser call and CG
+function replay invocation. The oracle is one
+`parse_assertion_playback` call over the exact retained transcript with the
+selected item's retained `source_id` and context and the smaller ceiling in
+each dimension, followed by one replay call receiving the same parsed
+`Playback`, proving-run identity and package. A valid reproducing example
+must reach FR-009-AC-2's replay/settlement path and CG's terminal mapping.
+
+For adverse intake, add irrelevant text outside the sole assertion block so
+the complete transcript exceeds the byte ceiling while the block fits; assert
+CG's byte-limit `PlaybackRefusal` and no replay, settlement or terminal. At a
+byte ceiling that admits the full text, exceed the value ceiling and assert
+CG's value-limit refusal. Supply zero or multiple valid assertion blocks and
+assert CG's corresponding typed refusal. In each case, check that optional
+diagnostics cannot supply a replacement transcript or change the result.
+First return a typed upstream refusal before intake and assert no parser call;
+then parse a valid transcript with a mismatched proving-run identity or
+package and assert CG's typed replay failure takes precedence over any
+reproduction or terminal. A successful parse with a typed CG decode or replay
+refusal likewise retains that cause; the driver does not recast these paths as
+parity or join faults. The parser's retained full-source length and CG replay's
+independent limit and identity checks are part of the oracle. These checks do
+not claim the current generation-only `drive()` path performs replay.
 
 When IR-773 adds the native producer after the production mapping exists,
 send the retained `ReplayLimits` unchanged in the QSL replay request and execute
@@ -141,6 +170,11 @@ and the CG IR-958 API are public.
   reproduction; disagreement or completed non-reproduction is `inconclusive`
   with the replay-parity cause, a replay refusal keeps its typed cause, and a
   replay fault is an internal failure.
+- A falsified function result reaches replay only after one bounded CG parse
+  of its complete retained transcript, with the exact selected identity and
+  package. A typed upstream refusal precedes the parse; a CG parse or replay
+  refusal retains its cause and produces no replay settlement or terminal for
+  the refused item.
 - Scalar operator-parity reports preserve QSL FR-357's typed `Agrees`,
   `Diverged`, `GeneratedFault`, `RefusedInput`, `Incomplete`, or refusal
   outcome through CG FR-032's typed settlement conversion. No scalar
