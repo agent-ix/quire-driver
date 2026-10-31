@@ -26,7 +26,7 @@ ADR-011 T-13, ADR-012 §7.2):
    any `import` refuses at the intake stage,
    `missing_import`/`missing-selection`.
 2. E4: QSL's `package` operation emits the `quire.checked-package/v2`
-   bytes and `package_id` from the checked unit.
+   bytes from the checked unit.
 3. The `route` candidate step for each requested item.
 4. The driver projects each registry descriptor with CG's
    `BackendKind::from_descriptor`. CG classifies Process-origin descriptors
@@ -47,7 +47,7 @@ into bound and refused (FR-010).
 
 Between steps 2 and 3, the E5 hand-off: IR's checked-package reader
 (`read_checked_package`) reads the emitted v2 bytes, and the driver accepts
-the admitted package only at the `package_id` E4 emitted.
+the admitted package that E4 emitted.
 
 ## Inputs
 
@@ -125,17 +125,17 @@ the admitted package only at the `package_id` E4 emitted.
   not call `route`.
 - Types cross between QSL and CG as their wire spellings (QSL ADR-013 T-7).
 - For every request item, the driver SHALL project the typed IR tag/form
-  from the same admitted checked package at the E5 `package_id`, requirement
+  from the same admitted checked package, requirement
   record and node named by that item's QSL record, matched by occurrence key.
   It SHALL pass the form as CG's typed in-process negotiation input and
   preserve the checked form's typed identity and structure. The driver SHALL
   NOT accept a caller-computed lowerability result or refusal, classify the
   form, or infer it from display or debug text.
 - Each routed item's node is the admitted package's `CheckedNodeId` whose
-  digest spells the item's `WireNodeId`, found by lookup. Every item's node
+  structural identity (package, path, ordinal) equals the item's `NodeKey`, found by lookup. Every item's node
   comes from the same compiled package's own
   `CheckedGraph::requirements()`, and `checked` is IR's own admission of
-  the bytes that same package emitted, at the same `package_id`, so this
+  the bytes that same package emitted, so this
   lookup cannot miss on any input the driver itself builds a request from.
   A routed item whose node the package does not hold is not a caller
   refusal: it is an internal fault (`runtime_invariant`), reachable only
@@ -258,14 +258,14 @@ the admitted package only at the `package_id` E4 emitted.
   contract-package reader variants are governed by FR-001-AC-22. A spine
   `stage_limit_exceeded` and an IR reader limit are limit refusals. An
   upstream answer that breaks the driver's invariants is an internal fault;
-  that includes IR refusing, or admitting at another `package_id`, the bytes
+  that includes IR refusing the bytes
   QSL just emitted, and a routed item naming a node the checked package does
   not hold.
 - `build_registry` registers every manifest first, then reads
-  `Registry::refusals()` once: one duplicate-backend refusal per distinct
-  conflicting digest, not one per conflicting `register` call. Repeating an
-  already-conflicting digest (manifests A, B, then A again) does not add a
-  third refusal for it.
+  `Registry::refusals()` once: one duplicate-backend refusal per
+  withdrawn identity, not one per conflicting `register` call. Repeating an
+  already-conflicting manifest (A, B, then A again) does not add another
+  refusal for it.
 - A cancellation failure from any QSL stage propagates as a typed result.
   QSL owns its category and exit function (ADR-029 CB-4); the driver defines
   no cancellation-specific category or exit mapping.
@@ -305,7 +305,7 @@ the admitted package only at the `package_id` E4 emitted.
 | FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the E5 read, the candidate step, conversion, negotiation, routing, generation. | Test (TC-001) |
 | FR-001-AC-5 | Each command-level refusal carries its step, catalog code and outcome kind. A `Compile` refusal's code renders `code/cause` when the refusing stage names a cause (e.g. `missing_import`/`missing-selection`), not just the bare code. | Test (TC-004, TC-007, TC-008) |
 | FR-001-AC-6 | CG generation is called once, after routing, over the routed items only, each with its request index, its admitted `CheckedNodeId`, its routed backend and its kind; its output is keyed by request index, ascending; a missing kind context refuses the run, and a routed item naming a node the checked package does not hold is an internal fault. | Test (TC-006, TC-007) |
-| FR-001-AC-7 | The E5 read receives every caller-supplied FR-056 domain package document under its supplied digest and bytes unchanged, then admits the emitted v2 bytes at the emitted `package_id`; an admitted package at another `package_id`, or an IR refusal, is an internal fault at the hand-off before any backend conversion. | Test (TC-004, TC-006) |
+| FR-001-AC-7 | The E5 read receives every caller-supplied FR-056 domain package document under its supplied identity and bytes unchanged, then admits the emitted v2 bytes; an IR refusal is an internal fault at the hand-off before any backend conversion. | Test (TC-004, TC-006) |
 | FR-001-AC-8 | CG generation's output carries the FR-014 claim map CG derived for the Kani group (IR-294), `Some` whenever one ran; a node whose operation has no derivable claim settles `Unsupported` with `no_derivable_claim` and does not affect its routed siblings' records or harnesses. | Test (TC-006) |
 | FR-001-AC-9 | The same caller-owned `Cancel` handle is passed to QSL `parse`, `select`, `check` and `package`; cancellation returns `DriverRefusal::Cancelled` with QSL's stage and cause, and the driver adds no category or exit mapping. | Test (TC-019) |
 | FR-001-AC-10 | E5 receives the E4 `EmittedUnit` source provision; the returned `Driven` contains no `EmittedUnit`, retains the `CheckedUnit` root source for diagnostic loci, retains no library source under the current empty `DependencyInput`, and retains no more root-source bytes than `SpineLimits.source.source_bytes`. | Test (TC-019) |
@@ -372,8 +372,8 @@ The Kani claim map is derived by CG from the package and the routed node
 alone (IR-294); the caller supplies no claim map, and the driver surfaces
 CG's derived claim map in its output.
 
-E5's evidence is the caller's domain package documents and the root feature
-of QSL's pinned `DefinitionLock`. The driver supplies no artifact-byte or
+E5's evidence is the caller's domain package documents and the supported
+profile feature. The driver supplies no artifact-byte or
 artifact-digest evidence: IR no longer checks staleness against artifact
 digests. Production `serde_json` use reads the optional FR-331 `bounds`
 member from the retained manifest wire for CG projection; tests also use it

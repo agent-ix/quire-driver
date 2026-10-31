@@ -15,17 +15,13 @@ relationships:
 When a cache-eligible `prove`, `analyze` or `generate` operation is dispatched,
 the driver SHALL call its required `Cache` interface with a `CacheRequest`
 containing the operation, package identity, canonical typed request, selected
-`BackendId`, admitted `ManifestDigest`, and (for `generate`) target and
-output-affecting options. Eligibility is exactly QSL ADR-029 CA-5: deterministic
+`BackendId`, and (for `generate`) target and output-affecting options. Eligibility is exactly QSL ADR-029 CA-5: deterministic
 terminal values without wall-time fields, plugin results, internal failures,
 cancellation, deadlines or time-limited incomplete results.
 
 ## Inputs
 
 - The typed eligible operation request and selected provider identity.
-- The provider manifest content identity (`qsl_route::ManifestDigest`) admitted
-  with the registry entry; the digest is computed by QSL from canonical FR-331
-  manifest bytes.
 - The caller's cache configuration and an injected cache interface.
 - The selected provider for a cache miss.
 
@@ -50,25 +46,24 @@ cancellation, deadlines or time-limited incomplete results.
   that depends on the driver interface; `quire-driver` SHALL NOT depend on the
   concrete `quire-cache` package.
 - When constructing `CacheRequest`, the driver SHALL use a provider identity
-  and `ManifestDigest` from the same admitted registry descriptor; a registry
-  refusal produces no cache lookup.
+  from the same admitted registry descriptor; a registry refusal produces no
+  cache lookup. Behaviour change: the driver no longer carries a provider manifest digest. A provider upgrade under the same `BackendId` does not invalidate cached results; operators clear the cache when a provider's behaviour changes.
 
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-007-AC-1 | Each lookup carries operation, package identity, canonical request, selected `BackendId`, admitted `ManifestDigest`, and (for `generate`) target and output-affecting options. | Planned (provider dispatch integration) |
+| FR-007-AC-1 | Each lookup carries operation, package identity, canonical request, selected `BackendId`, and (for `generate`) target and output-affecting options. | Planned (provider dispatch integration) |
 | FR-007-AC-2 | A valid `CacheLookup::Hit` is returned unchanged and does not invoke the provider. | Planned (provider dispatch integration) |
 | FR-007-AC-3 | A `CacheLookup::Miss` invokes the selected provider exactly once and records the same typed result that the driver returns. | Test (TC-014) |
 | FR-007-AC-4 | A cache I/O fault remains a typed error and is not treated as a miss. | Test (TC-014) |
 | FR-007-AC-5 | `NeverStore` and `NotStored` preserve the provider result and do not fail the operation. | Test (TC-014) |
-| FR-007-AC-6 | A registry identity/digest refusal produces no `CacheRequest` or lookup. | Planned (provider dispatch integration) |
+| FR-007-AC-6 | A registry identity refusal produces no `CacheRequest` or lookup. | Planned (provider dispatch integration) |
 
 ## Dependencies
 
 - QSL ADR-029 CA-1 through CA-5 defines cache eligibility and cache semantics;
-  QSL-636 amends QSpec FR-201/FR-306 and ADR-029 CA-2 so `ManifestDigest` is
-  explicit key material while `BackendId` remains identity-only.
+  `BackendId` is identity-only key material; no manifest digest is key material.
 - [FR-012](./FR-012-implement-the-downstream-content-addressed-cache.md)
   defines the downstream cache component that implements the interface.
 - [TC-014](../test-cases/TC-014-cache-content-identity-and-validation.md)

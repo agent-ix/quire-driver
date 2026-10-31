@@ -444,7 +444,6 @@ mod tests {
         OutcomeDocument, OutcomeItem, OutcomeStage, ProofBasis, ReplayLimits, StageLimits,
         TerminalValue,
     };
-    use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_contract_codegen::{
         Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver, MemoryMechanism,
         MemoryObservation, ProofCeilings, SymbolicArgumentBounds, SymbolicBounds,
@@ -462,7 +461,6 @@ mod tests {
         ProviderRequest, ProviderResults, ProviderTerminalError,
     };
     use crate::{CompileInput, GenerationInput, KaniInput};
-    use qsl_route::ManifestDigest;
     use quire_contract_codegen::routed_contract_lowering_profile;
     use quire_contract_codegen::KaniInstallation;
     use quire_contract_codegen::{
@@ -480,9 +478,12 @@ mod tests {
             profile v = \"quire.value.complete/v1\";\n\
             function f using v(x: Int[0, 9]): Boolean pure { x + 1 < 10 }\n";
             let compiled = compile_package(
-                SourceIdentity::new("driver-test", "provider.native", "git", "fixture"),
-                "provider.native",
-                source.as_bytes(),
+                qsl_replay::CompileUnit {
+                    source: SourceIdentity::new("driver-test", "provider.native", "git", "fixture"),
+                    package_name: "provider".to_owned(),
+                    path: "provider.native",
+                    bytes: source.as_bytes(),
+                },
                 [],
                 &DependencyInput::default(),
                 StageLimits::default(),
@@ -714,18 +715,15 @@ mod tests {
     }
 
     fn generated_routed_item() -> RoutedItemOutput {
-        let lock = DefinitionLock::pinned();
-        let root = lock.entry(CatalogRole::Root);
         let source = format!(
             "language \"ix:native\" edition \"1-draft\";\n\
              profile v = \"{}\";\n\
              function f using v(x: Int[0, 9]): Int[0, 10] pure {{ x + 1 }}\n",
-            root.identity
+            "quire.value.complete/v1"
         );
         let packages = BTreeMap::new();
         let registry = crate::build_registry(&[ProviderManifest {
             identity: "kani".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([1; 32]),
             advertises: vec![(Some("value-validity".into()), Some("bounded".into()))],
             domains: Some(vec!["integer".to_owned()]),
             bounds: None,
@@ -736,6 +734,7 @@ mod tests {
             &crate::QslCg,
             CompileInput {
                 source: SourceIdentity::new("driver-test", "provider.native", "git", "fixture"),
+                package_name: "provider",
                 path: "provider.native",
                 bytes: source.as_bytes(),
                 packages: &packages,
@@ -764,7 +763,6 @@ mod tests {
     fn provider() -> KaniProvider {
         KaniProvider::new(ProviderManifest {
             identity: "kani".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([1; 32]),
             advertises: Vec::new(),
             domains: None,
             bounds: None,

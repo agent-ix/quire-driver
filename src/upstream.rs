@@ -6,19 +6,17 @@
 //! operation each. The trait lets tests wrap `QslCg`, record driver calls and
 //! still run the real functions.
 
-use std::collections::BTreeMap;
-
 use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::source::provenance::OccurrenceKey;
 use qsl_foundation::SourceIdentity;
 use qsl_package::{BoundItem, CheckedPackage, ExportRefusal};
 use qsl_replay::spine::{
     check, package, parse, refusal_or_fault, select, AdmittedModels, CheckedUnit, DependencyInput,
-    EmittedUnit, FrontEndFailure, LockEvidence, PackageLimits, ParseRequest, SpineLimits,
-    SpineStage,
+    EmittedUnit, FrontEndFailure, PackageLimits, ParseRequest, SpineLimits, SpineStage,
 };
 use qsl_route::routing::{route, Disposition};
 use qsl_route::Candidate;
+use qsl_semantics::model::intake::PackageInput;
 use quire_contract_codegen::{
     generate_routed, negotiate_contract_package, BackendDescriptor, BackendKind,
     BackendProviderEnvelope, ContractItemSettlement, ContractNegotiationError,
@@ -88,7 +86,8 @@ pub trait Upstream {
         source: SourceIdentity,
         path: &str,
         bytes: &[u8],
-        packages: &BTreeMap<[u8; 32], Vec<u8>>,
+        package_name: &str,
+        packages: &PackageInput,
         limits: SpineLimits,
         cancel: &Cancel,
     ) -> Result<(CheckedUnit, AdmittedModels, EmittedUnit), DriverRefusal>;
@@ -149,7 +148,8 @@ impl Upstream for QslCg {
         source: SourceIdentity,
         path: &str,
         bytes: &[u8],
-        packages: &BTreeMap<[u8; 32], Vec<u8>>,
+        package_name: &str,
+        packages: &PackageInput,
         limits: SpineLimits,
         cancel: &Cancel,
     ) -> Result<(CheckedUnit, AdmittedModels, EmittedUnit), DriverRefusal> {
@@ -166,9 +166,9 @@ impl Upstream for QslCg {
             .into_value();
         let checked = check(
             &parsed,
+            package_name.to_owned(),
             &models,
             &DependencyInput::default(),
-            &LockEvidence::default(),
             limits,
             cancel,
         )

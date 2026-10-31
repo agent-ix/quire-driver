@@ -7,11 +7,11 @@ use std::fs::File;
 use std::io::Read;
 #[cfg(all(unix, feature = "tc018-test-adapter"))]
 use std::io::Write;
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
+use std::process::Child;
 use std::process::Command;
 #[cfg(unix)]
 use std::process::{ExitStatus, Stdio};
-#[cfg(all(unix, feature = "tc018-test-adapter"))]
-use std::process::Child;
 #[cfg(all(unix, feature = "tc018-test-adapter"))]
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(all(unix, feature = "tc018-test-adapter"))]
@@ -19,13 +19,12 @@ use std::time::{Duration, Instant};
 
 use qsl_foundation::diagnostic::Code;
 use qsl_foundation::SourceIdentity;
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
+use qsl_replay::spine::{check, parse, select, ParseRequest};
 use qsl_replay::spine::{
     default_accounting, Call, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
-#[cfg(all(unix, feature = "tc018-test-adapter"))]
-use qsl_replay::spine::{check, parse, select, LockEvidence, ParseRequest};
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
-use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_driver::{execute, ExecutionEngine, ExecutionRequest, ObjectEnvironment};
 use quire_exact::Cancel;
 use quire_semantic_value::catalog::Category;
@@ -165,9 +164,9 @@ fn expected_overflow_check_document(path: &str, bytes: &[u8]) -> Vec<u8> {
         select(parsed.value(), &packages, limits.model, &cancel).and_then(|models| {
             check(
                 parsed.value(),
+                path.to_owned(),
                 models.value(),
                 &DependencyInput::default(),
-                &LockEvidence::default(),
                 limits,
                 &cancel,
             )
@@ -324,6 +323,7 @@ fn machine_run_writes_the_canonical_qsl_outcome() {
     let source_bytes = std::fs::read(SOURCE).expect("read source fixture");
     let request = ExecutionRequest {
         source: SourceIdentity::new("quire", SOURCE, "filesystem", "current"),
+        package_name: SOURCE,
         path: SOURCE,
         bytes: &source_bytes,
         packages: &packages,
@@ -548,14 +548,11 @@ fn duplicate_provider_identities_refuse_before_negotiation_and_close_sessions() 
         directory.join("shutdown-one"),
         directory.join("shutdown-two"),
     ];
-
-    let lock = DefinitionLock::pinned();
-    let root = lock.entry(CatalogRole::Root);
     let source = format!(
         "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
          function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
          function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
-        root.identity
+        "quire.value.complete/v1"
     );
     std::fs::write(&source_path, source).expect("write source fixture");
 
@@ -644,14 +641,11 @@ fn configured_process_sigterm_cleans_active_session_before_reraise() {
     let descendant_marker = directory.join("descendant-leaked");
     let config_path = directory.join("providers.json");
     let source_path = directory.join("signal.native");
-
-    let lock = DefinitionLock::pinned();
-    let root = lock.entry(CatalogRole::Root);
     let source = format!(
         "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
          function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
          function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
-        root.identity
+        "quire.value.complete/v1"
     );
     std::fs::write(&source_path, source).expect("write source fixture");
 

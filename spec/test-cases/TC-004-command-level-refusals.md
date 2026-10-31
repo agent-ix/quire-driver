@@ -21,13 +21,12 @@ Scope: FR-001-AC-5 and FR-001-AC-22.
 1. Drive a unit that does not parse.
 2. Drive a valid unit with `limits.source.source_bytes = 8`, then with
    `limits.checking.with_work_budget(1)`.
-3. Build a registry from two manifests of `kani` with different digests, then
-   from three: the same two, plus a third repeating the first digest (A, B,
-   A).
+3. Build a registry from two manifests of `kani` with different
+   advertisements, then from three: the same two, plus a third repeating the
+   first (A, B, A).
 4. Build a registry from a manifest advertising `not-a-kind`.
 5. Take a `DriverRefusal::Fault` for a `supported` settlement outside its
-   candidates, one for a vocabulary mismatch, one for an E5 `package_id`
-   mismatch, a generation refusal for a duplicate request index, and one
+   candidates, one for a vocabulary mismatch, a generation refusal for a duplicate request index, and one
    for a duplicate harness, a Kani record-count mismatch, a Kani duplicate
    position out of range, and a routed item naming a node the checked package
    does not hold
@@ -66,16 +65,16 @@ and `tc_004_handoff_and_generation_limits_are_limits`, plus
   `stage_limit_exceeded/input-bytes-exceeded`. Only the compile call is made
   in either case.
 - Step 3 refuses at the registry with `invalid_capability`/`duplicate-backend`,
-  one refusal per distinct conflicting digest (two), ascending: the A, B, A
-  case still yields exactly those same two, not a third for the repeated
-  digest -- `build_registry` reads `Registry::refusals()` once, after every
+  one refusal for the withdrawn identity: the A, B, A
+  case still yields that same single refusal, not another for the repeated
+  manifest -- `build_registry` reads `Registry::refusals()` once, after every
   manifest is registered, rather than accumulating what each `register` call
   individually returned.
 - Step 4 refuses with `invalid_capability`/`unknown-kind`.
 - Step 5's faults have outcome kind fault and code `runtime_invariant`, at
   the negotiation, conversion, hand-off and generation steps; the
   `UnknownNode` fault is at the generation step.
-- Step 7 faults with `PackageIdMismatch`, then `HandoffRefused`, both at
+- Step 7 faults with `HandoffRefused` at
   the hand-off step with `runtime_invariant`; the call log ends at the IR
   read, with no backend conversion and no negotiation.
 - Step 6's are limit refusals: `stage_limit_exceeded` at the hand-off and

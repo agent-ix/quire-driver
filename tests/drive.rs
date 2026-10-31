@@ -23,14 +23,13 @@ use qsl_foundation::BackendId;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, default_accounting, package, parse, select, Call as QslCall, CallArgument, CheckedUnit,
-    CompileRefusal, DependencyInput, EmittedUnit, LockEvidence, PackageLimits, ParseRequest,
-    SpineLimits, SpineStage,
+    CompileRefusal, DependencyInput, EmittedUnit, PackageLimits, ParseRequest, SpineLimits,
+    SpineStage,
 };
 use qsl_replay::DomainKind;
 use qsl_route::routing::Disposition as RouteDisposition;
-use qsl_route::{Candidate, ManifestDigest, RegistrationCause};
+use qsl_route::{Candidate, RegistrationCause};
 use qsl_semantics::model::object_environment::ObjectEnvironment;
-use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_contract_codegen::{
     generate_routed, BackendDescriptor, BackendKind, BackendProviderEnvelope, Candidates, Cause,
     ClaimDisposition, ContractItemSettlement, ContractNegotiationError, ContractRequestPosition,
@@ -56,7 +55,7 @@ use quire_semantic_value::catalog::Category;
 mod shared_units;
 
 /// A unit: the `ix:native` header, the `v` profile selecting QSL's own
-/// `DefinitionLock` root row (read from QSL, never copied here), then `body`.
+/// root profile, then `body`.
 fn unit(body: &str) -> String {
     shared_units::unit(body)
 }
@@ -65,30 +64,26 @@ static UNIT: LazyLock<String> =
     LazyLock::new(|| unit("function f using v(): Boolean pure { true }\n"));
 
 // Minimal model document authored for TC-019. QSL's package_input helper
-// computes its selection digest, so this test has no copied fixture or pin.
+// keys each document by its declared identity, so this test has no copied fixture.
 const CANCEL_MODEL_DOCUMENT: &str = r#"{
   "contractVersion": "2.0.0",
-  "canonicalization": {"algorithm": "rfc8785-v1", "digest": "sha256-jcs"},
+  "canonicalization": {"algorithm": "rfc8785-v1"},
   "source": {
     "identity": "ix://driver/cancellation/model",
     "version": "1.0.0",
-    "dialect": "spec-bundle",
-    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    "dialect": "spec-bundle"
   },
   "package": {
     "identity": "driver/cancellation-model",
     "version": "1.0.0",
-    "manifestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     "mappingVersions": [],
-    "profileVersions": [],
-    "lockDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    "profileVersions": []
   },
   "occurrences": [],
   "extensions": [],
   "constructs": [{
     "kind": {"module": "driver/cancellation-model", "name": "entity"},
     "moduleVersion": "1.0.0",
-    "manifestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     "construct": {
       "identity": "none",
       "shape": "record",
@@ -371,12 +366,13 @@ impl Upstream for Recorder {
         source: SourceIdentity,
         path: &str,
         bytes: &[u8],
-        packages: &BTreeMap<[u8; 32], Vec<u8>>,
+        package_name: &str,
+        packages: &qsl_semantics::model::intake::PackageInput,
         limits: SpineLimits,
         cancel: &Cancel,
     ) -> Result<(CheckedUnit, qsl_replay::spine::AdmittedModels, EmittedUnit), DriverRefusal> {
         self.calls.borrow_mut().push(Call::Compile);
-        QslCg.compile(source, path, bytes, packages, limits, cancel)
+        QslCg.compile(source, path, bytes, package_name, packages, limits, cancel)
     }
 
     fn read_package(
@@ -484,10 +480,9 @@ fn fixture_unbound(
     }
 }
 
-fn manifest(identity: &str, digest: u8, kinds: &[&str]) -> ProviderManifest {
+fn manifest(identity: &str, kinds: &[&str]) -> ProviderManifest {
     ProviderManifest {
         identity: identity.to_owned(),
-        manifest_digest: ManifestDigest::from_digest([digest; 32]),
         advertises: kinds
             .iter()
             .map(|kind| (Some((*kind).to_owned()), Some("bounded".to_owned())))
@@ -498,28 +493,25 @@ fn manifest(identity: &str, digest: u8, kinds: &[&str]) -> ProviderManifest {
     }
 }
 
-fn input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+fn input(packages: &qsl_semantics::model::intake::PackageInput) -> CompileInput<'_> {
     CompileInput {
         source: SourceIdentity::new("agent-ix", "driver-test", "git", "1"),
         path: "unit.native",
         bytes: UNIT.as_bytes(),
+        package_name: "driver-test",
         packages,
         limits: SpineLimits::default(),
         cancel: Cancel::new(),
     }
 }
 
-fn cancellation_source_and_packages() -> (String, BTreeMap<[u8; 32], Vec<u8>>) {
-    let packages = qsl_semantics::model::intake::package_input([CANCEL_MODEL_DOCUMENT.as_bytes()]);
-    let digest = packages.keys().next().expect("one model document");
-    let digest_hex = digest
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let source = unit(&format!(
-        "model M = \"driver/cancellation-model\" version \"1.0.0\" digest \"sha256-jcs:{digest_hex}\";\n\
-         function keep using v(x: M::Thing): Boolean pure {{ true }}\n"
-    ));
+fn cancellation_source_and_packages() -> (String, qsl_semantics::model::intake::PackageInput) {
+    let packages = qsl_semantics::model::intake::package_input([CANCEL_MODEL_DOCUMENT.as_bytes()])
+        .expect("the cancellation model document is a package");
+    let source = unit(
+        "model M = \"driver/cancellation-model\";\n\
+         function keep using v(x: M::Thing): Boolean pure { true }\n",
+    );
     (source, packages)
 }
 
@@ -527,7 +519,7 @@ fn cancellation_source_and_packages() -> (String, BTreeMap<[u8; 32], Vec<u8>>) {
 /// cancellation fixture includes a model so every stage has a charged path.
 fn cancellation_boundaries(
     source_text: &str,
-    packages: &BTreeMap<[u8; 32], Vec<u8>>,
+    packages: &qsl_semantics::model::intake::PackageInput,
 ) -> [usize; 4] {
     let observations = Arc::new(AtomicUsize::new(0));
     let seen = Arc::clone(&observations);
@@ -551,9 +543,9 @@ fn cancellation_boundaries(
     let after_select = observations.load(Ordering::SeqCst);
     let checked = check(
         &parsed,
+        "cancellation".to_owned(),
         &models,
         &DependencyInput::default(),
-        &LockEvidence::default(),
         limits,
         &cancel,
     )
@@ -616,56 +608,56 @@ fn cancel_on_charge(
     (cancel, worker, timed_out)
 }
 
-fn int_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+fn int_input(packages: &qsl_semantics::model::intake::PackageInput) -> CompileInput<'_> {
     CompileInput {
         bytes: INT_UNIT.as_bytes(),
         ..input(packages)
     }
 }
 
-fn partition_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+fn partition_input(packages: &qsl_semantics::model::intake::PackageInput) -> CompileInput<'_> {
     CompileInput {
         bytes: PARTITION_UNIT.as_bytes(),
         ..input(packages)
     }
 }
 
-fn eq_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+fn eq_input(packages: &qsl_semantics::model::intake::PackageInput) -> CompileInput<'_> {
     CompileInput {
         bytes: EQ_UNIT.as_bytes(),
         ..input(packages)
     }
 }
 
-fn two_param_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+fn two_param_input(packages: &qsl_semantics::model::intake::PackageInput) -> CompileInput<'_> {
     CompileInput {
         bytes: TWO_PARAM_UNIT.as_bytes(),
         ..input(packages)
     }
 }
 
-fn negate_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+fn negate_input(packages: &qsl_semantics::model::intake::PackageInput) -> CompileInput<'_> {
     CompileInput {
         bytes: NEGATE_UNIT.as_bytes(),
         ..input(packages)
     }
 }
 
-fn overflow_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+fn overflow_input(packages: &qsl_semantics::model::intake::PackageInput) -> CompileInput<'_> {
     CompileInput {
         bytes: OVERFLOW_UNIT.as_bytes(),
         ..input(packages)
     }
 }
 
-fn dead_branch_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+fn dead_branch_input(packages: &qsl_semantics::model::intake::PackageInput) -> CompileInput<'_> {
     CompileInput {
         bytes: DEAD_BRANCH_UNIT.as_bytes(),
         ..input(packages)
     }
 }
 
-fn rr16_input(packages: &BTreeMap<[u8; 32], Vec<u8>>) -> CompileInput<'_> {
+fn rr16_input(packages: &qsl_semantics::model::intake::PackageInput) -> CompileInput<'_> {
     CompileInput {
         bytes: RR16_UNIT.as_bytes(),
         ..input(packages)
@@ -708,6 +700,7 @@ fn tc_019_cancellation_preserves_every_stage_and_cause() {
                 &recorder,
                 CompileInput {
                     source: SourceIdentity::new("agent-ix", "driver-cancellation", "fixture", "1"),
+                    package_name: "driver-cancellation",
                     path: "cancellation-model.native",
                     bytes: source_text.as_bytes(),
                     packages: &packages,
@@ -754,6 +747,7 @@ fn tc_019_cancellation_preserves_every_stage_and_cause() {
         &recorder,
         CompileInput {
             source: SourceIdentity::new("agent-ix", "driver-cancellation", "fixture", "1"),
+            package_name: "driver-cancellation",
             path: "cancellation-model.native",
             bytes: source_text.as_bytes(),
             packages: &packages,
@@ -787,6 +781,7 @@ fn tc_019_e5_receives_source_provision_and_checked_unit_retains_bounded_root() {
         &recorder,
         CompileInput {
             source: source.clone(),
+            package_name: "driver-cancellation",
             path: "cancellation-model.native",
             bytes: source_text.as_bytes(),
             packages: &packages,
@@ -873,7 +868,7 @@ fn expression_by_identity(package: &CheckedPackageV2, identity: &str) -> Checked
             node.node_tag.as_ref() == "expression"
                 && matches!(package.term(&node.node_id), Some(CheckedTerm::Application {
                     operation, ..
-                }) if operation.get("identity").and_then(serde_json::Value::as_str) == Some(identity))
+                }) if operation.identity() == Some(identity))
         })
         .unwrap_or_else(|| panic!("the unit has a {identity} expression"));
     node.node_id.clone()
@@ -952,7 +947,7 @@ fn kani_candidate(driven: &Driven) -> quire_contract_codegen::Candidate {
 #[test]
 #[trace("FR-001-AC-21", "TC-017")]
 fn relationless_package_skips_export_and_has_no_item_refusals() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -982,7 +977,7 @@ fn relationless_package_skips_export_and_has_no_item_refusals() {
     "TC-017"
 )]
 fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder {
@@ -1012,7 +1007,8 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
     ));
     assert!(
         matches!(driver_positions[1], ContractRequestPosition::Excluded { node_id }
-        if node_id.digest.as_ref() == driven.request_items[1].node().to_string())
+        if serde_json::to_value(node_id).ok()
+            == qsl_foundation::node_wire::node_key_to_json(driven.request_items[1].node()).ok())
     );
     assert!(matches!(
         driver_positions[2],
@@ -1099,7 +1095,7 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
 #[test]
 #[trace("FR-010-AC-5", "FR-001-AC-18", "TC-017")]
 fn all_export_refusals_send_zero_item_request_to_cg() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder {
@@ -1127,7 +1123,7 @@ fn all_export_refusals_send_zero_item_request_to_cg() {
 #[test]
 #[trace("FR-001-AC-19", "FR-001-AC-20", "TC-017")]
 fn export_run_refusal_and_unknown_driver_key_keep_their_distinct_outcomes() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let whole = Recorder {
@@ -1160,7 +1156,7 @@ fn export_run_refusal_and_unknown_driver_key_keep_their_distinct_outcomes() {
 #[test]
 #[trace("FR-001-AC-19", "FR-001-AC-20", "TC-017")]
 fn malformed_export_results_stop_at_the_typed_boundary() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -1292,9 +1288,9 @@ fn tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order() {
     // Bytewise order puts "Zeta" (0x5A) before "alpha" (0x61); a
     // case-insensitive order would not.
     let registry = build_registry(&[
-        manifest("alpha", 1, &["value-validity"]),
-        manifest("kani", 2, &["value-validity"]),
-        manifest("Zeta", 3, &["operation-contract"]),
+        manifest("alpha", &["value-validity"]),
+        manifest("kani", &["value-validity"]),
+        manifest("Zeta", &["operation-contract"]),
     ])
     .expect("the three manifests register");
     let packages = BTreeMap::new();
@@ -1348,7 +1344,7 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     let checked = negate_package().checked().clone();
     let neg = expression_by_identity(&checked, "quire.op.integer.negate");
 
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -1362,12 +1358,8 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     )
     .expect("the run completes");
 
-    // E4 emitted v2 bytes; E5 admitted them at the emitted `package_id`.
+    // E4 emitted v2 bytes; E5 admitted them.
     assert!(!driven.emitted().bytes().is_empty());
-    assert_eq!(
-        driven.checked().package_id().digest.as_ref(),
-        driven.emitted().package_id().hex()
-    );
     assert_eq!(
         driven.checked(),
         &checked,
@@ -1487,7 +1479,8 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
 /// Trace: FR-001-AC-7; TC-006 step 11.
 #[test]
 fn tc_006_handoff_passes_domain_package_evidence_unchanged() {
-    let packages = qsl_semantics::model::intake::package_input([CANCEL_MODEL_DOCUMENT.as_bytes()]);
+    let packages = qsl_semantics::model::intake::package_input([CANCEL_MODEL_DOCUMENT.as_bytes()])
+        .expect("the cancellation model document is a package");
     let recorder = Recorder::default();
     let registry = build_registry(&[]).expect("an empty registry builds");
 
@@ -1506,12 +1499,11 @@ fn tc_006_handoff_passes_domain_package_evidence_unchanged() {
         .clone()
         .expect("E5 receives evidence");
     let mut expected = CheckedPackageEvidence::new();
-    let (digest, document) = packages.iter().next().expect("one supplied domain package");
+    let (identity, document) = packages.iter().next().expect("one supplied domain package");
     expected
-        .insert_domain_package_document(qsl_semantics::model::key::hex(digest), document.as_slice())
-        .expect("the evidence map contains one document per digest");
-    let lock = DefinitionLock::pinned();
-    expected.support_feature(lock.entry(CatalogRole::Root).identity);
+        .insert_domain_package_document(identity.as_str(), document.as_slice())
+        .expect("the evidence map contains one document per identity");
+    expected.support_feature("quire.value.complete/v1");
 
     assert_eq!(
         actual, expected,
@@ -1543,7 +1535,7 @@ fn tc_006_handoff_passes_domain_package_evidence_unchanged() {
 /// `Candidates::Set([kani])` instead, with the settlement unchanged).
 #[test]
 fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -1628,7 +1620,7 @@ fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
 /// first (`tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order`).
 #[test]
 fn tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported() {
-    let registry = build_registry(&[manifest("kani", 7, &["operation-contract"])])
+    let registry = build_registry(&[manifest("kani", &["operation-contract"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -1685,7 +1677,7 @@ fn tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_un
 fn tc_006_x_plus_1_generation_passes_through_unchanged() {
     let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -1736,7 +1728,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
 fn tc_006_kani_form_projects_exact_package_and_selected_node() {
     let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -1772,7 +1764,7 @@ fn tc_006_kani_form_projects_exact_package_and_selected_node() {
 /// conversion roots through IR lowering and CG generation.
 #[test]
 fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -1861,23 +1853,22 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
         actual_contexts.push((application, conversion));
     }
 
-    let checked_id = |wire: &qsl_foundation::digest::WireNodeId| CheckedNodeId {
-        domain: "quire.checked-semantic-node/v1".into(),
-        digest: wire.to_string().into_boxed_str(),
+    let checked_id = |key: &quire_exact::NodeKey| -> CheckedNodeId {
+        serde_json::from_value(
+            qsl_foundation::node_wire::node_key_to_json(key).expect("the key encodes"),
+        )
+        .expect("the wire form is a checked node identity")
     };
     for ((expected_application, expected_conversion), (application, conversion)) in
         expected_contexts.iter().zip(actual_contexts.iter())
     {
-        assert_eq!(
-            application.node_id,
-            checked_id(&expected_application.node())
-        );
+        assert_eq!(application.node_id, checked_id(expected_application.node()));
         assert_eq!(
             application.role,
             quire_contract_model::CheckedOccurrenceRole::Expression
         );
         assert_eq!(application.ordinal, expected_application.origin().ordinal());
-        assert_eq!(conversion.node_id, checked_id(&expected_conversion.node()));
+        assert_eq!(conversion.node_id, checked_id(expected_conversion.node()));
         assert_eq!(
             conversion.role,
             quire_contract_model::CheckedOccurrenceRole::Expression
@@ -1916,7 +1907,7 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
 /// Provenance: QSL RR-16.
 #[test]
 fn tc_006_rr16_binds_each_exact_occurrence_to_its_generated_item() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let cancel = Cancel::new();
@@ -2026,11 +2017,6 @@ fn tc_006_rr16_binds_each_exact_occurrence_to_its_generated_item() {
             .count(),
         1
     );
-    assert_eq!(
-        driven.checked().package_id().digest.as_ref(),
-        driven.emitted().package_id().hex(),
-        "the one IR admission is for the exact emitted package"
-    );
 
     let selections = driven
         .generation()
@@ -2048,7 +2034,7 @@ fn tc_006_rr16_binds_each_exact_occurrence_to_its_generated_item() {
 /// Trace: FR-001-AC-16, FR-009-AC-13, TC-006.
 #[test]
 fn tc_006_no_selected_scalar_item_skips_binding_and_native_execution() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let call = QslCall {
@@ -2092,7 +2078,7 @@ fn tc_006_no_selected_scalar_item_skips_binding_and_native_execution() {
 fn tc_006_x_plus_y_generation_passes_through_unchanged() {
     let checked = two_param_package().checked().clone();
     let add = expression(&checked, "binary");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -2132,7 +2118,7 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
 fn tc_006_x_plus_1_settles_supported() {
     let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -2186,7 +2172,7 @@ fn tc_006_x_plus_1_settles_supported() {
 fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
     let checked = two_param_package().checked().clone();
     let add = expression(&checked, "binary");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -2300,7 +2286,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
     .checked()
     .clone();
     let x_bound = integer_range_bound(&checked, "0", "9");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -2316,8 +2302,26 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
 
     assert!(driven.routed.is_empty());
     assert!(driven.generation().items.is_empty());
+    let add_settlement = driven
+        .settlements
+        .iter()
+        .find(|settlement| {
+            matches!(
+                settlement
+                    .backend
+                    .as_ref()
+                    .map(|backend| &backend.disposition),
+                Some(Disposition::Unsupported {
+                    cause: Cause::KaniFormRefused {
+                        refusal: UnsupportedObligation::ResultBoundUnreachable { .. },
+                        ..
+                    }
+                })
+            )
+        })
+        .expect("the dead branch's `+` settles ResultBoundUnreachable");
     assert!(matches!(
-        &driven.settlements[1].backend.as_ref().expect("a lowered item settles").disposition,
+        &add_settlement.backend.as_ref().expect("a lowered item settles").disposition,
         Disposition::Unsupported {
             cause: Cause::KaniFormRefused {
                 refusal: UnsupportedObligation::ResultBoundUnreachable {
@@ -2334,7 +2338,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
             && reachable_upper == "109"
     ));
     assert!(matches!(
-        &driven.settlements[0].backend.as_ref().expect("a lowered item settles").disposition,
+        &driven.settlements[1].backend.as_ref().expect("a lowered item settles").disposition,
         Disposition::Unsupported {
             cause: Cause::KaniFormRefused {
                 refusal: UnsupportedObligation::OperationNotRendered {
@@ -2356,7 +2360,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
 /// context refuses the run with CG's `MissingKindContext`.
 #[test]
 fn tc_007_generation_refusals_are_typed() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -2390,7 +2394,7 @@ fn tc_007_generation_refusals_are_typed() {
 /// settles `unsupported`.
 #[test]
 fn tc_003_no_supported_item_means_no_route_call() {
-    let registry = build_registry(&[manifest("kani", 7, &["operation-contract"])])
+    let registry = build_registry(&[manifest("kani", &["operation-contract"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -2447,7 +2451,7 @@ fn tc_003_no_supported_item_means_no_route_call() {
 /// index), and the positional asserts below would fail.
 #[test]
 fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_index() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder {
@@ -2578,7 +2582,7 @@ fn tc_004_repeated_manifest_identity_from_negotiation_is_an_internal_fault() {
 /// }`) still drives to completion.
 #[test]
 fn tc_003_a_unit_with_no_scalar_applications_routes_nothing() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -2669,42 +2673,33 @@ fn tc_004_command_level_refusals_are_typed() {
         assert_eq!(recorder.calls(), [Call::Compile]);
     }
 
-    // Two manifests, one identity, two distinct digests: both conflict,
-    // and `refusals()` reports one entry per distinct digest, ascending.
-    let expected_conflicts = [
-        (
-            Candidate::new(BackendId::new("kani")),
-            ManifestDigest::from_digest([1; 32]),
-            RegistrationCause::DuplicateBackend,
-        ),
-        (
-            Candidate::new(BackendId::new("kani")),
-            ManifestDigest::from_digest([2; 32]),
-            RegistrationCause::DuplicateBackend,
-        ),
-    ];
+    // Two manifests, one identity, different advertisements: the identity is
+    // withdrawn and `refusals()` reports it once.
+    let expected_conflicts = [(
+        Candidate::new(BackendId::new("kani")),
+        RegistrationCause::DuplicateBackend,
+    )];
     let refusal = build_registry(&[
-        manifest("kani", 1, &["value-validity"]),
-        manifest("kani", 2, &["value-validity"]),
+        manifest("kani", &["value-validity"]),
+        manifest("kani", &["operation-contract"]),
     ])
     .expect_err("one identity with two manifests conflicts");
     assert_eq!(refusal.stage(), DriverStage::Registry);
     assert_eq!(refusal.code(), "invalid_capability/duplicate-backend");
     assert_eq!(registration_refusals(&refusal), expected_conflicts);
 
-    // A, B, then A again (same digest as the first): the repeat does not
-    // add a third, duplicate refusal for digest 1 -- `refusals()` is the
-    // registry's own deduped account, not an accumulation of what each
-    // `register` call individually returned.
+    // A, B, then A again: the repeat does not add a third, duplicate
+    // refusal -- `refusals()` is the registry's own deduped account, not an
+    // accumulation of what each `register` call individually returned.
     let refusal = build_registry(&[
-        manifest("kani", 1, &["value-validity"]),
-        manifest("kani", 2, &["value-validity"]),
-        manifest("kani", 1, &["value-validity"]),
+        manifest("kani", &["value-validity"]),
+        manifest("kani", &["operation-contract"]),
+        manifest("kani", &["value-validity"]),
     ])
     .expect_err("A, B, A still conflicts, without a duplicated refusal");
     assert_eq!(registration_refusals(&refusal), expected_conflicts);
 
-    let refusal = build_registry(&[manifest("kani", 1, &["not-a-kind"])])
+    let refusal = build_registry(&[manifest("kani", &["not-a-kind"])])
         .expect_err("an unknown kind refuses the registration");
     assert_eq!(refusal.code(), "invalid_capability/unknown-kind");
 }
@@ -2763,36 +2758,24 @@ fn tc_008_an_unknown_header_profile_refuses_with_its_cause() {
 /// `refusal`'s `DriverRefusal::Registration` vector, projected to
 /// `(backend, cause)` pairs: `RegistrationRefusal`'s own fields are
 /// private, so its accessors stand in for a struct literal.
-fn registration_refusals(
-    refusal: &DriverRefusal,
-) -> Vec<(Candidate, ManifestDigest, RegistrationCause)> {
+fn registration_refusals(refusal: &DriverRefusal) -> Vec<(Candidate, RegistrationCause)> {
     let DriverRefusal::Registration(refusals) = refusal else {
         panic!("expected a registration refusal, got {refusal:?}");
     };
     refusals
         .iter()
-        .map(|r| (r.backend().clone(), r.manifest_digest(), r.cause().clone()))
+        .map(|r| (r.backend().clone(), r.cause().clone()))
         .collect()
 }
 
-/// FR-001-AC-5 and FR-001-AC-7 (TC-004): E5 accepts only the package it
-/// emitted. An IR answer admitting another package, or refusing the bytes,
-/// is an internal fault at the hand-off, and nothing after the IR read runs.
+/// FR-001-AC-5 and FR-001-AC-7 (TC-004): an IR answer refusing the emitted
+/// bytes is an internal fault at the hand-off, and nothing after the IR read
+/// runs.
 #[test]
-fn tc_004_e5_identity_and_refusal_are_faults() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+fn tc_004_e5_refusal_is_a_fault() {
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
-    let other = drive(
-        &QslCg,
-        input(&packages),
-        &build_registry(&[]).expect("an empty registry builds"),
-        None,
-        GenerationInput::default(),
-    )
-    .expect("UNIT drives")
-    .checked()
-    .clone();
     let CheckedPackageDispatchResult::Refused(refusal) = quire_contract_model::read_checked_package(
         b"not a JSON document",
         CheckedPackageReadLimits::bounded(),
@@ -2801,45 +2784,32 @@ fn tc_004_e5_identity_and_refusal_are_faults() {
         panic!("malformed reader bytes must produce a typed refusal");
     };
 
-    for answer in [
-        CheckedPackageDispatchResult::AdmittedV2(Box::new(other.clone())),
-        CheckedPackageDispatchResult::Refused(refusal.clone()),
-    ] {
-        let recorder = Recorder {
-            read_answer: Some(answer.clone()),
-            ..Recorder::default()
-        };
-        let driven = drive(
-            &recorder,
-            int_input(&packages),
-            &registry,
-            None,
-            GenerationInput::default(),
-        )
-        .expect_err("E5 refuses a package it did not emit");
-        match (&answer, &driven) {
-            (
-                CheckedPackageDispatchResult::AdmittedV2(_),
-                DriverRefusal::Fault(DriverFault::PackageIdMismatch { emitted, admitted }),
-            ) => {
-                assert_eq!(admitted, other.package_id().digest.as_ref());
-                assert_ne!(emitted, admitted);
-            }
-            (
-                CheckedPackageDispatchResult::Refused(_),
-                DriverRefusal::Fault(DriverFault::HandoffRefused(refused)),
-            ) => assert_eq!(refused.as_ref(), &refusal),
-            _ => panic!("unexpected refusal {driven:?} for {answer:?}"),
+    let recorder = Recorder {
+        read_answer: Some(CheckedPackageDispatchResult::Refused(refusal.clone())),
+        ..Recorder::default()
+    };
+    let driven = drive(
+        &recorder,
+        int_input(&packages),
+        &registry,
+        None,
+        GenerationInput::default(),
+    )
+    .expect_err("E5 refuses the emitted bytes");
+    match &driven {
+        DriverRefusal::Fault(DriverFault::HandoffRefused(refused)) => {
+            assert_eq!(refused.as_ref(), &refusal);
         }
-        assert_eq!(driven.stage(), DriverStage::Handoff);
-        assert_eq!(driven.kind(), OutcomeKind::Fault);
-        assert_eq!(driven.code(), "runtime_invariant");
-        assert_eq!(recorder.calls(), [Call::Compile, Call::ReadPackage]);
+        _ => panic!("unexpected refusal {driven:?}"),
     }
+    assert_eq!(driven.stage(), DriverStage::Handoff);
+    assert_eq!(driven.kind(), OutcomeKind::Fault);
+    assert_eq!(driven.code(), "runtime_invariant");
+    assert_eq!(recorder.calls(), [Call::Compile, Call::ReadPackage]);
 }
 
 /// FR-001-AC-7 (TC-006): E5 admits units with text and rational parameter
-/// types at their emitted `package_id`.
+/// types.
 #[test]
 fn tc_006_e5_admits_text_and_rational_units() {
     let registry = build_registry(&[]).expect("an empty registry builds");
@@ -2850,7 +2820,7 @@ fn tc_006_e5_admits_text_and_rational_units() {
     ] {
         let unit = unit(&format!("{declaration}\n"));
         let recorder = Recorder::default();
-        let driven = drive(
+        drive(
             &recorder,
             CompileInput {
                 bytes: unit.as_bytes(),
@@ -2861,11 +2831,6 @@ fn tc_006_e5_admits_text_and_rational_units() {
             GenerationInput::default(),
         )
         .unwrap_or_else(|refusal| panic!("{declaration}: {refusal:?}"));
-        assert_eq!(
-            driven.checked().package_id().digest.as_ref(),
-            driven.emitted().package_id().hex(),
-            "{declaration}"
-        );
         assert_eq!(recorder.calls()[..2], [Call::Compile, Call::ReadPackage]);
     }
 }
@@ -2880,7 +2845,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
     let eq = expression_by_identity(&checked, "quire.op.integer.eq");
     let neg = expression_by_identity(&checked, "quire.op.integer.negate");
 
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -3005,7 +2970,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
 /// Trace: FR-005-AC-2, FR-005-AC-3.
 #[test]
 fn provider_trait_run_processes_a_selected_item() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the Kani manifest registers");
     let packages = BTreeMap::new();
     let driven = drive(&QslCg, int_input(&packages), &registry, None, kani_input())
@@ -3020,7 +2985,7 @@ fn provider_trait_run_processes_a_selected_item() {
     };
     assert_eq!(harness.identity.ceilings, proof_ceilings());
 
-    let provider = KaniProvider::new(manifest("kani", 7, &["value-validity"]));
+    let provider = KaniProvider::new(manifest("kani", &["value-validity"]));
     let request = ProviderRequest::new(&driven.generation().items);
     let results = provider.run(
         driven.emitted(),

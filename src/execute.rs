@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! The driver's selected QSL execution engine (FR-004).
 
-use std::collections::BTreeMap;
-
 use qsl_foundation::Code;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{Call, CallOutcome, DependencyInput, RunRefusal, SpineLimits};
 use qsl_replay::{OutcomeDocument, OutcomeWriteError};
-use qsl_semantics::library::PackageId;
 use qsl_semantics::model::object_environment::ObjectEnvironment;
 use quire_exact::Cancel;
 use quire_semantic_value::catalog::Category;
@@ -59,8 +56,10 @@ pub struct ExecutionRequest<'a> {
     pub path: &'a str,
     /// Complete source bytes.
     pub bytes: &'a [u8],
-    /// Digest-addressed domain package documents.
-    pub packages: &'a BTreeMap<[u8; 32], Vec<u8>>,
+    /// The checked package's name.
+    pub package_name: &'a str,
+    /// Domain package documents by model identity.
+    pub packages: &'a qsl_semantics::model::intake::PackageInput,
     /// Caller-supplied library dependencies.
     pub dependencies: &'a DependencyInput,
     /// Effective lifecycle limits.
@@ -75,14 +74,12 @@ pub struct ExecutionRequest<'a> {
     pub engine: ExecutionEngine,
 }
 
-/// The selected interpreter's typed result and compiled package identity.
+/// The selected interpreter's typed result.
 #[derive(Debug)]
 pub struct ExecutionResult {
-    /// The compiled package identity.
-    pub package_id: PackageId,
     /// QSL's unchanged typed execution outcome.
     pub outcome: CallOutcome,
-    /// QSL's canonical document for the complete run, including package identity.
+    /// QSL's canonical document for the complete run.
     pub document: OutcomeDocument,
 }
 
@@ -142,6 +139,7 @@ pub fn execute(request: ExecutionRequest<'_>) -> Result<ExecutionResult, Executi
     execute_using(request, |request, object_environment| {
         qsl_replay::spine::run(
             request.source.clone(),
+            request.package_name.to_owned(),
             request.path,
             request.bytes,
             request.packages,
@@ -156,10 +154,7 @@ pub fn execute(request: ExecutionRequest<'_>) -> Result<ExecutionResult, Executi
 
 fn execute_using(
     request: ExecutionRequest<'_>,
-    run: impl FnOnce(
-        &ExecutionRequest<'_>,
-        &ObjectEnvironment,
-    ) -> Result<(PackageId, CallOutcome), Box<RunRefusal>>,
+    run: impl FnOnce(&ExecutionRequest<'_>, &ObjectEnvironment) -> Result<CallOutcome, Box<RunRefusal>>,
 ) -> Result<ExecutionResult, ExecutionFailure> {
     if request.engine != ExecutionEngine::Interpreter {
         return Err(ExecutionFailure::UnsupportedEngine(request.engine));
@@ -167,11 +162,7 @@ fn execute_using(
     let outcome = run(&request, request.object_environment);
     let document = OutcomeDocument::from_run(&outcome);
     match outcome {
-        Ok((package_id, outcome)) => Ok(ExecutionResult {
-            package_id,
-            outcome,
-            document,
-        }),
+        Ok(outcome) => Ok(ExecutionResult { outcome, document }),
         Err(refusal) => Err(ExecutionFailure::Run {
             refusal,
             document: Box::new(document),
@@ -200,7 +191,6 @@ mod tests {
     use qsl_semantics::model::dispatch::GeneralizationClosure;
     use qsl_semantics::model::domain_package::DomainPackageRecord;
     use qsl_semantics::model::intake::package_input;
-    use qsl_semantics::model::key::hex;
     use qsl_semantics::model::object_environment::ObjectEnvironment;
     use qsl_semantics::model::population::{
         admit_binding, AdmissionMeter, AdmissionOutcome, PopulationAdmissionLimits,
@@ -219,6 +209,7 @@ mod tests {
     fn request(engine: ExecutionEngine, limits: SpineLimits) -> ExecutionRequest<'static> {
         ExecutionRequest {
             source: SourceIdentity::new("quire-driver-test", "unit", "test", "current"),
+            package_name: "unit",
             path: "unit.qsl",
             bytes: UNIT.as_bytes(),
             packages: &EMPTY_PACKAGES,
@@ -236,21 +227,22 @@ mod tests {
         }
     }
 
-    static EMPTY_PACKAGES: LazyLock<BTreeMap<[u8; 32], Vec<u8>>> = LazyLock::new(BTreeMap::new);
+    static EMPTY_PACKAGES: LazyLock<qsl_semantics::model::intake::PackageInput> =
+        LazyLock::new(BTreeMap::new);
     static NO_DEPENDENCIES: LazyLock<DependencyInput> = LazyLock::new(DependencyInput::default);
     static EMPTY_OBJECT_ENVIRONMENT: LazyLock<ObjectEnvironment> =
         LazyLock::new(ObjectEnvironment::default);
 
     const OBJECT_MODEL_DOCUMENT: &str = r#"{
       "contractVersion": "2.0.0",
-      "canonicalization": {"algorithm": "rfc8785-v1", "digest": "sha256-jcs"},
-      "source": {"identity": "ix://driver/ir608/model", "version": "1.0.0", "dialect": "spec-bundle", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-      "package": {"identity": "driver/ir608-model", "version": "1.0.0", "manifestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "mappingVersions": [], "profileVersions": [], "lockDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+      "canonicalization": {"algorithm": "rfc8785-v1"},
+      "source": {"identity": "ix://driver/ir608/model", "version": "1.0.0", "dialect": "spec-bundle"},
+      "package": {"identity": "driver/ir608-model", "version": "1.0.0", "mappingVersions": [], "profileVersions": []},
       "occurrences": [],
       "extensions": [],
       "constructs": [
-        {"kind": {"module": "driver/ir608-model", "name": "entity"}, "moduleVersion": "1.0.0", "manifestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "construct": {"identity": "none", "shape": "record", "members": {}, "meaning": "quire.meaning.model.object-type/v1"}},
-        {"kind": {"module": "driver/ir608-model", "name": "population"}, "moduleVersion": "1.0.0", "manifestDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "construct": {"identity": "none", "shape": "record", "members": {}, "meaning": "quire.meaning.model.population/v1"}}
+        {"kind": {"module": "driver/ir608-model", "name": "entity"}, "moduleVersion": "1.0.0", "construct": {"identity": "none", "shape": "record", "members": {}, "meaning": "quire.meaning.model.object-type/v1"}},
+        {"kind": {"module": "driver/ir608-model", "name": "population"}, "moduleVersion": "1.0.0", "construct": {"identity": "none", "shape": "record", "members": {}, "meaning": "quire.meaning.model.population/v1"}}
       ],
       "types": [{"identity": "ix://driver/ir608-model/Thing", "displayName": "Thing", "kind": {"module": "driver/ir608-model", "name": "entity"}, "roles": [], "origin": {"generated": {"generatorIdentity": "ix://driver/ir608/model", "generatorVersion": "1.0.0", "inputIdentities": ["ix://driver/ir608-model/Thing"]}}, "constraints": [], "extensions": [], "unknownPolicy": "reject", "supertypes": [], "fields": [], "operations": []}],
       "populations": [{"identity": "ix://driver/ir608-model/Fleet", "displayName": "Fleet", "kind": {"module": "driver/ir608-model", "name": "population"}, "members": ["ix://driver/ir608-model/Thing"], "extent": "closed", "origin": {"generated": {"generatorIdentity": "ix://driver/ir608-model/Fleet", "generatorVersion": "1.0.0", "inputIdentities": ["ix://driver/ir608-model/Fleet"]}}}]
@@ -258,7 +250,7 @@ mod tests {
 
     struct ObjectContextFixture {
         source: String,
-        packages: BTreeMap<[u8; 32], Vec<u8>>,
+        packages: qsl_semantics::model::intake::PackageInput,
         population: quire_exact::PopulationId,
         empty_population_id: quire_exact::PopulationId,
         reference: quire_exact::ObjectReference,
@@ -268,16 +260,13 @@ mod tests {
     }
 
     fn object_context_fixture() -> ObjectContextFixture {
-        let packages = package_input([OBJECT_MODEL_DOCUMENT.as_bytes()]);
-        let digest = packages.keys().next().expect("one admitted model package");
-        let source = format!(
-            "language \"ix:native\" edition \"1-draft\";\n\
+        let packages =
+            package_input([OBJECT_MODEL_DOCUMENT.as_bytes()]).expect("the fixture is a package");
+        let source = "language \"ix:native\" edition \"1-draft\";\n\
              profile v = \"quire.model.complete/v1\";\n\
-             model M = \"driver/ir608-model\" version \"1.0.0\" digest \"sha256-jcs:{}\";\n\
-             function query_present using v(p: Population<M::Thing>[1], r: M::Thing): M::Thing pure {{ lookup<M::Thing>(p, r) absent refused }}\n\
-             function query_absent using v(p: Population<M::Thing>[1], r: M::Thing): M::Thing pure {{ lookup<M::Thing>(p, r) absent undefined }}\n",
-            hex(digest)
-        );
+             model M = \"driver/ir608-model\";\n\
+             function query_present using v(p: Population<M::Thing>[1], r: M::Thing): M::Thing pure { lookup<M::Thing>(p, r) absent refused }\n\
+             function query_absent using v(p: Population<M::Thing>[1], r: M::Thing): M::Thing pure { lookup<M::Thing>(p, r) absent undefined }\n";
         let source_identity =
             SourceIdentity::new("quire-driver-test", "object-context", "test", "current");
         let cancel = Cancel::new();
@@ -298,9 +287,9 @@ mod tests {
                 .into_value();
         let checked = qsl_replay::spine::check(
             &parsed,
+            "object-context".to_owned(),
             &models,
             &DependencyInput::default(),
-            &qsl_replay::spine::LockEvidence::default(),
             SpineLimits::default(),
             &cancel,
         )
@@ -311,7 +300,7 @@ mod tests {
             .type_identities()
             .iter()
             .find(|(key, _)| key.node.rsplit('/').next() == Some("Thing"))
-            .map(|(key, identity)| (key.clone(), *identity))
+            .map(|(key, identity)| (key.clone(), identity.clone()))
             .expect("Thing is declared by the model package");
         let population_key = view
             .domain_package()
@@ -354,7 +343,8 @@ mod tests {
         let reference = quire_exact::ObjectReference::new(
             view.object_universe_of(&type_key)
                 .expect("Thing has an object universe")
-                .identity(),
+                .identity()
+                .expect("the universe has an identity"),
             type_identity,
             quire_exact::ObjectId::new("g1").expect("fixture object id is valid"),
         );
@@ -383,7 +373,7 @@ mod tests {
         .with_population(empty_population_binding)
         .expect("the empty fixture population is recorded");
         ObjectContextFixture {
-            source,
+            source: source.to_owned(),
             packages,
             population,
             empty_population_id,
@@ -403,6 +393,7 @@ mod tests {
     ) -> ExecutionRequest<'a> {
         ExecutionRequest {
             source: SourceIdentity::new("quire-driver-test", "object-context", "test", "current"),
+            package_name: "object-context",
             path: "object-context.qsl",
             bytes: fixture.source.as_bytes(),
             packages: &fixture.packages,
@@ -432,6 +423,7 @@ mod tests {
     fn direct_document(request: &ExecutionRequest<'_>) -> OutcomeDocument {
         let outcome = qsl_replay::spine::run(
             request.source.clone(),
+            request.package_name.to_owned(),
             request.path,
             request.bytes,
             request.packages,
@@ -460,6 +452,7 @@ mod tests {
         let request = request(ExecutionEngine::default(), SpineLimits::default());
         let expected_run = qsl_replay::spine::run(
             request.source.clone(),
+            request.package_name.to_owned(),
             request.path,
             request.bytes,
             request.packages,
@@ -491,6 +484,7 @@ mod tests {
 
         let expected = qsl_replay::spine::run(
             request.source.clone(),
+            request.package_name.to_owned(),
             request.path,
             request.bytes,
             request.packages,
@@ -523,7 +517,7 @@ mod tests {
             &fixture,
             &fixture.populated,
             "query_present",
-            fixture.population,
+            fixture.population.clone(),
             fixture.reference.clone(),
         );
         let populated_expected = direct_document(&populated_request);
@@ -545,7 +539,7 @@ mod tests {
             &fixture,
             &fixture.empty_context,
             "query_present",
-            fixture.population,
+            fixture.population.clone(),
             fixture.reference.clone(),
         );
         let empty_expected = direct_document(&empty_request);
@@ -588,7 +582,7 @@ mod tests {
             &fixture,
             &fixture.empty_population_env,
             "query_absent",
-            fixture.empty_population_id,
+            fixture.empty_population_id.clone(),
             fixture.reference.clone(),
         );
         let expected = direct_document(&request);
@@ -619,7 +613,7 @@ mod tests {
             &fixture,
             &environment,
             "query_present",
-            fixture.empty_population_id,
+            fixture.empty_population_id.clone(),
             fixture.reference.clone(),
         );
         let expected = direct_document(&request);
@@ -674,6 +668,7 @@ mod tests {
 
         let expected = qsl_replay::spine::run(
             request.source.clone(),
+            request.package_name.to_owned(),
             request.path,
             request.bytes,
             request.packages,
@@ -710,6 +705,7 @@ mod tests {
 
         let expected_run = qsl_replay::spine::run(
             request.source.clone(),
+            request.package_name.to_owned(),
             request.path,
             request.bytes,
             request.packages,

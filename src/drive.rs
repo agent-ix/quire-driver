@@ -51,9 +51,10 @@ pub struct CompileInput<'a> {
     pub path: &'a str,
     /// The unit's complete-V1 source bytes.
     pub bytes: &'a [u8],
-    /// FR-056's package input: domain package documents by `sha256-jcs`
-    /// digest.
-    pub packages: &'a BTreeMap<[u8; 32], Vec<u8>>,
+    /// The checked package's name; QSL's check names the package it builds.
+    pub package_name: &'a str,
+    /// FR-056's package input: domain package documents by model identity.
+    pub packages: &'a qsl_semantics::model::intake::PackageInput,
     /// The S1 to S3 stage limits.
     pub limits: SpineLimits,
     /// The caller-owned QSL cancellation handle. Pass a clone when the caller
@@ -133,10 +134,9 @@ pub struct Driven {
     pub item_refusals: Vec<ItemRefusal>,
     /// The S4 in-process package.
     package: CheckedUnit,
-    /// The E4 wire output: v2 bytes and `package_id`.
+    /// The E4 wire output: the v2 bytes.
     emitted: EmittedPackage,
-    /// E5: the emitted bytes as IR's reader admitted them, at the emitted
-    /// `package_id`.
+    /// E5: the emitted bytes as IR's reader admitted them.
     checked: CheckedPackageV2,
     /// CG's settlement of each export-bound item, in driver request order.
     pub settlements: Vec<ContractItemSettlement>,
@@ -309,12 +309,13 @@ pub fn drive(
         input.source.clone(),
         input.path,
         input.bytes,
+        input.package_name,
         input.packages,
         input.limits,
         &input.cancel,
     )?;
     let emitted = emitted_unit.package().clone();
-    // E5: IR admits the emitted bytes at the emitted `package_id`.
+    // E5: IR admits the emitted bytes.
     let checked = handoff(
         upstream,
         &models,
@@ -489,7 +490,7 @@ fn execute_scalar_items(
             .ok_or_else(|| DriverRefusal::Fault(DriverFault::NativeReceiptMismatch))?;
         let occurrence = ScalarOccurrence {
             function: scalar.call.function.clone(),
-            application: item.node(),
+            application: item.node().clone(),
             occurrence: item.occurrence().clone(),
         };
         let bound = match qsl_replay::spine::bind_scalar_operands(
@@ -678,12 +679,6 @@ fn generate(
     if routed.is_empty() {
         return Ok(RoutedGeneration::default());
     }
-    let nodes: BTreeMap<&str, &CheckedNodeId> = checked
-        .graph()
-        .nodes
-        .iter()
-        .map(|node| (node.node_id.digest.as_ref(), &node.node_id))
-        .collect();
     let mut generation_items = Vec::with_capacity(routed.len());
     for item in routed {
         let request_index = item.request_index;
@@ -691,19 +686,22 @@ fn generate(
             .get(request_index)
             .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?
             .node();
-        let node_id = nodes
-            .get(node.to_string().as_str())
-            .ok_or(DriverRefusal::Fault(DriverFault::UnknownNode {
-                request_index,
-                node,
-            }))?;
+        let node_id = resolve_checked_node(
+            checked
+                .graph()
+                .nodes
+                .iter()
+                .map(|candidate| &candidate.node_id),
+            node,
+            request_index,
+        )?;
         let descriptor = descriptors
             .iter()
             .find(|descriptor| descriptor.identity == item.candidate.id().as_str())
             .ok_or(DriverRefusal::Fault(DriverFault::AdmittedManifestMissing))?;
         let generation_item = cg::RoutedGenerationItem::from_descriptor(
             request_index,
-            (*node_id).clone(),
+            node_id.clone(),
             cg_candidate(&item.candidate),
             descriptor,
         )
@@ -929,8 +927,6 @@ mod scalar_receipt_tests {
 mod native_receipt_integration_tests {
     use super::*;
     use qsl_replay::spine::{default_accounting, CallArgument};
-    use qsl_route::ManifestDigest;
-    use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_contract_codegen::{KaniInstallation, ProofCeilings};
     use quire_exact::{Integer, Value};
     use std::io::Write as _;
@@ -982,12 +978,10 @@ mod native_receipt_integration_tests {
     #[test]
     #[ignore = "kani lane: paired proof/native execution uses the installed Kani backend"]
     fn successful_native_receipt_is_authenticated_against_retained_limits() {
-        let lock = DefinitionLock::pinned();
-        let root = lock.entry(CatalogRole::Root);
         let source = format!(
             "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
              function inc using v(x: Int[4, 4]): Int[5, 5] pure {{ x + 1 }}\n",
-            root.identity
+            "quire.value.complete/v1"
         );
         let packages = BTreeMap::new();
         let cancel = Cancel::new();
@@ -1005,7 +999,6 @@ mod native_receipt_integration_tests {
         let target_directory = NativeTargetDirectory::new();
         let registry = crate::build_registry(&[crate::ProviderManifest {
             identity: "kani".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([7; 32]),
             advertises: vec![(
                 Some("value-validity".to_owned()),
                 Some("bounded".to_owned()),
@@ -1038,6 +1031,7 @@ mod native_receipt_integration_tests {
             &crate::upstream::QslCg,
             CompileInput {
                 source: SourceIdentity::new("agent-ix", "ir-773", "native-receipt", "1"),
+                package_name: "native-receipt",
                 path: "native-receipt.native",
                 bytes: source.as_bytes(),
                 packages: &packages,
@@ -1172,10 +1166,7 @@ fn envelope(
         .map(|descriptor| {
             let retained = manifests
                 .iter()
-                .find(|manifest| {
-                    manifest.identity == descriptor.id().as_str()
-                        && manifest.manifest_digest == descriptor.manifest_digest()
-                })
+                .find(|manifest| manifest.identity == descriptor.id().as_str())
                 .ok_or(DriverRefusal::Fault(DriverFault::AdmittedManifestMissing))?;
             project_descriptor(descriptor, retained.bounds.as_ref())
         })
@@ -1232,7 +1223,7 @@ fn envelope(
 /// source form. The form is source evidence, never a driver classification.
 fn project_kani_form(
     checked: &CheckedPackageV2,
-    node: qsl_foundation::digest::WireNodeId,
+    node: &quire_exact::NodeKey,
     request_index: usize,
     lowered: &LoweredDriverRequest,
 ) -> Result<cg::KaniForm, DriverRefusal> {
@@ -1256,21 +1247,27 @@ fn project_kani_form(
 
 fn resolve_checked_node<'a>(
     nodes: impl Iterator<Item = &'a CheckedNodeId>,
-    node: qsl_foundation::digest::WireNodeId,
+    node: &quire_exact::NodeKey,
     request_index: usize,
 ) -> Result<&'a CheckedNodeId, DriverRefusal> {
-    let digest = node.to_string();
-    let mut matches = nodes.filter(|candidate| candidate.digest.as_ref() == digest);
-    let Some(selected) = matches.next() else {
-        return Err(DriverRefusal::Fault(DriverFault::UnknownNode {
+    let unknown = || {
+        DriverRefusal::Fault(DriverFault::UnknownNode {
             request_index,
-            node,
-        }));
+            node: node.clone(),
+        })
+    };
+    let wanted: CheckedNodeId = qsl_foundation::node_wire::node_key_to_json(node)
+        .ok()
+        .and_then(|json| serde_json::from_value(json).ok())
+        .ok_or_else(unknown)?;
+    let mut matches = nodes.filter(|candidate| **candidate == wanted);
+    let Some(selected) = matches.next() else {
+        return Err(unknown());
     };
     if matches.next().is_some() {
         return Err(DriverRefusal::Fault(DriverFault::AmbiguousNode {
             request_index,
-            node,
+            node: node.clone(),
         }));
     }
     Ok(selected)
@@ -1313,48 +1310,56 @@ fn project_descriptor(
 
 #[cfg(test)]
 mod kani_form_projection_tests {
-    use qsl_foundation::digest::WireNodeId;
     use quire_contract_model::CheckedNodeId;
+    use quire_exact::NodeKey;
+    use quire_exact::PathSegment;
 
     use super::resolve_checked_node;
     use crate::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
 
-    fn checked_node(domain: &str, wire: &WireNodeId) -> CheckedNodeId {
-        CheckedNodeId {
-            domain: domain.into(),
-            digest: wire.to_string().into(),
-        }
+    fn key(name: &str, ordinal: u64) -> NodeKey {
+        NodeKey::new(
+            "pkg".to_owned(),
+            vec![PathSegment::Text(name.to_owned())],
+            ordinal,
+        )
+        .expect("a fixture key is admissible")
+    }
+
+    fn checked(key: &NodeKey) -> CheckedNodeId {
+        serde_json::from_value(
+            qsl_foundation::node_wire::node_key_to_json(key).expect("the key encodes"),
+        )
+        .expect("the wire form is a checked node identity")
     }
 
     /// Trace: FR-001-AC-12, TC-006.
     #[test]
-    fn selected_wire_node_resolves_to_its_exact_checked_identity() {
-        let wire = WireNodeId::from_digest([7; 32]);
-        let expected = checked_node("quire.checked-semantic-node/v1", &wire);
-        let unrelated = checked_node("other-domain", &WireNodeId::from_digest([8; 32]));
-        let nodes = [unrelated, expected.clone()];
+    fn selected_node_key_resolves_to_its_exact_checked_identity() {
+        let wanted = key("a", 0);
+        let nodes = [checked(&key("a", 1)), checked(&wanted)];
 
-        let resolved = resolve_checked_node(nodes.iter(), wire, 3)
+        let resolved = resolve_checked_node(nodes.iter(), &wanted, 3)
             .expect("the admitted package holds one exact match");
 
-        assert_eq!(resolved, &expected);
+        assert_eq!(resolved, &nodes[1]);
     }
 
     /// Trace: FR-001-AC-12, TC-006.
     #[test]
-    fn missing_wire_node_returns_a_typed_internal_fault() {
-        let wire = WireNodeId::from_digest([9; 32]);
+    fn missing_node_key_returns_a_typed_internal_fault() {
+        let wanted = key("a", 0);
         let nodes: [CheckedNodeId; 0] = [];
 
-        let refusal = resolve_checked_node(nodes.iter(), wire, 4)
-            .expect_err("a missing node cannot be guessed from its display");
+        let refusal = resolve_checked_node(nodes.iter(), &wanted, 4)
+            .expect_err("a missing node cannot be guessed");
 
         assert!(matches!(
-            refusal,
+            &refusal,
             DriverRefusal::Fault(DriverFault::UnknownNode {
                 request_index: 4,
                 node,
-            }) if node == wire
+            }) if node == &wanted
         ));
         assert_eq!(refusal.stage(), DriverStage::Generation);
         assert_eq!(refusal.kind(), OutcomeKind::Fault);
@@ -1363,22 +1368,19 @@ mod kani_form_projection_tests {
 
     /// Trace: FR-001-AC-12, TC-006.
     #[test]
-    fn duplicate_wire_digest_with_distinct_domains_refuses_as_ambiguous() {
-        let wire = WireNodeId::from_digest([10; 32]);
-        let nodes = [
-            checked_node("domain-a", &wire),
-            checked_node("domain-b", &wire),
-        ];
+    fn an_identity_present_twice_refuses_as_ambiguous() {
+        let wanted = key("a", 0);
+        let nodes = [checked(&wanted), checked(&wanted)];
 
-        let refusal = resolve_checked_node(nodes.iter(), wire, 5)
-            .expect_err("a digest shared by two checked identities is ambiguous");
+        let refusal = resolve_checked_node(nodes.iter(), &wanted, 5)
+            .expect_err("two checked identities with one key are ambiguous");
 
         assert!(matches!(
-            refusal,
+            &refusal,
             DriverRefusal::Fault(DriverFault::AmbiguousNode {
                 request_index: 5,
                 node,
-            }) if node == wire
+            }) if node == &wanted
         ));
         assert_eq!(refusal.stage(), DriverStage::Generation);
         assert_eq!(refusal.kind(), OutcomeKind::Fault);
@@ -1485,7 +1487,7 @@ fn cg_extent(item: &RequirementItem) -> cg::ExtentClassification {
 #[cfg(test)]
 mod origin_projection_tests {
     use qsl_foundation::BackendId;
-    use qsl_route::{BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin, Registry};
+    use qsl_route::{BackendDescriptor, Candidate, ProviderOrigin, Registry};
     use std::collections::BTreeMap;
 
     use quire_contract_codegen as cg;
@@ -1499,11 +1501,11 @@ mod origin_projection_tests {
         qsl_route::descriptor_from_manifest(
             candidate,
             origin,
-            ManifestDigest::from_digest([7; 32]),
             [(Some("value-validity"), Some("bounded"))],
-            Some(&domains),
-            None,
-            None,
+            qsl_route::ManifestMembers {
+                domains: Some(&domains),
+                ..Default::default()
+            },
         )
         .expect("QSL accepts the typed descriptor")
     }

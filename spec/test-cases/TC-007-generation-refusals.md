@@ -17,8 +17,7 @@ package does not hold) is a separate, internal-fault case: see TC-004
 `src/refusal.rs`). It is not a caller refusal, and no caller input can
 build one -- every item's node comes from the same compiled package's own
 `CheckedGraph::requirements()` (QSL-266), and `checked` is IR's own
-admission of the bytes that same package emitted, at the same
-`package_id`, so the lookup this generator does cannot miss on any request
+admission of the bytes that same package emitted, so the lookup this generator does cannot miss on any request
 the driver itself builds.
 
 Scope: FR-001-AC-5, FR-001-AC-6.

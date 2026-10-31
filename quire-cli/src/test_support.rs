@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::SpineLimits;
-use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_driver::{build_registry, drive, CompileInput, GenerationInput, QslCg};
 
 pub fn emitted_package() -> qsl_package::EmittedPackage {
@@ -20,15 +19,14 @@ pub fn emitted_package_with_urlsafe_bytes() -> qsl_package::EmittedPackage {
 }
 
 fn emitted_package_with_source_name(source_name: &str) -> qsl_package::EmittedPackage {
-    let lock = DefinitionLock::pinned();
-    let root = lock.entry(CatalogRole::Root);
     let source = format!(
         "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\nfunction f using v(): Boolean pure {{ true }}\n",
-        root.identity
+        "quire.value.complete/v1"
     );
     let packages = BTreeMap::new();
     let input = CompileInput {
         source: SourceIdentity::new("agent-ix", source_name, "git", "1"),
+        package_name: "unit-test",
         path: "unit-test.native",
         bytes: source.as_bytes(),
         packages: &packages,

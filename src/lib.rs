@@ -10,7 +10,7 @@
 //!
 //! 1. S1 to S4: QSL's typed `parse`, `select` and `check` operations.
 //! 2. E4: QSL's `package` operation emits the `quire.checked-package/v2`
-//!    bytes and their `package_id` ([`Driven::emitted`]).
+//!    bytes ([`Driven::emitted`]).
 //! 3. The `route` candidate step: each item's candidate set. The items are
 //!    not supplied by the caller: they are written from the compiled unit's
 //!    own checked requirement records
@@ -30,11 +30,10 @@
 //! 7. CG generation: `generate_routed` over the routed items, each with its
 //!    request index, its node, its routed backend and its CG kind, and the
 //!    caller's [`GenerationInput`]. The node is the E5 package's
-//!    `CheckedNodeId` the item's `WireNodeId` names.
+//!    `CheckedNodeId` whose structural identity equals the item's `NodeKey`.
 //!
 //! E5 runs after step 2: IR's checked-package reader admits the emitted v2
-//! bytes, and the admitted `package_id` must be the emitted one
-//! ([`Driven::checked`]).
+//! bytes ([`Driven::checked`]).
 //!
 //! Command-level refusals are [`DriverRefusal`]. AGE-394 (the lifecycle and CLI
 //! design) renders them.
