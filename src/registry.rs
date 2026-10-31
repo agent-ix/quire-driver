@@ -665,9 +665,8 @@ mod tests {
             crate::DriverRefusal::Registration(refusals) => refusals,
             _ => Vec::new(),
         };
-        assert_eq!(refusals.len(), 2);
+        assert_eq!(refusals.len(), 1);
         assert_eq!(refusals[0].identity().as_str(), identity);
-        assert_eq!(refusals[1].identity().as_str(), identity);
         let id = BackendId::from_wire(identity).expect("nonempty identity");
         assert!(linked
             .registry()

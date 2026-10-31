@@ -15,7 +15,7 @@ use qsl_foundation::diagnostic::Staged;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, default_accounting, package, parse, select, Call, CallArgument, DependencyInput,
-    LockEvidence, PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
+    PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{run_with_requirements, CallOutcome, RunRefusal};
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
@@ -259,7 +259,7 @@ struct ActiveConfiguredProvider {
 
 #[derive(Debug)]
 struct ConfiguredCall {
-    package_id: qsl_semantics::library::PackageId,
+    package_name: String,
     outcome: CallOutcome,
     requirements: qsl_replay::CallRequirements,
 }
@@ -327,7 +327,7 @@ struct ConfiguredRunRequest<'a> {
     source: SourceIdentity,
     limits: SpineLimits,
     call: Call,
-    packages: BTreeMap<[u8; 32], Vec<u8>>,
+    packages: qsl_semantics::model::intake::PackageInput,
     dependencies: DependencyInput,
     config: crate::provider_config::ProviderConfig,
     signals: crate::signals::SignalContext,
@@ -355,7 +355,7 @@ fn configured_failure_after_call(
     kind: ConfiguredRunErrorKind,
     sessions: Vec<ActiveConfiguredProvider>,
 ) -> Box<ConfiguredRunFailure> {
-    let document = call_outcome_document(call.package_id, &call.outcome);
+    let document = call_outcome_document(&call.outcome);
     let (cleanup_diagnostics, cleanup_failures) = close_configured_providers(sessions);
     Box::new(ConfiguredRunFailure {
         call: Some(call),
@@ -659,10 +659,7 @@ impl CommandResult {
 
     fn configured(run: Result<ConfiguredRun, Box<ConfiguredRunFailure>>) -> Self {
         let document = match &run {
-            Ok(completed) => Some(call_outcome_document(
-                completed.call.package_id,
-                &completed.call.outcome,
-            )),
+            Ok(completed) => Some(call_outcome_document(&completed.call.outcome)),
             Err(failure) => Some(failure.document.clone()),
         };
         let category = document
@@ -678,12 +675,8 @@ impl CommandResult {
     }
 }
 
-fn call_outcome_document(
-    package_id: qsl_semantics::library::PackageId,
-    outcome: &CallOutcome,
-) -> OutcomeDocument {
+fn call_outcome_document(outcome: &CallOutcome) -> OutcomeDocument {
     OutcomeDocument::from_call(outcome)
-        .with_artifacts(vec![qsl_replay::OutcomeArtifact::package_id(&package_id)])
 }
 
 fn write_result_diagnostics<W: Write>(result: &CommandResult, sink: &mut W) -> io::Result<()> {
@@ -760,6 +753,7 @@ fn run(options: RunOptions) -> CommandResult {
     }
     match execute(ExecutionRequest {
         source,
+        package_name: &options.path,
         path: &options.path,
         bytes: &bytes,
         packages: &packages,
@@ -796,6 +790,7 @@ fn run_configured_providers(
     // package negotiation/generation pipeline below and does not call execute.
     let call_run = run_with_requirements(
         source.clone(),
+        path.to_owned(),
         path,
         bytes,
         &packages,
@@ -808,10 +803,7 @@ fn run_configured_providers(
     let call_run = match call_run {
         Ok(run) => run,
         Err(refusal) => {
-            let failed_run: Result<
-                (qsl_semantics::library::PackageId, CallOutcome),
-                Box<RunRefusal>,
-            > = Err(refusal);
+            let failed_run: Result<CallOutcome, Box<RunRefusal>> = Err(refusal);
             let document = OutcomeDocument::from_run(&failed_run);
             let Err(refusal) = failed_run else {
                 return Err(Box::new(ConfiguredRunFailure {
@@ -831,9 +823,10 @@ fn run_configured_providers(
             }));
         }
     };
-    let (package_id, outcome, requirements) = call_run.into_parts();
+    let package_name = call_run.package_name().as_str().to_owned();
+    let (outcome, requirements) = call_run.into_parts();
     let call = ConfiguredCall {
-        package_id,
+        package_name,
         outcome,
         requirements,
     };
@@ -942,6 +935,7 @@ fn run_configured_providers(
         &QslCg,
         CompileInput {
             source,
+            package_name: path,
             path,
             bytes,
             packages: &packages,
@@ -962,7 +956,7 @@ fn run_configured_providers(
         }
     };
     let projection = match crate::process_provider::project_call_items(
-        call.package_id,
+        &call.package_name,
         &call.requirements,
         &driven,
     ) {
@@ -1029,7 +1023,7 @@ fn run_configured_providers(
 
     let (diagnostics, failures) = close_configured_providers(active);
     if !failures.is_empty() {
-        let document = call_outcome_document(call.package_id, &call.outcome);
+        let document = call_outcome_document(&call.outcome);
         return Err(Box::new(ConfiguredRunFailure {
             call: Some(call),
             document,
@@ -1075,9 +1069,9 @@ fn compile(options: CompileOptions) -> CommandResult {
         select(parsed.value(), &packages, limits.model, &cancel).and_then(|models| {
             check(
                 parsed.value(),
+                options.path.clone(),
                 models.value(),
                 &dependencies,
-                &LockEvidence::default(),
                 limits,
                 &cancel,
             )
@@ -1115,9 +1109,9 @@ fn check_source(options: CheckOptions) -> CommandResult {
         select(parsed.value(), &packages, limits.model, &cancel).and_then(|models| {
             check(
                 parsed.value(),
+                options.path.clone(),
                 models.value(),
                 &DependencyInput::default(),
-                &LockEvidence::default(),
                 limits,
                 &cancel,
             )
@@ -1628,7 +1622,6 @@ mod configured_run_tests {
     use qsl_replay::spine::{
         default_accounting, Call, CallArgument, SpineLimits, DEFAULT_WORK_UNITS,
     };
-    use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_exact::{Integer, Value};
 
     use super::{run_configured_providers, Code, CommandResult, ConfiguredRunRequest};
@@ -1660,14 +1653,11 @@ mod configured_run_tests {
             std::process::id()
         )));
         std::fs::create_dir(&directory.0).expect("create temporary test directory");
-
-        let lock = DefinitionLock::pinned();
-        let root = lock.entry(CatalogRole::Root);
         let bytes = format!(
             "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
              function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
              function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
-            root.identity
+            "quire.value.complete/v1"
         );
         let path = "configured-run.native";
         let source = SourceIdentity::new("agent-ix", path, "git", "1");
@@ -1820,10 +1810,7 @@ mod configured_run_tests {
             .iter()
             .all(|finished| String::from_utf8_lossy(&finished.stderr)
                 .contains("configured provider completed")));
-        assert_eq!(
-            retained.call.package_id,
-            retained.driven.emitted().package_id()
-        );
+        assert_eq!(retained.call.package_name, retained.driven.emitted().name());
     }
 
     /// Trace: FR-006-AC-26; identical admitted hellos fail closed before negotiation and close both sessions.
@@ -1838,14 +1825,11 @@ mod configured_run_tests {
             std::process::id()
         )));
         std::fs::create_dir(&directory.0).expect("create temporary test directory");
-
-        let lock = DefinitionLock::pinned();
-        let root = lock.entry(CatalogRole::Root);
         let bytes = format!(
             "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
              function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
              function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
-            root.identity
+            "quire.value.complete/v1"
         );
         let path = "configured-duplicate.native";
         let source = SourceIdentity::new("agent-ix", path, "git", "1");

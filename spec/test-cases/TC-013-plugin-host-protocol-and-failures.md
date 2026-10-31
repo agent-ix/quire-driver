@@ -42,7 +42,7 @@ and FR-006-AC-5 through FR-006-AC-23.
 2. Have the `quire-cli` adapter serialize the request through the typed FR-331
    adapter. Verify `package`
    contains the emitted package's RFC 8785 bytes as unpadded base64url,
-   `package_id` is copied from that same `EmittedPackage`, the `quire-cli`
+   the request carries no `package_id`, the `quire-cli`
    adapter serializes the supplied manifest snapshot without reconstructing
    it or adding members, and `deadline_ms` equals the validated value in the
    selected provider's configuration entry. Verify bounds appear only at
@@ -91,11 +91,8 @@ and FR-006-AC-5 through FR-006-AC-23.
    `TerminalValue::Declined { code }`. Send a valid response whose result has
    no current QSL terminal mapping; verify it remains typed and unmapped.
    These cases remain planned until the relevant QSL mapping is available.
-7. Send a request with a `package_id` that does not match the decoded package.
-   Verify the FR-331 response marks every routed item failed with code
-   `stale_dependency` and cause `content-mismatch`.
-8. Verify the `quire-cli` adapter preserves every routed item identity and the
-   typed diagnostic from the package-mismatch response.
+7. Retired: the package-id mismatch case no longer exists.
+8. Retired with step 7.
 9. Verify the driver's shared settlement path maps each failed routed item to
    QSL `TerminalValue::Failed`.
 10. Verify the shared settlement path carries the typed diagnostic separately
@@ -143,8 +140,8 @@ define or infer terminal mappings.
 ## Expected Results
 
 - Request fields are serialized by the `quire-cli` adapter from their named
-  owners: `package` and `package_id` from
-  the same `EmittedPackage`; `manifest` from the driver's registered-candidate
+  owners: `package` from
+  the `EmittedPackage`; `manifest` from the driver's registered-candidate
   records; `deadline_ms` unchanged from the selected provider's validated
   configuration entry; each
   item's request index, claim locus, kind, extent/bounds and candidate set from

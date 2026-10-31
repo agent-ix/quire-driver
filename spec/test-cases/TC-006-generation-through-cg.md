@@ -60,7 +60,7 @@ application, in occurrence-key order.
     unsupported before routing or generation.
 11. Drive the ordinary unit with caller-supplied FR-056 domain package
     documents and capture the typed evidence passed to IR's E5 reader.
-    Compare the reader's evidence with the supplied digest and complete
+    Compare the reader's evidence with the supplied identity and complete
     document bytes, plus the supported root feature.
 12. Planned; not exercised by the current test suite: drive an admitted checked package containing a bounded integer form
     that CG FR-019 currently marks implemented, and a separate admitted
@@ -139,8 +139,7 @@ The exact-node resolver cases are unit-tested in `src/drive.rs`:
 Steps 12 and 13 below describe planned evidence only; no current test exercises
 the rational projection or candidate-control cases.
 
-- The admitted package's `package_id` digest is the emitted `package_id`,
-  and it equals step 1's package.
+- The admitted package equals step 1's package.
 - The driver's generation output equals step 3's, with one item at request
   index 0 and the `kani` wire pair. Its record is `Supported` with a scalar
   harness ranging its one argument over `z`'s `[0, 9]` domain: QSL-261 is
@@ -151,7 +150,7 @@ the rational projection or candidate-control cases.
   claim as `Generated`; the whole claim map serializes.
 - Step 4's generation output equals the direct `generate_routed` call over
   the same routed item, whatever CG settles it.
-- Step 5: E5 admits both packages at their emitted `package_id`. A float
+- Step 5: E5 admits both packages. A float
   profile unit is not covered: no float parameter form this QSL revision
   admits was found.
 - Step 6: both items route and generate; nothing is rejected, and the
@@ -194,7 +193,7 @@ the rational projection or candidate-control cases.
   `Unsupported`/`ResultBoundUnreachable` (`quire.op.integer.add`, result
   `[0, 10]`, reachable `[100, 109]`). Neither item is routed or generated.
 - Step 11's E5 evidence contains every caller-supplied domain-package
-  document under the original digest and with the original bytes, and still
+  document under the original identity and with the original bytes, and still
   contains the supported root feature. Dropping or changing that evidence
   changes the typed value observed by the reader and fails the assertion.
 - Planned expectations for steps 12 and 13 (not currently exercised): future

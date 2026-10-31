@@ -5,7 +5,6 @@
 
 use qsl_foundation::diagnostic::StageFailure;
 use qsl_foundation::source::provenance::OccurrenceKey;
-use qsl_foundation::NodeKey;
 use qsl_foundation::{BackendId, Code, EmptyBackendIdentity};
 use qsl_package::ExportRefusal;
 use qsl_replay::spine::{BindRefusal, CompileRefusal, RunRefusal, SpineStage};
@@ -20,6 +19,7 @@ use quire_contract_model::{
     CheckedPackageRefusalCause, CheckedPackageRefusalCode,
 };
 use quire_exact::CancelCause;
+use quire_exact::NodeKey;
 use quire_semantic_value::catalog::Category;
 use quire_semantic_value::catalog::InternalFault;
 
@@ -38,7 +38,7 @@ pub enum DriverRefusal {
     #[error("linked FR-331 manifest must advertise at least one capability")]
     EmptyLinkedManifestAdvertisements,
     /// A provider manifest did not register. Every refusal, ordered by
-    /// backend identity then manifest digest.
+    /// backend identity.
     #[error("{} backend registration(s) refused", .0.len())]
     Registration(Vec<RegistrationRefusal>),
     /// S1 to S4, or the E4 emitter, refused the unit.
@@ -180,14 +180,6 @@ pub enum DriverFault {
     /// IR's reader refused the bytes QSL's E4 emitter just wrote.
     #[error("IR refused the emitted checked package: {:?}", .0.code)]
     HandoffRefused(Box<CheckedPackageRefusal>),
-    /// IR admitted the bytes at a `package_id` other than the emitted one.
-    #[error("IR admitted package {admitted}, not the emitted {emitted}")]
-    PackageIdMismatch {
-        /// The emitted `package_id` digest.
-        emitted: String,
-        /// The admitted `package_id` digest.
-        admitted: String,
-    },
     /// QSL admitted a linked manifest whose advertised pair was incomplete.
     #[error("QSL admitted a linked manifest with an incomplete advertised pair")]
     AdmittedManifestMissingLabel,
@@ -197,7 +189,7 @@ pub enum DriverFault {
     /// A routed item names a node the checked package does not hold.
     /// Every item's node comes from `CheckedPackage::graph().requirements()`,
     /// and `checked` is IR's own admission of the bytes that same package
-    /// emitted, at the same `package_id` -- so this can only happen if E4
+    /// emitted -- so this can only happen if E4
     /// emitted, or E5 admitted, a graph missing a node QSL's own requirement
     /// record names. Not a caller input: no request the driver builds from
     /// `items_from_requirements` can name a node outside its own package.
@@ -262,7 +254,11 @@ impl From<Box<EnvelopeRefusal>> for DriverRefusal {
                 let diagnostic = PackageReadDiagnostic {
                     code: package_read_refusal_code(source.code),
                     cause: source.cause.map(package_read_refusal_cause),
-                    location: source.path.clone().map(PackageReadLocation::JsonPath),
+                    location: source
+                        .loci
+                        .first()
+                        .and_then(|locus| locus.path.as_ref())
+                        .map(|path| PackageReadLocation::JsonPath(path.as_str().to_owned())),
                     locus: source.locus.clone(),
                     limit: None,
                 };
@@ -500,7 +496,7 @@ impl DriverRefusal {
     /// The catalog code, rendered `code` or `code/cause`.
     ///
     /// For [`DriverRefusal::Registration`] this is the first refusal's code
-    /// in (identity, manifest digest) order; each refusal in the vector
+    /// in identity order; each refusal in the vector
     /// carries its own `catalog_code()`.
     pub fn code(&self) -> String {
         match self {
@@ -598,8 +594,7 @@ impl DriverRefusal {
                 DriverFault::NativeExecutionLimitsMismatch | DriverFault::NativeReceiptMismatch,
             ) => DriverStage::Replay,
             Self::Fault(DriverFault::Spine { stage, .. }) => DriverStage::Compile(*stage),
-            Self::HandoffLimit(_)
-            | Self::Fault(DriverFault::HandoffRefused(_) | DriverFault::PackageIdMismatch { .. }) => {
+            Self::HandoffLimit(_) | Self::Fault(DriverFault::HandoffRefused(_)) => {
                 DriverStage::Handoff
             }
             Self::Generation(_)
@@ -754,6 +749,7 @@ fn package_read_refusal_code(code: CheckedPackageRefusalCode) -> &'static str {
         CheckedPackageRefusalCode::AmbiguousDeclaration => "ambiguous_declaration",
         CheckedPackageRefusalCode::MissingImport => "missing_import",
         CheckedPackageRefusalCode::UnknownProfile => "unknown_profile",
+        CheckedPackageRefusalCode::WrongSnapshot => "wrong_snapshot",
     }
 }
 
@@ -775,6 +771,10 @@ fn package_read_refusal_cause(cause: CheckedPackageRefusalCause) -> &'static str
         CheckedPackageRefusalCause::FeatureSetMismatch => "feature-set-mismatch",
         CheckedPackageRefusalCause::InsufficientNextCharge => "insufficient-next-charge",
         CheckedPackageRefusalCause::MissingName => "missing-name",
+        CheckedPackageRefusalCause::WrongObservation => "wrong-observation",
+        CheckedPackageRefusalCause::DeclarationForm => "declaration-form",
+        CheckedPackageRefusalCause::WrongExport => "wrong-export",
+        CheckedPackageRefusalCause::InvalidDerivedShape => "invalid-derived-shape",
         CheckedPackageRefusalCause::MalformedDeclaration => "malformed-declaration",
         CheckedPackageRefusalCause::UnknownOperation => "unknown-operation",
         CheckedPackageRefusalCause::OperationClassMismatch => "operation-class-mismatch",
@@ -871,12 +871,11 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
         RoutedGenerationError::Kani(KaniObligationError::TooManyItems { .. }) => {
             Code::ResourceExhausted
         }
-        RoutedGenerationError::ContractScalar(ContractScalarError::Request(error)) => {
-            package_request_code(error)
-        }
-        RoutedGenerationError::ContractScalar(ContractScalarError::Oracle(oracle)) => {
-            oracle_code(oracle)
-        }
+        RoutedGenerationError::ContractScalar(inner) => match inner.as_ref() {
+            ContractScalarError::Request(error) => package_request_code(error),
+            ContractScalarError::Oracle(oracle) => oracle_code(oracle),
+        },
+        RoutedGenerationError::UnauthenticatedOperationView { .. } => Code::RuntimeInvariant,
         RoutedGenerationError::MissingKindContext { .. }
         | RoutedGenerationError::Kani(
             KaniObligationError::InvalidSubjectPath | KaniObligationError::InvalidUnwind { .. },
@@ -887,7 +886,12 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
 /// The catalog code of a whole-generation FR-014 oracle failure.
 fn oracle_code(error: &OracleGenerationError) -> Code {
     match error {
-        OracleGenerationError::ContextPackageMismatch { .. } => Code::InvalidRequest,
+        OracleGenerationError::ContextPackageMismatch { .. }
+        | OracleGenerationError::ContextPackageContentMismatch
+        | OracleGenerationError::MissingOriginalCheckedPackage
+        | OracleGenerationError::ContractSourceMismatch => Code::InvalidRequest,
+        OracleGenerationError::CheckedPackageEncoding
+        | OracleGenerationError::UnauthenticatedRequestedRootKind { .. } => Code::RuntimeInvariant,
         OracleGenerationError::EnumReconstruction(_) => Code::InvalidPackage,
         OracleGenerationError::EnvironmentAdmission(failure) => match failure {
             quire_semantic_value::declaration::EnvironmentFailure::Refused(_) => {
@@ -976,15 +980,23 @@ fn generation_message(error: &RoutedGenerationError) -> String {
         RoutedGenerationError::Package(error) => {
             format!("the admitted package request was inconsistent: {error:?}")
         }
-        RoutedGenerationError::ContractScalar(ContractScalarError::Request(error)) => {
-            format!("the scalar package request was inconsistent: {error:?}")
-        }
-        RoutedGenerationError::ContractScalar(ContractScalarError::Oracle(error)) => {
-            format!(
-                "the derived claim map failed to generate: {}",
-                oracle_message(error)
-            )
-        }
+        RoutedGenerationError::ContractScalar(inner) => match inner.as_ref() {
+            ContractScalarError::Request(error) => {
+                format!("the scalar package request was inconsistent: {error:?}")
+            }
+            ContractScalarError::Oracle(error) => {
+                format!(
+                    "the derived claim map failed to generate: {}",
+                    oracle_message(error)
+                )
+            }
+        },
+        RoutedGenerationError::UnauthenticatedOperationView {
+            request_index,
+            node_id,
+        } => format!(
+            "request item {request_index} targets operation {node_id:?} without an authenticated operation view"
+        ),
         RoutedGenerationError::BackendKindDisagrees {
             request_index,
             backend,
@@ -1021,6 +1033,21 @@ fn oracle_message(error: &OracleGenerationError) -> String {
     match error {
         OracleGenerationError::ContextPackageMismatch { .. } => {
             format!("the selected command context does not belong to its package: {error:?}")
+        }
+        OracleGenerationError::ContextPackageContentMismatch => {
+            "the selected command context differs from the original checked package".to_owned()
+        }
+        OracleGenerationError::MissingOriginalCheckedPackage => {
+            "a command context was supplied without the original checked package".to_owned()
+        }
+        OracleGenerationError::ContractSourceMismatch => {
+            "the lowered contract package names a different original checked package".to_owned()
+        }
+        OracleGenerationError::CheckedPackageEncoding => {
+            "the original checked package could not be re-encoded for comparison".to_owned()
+        }
+        OracleGenerationError::UnauthenticatedRequestedRootKind { request_index, .. } => {
+            format!("request item {request_index} has a root kind a plain read cannot authenticate")
         }
         OracleGenerationError::EnumReconstruction(_) => {
             format!("the admitted enum graph could not be reconstructed: {error:?}")
@@ -1107,7 +1134,6 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 mod tests {
     use ix_trace_rs::trace;
     use qsl_foundation::EmptyBackendIdentity;
-    use qsl_foundation::NodeKey;
     use quire_contract_codegen::{
         ContractNegotiationError, ContractPackageIncompleteProjection,
         ContractPackageRefusalProjection, ContractScalarError, EnvelopeRefusal, HarnessPath,
@@ -1115,14 +1141,30 @@ mod tests {
         ModuleSymbol, OracleGenerationError, PackageRequestError, RoutedGenerationError,
         ScalarOracleStopKind,
     };
-    use quire_contract_model::{CheckedNodeId, CheckedSemanticId};
     use quire_contract_model::{
-        CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusalCause,
-        CheckedPackageRefusalCode,
+        CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusalCause,
+        CheckedPackageRefusalCode, CheckedPackageRefusalLocation, JsonPointer,
     };
+    use quire_exact::NodeKey;
     use quire_semantic_value::catalog::Category;
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    fn node_id(name: &str) -> CheckedNodeId {
+        serde_json::from_value(serde_json::json!({
+            "package": "pkg",
+            "path": [name],
+            "ordinal": 0,
+        }))
+        .expect("a structural node identity")
+    }
+
+    fn loci(path: Option<&str>) -> Vec<CheckedPackageRefusalLocation> {
+        vec![CheckedPackageRefusalLocation {
+            path: path.map(|path| JsonPointer::parse(path).expect("a valid pointer")),
+            source_region: None,
+        }]
+    }
 
     // Typed upstream-error projections, not admission or solver-origin fixtures.
     #[trace("TC-004", "FR-001-AC-5")]
@@ -1137,13 +1179,8 @@ mod tests {
         let cases = [
             (
                 OracleGenerationError::ContextPackageMismatch {
-                    expected: CheckedSemanticId {
-                        domain: "quire.contract-package/v2".into(),
-                        algorithm: "sha-256".into(),
-                        digest: "expected-package".into(),
-                    },
-                    actual_domain: "other-domain".to_owned(),
-                    actual_digest: "actual-package".to_owned(),
+                    expected: "expected-package".into(),
+                    actual: "other-package".to_owned(),
                 },
                 "invalid-request",
                 OutcomeKind::Refused,
@@ -1190,7 +1227,7 @@ mod tests {
         for (error, code, kind) in cases {
             let payload = format!("{error:?}");
             let refusal = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(
-                ContractScalarError::Oracle(error.clone()),
+                Box::new(ContractScalarError::Oracle(error.clone())),
             ));
             assert_eq!(refusal.code(), code, "{error:?}");
             assert_eq!(refusal.kind(), kind, "{error:?}");
@@ -1207,9 +1244,9 @@ mod tests {
             ) {
                 assert!(!refusal.to_string().contains("configured_bound"));
             }
-            assert!(matches!(refusal, DriverRefusal::Generation(
-                RoutedGenerationError::ContractScalar(ContractScalarError::Oracle(actual))
-            ) if actual == error));
+            assert!(matches!(&refusal, DriverRefusal::Generation(
+                RoutedGenerationError::ContractScalar(inner)
+            ) if matches!(inner.as_ref(), ContractScalarError::Oracle(actual) if *actual == error)));
         }
     }
 
@@ -1251,16 +1288,14 @@ mod tests {
         for (cause, spelling) in cases {
             let projection = ContractPackageRefusalProjection {
                 code: CheckedPackageRefusalCode::InvalidPackage,
-                path: Some("/package/nodes/0".to_owned()),
+                loci: loci(Some("/package/nodes/0")),
                 cause: Some(cause),
-                locus: Some(CheckedNodeId {
-                    domain: "quire.node/v2".into(),
-                    digest: "node".into(),
-                }),
+                locus: Some(node_id("node")),
                 contract_version: Some("2.0.0".to_owned()),
                 document_pointer: Some("/package/nodes/0".to_owned()),
-                expected: None,
-                actual: None,
+                extension_detail: None,
+                protocol_detail: None,
+                terminal_duplicate: None,
             };
             let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadRefused {
                 refusal: projection.clone(),
@@ -1277,10 +1312,7 @@ mod tests {
     #[trace("FR-001-AC-16")]
     #[test]
     fn excluded_package_position_is_an_internal_join_fault_at_every_cg_boundary() {
-        let node_id = CheckedNodeId {
-            domain: "quire.checked-semantic-node/v1".into(),
-            digest: "0".repeat(64).into(),
-        };
+        let node_id = node_id("node");
         let excluded = PackageRequestError::ExcludedDriverIndex {
             request_index: 1,
             node_id,
@@ -1291,10 +1323,12 @@ mod tests {
         assert_eq!(direct.kind(), OutcomeKind::Fault);
         for error in [
             RoutedGenerationError::Package(excluded.clone()),
-            RoutedGenerationError::ContractScalar(ContractScalarError::Request(excluded.clone())),
-            RoutedGenerationError::ContractScalar(ContractScalarError::Oracle(
+            RoutedGenerationError::ContractScalar(Box::new(ContractScalarError::Request(
+                excluded.clone(),
+            ))),
+            RoutedGenerationError::ContractScalar(Box::new(ContractScalarError::Oracle(
                 OracleGenerationError::PackageRequest(excluded.clone()),
-            )),
+            ))),
         ] {
             let refusal = DriverRefusal::Generation(error);
             assert_eq!(refusal.code(), "runtime_invariant");
@@ -1337,8 +1371,11 @@ mod tests {
             KaniScalarNativeErrorClass::CompletionRefusal
         );
 
-        let fault = DriverRefusal::ScalarNative(KaniScalarNativeError::CodegenLock);
-        assert_eq!(fault.code(), "codegen_lock");
+        let fault = DriverRefusal::ScalarNative(KaniScalarNativeError::DependencyLock {
+            expected: "owner".to_owned(),
+            actual: None,
+        });
+        assert_eq!(fault.code(), "dependency_lock");
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.stage(), DriverStage::Replay);
     }
@@ -1346,10 +1383,7 @@ mod tests {
     #[test]
     #[trace("FR-001-AC-16", "TC-006")]
     fn excluded_generation_index_is_an_internal_join_fault() {
-        let node_id = CheckedNodeId {
-            domain: "quire.checked-semantic-node/v1".into(),
-            digest: "excluded".into(),
-        };
+        let node_id = node_id("node");
         let refusal = DriverRefusal::Generation(RoutedGenerationError::ExcludedDriverIndex {
             request_index: 1,
             node_id: node_id.clone(),
@@ -1376,42 +1410,30 @@ mod tests {
     #[trace("TC-004", "FR-001-AC-22")]
     #[test]
     fn cg_package_read_refusal_preserves_projection_and_maps_its_typed_code_and_cause() {
-        let expected = CheckedSemanticId {
-            domain: "quire.contract-expected/v1".into(),
-            algorithm: "sha-256".into(),
-            digest: "0".repeat(64).into(),
-        };
-        let actual = CheckedSemanticId {
-            domain: "quire.contract-actual/v1".into(),
-            algorithm: "sha-256".into(),
-            digest: "1".repeat(64).into(),
-        };
         let projection = ContractPackageRefusalProjection {
-            code: CheckedPackageRefusalCode::StaleDependency,
-            path: Some("/package/dependencies/0".to_owned()),
-            cause: Some(CheckedPackageRefusalCause::ContentMismatch),
-            locus: Some(quire_contract_model::CheckedNodeId {
-                domain: "quire.checked-semantic-node/v1".into(),
-                digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
-            }),
+            code: CheckedPackageRefusalCode::WrongSnapshot,
+            loci: loci(Some("/package/dependencies/0")),
+            cause: Some(CheckedPackageRefusalCause::WrongObservation),
+            locus: Some(node_id("node")),
             contract_version: Some("2.0.0".to_owned()),
             document_pointer: Some("/package/dependencies/0".to_owned()),
-            expected: Some(expected.clone()),
-            actual: Some(actual.clone()),
+            extension_detail: None,
+            protocol_detail: None,
+            terminal_duplicate: None,
         };
         let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadRefused {
             refusal: projection.clone(),
         });
 
-        assert_eq!(refusal.code(), "stale_dependency");
-        assert_eq!(refusal.package_read_cause(), Some("content-mismatch"));
+        assert_eq!(refusal.code(), "wrong_snapshot");
+        assert_eq!(refusal.package_read_cause(), Some("wrong-observation"));
         assert_eq!(refusal.qsl_category(), Some(Category::Refusal));
         assert_eq!(refusal.kind(), OutcomeKind::Refused);
         assert_eq!(refusal.stage(), DriverStage::PackageRead);
         assert_eq!(refusal.package_read_refusal_projection(), Some(&projection));
         let diagnostic = refusal.package_read_diagnostic().unwrap();
-        assert_eq!(diagnostic.code(), "stale_dependency");
-        assert_eq!(diagnostic.cause(), Some("content-mismatch"));
+        assert_eq!(diagnostic.code(), "wrong_snapshot");
+        assert_eq!(diagnostic.cause(), Some("wrong-observation"));
         assert_eq!(diagnostic.category(), Category::Refusal);
         assert_eq!(diagnostic.stage(), DriverStage::PackageRead);
         assert_eq!(
@@ -1421,9 +1443,6 @@ mod tests {
             ))
         );
         assert_eq!(diagnostic.locus(), projection.locus.as_ref());
-        let retained = refusal.package_read_refusal_projection().unwrap();
-        assert_eq!(retained.expected.as_ref(), Some(&expected));
-        assert_eq!(retained.actual.as_ref(), Some(&actual));
         assert!(matches!(
             refusal,
             DriverRefusal::PackageRead(failure)
@@ -1432,13 +1451,14 @@ mod tests {
 
         let projection_without_optional_payloads = ContractPackageRefusalProjection {
             code: CheckedPackageRefusalCode::MalformedWire,
-            path: None,
+            loci: loci(None),
             cause: None,
             locus: None,
             contract_version: None,
             document_pointer: None,
-            expected: None,
-            actual: None,
+            extension_detail: None,
+            protocol_detail: None,
+            terminal_duplicate: None,
         };
         let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadRefused {
             refusal: projection_without_optional_payloads.clone(),
@@ -1457,13 +1477,14 @@ mod tests {
 
         let invalid_value_projection = ContractPackageRefusalProjection {
             code: CheckedPackageRefusalCode::InvalidPackage,
-            path: Some("/package/cause".to_owned()),
+            loci: loci(Some("/package/cause")),
             cause: Some(CheckedPackageRefusalCause::InvalidValue),
             locus: None,
             contract_version: None,
             document_pointer: Some("/package/cause".to_owned()),
-            expected: None,
-            actual: None,
+            extension_detail: None,
+            protocol_detail: None,
+            terminal_duplicate: None,
         };
         let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadRefused {
             refusal: invalid_value_projection,
@@ -1595,13 +1616,12 @@ mod tests {
             (
                 RoutedGenerationError::ExcludedDriverIndex {
                     request_index: 1,
-                    node_id: quire_contract_model::CheckedNodeId {
-                        domain: "quire.checked-semantic-node/v1".into(),
-                        digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                            .into(),
-                    },
+                    node_id: node_id("node"),
                 },
-                "CG generation refused the routed items: request item 1 targets excluded driver position CheckedNodeId { domain: \"quire.checked-semantic-node/v1\", digest: \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\" }",
+                format!(
+                    "CG generation refused the routed items: request item 1 targets excluded driver position {:?}",
+                    node_id("node")
+                ),
             ),
             (
                 RoutedGenerationError::DuplicateHarness {
@@ -1610,21 +1630,21 @@ mod tests {
                         harness: HarnessSymbol::try_from("proof").expect("valid harness"),
                     },
                 },
-                "CG generation refused the routed items: Kani harness `subject::proof` is emitted more than once",
+                "CG generation refused the routed items: Kani harness `subject::proof` is emitted more than once".to_owned(),
             ),
             (
                 RoutedGenerationError::KaniRecordCountMismatch {
                     records: 1,
                     items: 2,
                 },
-                "CG generation refused the routed items: Kani returned 1 record(s) for 2 item(s)",
+                "CG generation refused the routed items: Kani returned 1 record(s) for 2 item(s)".to_owned(),
             ),
             (
                 RoutedGenerationError::KaniDuplicatePositionOutOfRange {
                     first_index: 3,
                     items: 2,
                 },
-                "CG generation refused the routed items: Kani duplicate position 3 is outside 2 item(s)",
+                "CG generation refused the routed items: Kani duplicate position 3 is outside 2 item(s)".to_owned(),
             ),
         ] {
             let refusal = DriverRefusal::Generation(error);
@@ -1654,14 +1674,6 @@ mod tests {
         assert_eq!(fault.code(), "runtime_invariant");
         assert_eq!(fault.stage(), DriverStage::Conversion);
 
-        let fault = DriverRefusal::Fault(DriverFault::PackageIdMismatch {
-            emitted: "a".to_owned(),
-            admitted: "b".to_owned(),
-        });
-        assert_eq!(fault.kind(), OutcomeKind::Fault);
-        assert_eq!(fault.code(), "runtime_invariant");
-        assert_eq!(fault.stage(), DriverStage::Handoff);
-
         let fault = DriverRefusal::Generation(RoutedGenerationError::DuplicateRequestIndex {
             request_index: 0,
         });
@@ -1672,18 +1684,18 @@ mod tests {
         // IR-294: a whole-generation FR-014 oracle failure the driver never
         // produces is still an internal fault, not a refusal: an unknown
         // Contract Runtime variant and a claim-map serialization failure.
-        let fault = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(
+        let fault = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(Box::new(
             ContractScalarError::Oracle(OracleGenerationError::UnknownRuntimeVariant {
                 enum_name: "IntegerDomain",
             }),
-        ));
+        )));
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.code(), "runtime_invariant");
         assert_eq!(fault.stage(), DriverStage::Generation);
 
-        let fault = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(
+        let fault = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(Box::new(
             ContractScalarError::Oracle(OracleGenerationError::ClaimMapSerialization),
-        ));
+        )));
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.code(), "runtime_invariant");
         assert_eq!(fault.stage(), DriverStage::Generation);
@@ -1694,7 +1706,12 @@ mod tests {
         // broken invariant between emission and admission reaches this.
         let fault = DriverRefusal::Fault(DriverFault::UnknownNode {
             request_index: 1,
-            node: WireNodeId::from_digest([9; 32]),
+            node: NodeKey::new(
+                "pkg".to_owned(),
+                vec![quire_exact::PathSegment::Text("n".to_owned())],
+                0,
+            )
+            .expect("a fixture key is admissible"),
         });
         assert_eq!(fault.kind(), OutcomeKind::Fault);
         assert_eq!(fault.code(), "runtime_invariant");
@@ -1724,13 +1741,13 @@ mod tests {
 
         // IR-294: an oversized generated oracle source is a limit, the same
         // as the Kani item ceiling.
-        let limit = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(
+        let limit = DriverRefusal::Generation(RoutedGenerationError::ContractScalar(Box::new(
             ContractScalarError::Oracle(OracleGenerationError::SourceTooLarge {
                 bytes: 2,
                 limit: 1,
                 setting: "cg.scalar.source_bytes",
             }),
-        ));
+        )));
         assert_eq!(limit.kind(), OutcomeKind::Limit);
         assert_eq!(limit.code(), "resource_exhausted");
         assert_eq!(limit.stage(), DriverStage::Generation);

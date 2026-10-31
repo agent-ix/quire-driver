@@ -51,9 +51,10 @@ pub struct CompileInput<'a> {
     pub path: &'a str,
     /// The unit's complete-V1 source bytes.
     pub bytes: &'a [u8],
-    /// FR-056's package input: domain package documents by `sha256-jcs`
-    /// digest.
-    pub packages: &'a BTreeMap<[u8; 32], Vec<u8>>,
+    /// The checked package's name; QSL's check names the package it builds.
+    pub package_name: &'a str,
+    /// FR-056's package input: domain package documents by model identity.
+    pub packages: &'a qsl_semantics::model::intake::PackageInput,
     /// The S1 to S3 stage limits.
     pub limits: SpineLimits,
     /// The caller-owned QSL cancellation handle. Pass a clone when the caller
@@ -133,10 +134,9 @@ pub struct Driven {
     pub item_refusals: Vec<ItemRefusal>,
     /// The S4 in-process package.
     package: CheckedUnit,
-    /// The E4 wire output: v2 bytes and `package_id`.
+    /// The E4 wire output: the v2 bytes.
     emitted: EmittedPackage,
-    /// E5: the emitted bytes as IR's reader admitted them, at the emitted
-    /// `package_id`.
+    /// E5: the emitted bytes as IR's reader admitted them.
     checked: CheckedPackageV2,
     /// CG's settlement of each export-bound item, in driver request order.
     pub settlements: Vec<ContractItemSettlement>,
@@ -309,12 +309,13 @@ pub fn drive(
         input.source.clone(),
         input.path,
         input.bytes,
+        input.package_name,
         input.packages,
         input.limits,
         &input.cancel,
     )?;
     let emitted = emitted_unit.package().clone();
-    // E5: IR admits the emitted bytes at the emitted `package_id`.
+    // E5: IR admits the emitted bytes.
     let checked = handoff(
         upstream,
         &models,
@@ -489,7 +490,7 @@ fn execute_scalar_items(
             .ok_or_else(|| DriverRefusal::Fault(DriverFault::NativeReceiptMismatch))?;
         let occurrence = ScalarOccurrence {
             function: scalar.call.function.clone(),
-            application: item.node(),
+            application: item.node().clone(),
             occurrence: item.occurrence().clone(),
         };
         let bound = match qsl_replay::spine::bind_scalar_operands(
@@ -926,7 +927,6 @@ mod scalar_receipt_tests {
 mod native_receipt_integration_tests {
     use super::*;
     use qsl_replay::spine::{default_accounting, CallArgument};
-    use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_contract_codegen::{KaniInstallation, ProofCeilings};
     use quire_exact::{Integer, Value};
     use std::io::Write as _;
@@ -978,12 +978,10 @@ mod native_receipt_integration_tests {
     #[test]
     #[ignore = "kani lane: paired proof/native execution uses the installed Kani backend"]
     fn successful_native_receipt_is_authenticated_against_retained_limits() {
-        let lock = DefinitionLock::pinned();
-        let root = lock.entry(CatalogRole::Root);
         let source = format!(
             "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
              function inc using v(x: Int[4, 4]): Int[5, 5] pure {{ x + 1 }}\n",
-            root.identity
+            "quire.value.complete/v1"
         );
         let packages = BTreeMap::new();
         let cancel = Cancel::new();
@@ -1033,6 +1031,7 @@ mod native_receipt_integration_tests {
             &crate::upstream::QslCg,
             CompileInput {
                 source: SourceIdentity::new("agent-ix", "ir-773", "native-receipt", "1"),
+                package_name: "native-receipt",
                 path: "native-receipt.native",
                 bytes: source.as_bytes(),
                 packages: &packages,
@@ -1197,7 +1196,7 @@ fn envelope(
             ),
         };
         candidate_sets.push(set);
-        let kani_form = project_kani_form(checked, &item.node(), request_index, lowered)?;
+        let kani_form = project_kani_form(checked, item.node(), request_index, lowered)?;
         request_items.push(cg::RequestItem {
             kind,
             extent,
@@ -1224,7 +1223,7 @@ fn envelope(
 /// source form. The form is source evidence, never a driver classification.
 fn project_kani_form(
     checked: &CheckedPackageV2,
-    node: &qsl_foundation::NodeKey,
+    node: &quire_exact::NodeKey,
     request_index: usize,
     lowered: &LoweredDriverRequest,
 ) -> Result<cg::KaniForm, DriverRefusal> {
@@ -1248,7 +1247,7 @@ fn project_kani_form(
 
 fn resolve_checked_node<'a>(
     nodes: impl Iterator<Item = &'a CheckedNodeId>,
-    node: &qsl_foundation::NodeKey,
+    node: &quire_exact::NodeKey,
     request_index: usize,
 ) -> Result<&'a CheckedNodeId, DriverRefusal> {
     let unknown = || {
@@ -1311,8 +1310,8 @@ fn project_descriptor(
 
 #[cfg(test)]
 mod kani_form_projection_tests {
-    use qsl_foundation::NodeKey;
     use quire_contract_model::CheckedNodeId;
+    use quire_exact::NodeKey;
     use quire_exact::PathSegment;
 
     use super::resolve_checked_node;

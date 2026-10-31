@@ -444,7 +444,6 @@ mod tests {
         OutcomeDocument, OutcomeItem, OutcomeStage, ProofBasis, ReplayLimits, StageLimits,
         TerminalValue,
     };
-    use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_contract_codegen::{
         Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver, MemoryMechanism,
         MemoryObservation, ProofCeilings, SymbolicArgumentBounds, SymbolicBounds,
@@ -479,9 +478,12 @@ mod tests {
             profile v = \"quire.value.complete/v1\";\n\
             function f using v(x: Int[0, 9]): Boolean pure { x + 1 < 10 }\n";
             let compiled = compile_package(
-                SourceIdentity::new("driver-test", "provider.native", "git", "fixture"),
-                "provider.native",
-                source.as_bytes(),
+                qsl_replay::CompileUnit {
+                    source: SourceIdentity::new("driver-test", "provider.native", "git", "fixture"),
+                    package_name: "provider".to_owned(),
+                    path: "provider.native",
+                    bytes: source.as_bytes(),
+                },
                 [],
                 &DependencyInput::default(),
                 StageLimits::default(),
@@ -713,13 +715,11 @@ mod tests {
     }
 
     fn generated_routed_item() -> RoutedItemOutput {
-        let lock = DefinitionLock::pinned();
-        let root = lock.entry(CatalogRole::Root);
         let source = format!(
             "language \"ix:native\" edition \"1-draft\";\n\
              profile v = \"{}\";\n\
              function f using v(x: Int[0, 9]): Int[0, 10] pure {{ x + 1 }}\n",
-            root.identity
+            "quire.value.complete/v1"
         );
         let packages = BTreeMap::new();
         let registry = crate::build_registry(&[ProviderManifest {
@@ -734,6 +734,7 @@ mod tests {
             &crate::QslCg,
             CompileInput {
                 source: SourceIdentity::new("driver-test", "provider.native", "git", "fixture"),
+                package_name: "provider",
                 path: "provider.native",
                 bytes: source.as_bytes(),
                 packages: &packages,

@@ -965,6 +965,7 @@ mod tests {
             CacheExclusion::ContainsWallTime,
         ];
         for (index, reason) in exclusions.into_iter().enumerate() {
+            let excluded_bytes = format!(r#"{{"items":[],"work_limit":{}}}"#, 21 + index);
             let excluded_registry =
                 quire_driver::build_registry(&[quire_driver::ProviderManifest {
                     identity: backend.as_str().to_owned(),
@@ -977,7 +978,8 @@ mod tests {
                     wire: None,
                 }])
                 .expect("excluded descriptor is admitted");
-            let excluded_request = admitted_request(&excluded_registry, &backend, request_bytes);
+            let excluded_request =
+                admitted_request(&excluded_registry, &backend, excluded_bytes.as_bytes());
             assert_eq!(
                 Cache::record(
                     &store,

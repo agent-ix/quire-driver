@@ -22,9 +22,8 @@ CA-5. It is a separate package and SHALL depend on the driver interface; the
 ## Inputs
 
 - `CacheRequest`: operation (`prove`, `analyze` or `generate`), package
-  identity, canonical typed request, selected `qsl_route::BackendId`, the
-  registry-admitted `qsl_route::ManifestDigest`, and for `generate` the target
-  and output-affecting options.
+  identity, canonical typed request, selected `qsl_route::BackendId`, and for
+  `generate` the target and output-affecting options.
 - A caller-named storage directory, maximum entry size and total stored-byte
   limit, plus the typed value reader for the requested result.
 - An eligible typed result for insertion.
@@ -43,13 +42,9 @@ CA-5. It is a separate package and SHALL depend on the driver interface; the
 ## Behavior
 
 - The cache key SHALL be SHA-256 over JCS of an object with members `operation`,
-  `package_id`, `request`, `backend`, `manifest`, and `target` for `generate`
-  only. `backend` is the identity string from `BackendId`; `manifest` is the
-  admitted `ManifestDigest`, using QSL's canonical serialization for that
-  typed digest. The cache SHALL use the `ManifestDigest` value supplied by the
-  registry descriptor and SHALL NOT rehash the manifest or invent a separate
-  digest spelling. QSL-636 amends QSpec FR-201/FR-306 and ADR-029 CA-2 to
-  require this content identity in the key.
+  `package_id`, `request`, `backend`, and `target` for `generate` only.
+  `backend` is the identity string from `BackendId`. The key carries no
+  manifest member. Behaviour change: the driver no longer carries a provider manifest digest. A provider upgrade under the same `BackendId` does not invalidate cached results; operators clear the cache when a provider's behaviour changes.
 - The cache represents generation target and output-affecting options in the
   `target` member. For other operations, the cache omits that member. When
   deriving a key, the cache SHALL exclude paths, timestamps, deadlines,
@@ -85,8 +80,8 @@ CA-5. It is a separate package and SHALL depend on the driver interface; the
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-012-AC-1 | The key preimage is JCS with operation, package identity, canonical request, backend identity and the QSL-serialized `ManifestDigest`; `generate` also has a target member. | Test (TC-020) |
-| FR-012-AC-2 | Given identical other key members, different admitted `ManifestDigest` values produce different cache keys. | Test (TC-020) |
+| FR-012-AC-1 | The key preimage is JCS with operation, package identity, canonical request and backend identity; `generate` also has a target member. | Test (TC-020) |
+| FR-012-AC-2 | Retired: the manifest digest is no longer key material. Given identical key members, the cache key is the same regardless of the provider manifest. | Test (TC-020) |
 | FR-012-AC-3 | Changing a meaning input changes the derived key. | Test (TC-020) |
 | FR-012-AC-4 | Changing top-level excluded path, time, deadline, pin, revision, application version or execution-backend label leaves the key unchanged; nested operation-request fields retain their meaning. | Test (TC-020) |
 | FR-012-AC-5 | The `target` member occurs for generate and is absent for prove and analyze. | Test (TC-020) |
@@ -101,8 +96,7 @@ CA-5. It is a separate package and SHALL depend on the driver interface; the
 
 ## Dependencies
 
-- QSL ADR-029 CA-1 through CA-5 and QSL-636 (QSpec FR-201/FR-306 and ADR-029
-  CA-2 cache-key clarification).
+- QSL ADR-029 CA-1 through CA-5.
 - [FR-007](./FR-007-cache-results-by-content-identity.md) defines the required
   driver-owned interface; this package implements it downstream.
 - [TC-020](../test-cases/TC-020-cache-content-identity.md),

@@ -57,7 +57,7 @@ pub(crate) struct ProcessProviderOutcome {
 /// The call-selected QSL items, verified against the exact package and driver
 /// request that produced the routed generation.
 pub(crate) struct CallItemProjection {
-    pub(crate) package_id: qsl_semantics::library::PackageId,
+    pub(crate) package_name: String,
     pub(crate) items: Vec<RequirementItem>,
     pub(crate) routed: Vec<RoutedItemOutput>,
 }
@@ -75,15 +75,15 @@ pub(crate) enum CallItemProjectionError {
 }
 
 /// Join QSL's call-aware members to the exact retained driver request items.
-/// The package id is checked before using request indices, then every selected
+/// The package name is checked before using request indices, then every selected
 /// occurrence must match; package-wide items outside the selected call are
 /// excluded from the returned sidecar.
 pub(crate) fn project_call_items(
-    package_id: qsl_semantics::library::PackageId,
+    package_name: &str,
     requirements: &CallRequirements,
     driven: &quire_driver::Driven,
 ) -> Result<CallItemProjection, CallItemProjectionError> {
-    if package_id != requirements.package_id() || package_id != driven.emitted().package_id() {
+    if package_name != driven.emitted().name() {
         return Err(CallItemProjectionError::PackageMismatch);
     }
 
@@ -122,7 +122,7 @@ pub(crate) fn project_call_items(
         }
     }
     Ok(CallItemProjection {
-        package_id,
+        package_name: package_name.to_owned(),
         items,
         routed,
     })
@@ -483,7 +483,6 @@ mod tests {
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::{default_accounting, Call, CallArgument, DependencyInput, SpineLimits};
     use qsl_route::{descriptor_from_manifest, BackendDescriptor, Candidate, ProviderOrigin};
-    use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_driver::{
         build_linked_providers, drive, CompileInput, GenerationInput, ProcessProvider,
         ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession, ProviderItemResult,
@@ -499,14 +498,11 @@ mod tests {
     #[test]
     fn configured_call_projection_sends_only_its_correlated_routed_items() {
         use crate::backend_provider::ManifestStage;
-
-        let lock = DefinitionLock::pinned();
-        let root = lock.entry(CatalogRole::Root);
         let bytes = format!(
             "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
              function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
              function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
-            root.identity
+            "quire.value.complete/v1"
         );
         let source = SourceIdentity::new("agent-ix", "configured-call", "git", "1");
         let path = "configured-call.native";
@@ -532,6 +528,7 @@ mod tests {
         let objects = qsl_semantics::model::object_environment::ObjectEnvironment::default();
         let call_run = qsl_replay::run_with_requirements(
             source.clone(),
+            "configured-call".to_owned(),
             path,
             bytes.as_bytes(),
             &packages,
@@ -563,6 +560,7 @@ mod tests {
             &QslCg,
             CompileInput {
                 source,
+                package_name: "configured-call",
                 path,
                 bytes: bytes.as_bytes(),
                 packages: &packages,
@@ -575,16 +573,19 @@ mod tests {
         )
         .expect("the same source is negotiated and generated once by the driver");
 
-        assert_eq!(call_run.package_id(), driven.emitted().package_id());
+        assert_eq!(call_run.package_name().as_str(), driven.emitted().name());
         assert_eq!(call_run.requirements().members().len(), 1);
         assert_eq!(
             driven.request_items.len(),
             2,
             "the package has two functions"
         );
-        let projection =
-            project_call_items(call_run.package_id(), call_run.requirements(), &driven)
-                .expect("same-package call items join the retained driver request");
+        let projection = project_call_items(
+            call_run.package_name().as_str(),
+            call_run.requirements(),
+            &driven,
+        )
+        .expect("same-package call items join the retained driver request");
         assert_eq!(projection.items.len(), 1);
         assert_eq!(projection.routed.len(), 1);
         let member = &call_run.requirements().members()[0];
@@ -637,13 +638,14 @@ mod tests {
                 .advertises
                 .iter()
                 .map(|(kind, mode)| (kind.as_deref(), mode.as_deref())),
-            manifest
-                .domains
-                .as_deref()
-                .map(|domains| domains.iter().map(String::as_str).collect::<Vec<_>>())
-                .as_deref(),
-            None,
-            None,
+            qsl_route::ManifestMembers {
+                domains: manifest
+                    .domains
+                    .as_deref()
+                    .map(|domains| domains.iter().map(String::as_str).collect::<Vec<_>>())
+                    .as_deref(),
+                ..qsl_route::ManifestMembers::default()
+            },
         )
         .map_err(|error| format!("{error:?}"))?;
         let retained = ProviderManifest {

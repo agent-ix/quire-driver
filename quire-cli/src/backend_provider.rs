@@ -341,6 +341,9 @@ pub enum RequestStageError {
     /// A QSL request index cannot be represented by the FR-331 integer contract.
     #[error("a QSL request index cannot be represented by FR-331")]
     QslRequestIndex,
+    /// A QSL node key could not be written as its structural wire object.
+    #[error("a QSL node identity cannot be written as an FR-331 node object")]
+    NodeIdentity,
     /// A routed provider is absent from the retained registry manifest.
     #[error("the routed backend is absent from the retained FR-331 manifest")]
     RoutedBackendMissing,
@@ -431,8 +434,7 @@ impl RequestStage {
 
     /// Build the wire request from an emitted package and typed routed inputs.
     ///
-    /// `package_id` is copied from the emitter's `EmittedPackage`; the driver
-    /// never recomputes package identity from the bytes. `manifest` comes from
+    /// `manifest` comes from
     /// retained decoded provider-manifest DTOs, not from QSL registry
     /// descriptors, which intentionally omit optional FR-331 members.
     pub fn from_emitted(
@@ -456,7 +458,6 @@ impl RequestStage {
         if manifest.is_empty() || items.is_empty() {
             return Err(RequestStageError::EmptyRequest);
         }
-        let package_id = package.package_id().record();
         Ok(Self {
             contract_version: CONTRACT_VERSION,
             capability_vocabulary: CAPABILITY_VOCABULARY,
@@ -466,11 +467,6 @@ impl RequestStage {
                 .collect::<Result<Vec<_>, _>>()?,
             request: RequestBody {
                 package: encode_package_bytes(package.bytes()),
-                package_id: PackageIdWire {
-                    domain: package_id.domain().as_str(),
-                    algorithm: "sha256",
-                    digest: package_id.hex(),
-                },
                 deadline_ms,
                 items,
                 dependencies: None,
@@ -538,8 +534,6 @@ fn valid_hex_digest(digest: &str) -> bool {
 pub struct RequestBody {
     /// RFC 8785 emitted package bytes encoded as unpadded base64url.
     pub package: String,
-    /// The emitter-owned package identity beside its bytes.
-    pub package_id: PackageIdWire,
     /// Caller-supplied provider deadline in milliseconds.
     pub deadline_ms: u64,
     /// Routed items; their indices and candidates come from CG's routing seam.
@@ -553,17 +547,6 @@ pub struct RequestBody {
     /// Memory-model selections supplied by the owning request layer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<Vec<Value>>,
-}
-
-/// FR-331 checked-package identity wire record.
-#[derive(Clone, Debug, Serialize)]
-pub struct PackageIdWire {
-    /// QSpec package identity domain.
-    pub domain: &'static str,
-    /// The fixed digest algorithm.
-    pub algorithm: &'static str,
-    /// Lowercase hexadecimal digest from the emitted package identity.
-    pub digest: String,
 }
 
 /// One FR-331 request item, with its QSpec-owned claim and candidate values.
@@ -602,18 +585,9 @@ pub struct RequestItem {
 #[derive(Clone, Debug, Serialize)]
 pub struct RequestClaim {
     /// Stable identity of the checked semantic node.
-    pub node: RequestClaimNode,
+    pub node: Value,
     /// Source occurrence that distinguishes repeated uses of the same node.
     pub occurrence: RequestClaimOccurrence,
-}
-
-/// Checked-node identity in the FR-331 wire format.
-#[derive(Clone, Debug, Serialize)]
-pub struct RequestClaimNode {
-    /// QSpec checked-node identity domain.
-    pub domain: &'static str,
-    /// Canonical checked-node digest.
-    pub digest: String,
 }
 
 /// QSL source occurrence identity in the FR-331 wire format.
@@ -652,10 +626,8 @@ impl RequestItem {
             u64::try_from(item.index().get()).map_err(|_| RequestStageError::QslRequestIndex)?;
         let origin = item.occurrence().origin();
         let claim = RequestClaim {
-            node: RequestClaimNode {
-                domain: "quire.checked-semantic-node/v1",
-                digest: item.node().to_string(),
-            },
+            node: qsl_foundation::node_wire::node_key_to_json(item.node())
+                .map_err(|_| RequestStageError::NodeIdentity)?,
             occurrence: RequestClaimOccurrence {
                 role: origin.role().as_str().to_owned(),
                 ordinal: origin.ordinal(),
@@ -904,7 +876,6 @@ mod tests {
     use super::*;
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::SpineLimits;
-    use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_contract_codegen as cg;
     use quire_driver::{
         build_linked_providers, build_registry, drive, CompileInput, GenerationInput, QslCg,
@@ -940,7 +911,8 @@ mod tests {
             source: qsl_foundation::SourceIdentity,
             path: &str,
             bytes: &[u8],
-            packages: &BTreeMap<[u8; 32], Vec<u8>>,
+            package_name: &str,
+            packages: &qsl_semantics::model::intake::PackageInput,
             limits: SpineLimits,
             cancel: &Cancel,
         ) -> Result<
@@ -951,7 +923,7 @@ mod tests {
             ),
             DriverRefusal,
         > {
-            QslCg.compile(source, path, bytes, packages, limits, cancel)
+            QslCg.compile(source, path, bytes, package_name, packages, limits, cancel)
         }
 
         fn read_package(
@@ -1232,10 +1204,7 @@ mod tests {
             request_index: 3,
             kind: Some("operation-contract".to_owned()),
             claim: RequestClaim {
-                node: RequestClaimNode {
-                    domain: "quire.checked-semantic-node/v1",
-                    digest: "test-node".to_owned(),
-                },
+                node: serde_json::json!({"package": "test", "path": ["node"], "ordinal": 0}),
                 occurrence: RequestClaimOccurrence {
                     role: "test".to_owned(),
                     ordinal: 0,
@@ -1312,19 +1281,13 @@ mod tests {
         let request_stage =
             RequestStage::from_emitted(&package, &manifests, 100, vec![item.clone()])
                 .expect("the real emitted identity and safe request values serialize");
-        let package_id = package.package_id().record();
         let request = serde_json::to_value(request_stage).expect("typed request serializes");
 
         assert_eq!(
             request["request"]["package"],
             URL_SAFE_NO_PAD.encode(package.bytes())
         );
-        assert_eq!(
-            request["request"]["package_id"]["domain"],
-            package_id.domain().as_str()
-        );
-        assert_eq!(request["request"]["package_id"]["algorithm"], "sha256");
-        assert_eq!(request["request"]["package_id"]["digest"], package_id.hex());
+        assert!(request["request"].get("package_id").is_none());
         assert_eq!(request["request"]["deadline_ms"], 100);
         assert_eq!(request["manifest"][0], retained_value);
         assert_eq!(
@@ -1388,10 +1351,7 @@ mod tests {
             request_index: 0,
             kind: None,
             claim: RequestClaim {
-                node: RequestClaimNode {
-                    domain: "quire.checked-semantic-node/v1",
-                    digest: "test-node".to_owned(),
-                },
+                node: serde_json::json!({"package": "test", "path": ["node"], "ordinal": 0}),
                 occurrence: RequestClaimOccurrence {
                     role: "test".to_owned(),
                     ordinal: 0,
@@ -1417,11 +1377,9 @@ mod tests {
     /// Trace: FR-006-AC-5, FR-006-AC-6, FR-006-AC-7, FR-006-AC-8, FR-006-AC-10, FR-006-AC-11.
     #[test]
     fn driven_request_serializes_the_routed_qsl_candidate_and_emitted_package() {
-        let definition_lock = DefinitionLock::pinned();
-        let root = definition_lock.entry(CatalogRole::Root);
         let source_text = format!(
             "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\nfunction eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\nfunction negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
-            root.identity
+            "quire.value.complete/v1"
         );
         let packages = BTreeMap::new();
         let mut registry = build_linked_providers(&[]).expect("the empty linked registry builds");
@@ -1440,6 +1398,7 @@ mod tests {
         let source = SourceIdentity::new("agent-ix", "ir813", "git", "1");
         let input = CompileInput {
             source,
+            package_name: "ir813",
             path: "ir813.native",
             bytes: source_text.as_bytes(),
             packages: &packages,
@@ -1529,18 +1488,13 @@ mod tests {
         let stage = RequestStage::from_driven(&driven, backend, &manifests, 250)
             .expect("the production writer selects this provider's routed QSL item");
         let wire = serde_json::to_value(stage).expect("FR-331 stage serializes");
-        let package_id = driven.emitted().package_id().record();
         assert_eq!(
             URL_SAFE_NO_PAD
                 .decode(wire["request"]["package"].as_str().expect("package string"))
                 .expect("package uses base64url"),
             driven.emitted().bytes()
         );
-        assert_eq!(wire["request"]["package_id"]["digest"], package_id.hex());
-        assert_eq!(
-            wire["request"]["package_id"]["domain"],
-            package_id.domain().as_str()
-        );
+        assert!(wire["request"].get("package_id").is_none());
         assert_eq!(wire["request"]["items"].as_array().unwrap().len(), 1);
         assert_eq!(wire["request"]["items"][0]["request_index"], request_index);
         assert_eq!(
@@ -1552,12 +1506,8 @@ mod tests {
             qsl_item.kind().to_wire()
         );
         assert_eq!(
-            wire["request"]["items"][0]["claim"]["node"]["domain"],
-            "quire.checked-semantic-node/v1"
-        );
-        assert_eq!(
-            wire["request"]["items"][0]["claim"]["node"]["digest"],
-            qsl_item.node().to_string()
+            wire["request"]["items"][0]["claim"]["node"],
+            qsl_foundation::node_wire::node_key_to_json(qsl_item.node()).expect("the node encodes")
         );
         assert_eq!(
             wire["request"]["items"][0]["claim"]["occurrence"]["role"],
@@ -1609,11 +1559,9 @@ mod tests {
     /// Trace: IR-813-AC-5.
     #[test]
     fn unsupported_qsl_candidate_does_not_create_a_process_request() {
-        let definition_lock = DefinitionLock::pinned();
-        let root = definition_lock.entry(CatalogRole::Root);
         let source_text = format!(
             "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\nfunction negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
-            root.identity
+            "quire.value.complete/v1"
         );
         let packages = BTreeMap::new();
         let registry = build_registry(&[ProviderManifest {
@@ -1632,6 +1580,7 @@ mod tests {
             &upstream,
             CompileInput {
                 source: SourceIdentity::new("agent-ix", "ir813", "git", "1"),
+                package_name: "ir813",
                 path: "ir813.native",
                 bytes: source_text.as_bytes(),
                 packages: &packages,
