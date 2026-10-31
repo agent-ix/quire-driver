@@ -482,9 +482,7 @@ mod tests {
     use qsl_foundation::BackendId;
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::{default_accounting, Call, CallArgument, DependencyInput, SpineLimits};
-    use qsl_route::{
-        descriptor_from_manifest, BackendDescriptor, Candidate, ManifestDigest, ProviderOrigin,
-    };
+    use qsl_route::{descriptor_from_manifest, BackendDescriptor, Candidate, ProviderOrigin};
     use qsl_semantics::value::{CatalogRole, DefinitionLock};
     use quire_driver::{
         build_linked_providers, drive, CompileInput, GenerationInput, ProcessProvider,
@@ -493,7 +491,6 @@ mod tests {
     };
     use quire_exact::{Cancel, Integer, Value};
     use serde::Deserialize;
-    use sha2::Digest as _;
 
     use super::{project_call_items, HostProcessProvider};
 
@@ -630,15 +627,12 @@ mod tests {
     fn admit_hello(
         manifest: &Hello,
         origin: ProviderOrigin,
-        digest: u8,
     ) -> Result<(BackendDescriptor, ProviderManifest), String> {
         let identity =
             BackendId::from_wire(&manifest.identity).map_err(|error| error.to_string())?;
-        let digest = ManifestDigest::from_digest([digest; 32]);
         let descriptor = descriptor_from_manifest(
             Candidate::new(identity),
             origin,
-            digest,
             manifest
                 .advertises
                 .iter()
@@ -654,7 +648,6 @@ mod tests {
         .map_err(|error| format!("{error:?}"))?;
         let retained = ProviderManifest {
             identity: manifest.identity.clone(),
-            manifest_digest: digest,
             advertises: manifest.advertises.clone(),
             domains: manifest.domains.clone(),
             bounds: None,
@@ -720,7 +713,7 @@ mod tests {
             crate::signals::SignalContext::default(),
             move |manifest: &Hello| {
                 admission_count.fetch_add(1, Ordering::Relaxed);
-                admit_hello(manifest, ProviderOrigin::Process, 9)
+                admit_hello(manifest, ProviderOrigin::Process)
             },
             |request: ProcessProviderRequest<'_>| {
                 assert!(!request.emitted_package.bytes().is_empty());
@@ -885,11 +878,6 @@ mod tests {
             .wire
             .as_deref()
             .expect("retained hello descriptor has canonical bytes");
-        let retained_digest: [u8; 32] = sha2::Sha256::digest(retained_wire).into();
-        assert_eq!(
-            retained_digest,
-            *session.manifest().manifest_digest.record().as_bytes()
-        );
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(retained_wire)
                 .expect("retained bytes are valid JSON"),
@@ -938,7 +926,7 @@ mod tests {
             _,
         >::new(
             crate::signals::SignalContext::default(),
-            |manifest: &Hello| admit_hello(manifest, ProviderOrigin::Process, 9),
+            |manifest: &Hello| admit_hello(manifest, ProviderOrigin::Process),
             |_: ProcessProviderRequest<'_>| Ok(serde_json::json!({"items": []})),
             |manifest: &Hello, result: &serde_json::Value| {
                 if result["identity"] == manifest.identity {
@@ -997,7 +985,7 @@ mod tests {
             _,
         >::new(
             crate::signals::SignalContext::default(),
-            |manifest: &Hello| admit_hello(manifest, ProviderOrigin::Linked, 7),
+            |manifest: &Hello| admit_hello(manifest, ProviderOrigin::Linked),
             |_: ProcessProviderRequest<'_>| Ok(serde_json::json!({})),
             |_: &Hello, _: &serde_json::Value| Ok::<(), String>(()),
             |_: serde_json::Value| Ok(ProviderResults::<serde_json::Value, String>::default()),
