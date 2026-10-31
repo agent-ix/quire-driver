@@ -28,7 +28,7 @@ use qsl_replay::spine::{
 };
 use qsl_replay::DomainKind;
 use qsl_route::routing::Disposition as RouteDisposition;
-use qsl_route::{Candidate, ManifestDigest, RegistrationCause};
+use qsl_route::{Candidate, RegistrationCause};
 use qsl_semantics::model::object_environment::ObjectEnvironment;
 use qsl_semantics::value::{CatalogRole, DefinitionLock};
 use quire_contract_codegen::{
@@ -484,10 +484,9 @@ fn fixture_unbound(
     }
 }
 
-fn manifest(identity: &str, digest: u8, kinds: &[&str]) -> ProviderManifest {
+fn manifest(identity: &str, kinds: &[&str]) -> ProviderManifest {
     ProviderManifest {
         identity: identity.to_owned(),
-        manifest_digest: ManifestDigest::from_digest([digest; 32]),
         advertises: kinds
             .iter()
             .map(|kind| (Some((*kind).to_owned()), Some("bounded".to_owned())))
@@ -952,7 +951,7 @@ fn kani_candidate(driven: &Driven) -> quire_contract_codegen::Candidate {
 #[test]
 #[trace("FR-001-AC-21", "TC-017")]
 fn relationless_package_skips_export_and_has_no_item_refusals() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -982,7 +981,7 @@ fn relationless_package_skips_export_and_has_no_item_refusals() {
     "TC-017"
 )]
 fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder {
@@ -1099,7 +1098,7 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
 #[test]
 #[trace("FR-010-AC-5", "FR-001-AC-18", "TC-017")]
 fn all_export_refusals_send_zero_item_request_to_cg() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder {
@@ -1127,7 +1126,7 @@ fn all_export_refusals_send_zero_item_request_to_cg() {
 #[test]
 #[trace("FR-001-AC-19", "FR-001-AC-20", "TC-017")]
 fn export_run_refusal_and_unknown_driver_key_keep_their_distinct_outcomes() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let whole = Recorder {
@@ -1160,7 +1159,7 @@ fn export_run_refusal_and_unknown_driver_key_keep_their_distinct_outcomes() {
 #[test]
 #[trace("FR-001-AC-19", "FR-001-AC-20", "TC-017")]
 fn malformed_export_results_stop_at_the_typed_boundary() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -1292,9 +1291,9 @@ fn tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order() {
     // Bytewise order puts "Zeta" (0x5A) before "alpha" (0x61); a
     // case-insensitive order would not.
     let registry = build_registry(&[
-        manifest("alpha", 1, &["value-validity"]),
-        manifest("kani", 2, &["value-validity"]),
-        manifest("Zeta", 3, &["operation-contract"]),
+        manifest("alpha", &["value-validity"]),
+        manifest("kani", &["value-validity"]),
+        manifest("Zeta", &["operation-contract"]),
     ])
     .expect("the three manifests register");
     let packages = BTreeMap::new();
@@ -1348,7 +1347,7 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     let checked = negate_package().checked().clone();
     let neg = expression_by_identity(&checked, "quire.op.integer.negate");
 
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -1543,7 +1542,7 @@ fn tc_006_handoff_passes_domain_package_evidence_unchanged() {
 /// `Candidates::Set([kani])` instead, with the settlement unchanged).
 #[test]
 fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -1628,7 +1627,7 @@ fn tc_001_a_named_unregistered_backend_settles_invalid_request() {
 /// first (`tc_002_unknown_backend_refuses_before_negotiation_in_bytewise_order`).
 #[test]
 fn tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_unsupported() {
-    let registry = build_registry(&[manifest("kani", 7, &["operation-contract"])])
+    let registry = build_registry(&[manifest("kani", &["operation-contract"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -1685,7 +1684,7 @@ fn tc_004_a_named_registered_backend_that_does_not_advertise_the_kind_settles_un
 fn tc_006_x_plus_1_generation_passes_through_unchanged() {
     let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -1736,7 +1735,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
 fn tc_006_kani_form_projects_exact_package_and_selected_node() {
     let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -1772,7 +1771,7 @@ fn tc_006_kani_form_projects_exact_package_and_selected_node() {
 /// conversion roots through IR lowering and CG generation.
 #[test]
 fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -1916,7 +1915,7 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
 /// Provenance: QSL RR-16.
 #[test]
 fn tc_006_rr16_binds_each_exact_occurrence_to_its_generated_item() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let cancel = Cancel::new();
@@ -2048,7 +2047,7 @@ fn tc_006_rr16_binds_each_exact_occurrence_to_its_generated_item() {
 /// Trace: FR-001-AC-16, FR-009-AC-13, TC-006.
 #[test]
 fn tc_006_no_selected_scalar_item_skips_binding_and_native_execution() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let call = QslCall {
@@ -2092,7 +2091,7 @@ fn tc_006_no_selected_scalar_item_skips_binding_and_native_execution() {
 fn tc_006_x_plus_y_generation_passes_through_unchanged() {
     let checked = two_param_package().checked().clone();
     let add = expression(&checked, "binary");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -2132,7 +2131,7 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
 fn tc_006_x_plus_1_settles_supported() {
     let checked = int_package().checked().clone();
     let add = expression(&checked, "binary");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -2186,7 +2185,7 @@ fn tc_006_x_plus_1_settles_supported() {
 fn tc_006_x_plus_y_settles_supported_with_independent_argument_bounds() {
     let checked = two_param_package().checked().clone();
     let add = expression(&checked, "binary");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -2300,7 +2299,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
     .checked()
     .clone();
     let x_bound = integer_range_bound(&checked, "0", "9");
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -2356,7 +2355,7 @@ fn tc_006_x_plus_100_in_a_dead_branch_settles_result_bound_unreachable() {
 /// context refuses the run with CG's `MissingKindContext`.
 #[test]
 fn tc_007_generation_refusals_are_typed() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
 
@@ -2390,7 +2389,7 @@ fn tc_007_generation_refusals_are_typed() {
 /// settles `unsupported`.
 #[test]
 fn tc_003_no_supported_item_means_no_route_call() {
-    let registry = build_registry(&[manifest("kani", 7, &["operation-contract"])])
+    let registry = build_registry(&[manifest("kani", &["operation-contract"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -2447,7 +2446,7 @@ fn tc_003_no_supported_item_means_no_route_call() {
 /// index), and the positional asserts below would fail.
 #[test]
 fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_index() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder {
@@ -2578,7 +2577,7 @@ fn tc_004_repeated_manifest_identity_from_negotiation_is_an_internal_fault() {
 /// }`) still drives to completion.
 #[test]
 fn tc_003_a_unit_with_no_scalar_applications_routes_nothing() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -2669,42 +2668,39 @@ fn tc_004_command_level_refusals_are_typed() {
         assert_eq!(recorder.calls(), [Call::Compile]);
     }
 
-    // Two manifests, one identity, two distinct digests: both conflict,
-    // and `refusals()` reports one entry per distinct digest, ascending.
+    // Two manifests, one identity, different advertisements: both conflict,
+    // and `refusals()` reports one entry per distinct descriptor.
     let expected_conflicts = [
         (
             Candidate::new(BackendId::new("kani")),
-            ManifestDigest::from_digest([1; 32]),
             RegistrationCause::DuplicateBackend,
         ),
         (
             Candidate::new(BackendId::new("kani")),
-            ManifestDigest::from_digest([2; 32]),
             RegistrationCause::DuplicateBackend,
         ),
     ];
     let refusal = build_registry(&[
-        manifest("kani", 1, &["value-validity"]),
-        manifest("kani", 2, &["value-validity"]),
+        manifest("kani", &["value-validity"]),
+        manifest("kani", &["operation-contract"]),
     ])
     .expect_err("one identity with two manifests conflicts");
     assert_eq!(refusal.stage(), DriverStage::Registry);
     assert_eq!(refusal.code(), "invalid_capability/duplicate-backend");
     assert_eq!(registration_refusals(&refusal), expected_conflicts);
 
-    // A, B, then A again (same digest as the first): the repeat does not
-    // add a third, duplicate refusal for digest 1 -- `refusals()` is the
-    // registry's own deduped account, not an accumulation of what each
-    // `register` call individually returned.
+    // A, B, then A again: the repeat does not add a third, duplicate
+    // refusal -- `refusals()` is the registry's own deduped account, not an
+    // accumulation of what each `register` call individually returned.
     let refusal = build_registry(&[
-        manifest("kani", 1, &["value-validity"]),
-        manifest("kani", 2, &["value-validity"]),
-        manifest("kani", 1, &["value-validity"]),
+        manifest("kani", &["value-validity"]),
+        manifest("kani", &["operation-contract"]),
+        manifest("kani", &["value-validity"]),
     ])
     .expect_err("A, B, A still conflicts, without a duplicated refusal");
     assert_eq!(registration_refusals(&refusal), expected_conflicts);
 
-    let refusal = build_registry(&[manifest("kani", 1, &["not-a-kind"])])
+    let refusal = build_registry(&[manifest("kani", &["not-a-kind"])])
         .expect_err("an unknown kind refuses the registration");
     assert_eq!(refusal.code(), "invalid_capability/unknown-kind");
 }
@@ -2763,15 +2759,13 @@ fn tc_008_an_unknown_header_profile_refuses_with_its_cause() {
 /// `refusal`'s `DriverRefusal::Registration` vector, projected to
 /// `(backend, cause)` pairs: `RegistrationRefusal`'s own fields are
 /// private, so its accessors stand in for a struct literal.
-fn registration_refusals(
-    refusal: &DriverRefusal,
-) -> Vec<(Candidate, ManifestDigest, RegistrationCause)> {
+fn registration_refusals(refusal: &DriverRefusal) -> Vec<(Candidate, RegistrationCause)> {
     let DriverRefusal::Registration(refusals) = refusal else {
         panic!("expected a registration refusal, got {refusal:?}");
     };
     refusals
         .iter()
-        .map(|r| (r.backend().clone(), r.manifest_digest(), r.cause().clone()))
+        .map(|r| (r.backend().clone(), r.cause().clone()))
         .collect()
 }
 
@@ -2780,7 +2774,7 @@ fn registration_refusals(
 /// is an internal fault at the hand-off, and nothing after the IR read runs.
 #[test]
 fn tc_004_e5_identity_and_refusal_are_faults() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let other = drive(
@@ -2880,7 +2874,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
     let eq = expression_by_identity(&checked, "quire.op.integer.eq");
     let neg = expression_by_identity(&checked, "quire.op.integer.negate");
 
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the kani manifest registers");
     let packages = BTreeMap::new();
     let recorder = Recorder::default();
@@ -3005,7 +2999,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
 /// Trace: FR-005-AC-2, FR-005-AC-3.
 #[test]
 fn provider_trait_run_processes_a_selected_item() {
-    let registry = build_registry(&[manifest("kani", 7, &["value-validity"])])
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
         .expect("the Kani manifest registers");
     let packages = BTreeMap::new();
     let driven = drive(&QslCg, int_input(&packages), &registry, None, kani_input())
@@ -3020,7 +3014,7 @@ fn provider_trait_run_processes_a_selected_item() {
     };
     assert_eq!(harness.identity.ceilings, proof_ceilings());
 
-    let provider = KaniProvider::new(manifest("kani", 7, &["value-validity"]));
+    let provider = KaniProvider::new(manifest("kani", &["value-validity"]));
     let request = ProviderRequest::new(&driven.generation().items);
     let results = provider.run(
         driven.emitted(),

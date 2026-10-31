@@ -20,14 +20,13 @@ use qsl_route::request::RequirementItem;
 use qsl_route::CandidateOutcome;
 use qsl_route::{
     descriptor_from_manifest, BackendDescriptor, Candidate, FairnessKindsMember, FairnessLabel,
-    ManifestDigest, ProviderOrigin,
+    ProviderOrigin,
 };
 use quire_driver::Driven;
 use quire_driver::ProviderManifest;
 use quire_semantic_value::catalog::{CatalogCode, Category};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest as _, Sha256};
 
 const CONTRACT_VERSION: &str = "quire.backend-provider/v1";
 const CAPABILITY_VOCABULARY: &str = "quire.capability-kind/v1";
@@ -228,14 +227,14 @@ pub enum ManifestAdmissionError {
     #[error(transparent)]
     Registration(#[from] qsl_route::RegistrationRefusal),
     /// Canonical manifest hashing refused the input or exceeded its byte bound.
-    #[error("plugin hello manifest could not be canonically digested: {0}")]
+    #[error("plugin hello manifest could not be canonically encoded: {0}")]
     Canonical(#[from] quire_canonical::Error),
 }
 
 impl ManifestStage {
     /// Admit the hello's one manifest using the caller-supplied Process origin.
     ///
-    /// The digest and retained bytes use RFC 8785. QSL owns identity,
+    /// The retained bytes use RFC 8785. QSL owns identity,
     /// capability, mode and domain admission; this method neither normalizes
     /// labels nor assigns an origin from wire data. Evidence-label admission
     /// remains QSL-owned without a driver-side vocabulary rule.
@@ -261,10 +260,8 @@ impl ManifestStage {
             })?;
         validate_manifest(&shape)?;
         let limits = quire_canonical::Limits::new(max_frame_bytes);
-        let mut sink = (Vec::new(), Sha256::new());
-        quire_canonical::encode(&mut sink, &**wire, limits)?;
-        let (canonical_wire, hasher) = sink;
-        let digest: [u8; 32] = hasher.finalize().into();
+        let mut canonical_wire = Vec::new();
+        quire_canonical::encode(&mut canonical_wire, &**wire, limits)?;
         let domain_labels = shape
             .domains
             .as_deref()
@@ -283,20 +280,20 @@ impl ManifestStage {
         let descriptor = descriptor_from_manifest(
             Candidate::new(BackendId::from_wire(&shape.backend)?),
             ProviderOrigin::Process,
-            ManifestDigest::from_digest(digest),
             shape
                 .advertises
                 .iter()
                 .map(|pair| (pair.kind.as_deref(), pair.mode.as_deref())),
-            domain_labels.as_deref(),
-            fairness_member,
-            None,
+            qsl_route::ManifestMembers {
+                domains: domain_labels.as_deref(),
+                fairness_kinds: fairness_member,
+                ..qsl_route::ManifestMembers::default()
+            },
         )?;
         Ok(AdmittedManifest {
             descriptor,
             manifest: ProviderManifest {
                 identity: shape.backend,
-                manifest_digest: ManifestDigest::from_digest(digest),
                 advertises: shape
                     .advertises
                     .iter()
@@ -1289,7 +1286,6 @@ mod tests {
         );
         let process_manifest = ProviderManifest {
             identity: "agent-ix/provider/test".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([5; 32]),
             advertises: vec![(
                 Some("operation-contract".to_owned()),
                 Some("bounded".to_owned()),
@@ -1300,7 +1296,6 @@ mod tests {
         };
         let linked_provider = quire_driver::KaniProvider::new(ProviderManifest {
             identity: "agent-ix/provider/linked".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([6; 32]),
             advertises: vec![(
                 Some("operation-contract".to_owned()),
                 Some("bounded".to_owned()),
@@ -1381,7 +1376,6 @@ mod tests {
         let package = crate::test_support::emitted_package();
         let manifest = ProviderManifest {
             identity: "agent-ix/provider/missing-wire".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([9; 32]),
             advertises: vec![(
                 Some("operation-contract".to_owned()),
                 Some("bounded".to_owned()),
@@ -1624,7 +1618,6 @@ mod tests {
         let packages = BTreeMap::new();
         let registry = build_registry(&[ProviderManifest {
             identity: "kani".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([22; 32]),
             advertises: vec![(
                 Some("operation-contract".to_owned()),
                 Some("bounded".to_owned()),

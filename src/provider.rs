@@ -462,7 +462,6 @@ mod tests {
         ProviderRequest, ProviderResults, ProviderTerminalError,
     };
     use crate::{CompileInput, GenerationInput, KaniInput};
-    use qsl_route::ManifestDigest;
     use quire_contract_codegen::routed_contract_lowering_profile;
     use quire_contract_codegen::KaniInstallation;
     use quire_contract_codegen::{
@@ -725,7 +724,6 @@ mod tests {
         let packages = BTreeMap::new();
         let registry = crate::build_registry(&[ProviderManifest {
             identity: "kani".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([1; 32]),
             advertises: vec![(Some("value-validity".into()), Some("bounded".into()))],
             domains: Some(vec!["integer".to_owned()]),
             bounds: None,
@@ -764,7 +762,6 @@ mod tests {
     fn provider() -> KaniProvider {
         KaniProvider::new(ProviderManifest {
             identity: "kani".to_owned(),
-            manifest_digest: ManifestDigest::from_digest([1; 32]),
             advertises: Vec::new(),
             domains: None,
             bounds: None,

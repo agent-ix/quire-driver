@@ -4,8 +4,8 @@
 //! them.
 
 use qsl_foundation::diagnostic::StageFailure;
-use qsl_foundation::digest::WireNodeId;
 use qsl_foundation::source::provenance::OccurrenceKey;
+use qsl_foundation::NodeKey;
 use qsl_foundation::{BackendId, Code, EmptyBackendIdentity};
 use qsl_package::ExportRefusal;
 use qsl_replay::spine::{BindRefusal, CompileRefusal, RunRefusal, SpineStage};
@@ -202,24 +202,24 @@ pub enum DriverFault {
     /// record names. Not a caller input: no request the driver builds from
     /// `items_from_requirements` can name a node outside its own package.
     #[error(
-        "request item {request_index} names node {node}, which the checked package does not hold"
+        "request item {request_index} names node {node:?}, which the checked package does not hold"
     )]
     UnknownNode {
         /// The item's request index.
         request_index: usize,
         /// The node the item names.
-        node: WireNodeId,
+        node: NodeKey,
     },
-    /// A wire node digest maps to multiple typed identities in the admitted
+    /// A node key maps to multiple typed identities in the admitted
     /// package, so the driver cannot choose one without guessing.
     #[error(
-        "request item {request_index} names node {node}, which maps to multiple checked node identities"
+        "request item {request_index} names node {node:?}, which maps to multiple checked node identities"
     )]
     AmbiguousNode {
         /// The item's request index.
         request_index: usize,
         /// The node whose digest is ambiguous.
-        node: WireNodeId,
+        node: NodeKey,
     },
     /// A QSL occurrence role is outside IR's closed occurrence vocabulary.
     #[error("QSL occurrence role `{role}` has no IR occurrence role")]
@@ -742,8 +742,6 @@ fn package_read_refusal_code(code: CheckedPackageRefusalCode) -> &'static str {
         CheckedPackageRefusalCode::DuplicateMember => "duplicate_member",
         CheckedPackageRefusalCode::UnknownMember => "unknown_member",
         CheckedPackageRefusalCode::NoncanonicalWire => "noncanonical_wire",
-        CheckedPackageRefusalCode::StaleDependency => "stale_dependency",
-        CheckedPackageRefusalCode::DigestDomainMismatch => "digest_domain_mismatch",
         CheckedPackageRefusalCode::UnknownRequiredCapability => "unknown_required_capability",
         CheckedPackageRefusalCode::InvalidSemanticGraph => "invalid_semantic_graph",
         CheckedPackageRefusalCode::InvalidSourceMap => "invalid_source_map",
@@ -776,10 +774,8 @@ fn package_read_refusal_cause(cause: CheckedPackageRefusalCause) -> &'static str
         CheckedPackageRefusalCause::IncompatibleDefinition => "incompatible-definition",
         CheckedPackageRefusalCause::FeatureSetMismatch => "feature-set-mismatch",
         CheckedPackageRefusalCause::InsufficientNextCharge => "insufficient-next-charge",
-        CheckedPackageRefusalCause::ContentMismatch => "content-mismatch",
         CheckedPackageRefusalCause::MissingName => "missing-name",
         CheckedPackageRefusalCause::MalformedDeclaration => "malformed-declaration",
-        CheckedPackageRefusalCause::StaleNodeKey => "stale-node-key",
         CheckedPackageRefusalCause::UnknownOperation => "unknown-operation",
         CheckedPackageRefusalCause::OperationClassMismatch => "operation-class-mismatch",
         CheckedPackageRefusalCause::OperationLawMissing => "operation-law-missing",
@@ -793,8 +789,6 @@ fn package_read_refusal_cause(cause: CheckedPackageRefusalCause) -> &'static str
         CheckedPackageRefusalCause::DeclarationNominalMismatch => "declaration-nominal-mismatch",
         CheckedPackageRefusalCause::AmbiguousName => "ambiguous-name",
         CheckedPackageRefusalCause::MissingSelection => "missing-selection",
-        CheckedPackageRefusalCause::DigestDomainMismatch => "digest-domain-mismatch",
-        CheckedPackageRefusalCause::ByteDigestMismatch => "byte-digest-mismatch",
         CheckedPackageRefusalCause::WrongModelSelection => "wrong-model-selection",
         CheckedPackageRefusalCause::ConflictingBinding => "conflicting-binding",
         CheckedPackageRefusalCause::UnpreservedModelMeaning => "unpreserved-model-meaning",
@@ -1112,8 +1106,8 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 #[cfg(test)]
 mod tests {
     use ix_trace_rs::trace;
-    use qsl_foundation::digest::WireNodeId;
     use qsl_foundation::EmptyBackendIdentity;
+    use qsl_foundation::NodeKey;
     use quire_contract_codegen::{
         ContractNegotiationError, ContractPackageIncompleteProjection,
         ContractPackageRefusalProjection, ContractScalarError, EnvelopeRefusal, HarnessPath,
