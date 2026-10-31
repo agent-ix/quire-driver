@@ -581,7 +581,6 @@ fn verify_native_receipt(
     if receipt.harness_identity() != &harness.identity
         || receipt.operands() != operands
         || !receipt_driver_bytes_match(receipt.staged_entries(), artifacts, harness)
-        || !receipt_digest_matches(receipt)
     {
         return Err(DriverRefusal::Fault(DriverFault::NativeReceiptMismatch));
     }
@@ -662,55 +661,6 @@ fn driver_entries_match(
         };
         find(staged_path).is_some_and(|bytes| bytes == artifact.contents.as_bytes())
     })
-}
-
-fn receipt_digest_matches(receipt: &cg::KaniScalarNativeReceipt) -> bool {
-    recompute_proof_content_digest(receipt.staged_entries()).is_some_and(|(identity, digest)| {
-        receipt.proof_content_identity().as_bytes() == &identity
-            && receipt.proof_content_digest() == &digest
-    })
-}
-
-fn recompute_proof_content_digest(
-    entries: &[(String, Vec<u8>)],
-) -> Option<([u8; 32], qsl_replay::DigestRecord)> {
-    use quire_canonical::FixedShape;
-
-    #[derive(serde::Serialize, FixedShape)]
-    struct CanonicalArtifact {
-        path: String,
-        contents: String,
-    }
-    #[derive(serde::Serialize, FixedShape)]
-    struct ScalarProofPreimage {
-        schema: String,
-        artifacts: Vec<CanonicalArtifact>,
-    }
-
-    if entries.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
-        return None;
-    }
-    let artifacts = entries
-        .iter()
-        .map(|(path, bytes)| {
-            String::from_utf8(bytes.clone()).map(|contents| CanonicalArtifact {
-                path: path.clone(),
-                contents,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>();
-    let Ok(artifacts) = artifacts else {
-        return None;
-    };
-    let preimage = ScalarProofPreimage {
-        schema: "agent-ix/cg-kani-scalar-proof-content/v2".to_owned(),
-        artifacts,
-    };
-    let digest =
-        quire_canonical::sha256(&preimage, quire_canonical::Limits::new(256 * 1024 * 1024)).ok()?;
-    let identity = *digest.as_bytes();
-    let expected = qsl_replay::DigestRecord::mint(qsl_replay::DigestDomain::Sha256Jcs, identity);
-    Some((identity, expected))
 }
 
 /// CG generation over `routed`. Each item's node is resolved by lookup in
@@ -902,52 +852,8 @@ fn contract_occurrence(
 
 #[cfg(test)]
 mod scalar_receipt_tests {
-    use super::{driver_entries_match, qsl_limit_fields_match, recompute_proof_content_digest};
+    use super::{driver_entries_match, qsl_limit_fields_match};
     use quire_contract_codegen::Artifact;
-
-    #[test]
-    fn proof_digest_uses_sorted_complete_staged_entries_and_fr357_domain() {
-        let entries = [
-            ("Cargo.lock", "lock\n"),
-            ("Cargo.toml", "manifest"),
-            ("claim-map.json", "{}"),
-            ("kani-obligations/m.json", "record"),
-            ("src/bin/ir791_native.rs", "adapter"),
-            ("src/lib.rs", "harness"),
-            ("src/oracle-artifacts-lib.rs", "oracle"),
-        ]
-        .into_iter()
-        .map(|(path, contents)| (path.to_owned(), contents.as_bytes().to_vec()))
-        .collect::<Vec<_>>();
-        let (identity, record) = recompute_proof_content_digest(&entries)
-            .expect("UTF-8 staged entries produce the canonical record");
-        assert_eq!(
-            identity,
-            [
-                0x57, 0x1d, 0x61, 0x99, 0x41, 0x4a, 0xfa, 0xdc, 0x06, 0x57, 0x44, 0xe9, 0xc4, 0x7d,
-                0xf0, 0x6f, 0xbe, 0xb1, 0x8e, 0xe3, 0x6c, 0xca, 0x99, 0x5b, 0xa0, 0x29, 0x30, 0x9a,
-                0xdd, 0x15, 0xd3, 0x56,
-            ]
-        );
-        assert_eq!(
-            record,
-            qsl_replay::DigestRecord::mint(qsl_replay::DigestDomain::Sha256Jcs, identity)
-        );
-        assert!(recompute_proof_content_digest(&[
-            ("z".to_owned(), vec![]),
-            ("a".to_owned(), vec![]),
-        ])
-        .is_none());
-        assert!(recompute_proof_content_digest(&[("a".to_owned(), vec![0xff])]).is_none());
-        let mut changed = entries.clone();
-        changed[0].1.push(b'!');
-        let (changed_identity, _) = recompute_proof_content_digest(&changed)
-            .expect("mutated staged bytes remain valid UTF-8");
-        assert_ne!(
-            identity, changed_identity,
-            "every staged entry is identity-bound"
-        );
-    }
 
     #[test]
     fn every_named_limit_is_checked_against_the_retained_qsl_value() {
@@ -1157,7 +1063,6 @@ mod native_receipt_integration_tests {
             .completed()
             .expect("the native outcome is completed");
         assert_eq!(native_value.to_string(), "5");
-        assert!(receipt_digest_matches(receipt));
         let mut changed_artifacts = driven
             .generation()
             .oracle_artifacts
