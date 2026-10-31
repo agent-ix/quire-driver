@@ -66,7 +66,7 @@ build:
 
 # Install the host tools used by the repository's Make targets. rustup, Cargo,
 # npm, and make themselves must already be available; this target bootstraps the
-# project toolchain, cargo-deny, and Quire on macOS and Linux.
+# rustfmt and clippy components, cargo-deny, and Quire on macOS and Linux.
 .PHONY: tools
 tools:
 	@set -eu; \
@@ -76,9 +76,7 @@ tools:
 			echo "make tools requires $$tool on PATH; install rustup and bash first" >&2; exit 1; \
 		fi; \
 	done; \
-	toolchain="$$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' rust-toolchain.toml | head -n 1)"; \
-	if [ -z "$$toolchain" ]; then echo "could not read channel from rust-toolchain.toml" >&2; exit 1; fi; \
-	$(RUSTUP) toolchain install "$$toolchain" --profile minimal --component rustfmt --component clippy --no-self-update; \
+	$(RUSTUP) component add rustfmt clippy; \
 	if ! $(CARGO) deny --version >/dev/null 2>&1; then \
 		$(CARGO) install --locked cargo-deny; \
 	fi; \
