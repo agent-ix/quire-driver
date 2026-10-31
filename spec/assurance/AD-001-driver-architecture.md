@@ -174,7 +174,7 @@ per-source limit; the resolved library-source list is empty. Releasing
 
 Types cross the QSL/CG seam in their owned wire spellings (ADR-013 T-7).
 The driver treats an unknown capability spelling as `VocabularyMismatch`
-and looks up each routed `WireNodeId` in IR's admitted package to obtain
+and looks up each routed `NodeKey` in IR's admitted package to obtain
 its `CheckedNodeId`. It re-derives no checked semantics or claim.
 
 FR-001's existing compile path uses an empty `DependencyInput`, so an import

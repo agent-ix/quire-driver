@@ -210,7 +210,7 @@ pub enum DriverFault {
     AmbiguousNode {
         /// The item's request index.
         request_index: usize,
-        /// The node whose digest is ambiguous.
+        /// The node whose identity is ambiguous.
         node: NodeKey,
     },
     /// A QSL occurrence role is outside IR's closed occurrence vocabulary.

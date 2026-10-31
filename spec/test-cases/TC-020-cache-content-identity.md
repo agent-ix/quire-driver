@@ -17,9 +17,7 @@ Scope: FR-012-AC-1 through FR-012-AC-5.
 
 ## Test Procedure
 
-Derive keys for prove, analyze and generate requests. Hold all other key
-members fixed while supplying different provider manifests under one
-identity. Then vary each meaning key member in turn. For
+Derive keys for prove, analyze and generate requests. Then vary each meaning key member in turn. For
 generate, vary the target and an output-affecting option separately, and verify
 the target member is absent for prove/analyze. Vary the explicitly excluded
 top-level path, timestamp, wall-clock deadline, recorded pin, revision,
@@ -29,9 +27,6 @@ it remains a meaning input.
 
 ## Expected Results
 
-- Different provider manifests under one identity do not change the cache key;
-  a provider upgrade under the same `BackendId` does not invalidate cached
-  results and operators clear the cache.
 - Each meaning-input change, including a generate target or option, changes the
   key; the target member occurs only for generate.
 - Changes to excluded top-level path, timestamp, deadline, pin, revision,

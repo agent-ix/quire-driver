@@ -22,10 +22,7 @@ result; inspect lookup's operation, package identity, canonical request,
 `BackendId`, generation target/options and the exact
 typed value passed to `record`. Attempt registry admission with a conflicting
 identity and verify no cache lookup occurs. Next return a valid typed hit and inspect the
-unchanged result and provider call count. Change manifest content while keeping
-the identity fixed and verify the lookup members are unchanged (a provider
-upgrade under the same `BackendId` does not invalidate cached results;
-operators clear the cache). Exercise a typed cache
+unchanged result and provider call count. Exercise a typed cache
 I/O error and excluded/oversize record outcomes.
 
 ## Expected Results
@@ -35,8 +32,6 @@ I/O error and excluded/oversize record outcomes.
   typed result.
 - A valid typed hit is returned unchanged and does not increment provider calls;
   an always-miss fake fails this assertion.
-- Changed manifest content under an unchanged identity leaves the lookup
-  members unchanged.
 - An identity admission refusal yields no cache request or lookup.
 - Typed I/O faults are not converted to misses; `NeverStore` and `NotStored`
   preserve the provider result.

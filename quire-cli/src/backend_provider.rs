@@ -1197,7 +1197,7 @@ mod tests {
         assert_eq!(encode_package_bytes(&bytes), "-_8");
     }
 
-    /// Trace: FR-006-AC-7, FR-006-AC-8, FR-006-AC-13.
+    /// Trace: FR-006-AC-8, FR-006-AC-13.
     #[test]
     fn request_wire_keeps_package_bounds_and_temporal_proof_bounds_at_contract_paths() {
         let item = RequestItem {
@@ -1374,7 +1374,7 @@ mod tests {
         ));
     }
 
-    /// Trace: FR-006-AC-5, FR-006-AC-6, FR-006-AC-7, FR-006-AC-8, FR-006-AC-10, FR-006-AC-11.
+    /// Trace: FR-006-AC-5, FR-006-AC-6, FR-006-AC-8, FR-006-AC-10, FR-006-AC-11.
     #[test]
     fn driven_request_serializes_the_routed_qsl_candidate_and_emitted_package() {
         let source_text = format!(

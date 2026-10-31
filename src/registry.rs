@@ -191,7 +191,7 @@ impl Deref for AdmittedRegistry {
 /// `ProviderOrigin::Process` under ADR-029 PV-1. When any registration is
 /// refused (an absent or unknown kind or mode, invalid domains, or a duplicate
 /// backend identity), the run is refused with every refusal, ordered by
-/// backend identity then identity.
+/// backend identity.
 ///
 /// `Registry::register`'s own `Err` is what that one call caused or
 /// observed, not a diff against the registry's prior state, so it can

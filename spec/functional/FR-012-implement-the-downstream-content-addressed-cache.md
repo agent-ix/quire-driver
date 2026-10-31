@@ -81,7 +81,7 @@ CA-5. It is a separate package and SHALL depend on the driver interface; the
 | ID | Criteria | Verification |
 |----|----------|--------------|
 | FR-012-AC-1 | The key preimage is JCS with operation, package identity, canonical request and backend identity; `generate` also has a target member. | Test (TC-020) |
-| FR-012-AC-2 | Retired: the manifest digest is no longer key material. Given identical key members, the cache key is the same regardless of the provider manifest. | Test (TC-020) |
+| FR-012-AC-2 | Retired: the manifest digest is no longer key material; the id is not reused. | Not applicable |
 | FR-012-AC-3 | Changing a meaning input changes the derived key. | Test (TC-020) |
 | FR-012-AC-4 | Changing top-level excluded path, time, deadline, pin, revision, application version or execution-backend label leaves the key unchanged; nested operation-request fields retain their meaning. | Test (TC-020) |
 | FR-012-AC-5 | The `target` member occurs for generate and is absent for prove and analyze. | Test (TC-020) |

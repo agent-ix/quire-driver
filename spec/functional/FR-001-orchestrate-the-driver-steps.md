@@ -372,8 +372,8 @@ The Kani claim map is derived by CG from the package and the routed node
 alone (IR-294); the caller supplies no claim map, and the driver surfaces
 CG's derived claim map in its output.
 
-E5's evidence is the caller's domain package documents and the root feature
-of QSL's pinned `DefinitionLock`. The driver supplies no artifact-byte or
+E5's evidence is the caller's domain package documents and the supported
+profile feature. The driver supplies no artifact-byte or
 artifact-digest evidence: IR no longer checks staleness against artifact
 digests. Production `serde_json` use reads the optional FR-331 `bounds`
 member from the retained manifest wire for CG projection; tests also use it

@@ -1382,6 +1382,8 @@ mod kani_form_projection_tests {
                 node,
             }) if node == &wanted
         ));
+        assert_eq!(refusal.stage(), DriverStage::Generation);
+        assert_eq!(refusal.kind(), OutcomeKind::Fault);
         assert_eq!(refusal.code(), "runtime_invariant");
     }
 }

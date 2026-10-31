@@ -130,9 +130,9 @@ Tests currently exercised: `tests/drive.rs`,
 (step 14).
 
 The exact-node resolver cases are unit-tested in `src/drive.rs`:
-`selected_wire_node_resolves_to_its_exact_checked_identity`,
-`missing_wire_node_returns_a_typed_internal_fault`, and
-`duplicate_wire_digest_with_distinct_domains_refuses_as_ambiguous`.
+`selected_node_key_resolves_to_its_exact_checked_identity`,
+`missing_node_key_returns_a_typed_internal_fault`, and
+`an_identity_present_twice_refuses_as_ambiguous`.
 
 ## Expected Results
 
