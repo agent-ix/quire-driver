@@ -1,23 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Integration checks for CLI run options and QSL results.
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 use std::fs::File;
-#[cfg(unix)]
-use std::io::{Read, Write};
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
+use std::io::Read;
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
+use std::io::Write;
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
+use std::process::Child;
 use std::process::Command;
 #[cfg(unix)]
-use std::process::{Child, ExitStatus, Stdio};
-#[cfg(unix)]
+use std::process::{ExitStatus, Stdio};
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 use std::sync::atomic::{AtomicUsize, Ordering};
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 use std::time::{Duration, Instant};
 
 use qsl_foundation::diagnostic::Code;
 use qsl_foundation::SourceIdentity;
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
+use qsl_replay::spine::{check, parse, select, ParseRequest};
 use qsl_replay::spine::{
-    check, default_accounting, parse, select, Call, DependencyInput, ParseRequest, SpineLimits,
-    DEFAULT_WORK_UNITS,
+    default_accounting, Call, DependencyInput, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
 use quire_driver::{execute, ExecutionEngine, ExecutionRequest, ObjectEnvironment};
@@ -25,20 +30,20 @@ use quire_exact::Cancel;
 use quire_semantic_value::catalog::Category;
 use quire_semantic_value::supplied_stop::SuppliedLimits;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 #[path = "../../tests/common/units.rs"]
 mod shared_units;
 
 const QUIRE: &str = env!("CARGO_BIN_EXE_quire");
 const SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ir608-run.qsl");
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 static TEST_DIRECTORY_ID: AtomicUsize = AtomicUsize::new(0);
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 struct TestDirectory(std::path::PathBuf);
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 impl TestDirectory {
     fn new(label: &str) -> Self {
         let id = TEST_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
@@ -53,17 +58,17 @@ impl TestDirectory {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 impl Drop for TestDirectory {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 struct ChildGuard(Option<Child>);
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 impl ChildGuard {
     fn new(child: Child) -> Self {
         Self(Some(child))
@@ -82,14 +87,14 @@ impl ChildGuard {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 impl Drop for ChildGuard {
     fn drop(&mut self) {
         self.kill_and_wait();
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 fn wait_for_child_until(child: &mut ChildGuard, deadline: Instant) -> ExitStatus {
     loop {
         if let Some(status) = child.child().try_wait().expect("poll child status") {
@@ -103,12 +108,12 @@ fn wait_for_child_until(child: &mut ChildGuard, deadline: Instant) -> ExitStatus
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 fn overflow_fixture_bytes() -> Vec<u8> {
     shared_units::overflow_unit().into_bytes()
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 fn assert_tc018_refused_range_observation(path: &std::path::Path, source_path: &str, bytes: &[u8]) {
     let observation: serde_json::Value = serde_json::from_slice(
         &std::fs::read(path).expect("the test-only operation adapter records its request"),
@@ -140,7 +145,7 @@ fn assert_tc018_refused_range_observation(path: &std::path::Path, source_path: &
     );
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 fn expected_overflow_check_document(path: &str, bytes: &[u8]) -> Vec<u8> {
     let source = SourceIdentity::new("quire", path, "filesystem", "current");
     let limits = SpineLimits::default();
@@ -172,7 +177,7 @@ fn expected_overflow_check_document(path: &str, bytes: &[u8]) -> Vec<u8> {
         .expect("QSL serializes the expected check refusal")
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 fn open_fifo_writer_until(
     path: &std::path::Path,
     child: &mut ChildGuard,
@@ -204,7 +209,7 @@ fn open_fifo_writer_until(
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "tc018-test-adapter"))]
 fn read_child_stderr(child: &mut ChildGuard) -> Vec<u8> {
     let mut stderr = Vec::new();
     child

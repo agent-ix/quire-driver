@@ -128,7 +128,7 @@ command-line exit and stream conventions.
 
 ## Building and testing
 
-Requires the Rust toolchain pinned in `rust-toolchain.toml`.
+Requires a Rust toolchain at least the `rust-version` in `Cargo.toml`.
 
 ```
 make fmt-check   # formatting
