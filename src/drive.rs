@@ -1354,6 +1354,7 @@ fn project_descriptor(
 
 #[cfg(test)]
 mod kani_form_projection_tests {
+    use ix_trace_rs::trace;
     use quire_contract_model::CheckedNodeId;
     use quire_exact::NodeKey;
     use quire_exact::PathSegment;
@@ -1389,7 +1390,7 @@ mod kani_form_projection_tests {
         assert_eq!(resolved, &nodes[1]);
     }
 
-    #[ix_trace_rs::trace("TC-006", "FR-001-AC-12")]
+    #[trace("TC-006", "FR-001-AC-12")]
     #[test]
     fn indexed_wire_id_is_selected_by_its_resolved_operand_key() {
         use quire_contract_model::CheckedNodePathSegment;
