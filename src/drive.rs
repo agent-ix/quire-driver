@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use qsl_foundation::source::provenance::OccurrenceKey;
 use qsl_foundation::{BackendId, SourceIdentity};
@@ -137,7 +138,7 @@ pub struct Driven {
     /// The E4 wire output: the v2 bytes.
     emitted: EmittedPackage,
     /// E5: the emitted bytes as IR's reader admitted them.
-    checked: CheckedPackageV2,
+    checked: Arc<CheckedPackageV2>,
     /// CG's settlement of each export-bound item, in driver request order.
     pub settlements: Vec<ContractItemSettlement>,
     /// All QSL-produced request items, including export-refused items. Only
@@ -316,13 +317,13 @@ pub fn drive(
     )?;
     let emitted = emitted_unit.package().clone();
     // E5: IR admits the emitted bytes.
-    let checked = handoff(
+    let checked = Arc::new(handoff(
         upstream,
         &models,
         &checked_unit,
         &emitted_unit,
         input.limits.imports,
-    )?;
+    )?);
     // E4's source provision is needed through E5 for diagnostics, then the
     // returned CheckedUnit remains the driver's bounded source owner.
     drop(emitted_unit);
@@ -408,6 +409,7 @@ pub fn drive(
     let kinds = convert_backends(upstream, registry, &prepared.generation_descriptors)?;
     let settlements = upstream
         .negotiate(
+            &checked,
             &lowered.contract_package,
             &lowered.positions,
             &prepared.envelope,
@@ -725,6 +727,7 @@ fn generate(
     };
     upstream
         .generate(
+            checked,
             &lowered.contract_package,
             &lowered.positions,
             &generation_items,
@@ -1155,7 +1158,7 @@ struct PreparedEnvelope {
 fn envelope(
     registry: &Registry,
     manifests: &[crate::ProviderManifest],
-    checked: &CheckedPackageV2,
+    checked: &Arc<CheckedPackageV2>,
     items: &[RequirementItem],
     partition: &ExportPartition,
     named: Option<&BackendId>,
@@ -1222,7 +1225,7 @@ fn envelope(
 /// Project the admitted checked node selected by QSL into CG's typed Kani
 /// source form. The form is source evidence, never a driver classification.
 fn project_kani_form(
-    checked: &CheckedPackageV2,
+    checked: &Arc<CheckedPackageV2>,
     node: &quire_exact::NodeKey,
     request_index: usize,
     lowered: &LoweredDriverRequest,
@@ -1237,7 +1240,7 @@ fn project_kani_form(
         request_index,
     )?;
     Ok(cg::KaniForm::V2ScalarClaim {
-        package: Box::new(checked.clone()),
+        package: Arc::clone(checked),
         contract: Box::new(lowered.contract_package.clone()),
         positions: lowered.positions.clone(),
         request_index,

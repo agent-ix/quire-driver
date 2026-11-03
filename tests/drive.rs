@@ -242,6 +242,8 @@ enum Call {
 /// The real upstream, with a log of the calls the driver makes.
 #[derive(Default)]
 struct Recorder {
+    source: RefCell<Option<Arc<CheckedPackageV2>>>,
+    source_matches: RefCell<Vec<bool>>,
     export_refused_at: Vec<usize>,
     export_whole_refusal: bool,
     export_unknown_at: Option<usize>,
@@ -405,6 +407,7 @@ impl Upstream for Recorder {
 
     fn negotiate(
         &self,
+        source: &quire_contract_model::CheckedPackageV2,
         package: &ContractPackageV1,
         positions: &[ContractRequestPosition],
         envelope: &BackendProviderEnvelope,
@@ -413,12 +416,20 @@ impl Upstream for Recorder {
             items: envelope.items.len(),
         });
         *self.envelope.borrow_mut() = Some(envelope.clone());
+        if let Some(KaniForm::V2ScalarClaim { package, .. }) =
+            envelope.items.first().map(|item| &item.kani_form)
+        {
+            self.source_matches
+                .borrow_mut()
+                .push(std::ptr::eq(source, package.as_ref()));
+            *self.source.borrow_mut() = Some(Arc::clone(package));
+        }
         if let Some(refusal) = &self.negotiate_answer {
             return Err(Box::new(ContractNegotiationError::Envelope(
                 refusal.clone(),
             )));
         }
-        let mut settlements = QslCg.negotiate(package, positions, envelope)?;
+        let mut settlements = QslCg.negotiate(source, package, positions, envelope)?;
         if let Some(index) = self.unsupported_at {
             if let Some(settlement) = settlements.get_mut(index) {
                 let backend = settlement.backend.as_mut().expect("a lowered item settles");
@@ -450,6 +461,7 @@ impl Upstream for Recorder {
 
     fn generate(
         &self,
+        source: &quire_contract_model::CheckedPackageV2,
         package: &quire_contract_model::ContractPackageV1,
         positions: &[quire_contract_codegen::ContractRequestPosition],
         routed: &[RoutedGenerationItem],
@@ -459,7 +471,13 @@ impl Upstream for Recorder {
             items: routed.len(),
         });
         *self.generation_input.borrow_mut() = Some((package.clone(), positions.to_vec()));
-        QslCg.generate(package, positions, routed, contexts)
+        self.source_matches.borrow_mut().push(
+            self.source
+                .borrow()
+                .as_ref()
+                .is_some_and(|original| std::ptr::eq(source, original.as_ref())),
+        );
+        QslCg.generate(source, package, positions, routed, contexts)
     }
 }
 
@@ -1273,7 +1291,14 @@ fn direct_generation(
             item.with_scalar_selection(&package, selection)
         })
         .collect::<Vec<_>>();
-    generate_routed(&package, &positions, &routed, contexts)
+    let source = recorder.source.borrow();
+    generate_routed(
+        source.as_deref().expect("negotiation retained its source"),
+        &package,
+        &positions,
+        &routed,
+        contexts,
+    )
 }
 
 /// FR-001-AC-2 (TC-002): a registered `BackendId` with no CG kind refuses
@@ -1696,7 +1721,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
     assert_eq!(
         envelope.items[0].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked().clone()),
+            package: Arc::new(driven.checked().clone()),
             contract: Box::new(contract.clone()),
             positions: positions.clone(),
             request_index: 0,
@@ -1721,9 +1746,9 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
     assert_eq!(driven.generation(), &expected);
 }
 
-/// Trace: FR-001-AC-12.
 /// The CG negotiation input carries the exact admitted checked package and
 /// selected requirement node, even when later CG settlement does not route it.
+#[trace("TC-006", "FR-001-AC-12", "FR-001-AC-15")]
 #[test]
 fn tc_006_kani_form_projects_exact_package_and_selected_node() {
     let checked = int_package().checked().clone();
@@ -1746,9 +1771,21 @@ fn tc_006_kani_form_projects_exact_package_and_selected_node() {
     let (contract, positions) = recorder.generation_input();
     assert_eq!(envelope.items.len(), 1);
     assert_eq!(
+        *recorder.source_matches.borrow(),
+        [true, true],
+        "negotiation and generation borrow the same original admitted source"
+    );
+    let KaniForm::V2ScalarClaim { package, .. } = &envelope.items[0].kani_form else {
+        panic!("a scalar claim must retain its admitted source");
+    };
+    assert!(
+        std::ptr::eq(package.as_ref(), driven.checked()),
+        "the completed driver retains the original source shared with the claim"
+    );
+    assert_eq!(
         envelope.items[0].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked().clone()),
+            package: Arc::new(driven.checked().clone()),
             contract: Box::new(contract),
             positions,
             request_index: 0,
@@ -2865,7 +2902,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
     assert_eq!(
         envelope.items[0].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked().clone()),
+            package: Arc::new(driven.checked().clone()),
             contract: Box::new(contract.clone()),
             positions: positions.clone(),
             request_index: 0,
@@ -2875,7 +2912,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
     assert_eq!(
         envelope.items[1].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked().clone()),
+            package: Arc::new(driven.checked().clone()),
             contract: Box::new(contract),
             positions,
             request_index: 1,

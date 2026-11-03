@@ -744,6 +744,7 @@ fn package_read_refusal_code(code: CheckedPackageRefusalCode) -> &'static str {
         CheckedPackageRefusalCode::UnsupportedConstruct => "unsupported_construct",
         CheckedPackageRefusalCode::MissingDeclaration => "missing_declaration",
         CheckedPackageRefusalCode::InvalidModelBinding => "invalid_model_binding",
+        CheckedPackageRefusalCode::InvalidTimedModel => "invalid_timed_model",
         CheckedPackageRefusalCode::InvalidPackage => "invalid_package",
         CheckedPackageRefusalCode::IllTyped => "ill_typed",
         CheckedPackageRefusalCode::AmbiguousDeclaration => "ambiguous_declaration",
@@ -800,6 +801,8 @@ fn package_read_refusal_cause(cause: CheckedPackageRefusalCause) -> &'static str
         CheckedPackageRefusalCause::WrongSelectionRole => "wrong-selection-role",
         CheckedPackageRefusalCause::InexactInteger => "inexact-integer",
         CheckedPackageRefusalCause::InexactNumber => "inexact-number",
+        CheckedPackageRefusalCause::InvalidSemanticGraph => "invalid-semantic-graph",
+        CheckedPackageRefusalCause::InvalidTaskSet => "invalid-task-set",
     }
 }
 
@@ -837,7 +840,8 @@ fn manifest_encoding_exhausted(error: &quire_canonical::Error) -> bool {
 fn package_request_code(error: &PackageRequestError) -> Code {
     match error {
         PackageRequestError::ExcludedDriverIndex { .. } => Code::RuntimeInvariant,
-        PackageRequestError::ItemPositions { .. }
+        PackageRequestError::SourceMismatch { .. }
+        | PackageRequestError::ItemPositions { .. }
         | PackageRequestError::Count { .. }
         | PackageRequestError::Identity { .. }
         | PackageRequestError::AccountingIdentity { .. }
@@ -948,6 +952,7 @@ fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
         | CompileRefusal::Assembly { .. }
         | CompileRefusal::Emit(_)
         | CompileRefusal::Omitted(_) => None,
+        CompileRefusal::UnitList(refusal) => refusal.cause(),
         CompileRefusal::Limit(limit) => Some(limit.kind().catalog_cause()),
         CompileRefusal::Profile { refusals, .. } => refusals.first().map(|refusal| refusal.cause()),
         CompileRefusal::Check { refusals, .. } => {
