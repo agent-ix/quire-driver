@@ -1795,6 +1795,76 @@ fn tc_006_kani_form_projects_exact_package_and_selected_node() {
     );
 }
 
+#[trace("TC-004", "TC-006", "FR-001-AC-5", "FR-001-AC-15")]
+#[test]
+fn foreign_admitted_source_is_refused_by_negotiation_and_generation() {
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let recorder = Recorder::default();
+    let original = drive(
+        &recorder,
+        int_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("the original admitted source generates");
+    let foreign = drive(
+        &QslCg,
+        CompileInput {
+            package_name: "foreign",
+            ..int_input(&packages)
+        },
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("a separate named source admits");
+    let (contract, positions) = recorder.generation_input();
+    let expected = contract.wire().package.source.clone();
+    let negotiation = QslCg
+        .negotiate(
+            foreign.checked(),
+            &contract,
+            &positions,
+            &recorder.envelope(),
+        )
+        .expect_err("a foreign source must not negotiate the original lowering");
+    let generation = QslCg
+        .generate(
+            foreign.checked(),
+            &contract,
+            &positions,
+            &[],
+            &GenerationContexts::default(),
+        )
+        .expect_err("a foreign source must not generate the original lowering");
+    for refusal in [
+        DriverRefusal::from(*negotiation),
+        DriverRefusal::Generation(generation),
+    ] {
+        assert_eq!(refusal.code(), "invalid_request");
+        assert_eq!(refusal.kind(), OutcomeKind::Refused);
+        let error = match &refusal {
+            DriverRefusal::PackageNegotiation(error) => error,
+            DriverRefusal::Generation(RoutedGenerationError::Package(error)) => error,
+            other => panic!("expected typed source mismatch, got {other:?}"),
+        };
+        let quire_contract_codegen::PackageRequestError::SourceMismatch {
+            expected: actual_expected,
+            actual,
+        } = error
+        else {
+            panic!("the source identity distinction must remain typed");
+        };
+        assert_eq!(actual_expected.as_ref(), &expected);
+        assert_eq!(actual.name.as_ref(), foreign.checked().name());
+        assert_eq!(&actual.lock, foreign.checked().lock());
+        assert_ne!(actual.name.as_ref(), original.checked().name());
+    }
+}
+
 /// Trace: FR-001-AC-12.
 /// Provenance: QSL RR-16.
 /// Two occurrences of the same addition keep their own selected narrow

@@ -1484,14 +1484,14 @@ mod tests {
             ),
         ];
         for (cause, expected_code) in cases {
-            let refusal = DriverRefusal::Compile(CompileRefusal::UnitList(cause.clone()));
+            let refusal = DriverRefusal::Compile(Box::new(CompileRefusal::UnitList(cause.clone())));
             assert_eq!(refusal.code(), expected_code);
             assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Intake));
             assert_eq!(refusal.kind(), OutcomeKind::Refused);
-            let DriverRefusal::Compile(CompileRefusal::UnitList(actual)) = refusal else {
+            let DriverRefusal::Compile(actual) = refusal else {
                 panic!("the owner refusal must remain typed");
             };
-            assert_eq!(actual, cause);
+            assert_eq!(*actual, CompileRefusal::UnitList(cause));
         }
     }
 
