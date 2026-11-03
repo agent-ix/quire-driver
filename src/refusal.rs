@@ -1414,6 +1414,89 @@ mod tests {
 
     #[trace("TC-004", "FR-001-AC-22")]
     #[test]
+    fn reader_timed_and_semantic_refusals_keep_distinct_typed_payloads() {
+        for (code, cause, expected_code, expected_cause) in [
+            (
+                CheckedPackageRefusalCode::InvalidTimedModel,
+                CheckedPackageRefusalCause::InvalidTaskSet,
+                "invalid_timed_model",
+                "invalid-task-set",
+            ),
+            (
+                CheckedPackageRefusalCode::InvalidSemanticGraph,
+                CheckedPackageRefusalCause::InvalidSemanticGraph,
+                "invalid_semantic_graph",
+                "invalid-semantic-graph",
+            ),
+        ] {
+            let projection = ContractPackageRefusalProjection {
+                code,
+                cause: Some(cause),
+                loci: loci(Some("/package/semantic_graph")),
+                locus: Some(node_id("task")),
+                contract_version: Some("2.0.0".to_owned()),
+                document_pointer: Some("/package/semantic_graph".to_owned()),
+                extension_detail: None,
+                protocol_detail: None,
+                terminal_duplicate: None,
+            };
+            let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageReadRefused {
+                refusal: projection.clone(),
+            });
+            assert_eq!(refusal.code(), expected_code);
+            assert_eq!(refusal.package_read_cause(), Some(expected_cause));
+            assert_eq!(refusal.kind(), OutcomeKind::Refused);
+            assert_eq!(refusal.stage(), DriverStage::PackageRead);
+            assert_eq!(refusal.package_read_refusal_projection(), Some(&projection));
+            let diagnostic = refusal
+                .package_read_diagnostic()
+                .expect("a reader refusal has its diagnostic");
+            assert_eq!(diagnostic.code(), expected_code);
+            assert_eq!(diagnostic.cause(), Some(expected_cause));
+            assert_eq!(diagnostic.locus(), projection.locus.as_ref());
+        }
+    }
+
+    #[trace("TC-004", "FR-001-AC-5")]
+    #[test]
+    fn unit_list_refusals_retain_the_owner_cause_and_intake_stage() {
+        use qsl_replay::spine::{CompileRefusal, SpineStage, UnitListRefusal};
+        let cases = [
+            (UnitListRefusal::Empty, "invalid_package/invalid-value"),
+            (
+                UnitListRefusal::DuplicateOwner {
+                    first: 0,
+                    second: 1,
+                    authority: "test".to_owned(),
+                    identity: "unit".to_owned(),
+                },
+                "invalid_package/conflicting-definition",
+            ),
+            (
+                UnitListRefusal::SiblingImport {
+                    identity: "sibling".to_owned(),
+                    unit: Box::new(qsl_foundation::SourceIdentity::new(
+                        "test", "sibling", "fixture", "1",
+                    )),
+                    region: None,
+                },
+                "missing_import/missing-selection",
+            ),
+        ];
+        for (cause, expected_code) in cases {
+            let refusal = DriverRefusal::Compile(CompileRefusal::UnitList(cause.clone()));
+            assert_eq!(refusal.code(), expected_code);
+            assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Intake));
+            assert_eq!(refusal.kind(), OutcomeKind::Refused);
+            let DriverRefusal::Compile(CompileRefusal::UnitList(actual)) = refusal else {
+                panic!("the owner refusal must remain typed");
+            };
+            assert_eq!(actual, cause);
+        }
+    }
+
+    #[trace("TC-004", "FR-001-AC-22")]
+    #[test]
     fn cg_package_read_refusal_preserves_projection_and_maps_its_typed_code_and_cause() {
         let projection = ContractPackageRefusalProjection {
             code: CheckedPackageRefusalCode::WrongSnapshot,

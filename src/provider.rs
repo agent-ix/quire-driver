@@ -1142,9 +1142,13 @@ mod tests {
                 alpha_per_test: half.clone(),
                 beta_per_test: half,
                 coverage: Coverage::FiniteSample,
+                delay_grid_bits: None,
             },
             provenance: StatisticalProvenance {
                 seed: 0,
+                timed_horizon: None,
+                delay_grid_bits: None,
+                max_sample_steps: None,
                 sampler: qsl_foundation::selection::DefinitionRef::new(
                     "agent-ix",
                     "quire.simulation.sampler/v1",
