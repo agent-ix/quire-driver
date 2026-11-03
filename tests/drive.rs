@@ -1023,10 +1023,19 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
         driver_positions[0],
         ContractRequestPosition::DriverItem { .. }
     ));
-    assert!(
-        matches!(driver_positions[1], ContractRequestPosition::Excluded { node_id }
-        if serde_json::to_value(node_id).ok()
-            == qsl_foundation::node_wire::node_key_to_json(driven.request_items[1].node()).ok())
+    let ContractRequestPosition::Excluded { node_id } = driver_positions[1] else {
+        panic!("the refused position must remain excluded");
+    };
+    assert_eq!(
+        serde_json::to_value(
+            driven
+                .checked()
+                .structural_key(node_id)
+                .expect("the excluded ID is admitted")
+        )
+        .expect("the resolved key serializes"),
+        qsl_foundation::node_wire::node_key_to_json(driven.request_items[1].node())
+            .expect("the selected QSL key serializes"),
     );
     assert!(matches!(
         driver_positions[2],
@@ -1840,12 +1849,23 @@ fn foreign_admitted_source_is_refused_by_negotiation_and_generation() {
             &GenerationContexts::default(),
         )
         .expect_err("a foreign source must not generate the original lowering");
-    for refusal in [
-        DriverRefusal::from(*negotiation),
-        DriverRefusal::Generation(generation),
+    for (refusal, code, kind, stage) in [
+        (
+            DriverRefusal::from(*negotiation),
+            "runtime_invariant",
+            OutcomeKind::Fault,
+            DriverStage::Negotiation,
+        ),
+        (
+            DriverRefusal::Generation(generation),
+            "invalid_request",
+            OutcomeKind::Refused,
+            DriverStage::Generation,
+        ),
     ] {
-        assert_eq!(refusal.code(), "invalid_request");
-        assert_eq!(refusal.kind(), OutcomeKind::Refused);
+        assert_eq!(refusal.code(), code);
+        assert_eq!(refusal.kind(), kind);
+        assert_eq!(refusal.stage(), stage);
         let error = match &refusal {
             DriverRefusal::PackageNegotiation(error) => error,
             DriverRefusal::Generation(RoutedGenerationError::Package(error)) => error,
@@ -1960,22 +1980,29 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
         actual_contexts.push((application, conversion));
     }
 
-    let checked_id = |key: &quire_exact::NodeKey| -> CheckedNodeId {
-        serde_json::from_value(
-            qsl_foundation::node_wire::node_key_to_json(key).expect("the key encodes"),
-        )
-        .expect("the wire form is a checked node identity")
+    let assert_key = |id: &CheckedNodeId, key: &quire_exact::NodeKey| {
+        assert_eq!(
+            serde_json::to_value(
+                driven
+                    .checked()
+                    .structural_key(id)
+                    .expect("the occurrence ID is admitted")
+            )
+            .expect("the resolved key serializes"),
+            qsl_foundation::node_wire::node_key_to_json(key)
+                .expect("the selected QSL key serializes")
+        );
     };
     for ((expected_application, expected_conversion), (application, conversion)) in
         expected_contexts.iter().zip(actual_contexts.iter())
     {
-        assert_eq!(application.node_id, checked_id(expected_application.node()));
+        assert_key(&application.node_id, expected_application.node());
         assert_eq!(
             application.role,
             quire_contract_model::CheckedOccurrenceRole::Expression
         );
         assert_eq!(application.ordinal, expected_application.origin().ordinal());
-        assert_eq!(conversion.node_id, checked_id(expected_conversion.node()));
+        assert_key(&conversion.node_id, expected_conversion.node());
         assert_eq!(
             conversion.role,
             quire_contract_model::CheckedOccurrenceRole::Expression
