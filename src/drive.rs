@@ -1389,6 +1389,37 @@ mod kani_form_projection_tests {
         assert_eq!(resolved, &nodes[1]);
     }
 
+    #[ix_trace_rs::trace("TC-006", "FR-001-AC-12")]
+    #[test]
+    fn indexed_wire_id_is_selected_by_its_resolved_operand_key() {
+        use quire_contract_model::CheckedNodePathSegment;
+        use std::sync::Arc;
+
+        let child = key("operand", 0);
+        let other_child = key("operand", 1);
+        let wanted = NodeKey::new("pkg".to_owned(), vec![PathSegment::Node(child.clone())], 0)
+            .expect("a nested source key is valid");
+        let resolved = |child: &NodeKey| CheckedNodeId {
+            package: "pkg".into(),
+            path: vec![CheckedNodePathSegment::Node(Arc::new(checked(child)))],
+            ordinal: 0,
+        };
+        let wire = |index| CheckedNodeId {
+            package: "pkg".into(),
+            path: vec![CheckedNodePathSegment::Index(index)],
+            ordinal: 0,
+        };
+        let ids = [wire(3), wire(8)];
+        let keys = [resolved(&other_child), resolved(&child)];
+        let selected = resolve_checked_node(ids.iter().zip(keys.iter()), &wanted, 0)
+            .expect("resolved operands select the admitted graph-local ID");
+        assert!(std::ptr::eq(selected, &ids[1]));
+        assert_ne!(
+            selected, &keys[1],
+            "wire identity remains in the admitted frame"
+        );
+    }
+
     /// Trace: FR-001-AC-12, TC-006.
     #[test]
     fn missing_node_key_returns_a_typed_internal_fault() {

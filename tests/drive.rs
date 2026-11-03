@@ -1858,7 +1858,7 @@ fn foreign_admitted_source_is_refused_by_negotiation_and_generation() {
         ),
         (
             DriverRefusal::Generation(generation),
-            "invalid_request",
+            "invalid-request",
             OutcomeKind::Refused,
             DriverStage::Generation,
         ),
