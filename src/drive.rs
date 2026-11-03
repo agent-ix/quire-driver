@@ -689,11 +689,11 @@ fn generate(
             .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?
             .node();
         let node_id = resolve_checked_node(
-            checked
-                .graph()
-                .nodes
-                .iter()
-                .map(|candidate| &candidate.node_id),
+            checked.graph().nodes.iter().filter_map(|node| {
+                checked
+                    .structural_key(&node.node_id)
+                    .map(|key| (&node.node_id, key))
+            }),
             node,
             request_index,
         )?;
@@ -754,7 +754,11 @@ fn lower_driver_request(
     let mut result_selections = Vec::with_capacity(items.len());
     for (request_index, item) in items.iter().enumerate() {
         let application = resolve_checked_node(
-            checked.graph().nodes.iter().map(|node| &node.node_id),
+            checked.graph().nodes.iter().filter_map(|node| {
+                checked
+                    .structural_key(&node.node_id)
+                    .map(|key| (&node.node_id, key))
+            }),
             item.node(),
             request_index,
         )?
@@ -826,7 +830,11 @@ fn contract_occurrence(
     request_index: usize,
 ) -> Result<quire_contract_model::ContractOccurrenceKeyV1, DriverRefusal> {
     let node_id = resolve_checked_node(
-        checked.graph().nodes.iter().map(|node| &node.node_id),
+        checked.graph().nodes.iter().filter_map(|node| {
+            checked
+                .structural_key(&node.node_id)
+                .map(|key| (&node.node_id, key))
+        }),
         occurrence.node(),
         request_index,
     )?
@@ -1231,11 +1239,11 @@ fn project_kani_form(
     lowered: &LoweredDriverRequest,
 ) -> Result<cg::KaniForm, DriverRefusal> {
     let selected = resolve_checked_node(
-        checked
-            .graph()
-            .nodes
-            .iter()
-            .map(|candidate| &candidate.node_id),
+        checked.graph().nodes.iter().filter_map(|node| {
+            checked
+                .structural_key(&node.node_id)
+                .map(|key| (&node.node_id, key))
+        }),
         node,
         request_index,
     )?;
@@ -1249,7 +1257,7 @@ fn project_kani_form(
 }
 
 fn resolve_checked_node<'a>(
-    nodes: impl Iterator<Item = &'a CheckedNodeId>,
+    nodes: impl Iterator<Item = (&'a CheckedNodeId, &'a CheckedNodeId)>,
     node: &quire_exact::NodeKey,
     request_index: usize,
 ) -> Result<&'a CheckedNodeId, DriverRefusal> {
@@ -1259,11 +1267,7 @@ fn resolve_checked_node<'a>(
             node: node.clone(),
         })
     };
-    let wanted: CheckedNodeId = qsl_foundation::node_wire::node_key_to_json(node)
-        .ok()
-        .and_then(|json| serde_json::from_value(json).ok())
-        .ok_or_else(unknown)?;
-    let mut matches = nodes.filter(|candidate| **candidate == wanted);
+    let mut matches = nodes.filter_map(|(id, key)| structural_key_matches(key, node).then_some(id));
     let Some(selected) = matches.next() else {
         return Err(unknown());
     };
@@ -1274,6 +1278,43 @@ fn resolve_checked_node<'a>(
         }));
     }
     Ok(selected)
+}
+
+/// Compare the owners' borrowed structural forms without constructing another source graph.
+fn structural_key_matches(id: &CheckedNodeId, key: &quire_exact::NodeKey) -> bool {
+    use quire_contract_model::CheckedNodePathSegment;
+    use quire_exact::PathSegmentView;
+
+    let mut pending = vec![(id, key.view())];
+    while let Some((id, key)) = pending.pop() {
+        if id.package.as_ref() != key.package() || id.ordinal != key.ordinal() {
+            return false;
+        }
+        let mut path = key.path();
+        for segment in &id.path {
+            match segment {
+                CheckedNodePathSegment::Name(name) => {
+                    let Some(PathSegmentView::Text(text)) = path.next() else {
+                        return false;
+                    };
+                    if name.as_ref() != text {
+                        return false;
+                    }
+                }
+                CheckedNodePathSegment::Node(node) => {
+                    let Some(PathSegmentView::Node(child)) = path.next() else {
+                        return false;
+                    };
+                    pending.push((node.as_ref(), child));
+                }
+                CheckedNodePathSegment::Index(_) => return false,
+            }
+        }
+        if path.next().is_some() {
+            return false;
+        }
+    }
+    true
 }
 
 /// Project one QSL registry descriptor to CG's FR-331 envelope descriptor.
@@ -1342,7 +1383,7 @@ mod kani_form_projection_tests {
         let wanted = key("a", 0);
         let nodes = [checked(&key("a", 1)), checked(&wanted)];
 
-        let resolved = resolve_checked_node(nodes.iter(), &wanted, 3)
+        let resolved = resolve_checked_node(nodes.iter().map(|id| (id, id)), &wanted, 3)
             .expect("the admitted package holds one exact match");
 
         assert_eq!(resolved, &nodes[1]);
@@ -1354,7 +1395,7 @@ mod kani_form_projection_tests {
         let wanted = key("a", 0);
         let nodes: [CheckedNodeId; 0] = [];
 
-        let refusal = resolve_checked_node(nodes.iter(), &wanted, 4)
+        let refusal = resolve_checked_node(nodes.iter().map(|id| (id, id)), &wanted, 4)
             .expect_err("a missing node cannot be guessed");
 
         assert!(matches!(
@@ -1375,7 +1416,7 @@ mod kani_form_projection_tests {
         let wanted = key("a", 0);
         let nodes = [checked(&wanted), checked(&wanted)];
 
-        let refusal = resolve_checked_node(nodes.iter(), &wanted, 5)
+        let refusal = resolve_checked_node(nodes.iter().map(|id| (id, id)), &wanted, 5)
             .expect_err("two checked identities with one key are ambiguous");
 
         assert!(matches!(
