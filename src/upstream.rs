@@ -25,7 +25,7 @@ use quire_contract_codegen::{
 };
 use quire_contract_model::{
     read_checked_package, CheckedPackageDispatchResult, CheckedPackageEvidence,
-    CheckedPackageReadLimits, ContractPackageV1,
+    CheckedPackageReadLimits, CheckedPackageV2, ContractPackageV1,
 };
 use quire_exact::Cancel;
 
@@ -106,9 +106,11 @@ pub trait Upstream {
     /// closed backend kind: `BackendKind::from_descriptor`.
     fn backend_kind(&self, descriptor: &BackendDescriptor) -> Option<BackendKind>;
 
-    /// E7: `quire_contract_codegen::negotiate_contract_package`.
+    /// E7: `quire_contract_codegen::negotiate_contract_package`, borrowing the
+    /// original E5-admitted source alongside its lowered contract package.
     fn negotiate(
         &self,
+        source: &CheckedPackageV2,
         package: &ContractPackageV1,
         positions: &[ContractRequestPosition],
         envelope: &BackendProviderEnvelope,
@@ -118,9 +120,10 @@ pub trait Upstream {
     fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>>;
 
     /// CG generation over the routed items:
-    /// `quire_contract_codegen::generate_routed`.
+    /// `quire_contract_codegen::generate_routed`, borrowing that same original source.
     fn generate(
         &self,
+        source: &CheckedPackageV2,
         package: &ContractPackageV1,
         positions: &[ContractRequestPosition],
         routed: &[RoutedGenerationItem],
@@ -195,11 +198,12 @@ impl Upstream for QslCg {
 
     fn negotiate(
         &self,
+        source: &CheckedPackageV2,
         package: &ContractPackageV1,
         positions: &[ContractRequestPosition],
         envelope: &BackendProviderEnvelope,
     ) -> Result<Vec<ContractItemSettlement>, Box<ContractNegotiationError>> {
-        negotiate_contract_package(package, positions, envelope).map_err(Box::new)
+        negotiate_contract_package(source, package, positions, envelope).map_err(Box::new)
     }
 
     fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>> {
@@ -208,12 +212,13 @@ impl Upstream for QslCg {
 
     fn generate(
         &self,
+        source: &CheckedPackageV2,
         package: &ContractPackageV1,
         positions: &[ContractRequestPosition],
         routed: &[RoutedGenerationItem],
         contexts: &GenerationContexts<'_>,
     ) -> Result<RoutedGeneration, RoutedGenerationError> {
-        generate_routed(package, positions, routed, contexts)
+        generate_routed(source, package, positions, routed, contexts)
     }
 }
 

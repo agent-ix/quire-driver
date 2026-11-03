@@ -242,6 +242,8 @@ enum Call {
 /// The real upstream, with a log of the calls the driver makes.
 #[derive(Default)]
 struct Recorder {
+    source: RefCell<Option<Arc<CheckedPackageV2>>>,
+    source_matches: RefCell<Vec<bool>>,
     export_refused_at: Vec<usize>,
     export_whole_refusal: bool,
     export_unknown_at: Option<usize>,
@@ -405,6 +407,7 @@ impl Upstream for Recorder {
 
     fn negotiate(
         &self,
+        source: &quire_contract_model::CheckedPackageV2,
         package: &ContractPackageV1,
         positions: &[ContractRequestPosition],
         envelope: &BackendProviderEnvelope,
@@ -413,12 +416,20 @@ impl Upstream for Recorder {
             items: envelope.items.len(),
         });
         *self.envelope.borrow_mut() = Some(envelope.clone());
+        if let Some(KaniForm::V2ScalarClaim { package, .. }) =
+            envelope.items.first().map(|item| &item.kani_form)
+        {
+            self.source_matches
+                .borrow_mut()
+                .push(std::ptr::eq(source, package.as_ref()));
+            *self.source.borrow_mut() = Some(Arc::clone(package));
+        }
         if let Some(refusal) = &self.negotiate_answer {
             return Err(Box::new(ContractNegotiationError::Envelope(
                 refusal.clone(),
             )));
         }
-        let mut settlements = QslCg.negotiate(package, positions, envelope)?;
+        let mut settlements = QslCg.negotiate(source, package, positions, envelope)?;
         if let Some(index) = self.unsupported_at {
             if let Some(settlement) = settlements.get_mut(index) {
                 let backend = settlement.backend.as_mut().expect("a lowered item settles");
@@ -450,6 +461,7 @@ impl Upstream for Recorder {
 
     fn generate(
         &self,
+        source: &quire_contract_model::CheckedPackageV2,
         package: &quire_contract_model::ContractPackageV1,
         positions: &[quire_contract_codegen::ContractRequestPosition],
         routed: &[RoutedGenerationItem],
@@ -459,7 +471,13 @@ impl Upstream for Recorder {
             items: routed.len(),
         });
         *self.generation_input.borrow_mut() = Some((package.clone(), positions.to_vec()));
-        QslCg.generate(package, positions, routed, contexts)
+        self.source_matches.borrow_mut().push(
+            self.source
+                .borrow()
+                .as_ref()
+                .is_some_and(|original| std::ptr::eq(source, original.as_ref())),
+        );
+        QslCg.generate(source, package, positions, routed, contexts)
     }
 }
 
@@ -1005,10 +1023,19 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
         driver_positions[0],
         ContractRequestPosition::DriverItem { .. }
     ));
-    assert!(
-        matches!(driver_positions[1], ContractRequestPosition::Excluded { node_id }
-        if serde_json::to_value(node_id).ok()
-            == qsl_foundation::node_wire::node_key_to_json(driven.request_items[1].node()).ok())
+    let ContractRequestPosition::Excluded { node_id } = driver_positions[1] else {
+        panic!("the refused position must remain excluded");
+    };
+    assert_eq!(
+        serde_json::to_value(
+            driven
+                .checked()
+                .structural_key(node_id)
+                .expect("the excluded ID is admitted")
+        )
+        .expect("the resolved key serializes"),
+        qsl_foundation::node_wire::node_key_to_json(driven.request_items[1].node())
+            .expect("the selected QSL key serializes"),
     );
     assert!(matches!(
         driver_positions[2],
@@ -1273,7 +1300,14 @@ fn direct_generation(
             item.with_scalar_selection(&package, selection)
         })
         .collect::<Vec<_>>();
-    generate_routed(&package, &positions, &routed, contexts)
+    let source = recorder.source.borrow();
+    generate_routed(
+        source.as_deref().expect("negotiation retained its source"),
+        &package,
+        &positions,
+        &routed,
+        contexts,
+    )
 }
 
 /// FR-001-AC-2 (TC-002): a registered `BackendId` with no CG kind refuses
@@ -1696,7 +1730,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
     assert_eq!(
         envelope.items[0].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked().clone()),
+            package: Arc::new(driven.checked().clone()),
             contract: Box::new(contract.clone()),
             positions: positions.clone(),
             request_index: 0,
@@ -1721,9 +1755,9 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
     assert_eq!(driven.generation(), &expected);
 }
 
-/// Trace: FR-001-AC-12.
 /// The CG negotiation input carries the exact admitted checked package and
 /// selected requirement node, even when later CG settlement does not route it.
+#[trace("TC-006", "FR-001-AC-12", "FR-001-AC-15")]
 #[test]
 fn tc_006_kani_form_projects_exact_package_and_selected_node() {
     let checked = int_package().checked().clone();
@@ -1746,9 +1780,21 @@ fn tc_006_kani_form_projects_exact_package_and_selected_node() {
     let (contract, positions) = recorder.generation_input();
     assert_eq!(envelope.items.len(), 1);
     assert_eq!(
+        *recorder.source_matches.borrow(),
+        [true, true],
+        "negotiation and generation borrow the same original admitted source"
+    );
+    let KaniForm::V2ScalarClaim { package, .. } = &envelope.items[0].kani_form else {
+        panic!("a scalar claim must retain its admitted source");
+    };
+    assert!(
+        std::ptr::eq(package.as_ref(), driven.checked()),
+        "the completed driver retains the original source shared with the claim"
+    );
+    assert_eq!(
         envelope.items[0].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked().clone()),
+            package: Arc::new(driven.checked().clone()),
             contract: Box::new(contract),
             positions,
             request_index: 0,
@@ -1756,6 +1802,87 @@ fn tc_006_kani_form_projects_exact_package_and_selected_node() {
         },
         "the typed form is projected from the admitted package and exact selected node"
     );
+}
+
+#[trace("TC-004", "TC-006", "FR-001-AC-5", "FR-001-AC-15")]
+#[test]
+fn foreign_admitted_source_is_refused_by_negotiation_and_generation() {
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let recorder = Recorder::default();
+    let original = drive(
+        &recorder,
+        int_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("the original admitted source generates");
+    let foreign = drive(
+        &QslCg,
+        CompileInput {
+            package_name: "foreign",
+            ..int_input(&packages)
+        },
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("a separate named source admits");
+    let (contract, positions) = recorder.generation_input();
+    let expected = contract.wire().package.source.clone();
+    let negotiation = QslCg
+        .negotiate(
+            foreign.checked(),
+            &contract,
+            &positions,
+            &recorder.envelope(),
+        )
+        .expect_err("a foreign source must not negotiate the original lowering");
+    let generation = QslCg
+        .generate(
+            foreign.checked(),
+            &contract,
+            &positions,
+            &[],
+            &GenerationContexts::default(),
+        )
+        .expect_err("a foreign source must not generate the original lowering");
+    for (refusal, code, kind, stage) in [
+        (
+            DriverRefusal::from(*negotiation),
+            "runtime_invariant",
+            OutcomeKind::Fault,
+            DriverStage::Negotiation,
+        ),
+        (
+            DriverRefusal::Generation(generation),
+            "invalid-request",
+            OutcomeKind::Refused,
+            DriverStage::Generation,
+        ),
+    ] {
+        assert_eq!(refusal.code(), code);
+        assert_eq!(refusal.kind(), kind);
+        assert_eq!(refusal.stage(), stage);
+        let error = match &refusal {
+            DriverRefusal::PackageNegotiation(error) => error,
+            DriverRefusal::Generation(RoutedGenerationError::Package(error)) => error,
+            other => panic!("expected typed source mismatch, got {other:?}"),
+        };
+        let quire_contract_codegen::PackageRequestError::SourceMismatch {
+            expected: actual_expected,
+            actual,
+        } = error
+        else {
+            panic!("the source identity distinction must remain typed");
+        };
+        assert_eq!(actual_expected.as_ref(), &expected);
+        assert_eq!(actual.name.as_ref(), foreign.checked().name());
+        assert_eq!(&actual.lock, foreign.checked().lock());
+        assert_ne!(actual.name.as_ref(), original.checked().name());
+    }
 }
 
 /// Trace: FR-001-AC-12.
@@ -1853,22 +1980,29 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
         actual_contexts.push((application, conversion));
     }
 
-    let checked_id = |key: &quire_exact::NodeKey| -> CheckedNodeId {
-        serde_json::from_value(
-            qsl_foundation::node_wire::node_key_to_json(key).expect("the key encodes"),
-        )
-        .expect("the wire form is a checked node identity")
+    let assert_key = |id: &CheckedNodeId, key: &quire_exact::NodeKey| {
+        assert_eq!(
+            serde_json::to_value(
+                driven
+                    .checked()
+                    .structural_key(id)
+                    .expect("the occurrence ID is admitted")
+            )
+            .expect("the resolved key serializes"),
+            qsl_foundation::node_wire::node_key_to_json(key)
+                .expect("the selected QSL key serializes")
+        );
     };
     for ((expected_application, expected_conversion), (application, conversion)) in
         expected_contexts.iter().zip(actual_contexts.iter())
     {
-        assert_eq!(application.node_id, checked_id(expected_application.node()));
+        assert_key(&application.node_id, expected_application.node());
         assert_eq!(
             application.role,
             quire_contract_model::CheckedOccurrenceRole::Expression
         );
         assert_eq!(application.ordinal, expected_application.origin().ordinal());
-        assert_eq!(conversion.node_id, checked_id(expected_conversion.node()));
+        assert_key(&conversion.node_id, expected_conversion.node());
         assert_eq!(
             conversion.role,
             quire_contract_model::CheckedOccurrenceRole::Expression
@@ -2865,7 +2999,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
     assert_eq!(
         envelope.items[0].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked().clone()),
+            package: Arc::new(driven.checked().clone()),
             contract: Box::new(contract.clone()),
             positions: positions.clone(),
             request_index: 0,
@@ -2875,7 +3009,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
     assert_eq!(
         envelope.items[1].kani_form,
         KaniForm::V2ScalarClaim {
-            package: Box::new(driven.checked().clone()),
+            package: Arc::new(driven.checked().clone()),
             contract: Box::new(contract),
             positions,
             request_index: 1,

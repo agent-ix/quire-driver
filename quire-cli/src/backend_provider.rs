@@ -941,11 +941,12 @@ mod tests {
 
         fn negotiate(
             &self,
+            source: &quire_contract_model::CheckedPackageV2,
             package: &quire_contract_model::ContractPackageV1,
             positions: &[cg::ContractRequestPosition],
             envelope: &cg::BackendProviderEnvelope,
         ) -> Result<Vec<cg::ContractItemSettlement>, Box<cg::ContractNegotiationError>> {
-            let mut settlements = QslCg.negotiate(package, positions, envelope)?;
+            let mut settlements = QslCg.negotiate(source, package, positions, envelope)?;
             for index in &self.unsupported_at {
                 if let Some(settlement) = settlements.get_mut(*index) {
                     let backend = settlement.backend.as_mut().expect("a lowered item settles");
@@ -984,12 +985,13 @@ mod tests {
 
         fn generate(
             &self,
+            source: &quire_contract_model::CheckedPackageV2,
             package: &quire_contract_model::ContractPackageV1,
             positions: &[cg::ContractRequestPosition],
             routed: &[cg::RoutedGenerationItem],
             contexts: &cg::GenerationContexts<'_>,
         ) -> Result<cg::RoutedGeneration, cg::RoutedGenerationError> {
-            QslCg.generate(package, positions, routed, contexts)
+            QslCg.generate(source, package, positions, routed, contexts)
         }
     }
 
