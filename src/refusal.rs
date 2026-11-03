@@ -1491,7 +1491,10 @@ mod tests {
             let DriverRefusal::Compile(actual) = refusal else {
                 panic!("the owner refusal must remain typed");
             };
-            assert_eq!(*actual, CompileRefusal::UnitList(cause));
+            let CompileRefusal::UnitList(actual) = *actual else {
+                panic!("the unit-list payload must remain typed");
+            };
+            assert_eq!(actual, cause);
         }
     }
 
