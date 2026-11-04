@@ -41,6 +41,8 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/FR-014
     type: contains
+  - target: ix://agent-ix/quire-driver/FR-015
+    type: contains
   - target: ix://agent-ix/quire-driver/TC-001
     type: contains
   - target: ix://agent-ix/quire-driver/TC-002
@@ -97,6 +99,8 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/TC-028
     type: contains
+  - target: ix://agent-ix/quire-driver/TC-029
+    type: contains
 ---
 # Master Requirements Specification
 
@@ -131,6 +135,12 @@ argv parsing. Adoption of ix-cli-kit's `streams`, `json` and `version` modules
 is required by FR-002 and remains open under IR-607; if the CLI adds
 configuration resolution, it will use the kit's `config` module. The kit's
 feature-gated `secrets` module is outside the driver's adoption scope.
+
+Planned until IR-721 lands: FR-015 adds the library handoff from an
+independently selected admitted monitor root to RT's retained executable owner.
+It does not add monitor syntax, a temporal evaluator, another CLI operation or
+a second runtime representation. Producer qualification and runtime execution
+remain separate obligations.
 
 ### 2.2 Out of Scope
 
@@ -195,6 +205,7 @@ implementation; FR-013 specifies the in-repository plugin host; FR-014 specifies
 | [FR-012](functional/FR-012-implement-the-downstream-content-addressed-cache.md) | Implement the downstream content-addressed cache |
 | [FR-013](functional/FR-013-host-process-plugins.md) | Host process providers through a bounded session |
 | [FR-014](functional/FR-014-separate-the-user-cli-package.md) | Place the user CLI in a separate workspace package |
+| [FR-015](functional/FR-015-prepare-an-admitted-monitor-program.md) | Prepare one admitted monitor program for the runtime (planned until IR-721 lands) |
 | [TC-001](test-cases/TC-001-steps-run-in-order.md) | The steps run in ADR-011 T-13 order |
 | [TC-002](test-cases/TC-002-unknown-backend-refusal.md) | An unknown `BackendId` refuses the run before negotiation |
 | [TC-003](test-cases/TC-003-route-after-negotiation.md) | `route` runs after negotiation, for `supported` items only |
@@ -223,6 +234,7 @@ implementation; FR-013 specifies the in-repository plugin host; FR-014 specifies
 | [TC-026](test-cases/TC-026-plugin-resource-bounds-and-cleanup.md) | Enforce plugin process-tree budgets and bounded cleanup |
 | [TC-027](test-cases/TC-027-clean-cache-plugin-host-gate.md) | Run plugin-host tests and dependency checks from a clean cache |
 | [TC-028](test-cases/TC-028-cli-package-boundary.md) | Keep the CLI package separate from the driver and compose cache and host |
+| [TC-029](test-cases/TC-029-admitted-monitor-program-preparation.md) | Prepare and execute actual admitted monitor programs (planned until IR-721 lands) |
 
 ## 5. Verification and Delivery Boundary
 

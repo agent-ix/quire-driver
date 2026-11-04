@@ -36,6 +36,8 @@ relationships:
     type: references
   - target: ix://agent-ix/quire-driver/FR-014
     type: references
+  - target: ix://agent-ix/quire-driver/FR-015
+    type: references
   - target: ix://agent-ix/quire-driver/TM-001
     type: references
   - target: ix://agent-ix/quire-driver/TC-019
@@ -105,6 +107,14 @@ execution and replay semantics and the outcome types. IR owns checked-package
 admission. CG owns negotiation, claim derivation, generation, atomic artifact
 publication and the mapping from provider execution plus replay to QSL's
 terminal value. The driver defines no alternative to these contracts.
+
+Planned until IR-721 lands, [FR-015](../functional/FR-015-prepare-an-admitted-monitor-program.md)
+adds preparation of an independently selected admitted monitor root into the
+RT-owned immutable program. QSL retains producer/temporal semantics, IR retains
+admission, and RT retains build/step execution. The driver lowers ordinary
+admitted bodies once; it supplies no parser, temporal evaluator or second
+program representation. This planned handoff is not current implementation or
+complete runtime qualification.
 
 QSL ADR-029 also defines the plugin, cache and execution-backend contracts.
 Its CB-3 places the host, cache, AOT adapter and CLI outside the qualified core
@@ -182,6 +192,11 @@ without supplied selection refuses at intake. This reconciliation does not
 add library-source intake or expand that baseline contract.
 
 ### Dependency direction and frontend placement
+
+- Planned until IR-721 lands, FR-015 adds a driver-to-RT production edge. RT
+  remains a leaf without IR, QSL or driver dependencies, and the cycle-free IR
+  model remains independent of RT. The returned RT Program owns the canonical
+  environment and expression/function arenas after driver preparation drops.
 
 - QSL, IR and CG do not depend on the driver. The driver library depends on
   their layer/model APIs; downstream components and `quire-cache` may
