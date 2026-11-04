@@ -10,8 +10,9 @@ type: TestMatrix
 This authored verification inventory integrates FR-001 and SP-D1 through
 SP-D9 (FR-002 through FR-010) from IR-527, FR-011 from IR-616, FR-012 for
 the downstream cache component, FR-013 for the process plugin host, and FR-014
-for the CLI package boundary. It covers FR-001 through FR-014 and TC-001
-through TC-028. Discrete FR and TC artifacts remain authoritative;
+for the CLI package boundary, and planned FR-015 for admitted monitor program
+preparation. It covers FR-001 through FR-015 and TC-001 through TC-029.
+Discrete FR and TC artifacts remain authoritative;
 this matrix is their index, not a computed implementation-coverage report.
 
 `✅` means the named verification is implemented in the listed artifact;
@@ -28,6 +29,7 @@ upstream APIs.
 | FR-002..FR-009 / TC-009..TC-016, TC-018 | QSL-backed execute and available proof-terminal serializers have unit coverage; `quire-cli` process tests cover selected-engine and limit exit behavior; full outcome-contract and prove/replay composition tests remain planned. |
 | Plugin wire, cache policy, execution semantics and AOT/interpreter parity | QSL ADR-029 owns the protocol and policy. Driver `quire-plugin-host` conformance is specified by TC-023..TC-026 under FR-013; implementation tests cover the listed session, typed-failure, cancellation/deadline and budget cases, with remaining cases identified in the matrix rows. TC-013, TC-014 and TC-015 specify composition boundaries; `quire-cache` behavior is verified by TC-020..TC-022 under FR-012. |
 | FR-010, FR-001-AC-17..FR-001-AC-21, FR-009-AC-16 / TC-017 | Driver partition, refusal and request-index tests are in `tests/drive.rs`; `quire-integration` PR 16 exercises the QSL/driver/CG composition. The full TC-017 outcome remains open. |
+| FR-015 / TC-029 | Planned QSL producer, strict IR admission, complete IR FR-357 generated-source projection, driver lowering and RT build/execution evidence. All twelve FR-015 criteria remain planned and untagged; TC-029 supplies the procedure, not execution credit. |
 | G5b acceptance evidence / IR-528 | `quire-integration` only: CLI/library parity across the eight outcome kinds with identical outcome bytes and exit codes; provider/plugin installation; cache hit/miss/never-store; AOT/interpreter parity; absence of a QSL user binary; and prove execution, replay and FR-331 records. End-to-end evidence is required on every OS declared supported at gate freeze; one platform's result does not establish acceptance on another. |
 
 The driver supplies the one user-facing CLI. CG FR-005's CLI-facing
@@ -122,6 +124,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | FR-014 | FR-014-AC-4 | TC-009, TC-018, TC-028 | ✅ `quire-cli/tests/package_boundary.rs::parser_and_cli_tests_live_in_the_cli_package` asserts CLI test and fixture ownership. CLI behavior remains tracked separately by TC-009/TC-018. |
 | FR-014 | FR-014-AC-5 | TC-028 | ✅ `quire-cli/tests/package_boundary.rs::parser_and_cli_tests_live_in_the_cli_package` asserts parser and binary entry point locations. |
 | FR-014 | FR-014-AC-6 | TC-028 | 🚧 Partial: `quire-cli/src/cli.rs` parses one explicit `--provider-config <path>` and rejects missing or repeated options; the binary test covers a valid empty `providers` list, and production binary tests exercise configured dispatch, duplicate refusal and active-request SIGTERM cleanup. Strict invalid-file and deadline outcomes are covered under FR-006-AC-24. Omitted configuration bypasses the provider composition. |
+| FR-015 | FR-015-AC-1..FR-015-AC-12 | TC-029 | 🚧 Planned: producer/read/lower/RT evidence in TC-029 has not executed. QSL-1631 source-owned witnesses, complete IR FR-357 projection and driver preparation remain open; the first witnessed IR subset does not complete a `TypeEnvironment` or RT `ProgramParts`. No criterion is accepted by this inventory row. |
 
 ## Test Case Summary
 
@@ -155,6 +158,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-026 | Enforce plugin process-tree budgets and bounded cleanup | Integration | FR-013-AC-8..FR-013-AC-10, FR-013-AC-16..FR-013-AC-19 | 🚧 Partial: synchronized Linux cgroup CPU cases cover an auto-reaped child and an escaped-PGID descendant; typed CPU-budget refusal, cgroup-wide termination, and I/O worker joins are asserted. The designated native Linux run with `QUIRE_REQUIRE_COMPLETE_CPU_BOUNDARY=1` passed (4/4), and Linux `make ci` passed; macOS/Windows enforcement remains incomplete under IR-671. |
 | TC-027 | Run plugin-host tests and dependency checks from a clean cache | Integration | FR-013-AC-12, FR-013-AC-13 | 🚧 Python prerequisite message is tested; clean-cache fetch, offline metadata, and full gate evidence remain planned. |
 | TC-028 | Keep the CLI package separate from the driver and compose cache and process host | Integration | FR-002-AC-3, FR-002-AC-7, FR-006-AC-1, FR-006-AC-3..FR-006-AC-4, FR-006-AC-24..FR-006-AC-27, FR-013-AC-11, FR-013-AC-14..FR-013-AC-15, FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6 | 🚧 Partial: `quire-cli` tests cover explicit-option parsing, the empty configuration, strict invalid-file/deadline outcomes, selected-provider composition with typed-result retention, production duplicate-identity refusal, and active-request SIGTERM cleanup. Later-start/hello failure cleanup remains untested. Package-boundary tests cover target ownership, layout and the direct CLI-to-host edge. Adapter lifecycle/signal tests are partial; Windows forced cleanup requires native Windows evidence and automatic kill-on-close remains planned under IR-674. |
+| TC-029 | Prepare and execute actual admitted monitor programs | Integration | FR-015-AC-1..FR-015-AC-12 | 🚧 Planned: procedure covers real QSL producer, strict IR read, complete generated-source projection, driver lowering and RT execution with positive and adverse controls. No implementation or execution credit is claimed. |
 
 ## Integration Test Matrix
 
@@ -164,3 +168,4 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | Verify content identity, typed reads, exclusion policy and bounded atomic storage | Downstream `quire-cache` package and caller-named temporary directory | component | TC-020, TC-021, TC-022 |
 | Verify plugin sessions, protocol, typed outcomes, cancellation, deadlines, budgets and cleanup | `quire-plugin-host` with deterministic process fixtures | component | TC-023, TC-024, TC-025, TC-026, TC-027 |
 | Verify CLI process-provider composition and cleanup on exit and handled signals | `quire-cli` adapter and `quire-plugin-host` with a descendant-spawning fixture | component | TC-028 |
+| Verify admitted monitor program preparation and execution from real emitted entries | QSL producer, strict IR reader, driver preparation and RT program | integration | TC-029 (planned) |

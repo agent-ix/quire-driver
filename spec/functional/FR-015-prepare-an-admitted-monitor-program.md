@@ -15,6 +15,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-354
     type: depends_on
+  - target: ix://agent-ix/quire-contract-ir/FR-357
+    type: depends_on
   - target: ix://agent-ix/quire-contract-runtime/FR-276
     type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-251
@@ -143,6 +145,13 @@ types. The driver SHALL NOT treat a selected-domain projection as a complete
 projection of generated source types, or invent an identity when the required
 projection/witness is unavailable.
 
+[IR FR-357](ix://agent-ix/quire-contract-ir/FR-357) owns the complete selected
+generated-source type/declaration projection needed for this environment.
+Its first bounded witnessed subset reads selected model declaration/field and
+equality facts only; it does not traverse the monitor root or establish the
+complete closure. That subset alone SHALL NOT be used to construct a complete
+`TypeEnvironment` or RT `ProgramParts`.
+
 For equality, the driver SHALL obtain opaque `AdmittedEqualityDecision` through
 IR `admitted_equality` with matching original producer application, fact and
 source-unit rows. It SHALL obtain `CheckedEquality` through
@@ -222,14 +231,17 @@ effect.
   carriers. Those artifacts and vectors are read by reference, not copied.
 - [QSL FR-251](ix://agent-ix/quire-spec-language/FR-251) owns derivation and
   entry semantics. Its public producer is
-  `qsl_analyze::monitor_root::emit_plan_root`. Same-acquisition witnesses must
-  survive the monitor rewrite with final identities/occurrences. Currently
-  discarded equality/source-unit witnesses are an upstream handoff dependency,
-  not permission to synthesize them. No new QSL carrier is defined here.
+  `qsl_analyze::monitor_root::emit_plan_root`. Merged QSL-1463 retains and
+  rekeys model declaration/field, equality producer/fact and selected source-unit
+  witness rows in the final `PlanRoot.emission`. QSL-1631 remains pending for
+  source-owned enum, collection and union witnesses required by the complete
+  generated-source closure. No new QSL carrier is defined here.
 - [IR FR-353](ix://agent-ix/quire-contract-ir/FR-353) owns the no-recheck equality
   read; [IR FR-354](ix://agent-ix/quire-contract-ir/FR-354) owns nominal reads.
-  Source nominal closure projection for this interface remains IR-721 work;
-  existing partial projections are not claimed complete.
+  [IR FR-357](ix://agent-ix/quire-contract-ir/FR-357) owns the complete selected
+  generated-source type/declaration projection. Its first witnessed subset is
+  insufficient for a complete `TypeEnvironment` or RT `ProgramParts`; complete
+  projection and driver lowering remain planned IR-721 work.
 - [RT FR-276](ix://agent-ix/quire-contract-runtime/FR-276) owns Program/build,
   bounded state and executor outcomes. The tick-aware reference is
   `qsl_eval::temporal::TickMonitorReference`.

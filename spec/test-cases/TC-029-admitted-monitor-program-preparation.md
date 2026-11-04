@@ -87,7 +87,11 @@ compiler control.
 Each [FR-015](../functional/FR-015-prepare-an-admitted-monitor-program.md)
 criterion has executed evidence with exact positive and adverse outcomes.
 Partial construction or pilot evidence remains partial; it does not qualify
-all of RT FR-276 or close IR-722. Current upstream witness-retention and local
-source-projection/lowering dependencies remain planned until implemented and
-exercised. No copied upstream fixture, reminted identity, semantic mirror,
-callback, new semantic cap or proof run supplies missing evidence.
+all of RT FR-276 or close IR-722. QSL-1463 retains and rekeys final-emission
+equality producer/fact and selected source-unit rows. QSL-1631 source-owned
+enum, collection and union witnesses, complete IR FR-357 generated-source
+projection and driver lowering remain planned until implemented and exercised.
+The first IR FR-357 witnessed subset cannot establish a complete
+`TypeEnvironment` or RT `ProgramParts`. No copied upstream fixture, reminted
+identity, semantic mirror, callback, new semantic cap or proof run supplies
+missing evidence.
