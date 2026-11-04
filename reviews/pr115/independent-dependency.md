@@ -31,3 +31,10 @@ QSL 13c7edf `PlanRoot.emission` calls `emit_monitor_plan_over`, which rekeys ret
 ## Verification and Limits
 
 Quire 0.36.2 structural validation and grammar summary pass (84/84). The computed matrix marks FR-015-AC-1 through AC-12 untagged, consistent with planned work. No Cargo tests or runtime gates were run. No applicable AssuranceProfile was found in the driver spec tree.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Verified in PR #115 fix head ebdfe737: FR-015 and TC-029 now distinguish retained QSL-1463 rows from pending QSL-1631 closure and bind complete projection to IR FR-357. |
+| FND-002 | fixed | Verified in PR #115 fix head ebdfe737: FR-015 and TC-029 now distinguish retained QSL-1463 rows from pending QSL-1631 closure and bind complete projection to IR FR-357. |

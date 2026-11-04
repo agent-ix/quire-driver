@@ -30,3 +30,9 @@ The new criteria remain untagged as planned. TC-029 supplies a procedure, but TM
 ## Verification and Limits
 
 Quire 0.36.2 structural validation and grammar summary pass (84/84). The computed matrix marks FR-015-AC-1 through AC-12 untagged, consistent with planned work. No Cargo tests or runtime gates were run. No applicable AssuranceProfile was found in the driver spec tree.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Verified in PR #115 fix head ebdfe737: TM-001 now indexes FR-015 and TC-029 as planned, with no execution credit. |
