@@ -13,7 +13,7 @@ Ticket: IR-721. Reviewed frozen PR #119, independently matched local and publish
 
 ## Verdict
 
-**PASS** — no defects found in the examined change. 
+**PASS** — no defects found in the examined change.
 
 ## Review Evidence
 
