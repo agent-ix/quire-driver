@@ -21,6 +21,11 @@ and a separate finite native source-record join allowance.
 
 ## Outputs
 
+The public SourceRecordAdmissionErrorCode SHALL expose the exact stable spellings
+`read_refused`, `read_incomplete` and `join` through `as_str`, a complete `all`
+catalog, and exact case-sensitive `from_code` decoding. Unknown spellings SHALL
+return None; native payloads remain unchanged.
+
 The component returns an opaque owner containing the exact reader-admitted
 package and its native SelectedExactIdentities, or the original typed native
 reader refusal, incompleteness, or projection failure.
