@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! FR-001-AC-1 (TC-005): the driver's dependency edges match ADR-011 §6.1's
-//! driver row and §7.1's crate graph, read from `cargo metadata`'s resolved
+//! The driver's dependency edges match its authorised layer inventory,
+//! read from `cargo metadata`'s resolved
 //! graph. QSL packages are identified by their source URL, and normal and
 //! build edges both count.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
 
+use ix_trace_rs::trace;
 use serde_json::Value;
 
 /// The source of every package built from the QSL repository.
@@ -151,7 +152,13 @@ impl Graph {
     }
 }
 
-/// Trace: FR-001-AC-1, FR-001-AC-11, FR-012-AC-13, FR-014-AC-2, FR-014-AC-3 (TC-005); driver closure, CLI host/kit edges, cache boundary and CLI default membership.
+#[trace(
+    "FR-001-AC-1",
+    "FR-001-AC-11",
+    "FR-012-AC-13",
+    "FR-014-AC-2",
+    "FR-014-AC-3"
+)]
 #[test]
 fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let graph = Graph::load();
@@ -159,7 +166,7 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
 
     // §6.1 driver row: QSL layer crates, quire-exact (QSL's caller-owned
     // Cancel API), CG, IR's model crate (E5's reader and `CheckedNodeId`),
-    // QSV (shared catalog owner types), serde, serde_json (FR-331 bounds
+    // RT (retained native program/arena types), QSV (shared catalog owner types), serde, serde_json (FR-331 bounds
     // projection) and thiserror. Never the
     // QSL root crate.
     let direct: BTreeSet<&str> = graph
@@ -175,6 +182,7 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         "quire-exact",
         "quire-contract-codegen",
         "quire-contract-model",
+        "quire-contract-runtime",
         "quire-canonical",
         "quire-semantic-value",
         "serde",
@@ -186,9 +194,13 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     assert_eq!(direct, expected);
     assert_eq!(
         graph.driver_dev_dependencies,
-        ["ix-trace-rs".to_owned(), "quire-checked".to_owned()]
-            .into_iter()
-            .collect()
+        [
+            "ix-trace-rs".to_owned(),
+            "quire-checked".to_owned(),
+            "qsl-analyze".to_owned()
+        ]
+        .into_iter()
+        .collect()
     );
     assert!(
         graph.reachable_from(&graph.root).iter().all(|id| !matches!(
@@ -200,6 +212,17 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     let driver_qsl: Vec<&Package> = graph.deps_of(&graph.root).filter(|p| p.is_qsl()).collect();
     assert_eq!(driver_qsl.len(), 5, "five QSL edges, by source");
     assert!(driver_qsl.iter().all(|p| p.name != QSL_ROOT));
+
+    let runtime = graph.ids_named("quire-contract-runtime");
+    assert_eq!(runtime.len(), 1, "one runtime package");
+    assert!(
+        graph.reachable_from(runtime[0]).iter().all(|id| {
+            let package = graph.package(id);
+            !package.is_qsl() && !matches!(package.name.as_str(),
+                "quire-contract-model" | "quire-contract-ir" | "quire-driver" | "quire-contract-codegen")
+        }),
+        "the runtime's normal/build closure reaches an upstream compiler, IR/model or driver package"
+    );
 
     assert_eq!(graph.ids_named("quire-driver").len(), 1);
     let cli = graph.ids_named("quire-cli");
@@ -262,5 +285,13 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         graph.ids_named("quire-contract-model").len(),
         1,
         "one quire-contract-model copy"
+    );
+    let qsl_package = graph.ids_named("qsl-package");
+    assert_eq!(qsl_package.len(), 1, "one QSL package emitter");
+    assert!(
+        graph
+            .reachable_from(qsl_package[0])
+            .contains(driver_model[0].as_str()),
+        "QSL's package emitter must resolve the same model package as the driver and CG"
     );
 }

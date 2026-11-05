@@ -55,7 +55,14 @@ compiler control.
 6. Supply a reachable admitted ordinary operation not in RT's closed
    vocabulary and an unrelated unsupported node outside the selected closure.
    The former gives the exact unsupported source locus before init; the latter
-   does not affect the selected plan. No callback or replacement temporal
+   does not affect the selected plan. Place a checked unsupported ordinary
+   operation, such as integer division or modulus, in a reachable rendered
+   entry, then recompile/re-emit and strictly admit it with fresh matching
+   selection and witnesses. A changed held atom alone may only change an
+   event capture, not the rendered transition; it is not this lowering control.
+   For changed-target refusal, keep the healthy original package and vary the
+   independently supplied target rather than relabelling a different package
+   as the same selection. No callback or replacement temporal
    computation is supplied.
 7. Exhaust lowering work/storage and cancel at independently selected
    boundaries. Exercise a native upstream read refusal and a real RT
@@ -88,10 +95,71 @@ Each [FR-015](../functional/FR-015-prepare-an-admitted-monitor-program.md)
 criterion has executed evidence with exact positive and adverse outcomes.
 Partial construction or pilot evidence remains partial; it does not qualify
 all of RT FR-276 or close IR-722. QSL-1463 retains and rekeys final-emission
-equality producer/fact and selected source-unit rows. QSL-1631 source-owned
-enum, collection and union witnesses, complete IR FR-357 generated-source
-projection and driver lowering remain planned until implemented and exercised.
+equality producer/fact and selected source-unit rows. QSL-1630 supplies
+body-sensitive plan identity and QSL-1631 supplies source enum
+declaration/member rows; collections are structural and need no identity
+row. Authentic generated source record/member handoff and source union
+admission/projection plus final producer rows remain prerequisites; IR-1323 owns
+the existing union seam. Final admitted clock/order/progress associations also
+need their owning public handoff. Concrete request fields cannot be qualified
+before those inputs exist. Complete IR FR-357 generated-source projection and
+driver lowering remain planned until implemented and exercised.
 The first IR FR-357 witnessed subset cannot establish a complete
 `TypeEnvironment` or RT `ProgramParts`. No copied upstream fixture, reminted
 identity, semantic mirror, callback, new semantic cap or proof run supplies
 missing evidence.
+
+## Current Partial Source Evidence
+
+`tests/monitor_preparation.rs` exercises the real final QSL producer and strict
+IR admission before the driver's package-instance/root/four-entry/clause/full
+occurrence/subject/profile and independent target binding. All eight target
+premises retain the diagnostic helper's exact value endpoint, including the
+final binding child. Work-boundary and original cancellation controls execute.
+The borrowed selection is not an RT program or a complete admission certificate.
+
+The current producer emits no clock-binding rows in this fixture. An absent
+optional clock input establishes no clock/order/progress association. A supplied
+clock row must actually belong to that admitted package and clause occurrence;
+arbitrary caller bytes do not establish an association.
+
+The initializer-type read preserves the actual native source-type refusal. Its
+caller supplies an existing `SelectedExactIdentities`; constructing and joining
+that set is outside this read's allowance, not a hidden unbounded operation in
+the claimed type-read budget. This partial read provides no storage-bound or
+complete-closure qualification. The public `prepare_monitor` returning retained
+`Rc<Program>`, complete owned lowering and this test case's healthy-build and
+execution obligations remain Planned. No full criterion is traced from these
+partial controls.
+
+The identity-material accountant walks nested canonical keys iteratively rather
+than invoking their recursive Serde representation. An isolated small-stack
+control supplies an independently selected key with 8,192 nested node segments
+and observes typed mismatch and work stops without aborting. Reintroducing the
+recursive identity serialization makes that control fail with stack overflow.
+Zero- and one-slot scratch allowances produce typed storage stops. This bound
+covers live identity-worklist capacity and shares one storage ledger with future
+retained preparation arenas. Scratch is actually dropped and its reservation
+released after every successful or typed-stopped inspection. It is neither
+cumulative allocation accounting nor a bound on native projection scratch.
+An invalid internal release preserves the current reservation and reports its
+reserved/released counts as an internal accounting fault.
+
+Independent adverse inputs additionally exercise missing root, changed lock,
+root/four-entry keys, clause/profile and buffer count/owner. Each returns the
+exact selected-field/native-node refusal and no borrowed selection; a buffer
+association error remains distinct from an admitted capacity value mismatch.
+
+Native callable and type work-limit failures retain their original payload,
+first node and reported work while classifying as operating Work; other native
+read failures remain Projection. The initializer read resumes the actual
+admission work prefix against the same total allowance. The outer Program
+variant retains the native runtime construction refusal for the eventual real
+lowerer; no program is fabricated to exercise that catalog entry.
+
+The shared outer error also preserves native operation-read and fallible key
+payloads for the scalar component: a missing admission proof or invalid key
+shape is an internal invariant fault; native key allocation failure remains
+Storage. An impossible missing/cyclic admitted scalar fact names its original
+node as an internal fault. These categories supply no scalar lowering success
+or complete owner qualification on their own.
