@@ -103,23 +103,26 @@ pub(super) fn accepts_header(
     {
         return false;
     }
-    match (operator, arity, source.identity) {
-        (ApplicationOperator::Unary, 1, "quire.op.integer.negate" | "quire.op.boolean.not") => true,
+    matches!(
+        (operator, arity, source.identity),
         (
+            ApplicationOperator::Unary,
+            1,
+            "quire.op.integer.negate" | "quire.op.boolean.not"
+        ) | (
             ApplicationOperator::Binary,
             2,
             "quire.op.integer.add"
-            | "quire.op.integer.sub"
-            | "quire.op.integer.mul"
-            | "quire.op.integer.lt"
-            | "quire.op.integer.le"
-            | "quire.op.integer.gt"
-            | "quire.op.integer.ge"
-            | "quire.op.boolean.and"
-            | "quire.op.boolean.or",
-        ) => true,
-        _ => false,
-    }
+                | "quire.op.integer.sub"
+                | "quire.op.integer.mul"
+                | "quire.op.integer.lt"
+                | "quire.op.integer.le"
+                | "quire.op.integer.gt"
+                | "quire.op.integer.ge"
+                | "quire.op.boolean.and"
+                | "quire.op.boolean.or"
+        )
+    )
 }
 
 /// Only variants constructed by this closed capability can be retained at an
