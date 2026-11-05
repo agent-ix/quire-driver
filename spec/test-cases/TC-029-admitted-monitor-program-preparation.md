@@ -167,7 +167,7 @@ or complete owner qualification on their own.
 ### Partial clock component controls
 
 Exercise a native producer-emitted and strictly admitted clock-bearing Claim
-with the driver's partial selection API. Assert the exposed native clock,
+with the driver's separate clock-admission API. Assert the exposed native clock,
 claim name and exact occurrence; include same-clause twin occurrences with
 distinct names, wrong clause, role and ordinal, missing clock, optional
 independent clock-row mismatch, and one-under/exact native work allowance.
@@ -177,3 +177,11 @@ The real default PlanRoot occurrence with no admitted clock must refuse with
 component is not final PlanRoot mapping qualification: QSL-1728 remains open.
 Existing non-clock identity and target controls remain required. These tests
 claim no whole FR-015 criterion or complete TC-029 execution credit.
+
+The existing partial `admit_monitor_selection` controls remain partial and
+exercise no clock authority. Until QSL emits a clock for its timed PlanRoot,
+its authentic positive clock receipt control is blocked: the native emitter
+skips `TemporalProfile::Timed`, while the clock-emitting profiles lack the
+time binding required by the timed plan producer. The default missing-clock,
+role/ordinal/clause and work-refusal controls can execute independently; none
+substitutes for the blocked positive receipt or grants full criterion credit.

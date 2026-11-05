@@ -37,7 +37,7 @@ Preparation SHALL execute no initializer or transition.
 The final producer has been re-measured after QSL-1630 and QSL-1631. Those
 completed changes provide body-sensitive plan identity and source enum rows;
 they do not supply the missing source record/member and union identity
-handoff needed by the generated program. IR-905 delivered the IR-1323 native
+handoff needed by the generated program. Contract IR PR #905 delivered the IR-1323 native
 union admission/projection seam; authentic final QSL producer identity rows
 (QSL-1723) and generated record closure remain prerequisites for healthy
 complete preparation. This specification does not report an implemented entry or
@@ -79,10 +79,11 @@ claims no already implemented handoff for one.
 
 ### Concrete clock admission within the partial selection boundary
 
-`admit_monitor_selection` SHALL call the selected IR plan's `clock_for_claim`
+`admit_monitor_clock_selection` SHALL call the selected IR plan's `clock_for_claim`
 with the independently supplied final clause and full `CheckedOccurrence`,
-under the remaining work allowance. Every successful selection SHALL retain
-that native `CheckedMonitorClockRead` and expose it as a borrow; missing clock
+under the remaining work allowance. Every successful clock selection SHALL retain
+that native `CheckedMonitorClockRead` in a distinct `AdmittedMonitorClockSelection`
+and expose it as a borrow; missing clock
 association SHALL refuse, including when `clock_binding` is absent. The
 optional independent `TemporalBinding` is an additional expectation: when
 present its declaration, ordinal, clock name and closed clock configuration
@@ -96,6 +97,20 @@ including code, `at`, occurrence, consumed work and attempted work. Native
 A successful native receipt SHALL be charged exactly once to the same
 cumulative preparation allowance. All existing package/root, subject,
 profile, target and witness boundaries remain required.
+
+The existing `admit_monitor_selection` remains an explicitly partial
+package/root/occurrence/target selection. Its `AdmittedMonitorSelection` does
+not claim clock admission. The separate clock entry SHALL first preserve all
+of that partial boundary's validations and then obtain the native clock
+receipt. Its exposed inner selection SHALL include the clock work prefix so
+subsequent projection cannot reset that allowance.
+
+QSL's current timed PlanRoot has a time binding but its emitter supplies no
+clock row: `TemporalProfile::Timed` is excluded from native temporal clock row
+emission, while the three clock-emitting profiles have no timed plan binding.
+Authentic positive timed-PlanRoot clock qualification therefore remains
+blocked on the owning QSL emission handoff; no profile substitution or edited
+checked-package fixture establishes it.
 
 This partial clock component establishes no order or progress association,
 complete generated record closure, full `Program`, or producer-to-runtime
@@ -306,7 +321,7 @@ copy receipt SHALL NOT reset or certify the complete preparation allowance.
 | FR-015-AC-10 | Planned until IR-721 lands. Real producer/read/lower/RT execution is compared with QSL's independent tick reference for RT FR-276's boundary, uncertainty, buffer21/22, wrap/gap, changed identity/order, activation and typed-stop controls. QSpec vectors are read by reference. Construction diagnostics and a single pilot plan receive no complete FR-276 execution credit. | Test |
 | FR-015-AC-11 | Planned until IR-721 lands. A large selected closure amid an unrelated long graph visits only relevant reachable nodes/edges and identity/value material under the caller allowance, without a whole-package sort or repeated full indexing. Equal budgets give equal typed work stops without a semantic depth/size ceiling. | Test |
 | FR-015-AC-12 | Planned until IR-721 lands. Public consumer/API and dependency controls establish one retained RT Program, no source input/callback, no driver seal/mint export or copied plan/expression/value family, and no IR/QSL/driver backedge from RT or RT edge from the cycle-free IR model. | Test |
-| FR-015-AC-13 | The partial selection boundary requires and exposes the native `clock_for_claim` receipt for its independently selected final clause/Claim. It preserves native semantic and work refusals unchanged, charges successful receipt work exactly once to the remaining allowance, and compares any optional independent clock row. Missing clock never produces a selection token. This component criterion establishes no final PlanRoot subject-occurrence mapping, order/progress association or complete program. | Test |
+| FR-015-AC-13 | The separate clock-admission boundary requires and exposes the native `clock_for_claim` receipt for its independently selected final clause/Claim. It preserves native semantic and work refusals unchanged, charges successful receipt work exactly once to the remaining allowance, and compares any optional independent clock row. Missing clock never produces a clock-admitted token. This component criterion establishes no final PlanRoot subject-occurrence mapping, order/progress association or complete program. | Test |
 
 ## Dependencies
 
@@ -322,7 +337,7 @@ copy receipt SHALL NOT reset or certify the complete preparation allowance.
   witness rows in the final `PlanRoot.emission`. QSL-1630 now binds atom,
   guard and helper bodies to plan identity; QSL-1631 now retains and rekeys
   source enum declaration/member rows. Collections are structural and require
-  no declaration identity row. IR-905 supplies source union identity admission/projection;
+  no declaration identity row. Contract IR PR #905 supplies source union identity admission/projection;
   the matching authentic final producer handoff (QSL-1723) remains required;
   generated source record/member identities also require an authentic final
   handoff. Neither channel is supplied by selected model rows or delivered
