@@ -157,3 +157,13 @@ Planned until the public constructors and
 requirement establishes diagnostic derivation and retention only. It supplies
 no healthy preparation, target-admission decision, RT construction, temporal
 execution or whole FR-276 acceptance credit.
+
+## Dependencies
+
+- [FR-015](FR-015-prepare-an-admitted-monitor-program.md) owns independent
+  selection comparison, runtime-support policy, the preparation request and
+  outer failure categories that consume these diagnostics.
+- [IR FR-038](ix://agent-ix/quire-contract-ir/FR-038) owns strict admission,
+  canonical checked terms, structural-key resolution and retained occurrences.
+- [TC-030](../test-cases/TC-030-monitor-refusal-loci.md) verifies the diagnostic
+  constructors without granting full monitor qualification.
