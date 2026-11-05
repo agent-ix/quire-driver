@@ -320,7 +320,42 @@ fn lower_body(
                 }
             }
             Visit::Alias(index, target) => {
-                memo[index].expression = Some(resolved(&memo, target, budget)?);
+                let target = resolved(&memo, target, budget)?;
+                let node = memo[index].node;
+                let value_type = scalar_type(package, node, identities, budget)?;
+                if value_type != expressions[target.0].value_type {
+                    return Err(Error::InvalidAdmittedScalar {
+                        node: Box::new(node.clone()),
+                    });
+                }
+                let original =
+                    package
+                        .structural_key(node)
+                        .ok_or_else(|| Error::InvalidAdmittedScalar {
+                            node: Box::new(node.clone()),
+                        })?;
+                let key = key::own_key(original, budget)?;
+                // A source Reference root has its own original location. The
+                // closed native operation is immutable and contains only IDs;
+                // retaining it at that location preserves the reference's key
+                // without inventing an RT wrapper or evaluating the operand.
+                let operation = operation::copy_scalar_operation(&expressions[target.0].operation)
+                    .ok_or_else(|| Error::InvalidAdmittedScalar {
+                        node: Box::new(node.clone()),
+                    })?;
+                let id = ExpressionId(expressions.len());
+                storage::push(
+                    expressions,
+                    Expression {
+                        key,
+                        body_path: Vec::new(),
+                        value_type,
+                        operation,
+                    },
+                    budget,
+                    retained,
+                )?;
+                memo[index].expression = Some(id);
             }
             Visit::Finish(index) => {
                 let node = memo[index].node;

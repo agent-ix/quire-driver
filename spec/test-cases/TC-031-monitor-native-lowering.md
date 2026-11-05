@@ -100,3 +100,11 @@ supplies no complete monitor Program, RT initialization, total admission-plus-
 lowering allowance or temporal subject/subformula evidence. Full AC-1/2/3/4/7
 remain Planned until the required native interfaces and exact controls execute.
 AC-8 is Inspection; no Test trace substitutes for that evidence method.
+
+The current native-key constructor and diagnostic clone do not expose all
+internal allocation reservations. Tests of zero driver storage or measured
+vector/text/worklist stops qualify those boundaries only. Exact/one-under
+complete retained-storage qualification remains Planned until the owner hook
+accounts for those native allocations. Source-authored tests have no executed
+qualification credit until the real registered public module is compiled and
+run against the coherent native API cohort.

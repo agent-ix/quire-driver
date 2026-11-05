@@ -121,3 +121,21 @@ pub(super) fn accepts_header(
         _ => false,
     }
 }
+
+/// Only variants constructed by this closed capability can be retained at an
+/// original transparent-reference location. Future allocating variants must
+/// not enter this copy through a generic Operation clone.
+pub(super) fn copy_scalar_operation(source: &Operation) -> Option<Operation> {
+    match source {
+        Operation::Argument { .. }
+        | Operation::IntegerAdd { .. }
+        | Operation::IntegerSubtract { .. }
+        | Operation::IntegerMultiply { .. }
+        | Operation::IntegerNegate { .. }
+        | Operation::IntegerOrder { .. }
+        | Operation::BooleanNot { .. }
+        | Operation::BooleanAnd { .. }
+        | Operation::BooleanOr { .. } => Some(source.clone()),
+        _ => None,
+    }
+}
