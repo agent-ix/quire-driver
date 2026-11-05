@@ -49,8 +49,8 @@
 pub mod cache;
 mod drive;
 pub mod execute;
-mod handoff;
 mod frame_replay;
+mod handoff;
 pub mod limits;
 pub mod monitor;
 pub mod monitor_refusal;
@@ -69,8 +69,8 @@ pub use drive::{
     drive, CompileInput, Driven, GenerationInput, ItemRefusal, KaniInput, Routed, ScalarExecution,
     ScalarExecutionInput, ScalarNativeInput,
 };
-pub use frame_replay::FrameReplayFailure;
 pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};
+pub use frame_replay::{FrameReplayFailure, FrameReplayFailureCode};
 pub use limits::{LimitError, LimitOverrides};
 pub use process_provider::{
     ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,

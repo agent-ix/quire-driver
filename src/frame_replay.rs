@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Retained request to QSL-selected frame replay preparation (FR-009-AC-17..19).
+//! Retained request to QSL-selected frame replay preparation (FR-009).
 
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{DependencyInput, DependencyInputRefusal, SuppliedLibrary};
-use quire_contract_codegen::{FrameReplay, FrameReplayError, FrameReplayInputs, SelectedFrameTarget};
+use quire_contract_codegen::{
+    FrameReplay, FrameReplayError, FrameReplayInputs, SelectedFrameTarget,
+};
 use quire_contract_model::ContractSourceV1;
 
 use crate::{Driven, DriverFault, DriverRefusal};
@@ -45,30 +47,42 @@ impl Driven {
         mut inputs: FrameReplayInputs<'_>,
     ) -> Result<FrameReplay, FrameReplayFailure> {
         let dependencies = DependencyInput::new(
-            inputs.run.dependencies.iter().map(|dependency| SuppliedLibrary {
-                identity: dependency.identity.clone(),
-                source: SourceIdentity::new(
-                    &dependency.source.authority,
-                    &dependency.source.identity,
-                ),
-                path: dependency.source.identity.clone(),
-                bytes: dependency.source.bytes.clone(),
-            }).collect(),
-        ).map_err(FrameReplayFailure::Dependencies)?;
+            inputs
+                .run
+                .dependencies
+                .iter()
+                .map(|dependency| SuppliedLibrary {
+                    identity: dependency.identity.clone(),
+                    source: SourceIdentity::new(
+                        &dependency.source.authority,
+                        &dependency.source.identity,
+                    ),
+                    path: dependency.source.identity.clone(),
+                    bytes: dependency.source.bytes.clone(),
+                })
+                .collect::<Vec<_>>(),
+        )
+        .map_err(FrameReplayFailure::Dependencies)?;
         let located = qsl_replay::call_site(
             SourceIdentity::new(&inputs.run.source.authority, &inputs.run.source.identity),
             inputs.run.package_name.clone(),
             &inputs.run.source.identity,
             &inputs.run.source.bytes,
-            inputs.packages.iter().map(|document| document.bytes.as_slice()),
+            inputs
+                .packages
+                .iter()
+                .map(|document| document.bytes.as_slice()),
             &dependencies,
             &inputs.operation,
-        ).map_err(FrameReplayFailure::CallSite)?;
-        let mismatch = || FrameReplayFailure::Driver(
-            DriverRefusal::Fault(DriverFault::FrameReplayAssociation),
-        );
+        )
+        .map_err(FrameReplayFailure::CallSite)?;
+        let mismatch = || {
+            FrameReplayFailure::Driver(DriverRefusal::Fault(DriverFault::FrameReplayAssociation))
+        };
         let selected = &inputs.selected_item;
-        let original = self.replay_item(selected.request_index).ok_or_else(mismatch)?;
+        let original = self
+            .replay_item(selected.request_index)
+            .ok_or_else(mismatch)?;
         if inputs.selected_target.is_some()
             || located.package != self.emitted().bytes()
             || !std::ptr::eq(selected.package, self.checked())
@@ -90,5 +104,60 @@ impl Driven {
             occurrence: located.site.frame_occurrence,
         });
         FrameReplay::new(inputs).map_err(FrameReplayFailure::Codegen)
+    }
+}
+
+/// Stable ownership classification for a frame preparation failure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrameReplayFailureCode {
+    /// QSL dependency admission refused.
+    Dependencies,
+    /// QSL operation selection refused.
+    CallSite,
+    /// The driver detected a broken retained association.
+    RuntimeInvariant,
+    /// CG frame preparation refused.
+    Codegen,
+}
+
+impl FrameReplayFailureCode {
+    /// The stable boundary code; native details remain on `FrameReplayFailure`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Dependencies => "frame_dependencies",
+            Self::CallSite => "frame_call_site",
+            Self::RuntimeInvariant => "runtime_invariant",
+            Self::Codegen => "frame_codegen",
+        }
+    }
+
+    /// Every stable frame preparation boundary code.
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Dependencies,
+            Self::CallSite,
+            Self::RuntimeInvariant,
+            Self::Codegen,
+        ]
+    }
+
+    /// Parses a stable boundary code.
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::all()
+            .iter()
+            .copied()
+            .find(|candidate| candidate.as_str() == code)
+    }
+}
+
+impl FrameReplayFailure {
+    /// The stable ownership code, without interpreting any native message.
+    pub fn code(&self) -> FrameReplayFailureCode {
+        match self {
+            Self::Dependencies(_) => FrameReplayFailureCode::Dependencies,
+            Self::CallSite(_) => FrameReplayFailureCode::CallSite,
+            Self::Driver(_) => FrameReplayFailureCode::RuntimeInvariant,
+            Self::Codegen(_) => FrameReplayFailureCode::Codegen,
+        }
     }
 }
