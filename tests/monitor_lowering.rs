@@ -19,8 +19,8 @@ use quire_exact::{Cancel, ValueType};
 fn actual_source_functions_share_handles_without_sharing_function_identity() {
     const SOURCE: &str = r#"language "ix:native" edition "1-draft";
 profile v = "quire.value.complete/v1";
-function first using v(a: Integer, b: Integer): Integer pure { a + b }
-function second using v(a: Integer, b: Integer): Integer pure { a + b }
+function combineOne using v(a: Integer, b: Integer): Integer pure { a + b }
+function combineTwo using v(a: Integer, b: Integer): Integer pure { a + b }
 "#;
     let limits = SpineLimits::default();
     let cancel = Cancel::new();
@@ -49,7 +49,7 @@ function second using v(a: Integer, b: Integer): Integer pure { a + b }
     )
     .expect("the real checker admits both functions")
     .into_value();
-    let originals = ["first", "second"].map(|name| {
+    let originals = ["combineOne", "combineTwo"].map(|name| {
         let identity = checked
             .package()
             .graph()
