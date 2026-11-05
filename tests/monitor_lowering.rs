@@ -385,6 +385,7 @@ function helperValue using v(a: Integer): Integer pure { a }
 function callValue using v(a: Integer): Integer pure { helperValue(a) }
 function ifValue using v(a: Integer, b: Integer, flag: Boolean): Integer pure { if flag then a else b }
 function implyValue using v(a: Boolean, b: Boolean): Boolean pure { a implies b }
+function letValue using v(a: Integer): Integer pure { let x = a in x + a }
 "#;
     let fixture = source_fixture(
         SOURCE,
@@ -395,26 +396,34 @@ function implyValue using v(a: Boolean, b: Boolean): Boolean pure { a implies b 
             "callValue",
             "ifValue",
             "implyValue",
+            "letValue",
         ],
     );
-    for root in &fixture.originals {
-        let read = match fixture.package.source_callable(root, 100_000) {
-            Ok(read) => read,
-            Err(native) => {
-                let failure = lower_scalar_functions(
-                    &fixture.package,
-                    std::slice::from_ref(root),
-                    &fixture.identities,
-                    allowances(),
-                    &Cancel::new(),
-                );
-                let Err(MonitorPreparationError::CallableRead(actual)) = failure else {
-                    panic!("native reader refusal must be retained without a tuple");
-                };
-                assert_eq!(*actual, native);
-                continue;
-            }
-        };
+    for (index, root) in fixture.originals.iter().enumerate() {
+        if index == 1 {
+            let native = fixture.package.source_callable(root, 100_000).unwrap_err();
+            assert_eq!(
+                native.code,
+                quire_contract_model::CheckedCallableReadErrorCode::MalformedBody
+            );
+            assert_eq!(native.locus, *root);
+            let failure = lower_scalar_functions(
+                &fixture.package,
+                std::slice::from_ref(root),
+                &fixture.identities,
+                allowances(),
+                &Cancel::new(),
+            );
+            let Err(MonitorPreparationError::CallableRead(actual)) = failure else {
+                panic!("native reader refusal must be retained without a tuple");
+            };
+            assert_eq!(*actual, native);
+            continue;
+        }
+        let read = fixture
+            .package
+            .source_callable(root, 100_000)
+            .expect("nonliteral excluded bodies reach the operation boundary");
         let callable = read.callable().unwrap();
         let failure = lower_scalar_functions(
             &fixture.package,
@@ -514,6 +523,28 @@ fn independent_component_stops_and_package_scoping_remain_native() {
         first.2[first.1[0].body.0].key,
         second.2[second.1[0].body.0].key
     );
+    let changed_source = SCALAR_SOURCE.replacen("{ a + b }", "{ a - b }", 1);
+    let changed = source_fixture(&changed_source, "agent-ix/scalar-budgets", SCALAR_NAMES);
+    let changed_output = lower_scalar_functions(
+        &changed.package,
+        &changed.originals[..1],
+        &changed.identities,
+        allowances(),
+        &Cancel::new(),
+    )
+    .unwrap();
+    assert!(matches!(
+        first.2[first.1[0].body.0].operation,
+        Operation::IntegerAdd { .. }
+    ));
+    assert!(matches!(
+        changed_output.2[changed_output.1[0].body.0].operation,
+        Operation::IntegerSubtract { .. }
+    ));
+    assert_ne!(
+        first.2[first.1[0].body.0].key,
+        changed_output.2[changed_output.1[0].body.0].key
+    );
     let empty = lower_scalar_functions(
         &fixture.package,
         &[],
@@ -551,4 +582,39 @@ fn parameter_only_native_reader_boundary_keeps_its_original_failure() {
         panic!("parameter-only read failure must remain native");
     };
     assert_eq!(*actual, native);
+}
+
+#[trace("FR-017-AC-5")]
+#[test]
+fn admitted_bounded_parameter_is_not_widened_to_supported_integer() {
+    const SOURCE: &str = r#"language "ix:native" edition "1-draft";
+profile v = "quire.value.complete/v1";
+function boundedValue using v(a: Int[0, 9], b: Int[0, 9]): Integer pure { a + b }
+"#;
+    let fixture = source_fixture(SOURCE, "agent-ix/scalar-bounded", &["boundedValue"]);
+    let read = fixture
+        .package
+        .source_callable(&fixture.originals[0], 100_000)
+        .unwrap();
+    let parameter = &read.callable().unwrap().parameters[0];
+    let projection = fixture
+        .package
+        .project_exact_type(parameter, &fixture.identities, 100_000)
+        .unwrap();
+    assert!(matches!(projection.value_type(), ValueType::Int(_)));
+    let result = lower_scalar_functions(
+        &fixture.package,
+        &fixture.originals,
+        &fixture.identities,
+        allowances(),
+        &Cancel::new(),
+    );
+    let Err(MonitorPreparationError::Unsupported(payload)) = result else {
+        panic!("bounded parameter must remain unsupported, never widened");
+    };
+    assert_eq!(payload.locus.node, *parameter);
+    assert_eq!(
+        payload.locus.structural_key,
+        *fixture.package.structural_key(parameter).unwrap()
+    );
 }
