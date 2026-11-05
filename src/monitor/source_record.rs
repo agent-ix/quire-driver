@@ -48,7 +48,9 @@ impl SourceRecordAdmissionError {
 /// Source-record identities authenticated by one immutable producer emission.
 ///
 /// This component establishes no model-owned identities, executable closure,
-/// clock association or complete monitor preparation. Its owned package is the
+/// clock association or complete monitor preparation. Later preparation must reuse
+/// this exact admitted instance; it cannot rebind these rows to another package.
+/// Its owned package is the
 /// exact strict-reader output against which its private identities were joined.
 pub struct AdmittedSourceRecords {
     package: Box<CheckedPackageV2>,

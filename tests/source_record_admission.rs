@@ -219,3 +219,21 @@ fn native_structural_controls_reject_corrupt_claims_without_granting_authority()
         .with_source_record_rows(admitted.package(), foreign.rows().cloned(), 100_000)
         .is_err());
 }
+
+#[trace("FR-018-AC-3")]
+#[test]
+fn reader_incompleteness_retains_its_original_native_payload() {
+    let (emission, _, _) = produce("record-read-limit");
+    let limits = CheckedPackageReadLimits { bytes: 0, ..CheckedPackageReadLimits::bounded() };
+    let native = quire_contract_model::read_checked_package(
+        emission.package().bytes(), limits, emission.evidence());
+    let quire_contract_model::CheckedPackageDispatchResult::Incomplete(expected) = native else {
+        panic!("zero bytes must stop native reading")
+    };
+    let actual = admit_source_records(&emission, limits, 100_000).err().unwrap();
+    assert_eq!(actual.code(), SourceRecordAdmissionErrorCode::ReadIncomplete);
+    let SourceRecordAdmissionError::ReadIncomplete(actual) = actual else {
+        panic!("reader incompleteness remains distinct")
+    };
+    assert_eq!(actual, expected);
+}
