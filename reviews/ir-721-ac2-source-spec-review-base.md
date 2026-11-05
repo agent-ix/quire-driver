@@ -115,3 +115,13 @@ scope:
 
     The curr'
 ```
+
+## Round 1 checkpoint
+
+Round 1 inspects ONLY detached IR-721-AC2-tested-review and the supplied implementation receipts/logs. Seven monitor_lowering tests passed; scoped Clippy, owned formatting and explicit docs passed. No reviewer reruns. Native RT variant copies and non-Debug diagnostics resolve compilation assumptions; exact native parameter vector/result/body type assertions resolve the original evidence gap. Native key construction now uses the owner try_new_with reservation policy, preserving Policy versus Construction errors and original full keys. The new bounded-parameter, native parameter-only refusal, package-change and measured component-storage controls retain truthful component scope. No additional delta finding was identified. Full prepare_monitor/lower_monitor Program, Layout, temporal ownership, input acquisition and diagnostic storage remain Planned, with no global acceptance. Original SR117401/FND002 remains blocking; seven green tests do not exercise denied-work vector growth.
+
+## Round 2 checkpoint
+
+Round 2 inspected detached IR-721-AC2-growth-fix-review plus the separately frozen root dependency-edge delta. Scoped scalar foundation is review-clean: all original findings now fixed. Native scalar output remains a component, not complete prepare_monitor/lower_monitor, RT Program/Layout or temporal ownership. Caller input acquisition and diagnostic storage remain unqualified/Planned. Inspected existing receipts: eight public mapper tests and one private growth regression pass; lib/public Clippy, owned formatting and explicit docs pass. The root dependency target passes once, with formatting/docs/diff checks passing. Reviewer ran no Cargo/build/test/Clippy or global scans. Final composed-head scoped gate remains pending.
+
+Growth relocation work is admitted before reserve_storage and try_reserve_exact. The private regression denies relocation work after one insertion unit and verifies the original pointer, capacity, content, reservation and live ledger are unchanged. The heterogeneous real producer signature preserves [Integer, Boolean, Integer], unused parameters, Boolean result and Argument owner/position 1. Earlier native-variant and exact-type fixes remain intact. The native key hook is unchanged from the previous inspected snapshot. No additional source/status delta finding.
