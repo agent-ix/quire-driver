@@ -173,8 +173,13 @@ verification; they do not substitute for IR-528 acceptance evidence.
 The separate clock-admission refusal component has narrow FR-015-AC-13
 traces for native clause/role/ordinal, missing-clock and work-refusal payloads.
 The original partial selection controls retain their unclocked meaning.
-Production-package execution remains pending the coherent QSL/codegen build;
-no component acceptance is claimed before the focused driver checks execute.
+Contract CG PR #749 removes the previous production compilation blocker.
+Actual production component execution now passes all 17 `monitor_preparation`
+tests and all 8 `monitor_lowering` tests. The five clock-admission controls
+qualify narrow FR-015-AC-13: complete native refusal payloads, exact requested
+occurrences and remaining allowance, plus original pre-cancellation with no
+capability or mutation. This is component evidence, not a final gate or a
+complete preparation result.
 FR-015-AC-14 healthy native clock receipt, optional independent row comparison
 and successful receipt accounting remain Planned: QSL's current timed-profile
 emitter does not emit the clock row its PlanRoot needs and strict IR clock-row
@@ -183,8 +188,11 @@ or editing checked-package bytes cannot replace that missing owner fact.
 
 This component does not qualify FR-015-AC-1 through FR-015-AC-12 or whole
 TC-029 execution. QSL-1728 final subject-occurrence mapping, admitted
-order/progress association, authentic final producer record/member and union
-identity rows, complete generated record closure and full Program preparation
-remain missing facts. Contract IR PR #905 supplies the native IR union
-admission/projection seam and Contract IR PR #908 supplies the selected clock
-read; neither supplies those producer facts.
+order/progress association, authentic final source-union producer identities,
+complete generated record closure and full Program preparation remain missing
+facts. Contract IR PR #905 supplies the native union seam and Contract IR
+PR #908 supplies the selected clock read. QSL PR #2385 supplies final
+source-record/member rows and Contract IR PR #910 supplies native record
+admission/projection; their driver join and complete closure qualification
+remain separate work. The clock component retains the direct native refusal
+when those available record rows are not joined.

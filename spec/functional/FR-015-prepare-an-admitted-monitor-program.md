@@ -34,14 +34,15 @@ once into the runtime-owned immutable program. The driver SHALL preserve the
 admitted selection, native identities, types, provenance and exact premises.
 Preparation SHALL execute no initializer or transition.
 
-The final producer has been re-measured after QSL-1630 and QSL-1631. Those
-completed changes provide body-sensitive plan identity and source enum rows;
-they do not supply the missing source record/member and union identity
-handoff needed by the generated program. Contract IR PR #905 delivered the IR-1323 native
-union admission/projection seam; authentic final QSL producer identity rows
-(QSL-1723) and generated record closure remain prerequisites for healthy
-complete preparation. This specification does not report an implemented entry or
-qualify a refusal-only implementation as a prepared program.
+QSL-1630 and QSL-1631 supply body-sensitive plan identity and source enum
+rows. Contract IR PR #905 delivered the IR-1323 native union
+admission/projection seam. QSL PR #2385 supplies final source-record/member
+rows and Contract IR PR #910 supplies native source-record admission and
+projection. The clock component does not join those record rows or establish
+complete generated record closure. The authentic final source-union handoff
+(QSL-1723), complete closure and runtime lowering remain prerequisites for
+healthy complete preparation. Native clock refusal evidence does not qualify
+a prepared program.
 
 This library boundary is downstream of QSL production and IR admission. It
 implements the consumer handoff of [IR FR-038](ix://agent-ix/quire-contract-ir/FR-038)
@@ -128,6 +129,19 @@ mutation-checked proof) from `PlanRoot.plan.subject.occurrence` to the final
 emitted checked clause Claim occurrence after writer rekeying. A component
 fixture may independently select a known admitted Claim; it SHALL NOT claim
 that unresolved producer mapping or select the first row as production policy.
+
+### Executed narrow clock refusal evidence
+
+The production `tests/monitor_preparation.rs` controls execute FR-015-AC-13:
+wrong clause, role and ordinal preserve the original native payload; the
+real timed PlanRoot without a clock refuses with `MissingClock`; same-clause
+twin claims retain their exact requested occurrences; zero, one-under and
+exact native allowances retain the original work receipt; and pre-cancelled
+`Deadline` returns no clock capability and leaves the original inputs intact.
+Contract CG PR #749 removes the previous production compilation blocker.
+These controls establish the narrow refusal component only. FR-015-AC-14,
+QSL-1728 mapping, complete generated record closure, order/progress and full
+`Program` preparation remain Planned.
 
 ### Public entry shape and unresolved input handoff
 
@@ -349,9 +363,11 @@ copy receipt SHALL NOT reset or certify the complete preparation allowance.
   source enum declaration/member rows. Collections are structural and require
   no declaration identity row. Contract IR PR #905 supplies source union identity admission/projection;
   the matching authentic final producer handoff (QSL-1723) remains required;
-  generated source record/member identities also require an authentic final
-  handoff. Neither channel is supplied by selected model rows or delivered
-  source enum rows. Final admitted clock/order/progress associations must also
+  QSL PR #2385 now retains and rekeys source-record/member rows, with native
+  admission/projection supplied by Contract IR PR #910. Joining those rows
+  in the driver and qualifying complete generated record closure remain
+  separate work. Selected model rows and source enum rows do not substitute
+  for either source-owned witness channel. Final admitted clock/order/progress associations must also
   come from their owning admitted interfaces. No new QSL carrier is defined
   here, and the concrete preparation request field list remains unfrozen until
   those inputs exist.
