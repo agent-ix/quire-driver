@@ -38,3 +38,7 @@ Round 1 reviewed fix commit `fa9697e89f2e6fbcea23307caab5c8e2b1db33e8`. All 18 C
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | The 18 CLI call sites use the two-argument constructor; `quire-cli/src/cli.rs:731` is now `SourceIdentity::new("quire", &options.path)`. A focused `cargo check -p quire-cli --tests --locked` passes on the fix head. |
+
+## Disposition pass 2
+
+Reviewed the one-line test oracle change at `0fcf062ff4dab6191b01622608ea97dd8d85890b`. The locked `quire-semantic-value` revision `30c2493163cf35dd00d6dcaad63a7cbe9b2f5290` declares `Category::ALL` in this order: Success, Violation, Undefined, Refusal, Unsupported, Incomplete, Pending, Indeterminate, Inconclusive, InternalFailure. Its exhaustive `exit_code` match returns `[0, 10, 10, 20, 21, 22, 0, 11, 22, 30]` in that order, matching the new explicit test array. The test still checks the array length before zipping and compares the CLI's `process_exit_code` to each literal; a wrong mapping can fail the oracle. No new finding arose. FND-001 remains fixed, so no new disposition row was added.
