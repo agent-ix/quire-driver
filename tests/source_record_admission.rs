@@ -453,9 +453,9 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
     assert_eq!(admitted.package().monitor_plans().count(), 1);
     assert_eq!(admitted.rows().count(), 2);
     for row in admitted.rows() {
-        assert!(admitted.package().node(&row.structural_node).is_some());
+        assert!(admitted.package().node_kind(&row.structural_node).is_some());
         for member in &row.members {
-            assert!(admitted.package().node(&member.type_node).is_some());
+            assert!(admitted.package().node_kind(&member.type_node).is_some());
         }
         let producer = root
             .emission
