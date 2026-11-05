@@ -278,9 +278,11 @@ source keys, per-function shared-handle ownership, nested sharing, retained
 arenas after setup drop, different package keys, declared unsupported operation
 loci, bounded-type refusal and independent operating stops. Genuine source
 parameter-only and literal-only ordinary callable bodies now have native
-Value-root reads. Refreshed qualification of parameter-only native Argument
-success, literal-body driver Unsupported and genuine foreign-package UnknownNode
-payload preservation remains Planned until those controls execute. Complete
+Value-root reads. Executed refreshed controls now retain parameter-only native
+Argument ownership, scalar type and original body key after setup destruction;
+read a literal before driver Unsupported at its original Value node with no
+operation; and preserve the complete native UnknownNode payload/work/locus for
+an actual selector from another strictly admitted package. Complete
 monitor-entry qualification remains Planned; its Expression-only rule is unchanged. Full criteria remain Planned until
 all their exact controls execute. The first
 intended public-helper checks cover the closed ordinary source scalar

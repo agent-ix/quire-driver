@@ -121,9 +121,11 @@ Observed partial execution covers the eleven plain operation mappings, exact
 native parameter/result types, requested order and repeated roots, shared
 parameter/body handles with distinct FunctionId owners, nested expression
 sharing, retained keys after setup drop, package scoping, bounded-type refusal,
-and original unsupported modulo/call/If/Let/implies loci. The refreshed ordinary
-Value-root controls remain Planned until execution: parameter-only success,
-literal read success followed by located driver Unsupported, and original native
-UnknownNode from a genuine foreign-package selector. No expectation retains
+and original unsupported modulo/call/If/Let/implies loci. Refreshed ordinary
+Value-root controls execute parameter-only success with native Argument owner,
+position, type and original body key retained after setup destruction; literal
+read success followed by located driver Unsupported with no operation; and
+complete original native UnknownNode payload/work/locus from a genuine
+foreign-package selector. No expectation retains
 the resolved Expression-only ordinary-reader narrowing. Complete monitor-entry
 Expression-only acceptance and full monitor preparation remain Planned.

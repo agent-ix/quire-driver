@@ -343,6 +343,14 @@ fn public_scalar_helper_retains_exact_operations_root_order_and_function_owners(
             assert!(expressions.iter().any(|e| e.key == key && matches!(e.operation, Operation::Argument { function, position: at } if function == owner && at == position)));
         }
     }
+    let identity_at = SCALAR_NAMES.len() - 1;
+    let identity_owner = id_for(identity_at);
+    let identity_read = package
+        .source_callable(&originals[identity_at], 100_000)
+        .unwrap();
+    let identity_body_key = original_key(&package, &identity_read.callable().unwrap().body);
+    let identity_body = functions[identity_owner.0].body;
+    drop(identity_read);
     let owned_keys = functions.iter().map(|f| f.key.clone()).collect::<Vec<_>>();
     drop(sum_read);
     drop(same_read);
@@ -350,6 +358,9 @@ fn public_scalar_helper_retains_exact_operations_root_order_and_function_owners(
     drop(identities);
     drop(originals);
     drop(requested);
+    assert_eq!(expressions[identity_body.0].key, identity_body_key);
+    assert_eq!(expressions[identity_body.0].value_type, ValueType::Integer);
+    assert_argument(&expressions, identity_body, identity_owner, 0);
     for (function, expected) in functions.iter().zip(owned_keys) {
         assert_eq!(function.key, expected);
     }
