@@ -205,3 +205,69 @@ fn scratch_and_retained_bytes_share_the_same_peak_allowance() {
         Err(MonitorLocusCopyError::Storage { .. })
     ));
 }
+
+#[test]
+#[trace("FR-016-AC-10", "FR-016-AC-11")]
+fn wide_shared_frontier_pays_geometric_relocation_before_growth() {
+    const WIDTH: usize = 256;
+    let leaf = Arc::new(CheckedNodeId {
+        package: "".into(),
+        path: Vec::new(),
+        ordinal: 0,
+    });
+    let wide = Arc::new(CheckedNodeId {
+        package: "".into(),
+        path: (0..WIDTH)
+            .map(|_| Segment::Node(Arc::clone(&leaf)))
+            .collect(),
+        ordinal: 0,
+    });
+    let node = CheckedNodeId {
+        package: "".into(),
+        path: vec![Segment::Node(wide)],
+        ordinal: 0,
+    };
+    // Each root costs 24 + 13*WIDTH material units. Geometric frontier
+    // growth relocates 1+2+...+128 references, independently WIDTH-1 units.
+    let work = u64::try_from(2 * (24 + 13 * WIDTH + WIDTH - 1) + 3).unwrap();
+    let per_root = size_of::<Segment>()
+        + size_of::<CheckedNodeId>()
+        + WIDTH * (size_of::<Segment>() + size_of::<CheckedNodeId>());
+    let retained = u64::try_from(2 * per_root).unwrap();
+    let peak = retained + u64::try_from(WIDTH * size_of::<&CheckedNodeId>()).unwrap();
+    let limits = MonitorPreparationLimits {
+        work,
+        storage: peak,
+    };
+    let copied = copy_monitor_locus(&node, &node, &[], None, limits, &Cancel::new()).unwrap();
+    assert_eq!(copied.work, work);
+    assert_eq!(copied.storage, retained);
+    assert!(matches!(
+        copy_monitor_locus(
+            &node,
+            &node,
+            &[],
+            None,
+            MonitorPreparationLimits {
+                work: work - 1,
+                ..limits
+            },
+            &Cancel::new()
+        ),
+        Err(MonitorLocusCopyError::Work { .. })
+    ));
+    assert!(matches!(
+        copy_monitor_locus(
+            &node,
+            &node,
+            &[],
+            None,
+            MonitorPreparationLimits {
+                storage: peak - 1,
+                ..limits
+            },
+            &Cancel::new()
+        ),
+        Err(MonitorLocusCopyError::Storage { .. })
+    ));
+}

@@ -176,7 +176,13 @@ edge SHALL also incur one unit before sharing. The same schedule applies to
 borrowed descendants reached for storage measurement. Traversal SHALL be
 iterative and interruptible, with no semantic depth limit, whole-package scan
 or uncharged scratch collection. Cancellation SHALL be polled before every
-charge, including an initial zero charge and allocation reservations.
+charge, including an initial zero charge and allocation reservations. The scratch
+frontier SHALL grow geometrically by requesting twice its full current capacity
+(or one slot from empty), using fallible exact reservation. Before any growth
+reservation or storage-ledger mutation it SHALL additionally charge one work
+unit per live reference that the reservation may relocate. This relocation
+charge is separate from represented-material work; denied work SHALL leave
+the frontier allocation, capacity, contents and storage ledger unchanged.
 
 Before allocating new vector or text capacity, the component SHALL reserve
 its logical bytes against the storage limit. Scratch and retained allocations
@@ -201,6 +207,12 @@ refuse excess capacity rather than invoke an infallible shrink allocation.
 This explicit portability refusal is `Capacity { requested, actual }`, not an
 input-semantic refusal. No allocating Clone, infallible reserve/collect or
 post-clone charge SHALL substitute for the bounded construction path.
+
+`MonitorLocusCopyErrorCode` SHALL expose stable Copy categories `Work`,
+`Storage`, `Allocation`, `Capacity` and `Cancelled`, with exact lowercase
+`as_str`, complete `all` and exact `from_code` catalog accessors. Each failure
+SHALL expose its category through a nonallocating `code` accessor without
+formatting or copying the native cause. Unknown spellings SHALL return None.
 
 `MonitorLocusCopyError` SHALL distinguish `Work { limit, consumed, next }`,
 `Storage { limit, consumed, next }`, `Allocation(TryReserveError)`,
@@ -268,7 +280,8 @@ second graph, or recompute content identities to construct a diagnostic.
 
 The independent `copy_monitor_locus` component implements AC-9 through AC-11;
 focused tests cover native ownership, exact independently calculated work/storage,
-operating refusals, deep shared keys and private reservation boundaries. AC-12
+operating refusals, deep/shared and wide-frontier keys, precharged geometric
+relocation, stable error categories and private reservation boundaries. AC-12
 has source-inspection evidence only. The copy path calls neither existing
 constructor, retains Arc backing without cloning its subtree, and constructs
 boxed text only after the exact-capacity guard. Its receipt covers this component

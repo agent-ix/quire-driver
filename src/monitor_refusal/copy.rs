@@ -20,6 +20,53 @@ pub struct CopiedMonitorLocus {
     pub storage: u64,
 }
 
+/// Stable categories for bounded diagnostic copying failures.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MonitorLocusCopyErrorCode {
+    /// Material work exhausted.
+    Work,
+    /// Logical storage exhausted or its arithmetic overflowed.
+    Storage,
+    /// Native fallible allocation failed.
+    Allocation,
+    /// Native text capacity cannot be boxed without possible allocation.
+    Capacity,
+    /// Caller cancellation.
+    Cancelled,
+}
+
+impl MonitorLocusCopyErrorCode {
+    /// Stable machine-readable category spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Work => "work",
+            Self::Storage => "storage",
+            Self::Allocation => "allocation",
+            Self::Capacity => "capacity",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    /// Complete stable category catalog.
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Work,
+            Self::Storage,
+            Self::Allocation,
+            Self::Capacity,
+            Self::Cancelled,
+        ]
+    }
+
+    /// Decode an exact category spelling; unknown spellings are absent.
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::all()
+            .iter()
+            .copied()
+            .find(|candidate| candidate.as_str() == code)
+    }
+}
+
 /// Operating failures from bounded diagnostic copying; no diagnostic is allocated on failure.
 #[derive(Debug, thiserror::Error)]
 pub enum MonitorLocusCopyError {
@@ -57,6 +104,19 @@ pub enum MonitorLocusCopyError {
     /// Original caller cancellation cause.
     #[error("diagnostic copy cancelled: {0:?}")]
     Cancelled(CancelCause),
+}
+
+impl MonitorLocusCopyError {
+    /// Classify this failure without formatting or copying its native cause.
+    pub const fn code(&self) -> MonitorLocusCopyErrorCode {
+        match self {
+            Self::Work { .. } => MonitorLocusCopyErrorCode::Work,
+            Self::Storage { .. } => MonitorLocusCopyErrorCode::Storage,
+            Self::Allocation(_) => MonitorLocusCopyErrorCode::Allocation,
+            Self::Capacity { .. } => MonitorLocusCopyErrorCode::Capacity,
+            Self::Cancelled(_) => MonitorLocusCopyErrorCode::Cancelled,
+        }
+    }
 }
 
 type Result<T> = std::result::Result<T, MonitorLocusCopyError>;
@@ -137,9 +197,27 @@ impl Ledger<'_> {
         Ok(output.into_boxed_str())
     }
 
+    fn grow_pending(&mut self, pending: &mut Vec<&CheckedNodeId>) -> Result<()> {
+        if pending.len() < pending.capacity() {
+            return Ok(());
+        }
+        // Pay for relocating every live reference before any reservation or mutation.
+        self.charge(u64::try_from(pending.len()).map_err(|_| self.overflow())?)?;
+        let before = pending.capacity();
+        let additional = before.max(1);
+        let requested = before
+            .checked_add(additional)
+            .ok_or_else(|| self.overflow())?;
+        self.bytes(additional, size_of::<&CheckedNodeId>())?;
+        pending
+            .try_reserve_exact(additional)
+            .map_err(MonitorLocusCopyError::Allocation)?;
+        self.bytes(pending.capacity() - requested, size_of::<&CheckedNodeId>())?;
+        Ok(())
+    }
+
     fn shared(&mut self, root: &CheckedNodeId) -> Result<()> {
         let mut pending = self.vector::<&CheckedNodeId>(1)?;
-        let mut scratch = pending.capacity() * size_of::<&CheckedNodeId>();
         pending.push(root);
         while let Some(node) = pending.pop() {
             self.charge(1)?;
@@ -160,26 +238,17 @@ impl Ledger<'_> {
                     CheckedNodePathSegment::Node(child) => {
                         self.charge(1)?;
                         if pending.len() == pending.capacity() {
-                            let before = pending.capacity();
-                            self.bytes(1, size_of::<&CheckedNodeId>())?;
-                            pending
-                                .try_reserve_exact(1)
-                                .map_err(MonitorLocusCopyError::Allocation)?;
-                            let added = pending.capacity() - before;
-                            self.bytes(added - 1, size_of::<&CheckedNodeId>())?;
-                            scratch = scratch
-                                .checked_add(
-                                    added
-                                        .checked_mul(size_of::<&CheckedNodeId>())
-                                        .ok_or_else(|| self.overflow())?,
-                                )
-                                .ok_or_else(|| self.overflow())?;
+                            self.grow_pending(&mut pending)?;
                         }
                         pending.push(child);
                     }
                 }
             }
         }
+        let scratch = pending
+            .capacity()
+            .checked_mul(size_of::<&CheckedNodeId>())
+            .ok_or_else(|| self.overflow())?;
         drop(pending);
         self.storage -= u64::try_from(scratch).map_err(|_| self.overflow())?;
         Ok(())
@@ -316,5 +385,84 @@ mod tests {
             ledger.vector::<u8>(usize::MAX),
             Err(MonitorLocusCopyError::Allocation(_))
         ));
+    }
+    #[test]
+    #[trace("FR-016-AC-10", "FR-016-AC-11")]
+    fn denied_frontier_relocation_changes_no_allocation_or_storage() {
+        let node = CheckedNodeId {
+            package: "".into(),
+            path: Vec::new(),
+            ordinal: 0,
+        };
+        let mut pending = vec![&node; 8];
+        let pointer = pending.as_ptr();
+        let capacity = pending.capacity();
+        let cancel = Cancel::new();
+        let mut ledger = Ledger {
+            limits: MonitorPreparationLimits {
+                work: 7,
+                storage: u64::MAX,
+            },
+            cancel: &cancel,
+            work: 0,
+            storage: 64,
+        };
+        let error = ledger.grow_pending(&mut pending).unwrap_err();
+        assert!(matches!(
+            error,
+            MonitorLocusCopyError::Work {
+                limit: 7,
+                consumed: 0,
+                next: 8
+            }
+        ));
+        assert_eq!(pending.as_ptr(), pointer);
+        assert_eq!(pending.capacity(), capacity);
+        assert_eq!(pending.len(), 8);
+        assert!(pending.iter().all(|entry| std::ptr::eq(*entry, &node)));
+        assert_eq!(ledger.storage, 64);
+        assert_eq!(ledger.work, 0);
+    }
+
+    #[test]
+    #[trace("FR-016-AC-10", "FR-016-AC-11")]
+    fn operating_error_catalog_classifies_native_failures_without_formatting() {
+        use MonitorLocusCopyErrorCode as Code;
+        let allocation = Vec::<u8>::new().try_reserve_exact(usize::MAX).unwrap_err();
+        let errors = [
+            (
+                MonitorLocusCopyError::Work {
+                    limit: 0,
+                    consumed: 0,
+                    next: 1,
+                },
+                Code::Work,
+            ),
+            (
+                MonitorLocusCopyError::Storage {
+                    limit: 0,
+                    consumed: 0,
+                    next: 1,
+                },
+                Code::Storage,
+            ),
+            (
+                MonitorLocusCopyError::Allocation(allocation),
+                Code::Allocation,
+            ),
+            (exact_text_capacity(1, 2).unwrap_err(), Code::Capacity),
+            (
+                MonitorLocusCopyError::Cancelled(CancelCause::Deadline),
+                Code::Cancelled,
+            ),
+        ];
+        assert_eq!(errors.len(), Code::all().len());
+        for (error, expected) in errors {
+            assert_eq!(error.code(), expected);
+            assert_eq!(Code::from_code(expected.as_str()), Some(expected));
+        }
+        assert_eq!(Code::from_code("Work"), None);
+        assert_eq!(Code::from_code("unknown"), None);
+        assert_eq!(Code::from_code(""), None);
     }
 }

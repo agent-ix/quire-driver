@@ -76,7 +76,12 @@ payload merely because an enum can be constructed or displayed.
    Require exact work and peak-storage success, and a one-under stop for each
    limit separately. Include multibyte UTF-8 names, long native paths and
    deep shared keys without a depth cutoff. Pre-cancel with a genuine Cancel
-   cause and require the same cause before allocation. Use deterministic
+   cause and require the same cause before allocation. Include a wide shared frontier whose independent work
+   calculation adds one unit per live reference relocated at each geometric
+   growth. Deny such a growth charge and require unchanged allocation pointer,
+   capacity, contents and storage ledger. Check the stable error code catalog,
+   exact round trips, actual error classification and unknown spellings.
+   Use deterministic
    private reservation/capacity test seams to inject TryReserveError and
    excess text capacity; require original Allocation or Capacity respectively,
    no boxed-text shrink, no returned partial locus, and cleanup of all

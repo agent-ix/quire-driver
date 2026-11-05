@@ -3,7 +3,9 @@
 
 mod copy;
 
-pub use copy::{copy_monitor_locus, CopiedMonitorLocus, MonitorLocusCopyError};
+pub use copy::{
+    copy_monitor_locus, CopiedMonitorLocus, MonitorLocusCopyError, MonitorLocusCopyErrorCode,
+};
 
 use quire_contract_model::{
     CheckedApplicationOperation, CheckedNodeId, CheckedNodeKind, CheckedOccurrence,
