@@ -34,7 +34,7 @@ is inferred from this component.
    complete original native owner payloads. Return no partial admitted owner.
 5. Separately mutate cloned native rows as counterfactual structural controls:
    foreign source/declaration, missing/reordered members, wrong presence/type,
-   original field name or admitted name, duplicate rows, and rows from a genuine
+   empty original field name or wrong admitted name, duplicate rows, and rows from a genuine
    independently emitted foreign package. Exercise IR's native join directly.
    These controls cannot enter the public producer-authority API and confer no
    authentication on caller-created opaque keys or value types.

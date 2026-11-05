@@ -182,7 +182,7 @@ fn native_structural_controls_reject_corrupt_claims_without_granting_authority()
     row.members[0].type_node = original.structural_node.clone();
     controls.push(row);
     let mut row = original.clone();
-    row.members[0].original_member_identity = "foreign".into();
+    row.members[0].original_member_identity = "".into();
     controls.push(row);
     let mut row = original.clone();
     row.members[0].admitted_name = "foreign".into();
@@ -236,4 +236,26 @@ fn reader_incompleteness_retains_its_original_native_payload() {
         panic!("reader incompleteness remains distinct")
     };
     assert_eq!(actual, expected);
+}
+
+/// IR cannot authenticate producer-owned opaque values. Only the immutable
+/// Emission, rather than acceptance of a caller-created row, supplies authority.
+#[trace("FR-018-AC-3")]
+#[test]
+fn native_opaque_claim_acceptance_does_not_replace_emission_authority() {
+    let (emission, _, _) = produce("record-opaque-control");
+    let admitted = admit_source_records(&emission, CheckedPackageReadLimits::bounded(), 100_000).unwrap();
+    let original = admitted.rows().find(|r| r.qualified_declaration == [Box::from("Tagged")]).unwrap();
+    let point = admitted.rows().find(|r| r.qualified_declaration == [Box::from("Point")]).unwrap();
+    let mut counterfactual = original.clone();
+    counterfactual.record_key = point.record_key.clone();
+    counterfactual.members[0].value_type = ValueType::Boolean;
+    counterfactual.members[0].original_member_identity = "producer-owned-original-name".into();
+    let structural_only = SelectedExactIdentities::empty().with_source_record_rows(
+        admitted.package(), [counterfactual.clone()], 100_000).unwrap();
+    assert_eq!(structural_only.source_record_rows().next(), Some(&counterfactual));
+    assert_ne!(counterfactual.record_key, original.record_key);
+    assert_ne!(counterfactual.members[0].value_type, original.members[0].value_type);
+    let authentic = admit_source_records(&emission, CheckedPackageReadLimits::bounded(), 100_000).unwrap();
+    assert_eq!(authentic.rows().find(|r| r.structural_node == original.structural_node), Some(original));
 }
