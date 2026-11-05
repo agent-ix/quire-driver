@@ -279,7 +279,7 @@ the admitted package that E4 emitted.
   `SpineLimits.source.source_bytes`.
 - The driver's normal and build dependencies SHALL be exactly
   `qsl-foundation`, `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`,
-  `quire-exact`, `quire-contract-codegen`, `quire-contract-model`,
+  `quire-exact`, `quire-contract-codegen`, `quire-contract-model`, `quire-contract-runtime`,
   `quire-canonical`, `quire-semantic-value`, `serde`, `serde_json` and `thiserror`. The direct
   `serde_json` edge is required to project FR-331's optional `bounds` member
   from the retained caller wire into CG's typed descriptor; the driver
@@ -289,9 +289,17 @@ the admitted package that E4 emitted.
   owning crate after catalog ownership moved out of QSL. This inventory
   follows that owner move; it does not authorize a QSL re-export shim or a
   new driver API.
+  The direct `quire-contract-runtime` edge uses its existing `exact` feature
+  for the canonical retained program and scalar arenas owned by
+  [FR-015](FR-015-prepare-an-admitted-monitor-program.md) and
+  [FR-017](FR-017-lower-and-retain-admitted-monitor-programs.md). RT's transitive
+  normal/build closure SHALL contain no QSL package, `quire-contract-model`,
+  `quire-contract-ir`, `quire-driver` or `quire-contract-codegen` backedge.
   The cache boundary is specified separately in FR-001-AC-11 and FR-012.
 - The driver's direct development dependencies SHALL be exactly
-  `ix-trace-rs` and `quire-checked`. The test-only `quire-checked` edge uses
+  `ix-trace-rs`, `quire-checked` and `qsl-analyze`. The test-only `qsl-analyze`
+  edge obtains genuine final `PlanRoot` emissions for integration controls;
+  it grants no additional normal/build QSL edge. The test-only `quire-checked` edge uses
   the existing `DeclarationKey` plain-value owner after extraction from
   QSL; it grants no normal/build edge or new driver API. `serde_json`
   remains in the normal inventory above and is also used by tests.
@@ -301,7 +309,7 @@ the admitted package that E4 emitted.
 
 | ID | Criteria | Verification |
 |----|----------|--------------|
-| FR-001-AC-1 | The driver's normal and build dependency set matches QSL ADR-011 §6.1 and the specified driver-layer exceptions: it contains exactly `qsl-foundation`, `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`, `quire-exact`, `quire-contract-codegen`, `quire-contract-model`, `quire-canonical`, `quire-semantic-value`, `serde`, `serde_json` and `thiserror`; `serde_json` is required for production projection of FR-331's retained optional `bounds` member. The driver's `quire-contract-model` is the one CG's IR crate depends on, CG's one QSL edge is `qsl-replay`, and the lock holds exactly one `quire-contract-model` package, so the driver's direct edge, CG's IR crate and QSL's `qsl-package` all resolve the same package id. | Test (TC-005) |
+| FR-001-AC-1 | The driver's normal and build dependency set matches QSL ADR-011 §6.1 and the specified driver-layer exceptions: it contains exactly `qsl-foundation`, `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`, `quire-exact`, `quire-contract-codegen`, `quire-contract-model`, `quire-contract-runtime`, `quire-canonical`, `quire-semantic-value`, `serde`, `serde_json` and `thiserror`; `serde_json` is required for production projection of FR-331's retained optional `bounds` member and RT supplies FR-015/FR-017's native retained program/arena types. RT's normal/build closure contains no QSL package, IR/model, driver or codegen backedge. The driver's `quire-contract-model` is the one CG's IR crate depends on, CG's one QSL edge is `qsl-replay`, and the lock holds exactly one `quire-contract-model` package, so the driver's direct edge, CG's IR crate and QSL's `qsl-package` all resolve the same package id. | Test (TC-005) |
 | FR-001-AC-2 | A run whose registry holds a `BackendId` with no CG kind refuses before any negotiation, with `invalid_capability`/`unknown-backend` and the unconverted ids in bytewise order. | Test (TC-002) |
 | FR-001-AC-3 | `route` is called only after negotiation, and only for `supported` items. | Test (TC-003) |
 | FR-001-AC-4 | The steps run in the order of the Description: compile and emit, the E5 read, the candidate step, conversion, negotiation, routing, generation. | Test (TC-001) |
