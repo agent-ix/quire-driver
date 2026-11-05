@@ -26,8 +26,10 @@ payload merely because an enum can be constructed or displayed.
 2. Derive the root's uncertainty locus and each permitted target-premise
    location; derive a buffer capacity location from its actual row. Independently
    resolve each resulting path against the unchanged admitted body and assert
-   that it names the requested existing field/value and preserves its genuine
-   owner. Verify that the original graph-local selector and resolved content
+   that it ends at the requested binding's existing value, not the Binding
+   term itself, and preserves its genuine owner. Require the final child index
+   zero for all target premises and each buffer capacity; assert that the
+   preceding path resolves to that actual Binding whose value is the endpoint. Verify that the original graph-local selector and resolved content
    key are retained separately.
 3. Select an actual application, including an inline application under a
    binding or aggregate when present. Invoke `unsupported_at` with the kind

@@ -107,10 +107,15 @@ The target constructor SHALL resolve `root` as an actual monitor root of the
 selected admitted package. A known node outside that set SHALL return
 `NotMonitorRoot`.
 
-The constructor SHALL derive the path to the selected premise's actual named
-binding in the admitted root body. `BufferCapacity` SHALL derive the path to
-the selected buffer row's `capacity` binding without substituting a numeric
-subformula index for its original owner. Missing, excessive or inappropriate
+The constructor SHALL derive the path to the value of the selected premise's
+actual named binding in the admitted root body. Every target-premise path SHALL
+include the final `Binding.value` child index zero. `BufferCapacity` SHALL end
+at the value of the selected buffer row's `capacity` binding, including that
+binding's final child zero, without substituting a numeric subformula index
+for its original owner. For the current admitted root shape, uncertainty is
+`[14, 0]` and buffer capacity is `[11, 0, buffer_index, 1, 0]`; the constructor
+derives these paths from the actual named bindings rather than treating an
+example path as an independently authoritative field index. Missing, excessive or inappropriate
 buffer indices SHALL return `InvalidPremiseIndex`. A missing named child or
 an incompatible term path SHALL return `InvalidBodyPath` rather than inventing
 a default premise. The constructor SHALL leave all premise values unchanged;
@@ -143,7 +148,7 @@ second graph, or recompute content identities to construct a diagnostic.
 | --- | --- | --- |
 | FR-016-AC-1 | For an actual strictly admitted node, the locus retains the supplied selector and exactly its package-resolved structural key as distinct values, plus the original path and optional occurrence; its owned fields remain readable after package/input destruction. | Test |
 | FR-016-AC-2 | Aggregate/application source-order children and binding child zero resolve their actual typed subterms. An unavailable child, nonzero binding child or continuation past a reference returns InvalidBodyPath; selecting the referenced original node starts a separate path. | Test |
-| FR-016-AC-3 | On a genuinely admitted monitor root, Uncertainty resolves the actual named uncertainty value path and BufferCapacity resolves the chosen capacity path/owner. Every TargetPremise chooses its own named binding without comparing or changing its value. | Test |
+| FR-016-AC-3 | On a genuinely admitted monitor root, Every TargetPremise resolves the value of its own actual named binding, including the final Binding.value child zero, without comparing or changing that value. Uncertainty resolves its actual uncertainty value path; BufferCapacity resolves the chosen capacity value path, including its final child zero and original row owner. | Test |
 | FR-016-AC-4 | BufferCapacity without an index, an out-of-range buffer index, and an index supplied for another premise each return InvalidPremiseIndex, with no target payload. A known ordinary node used as a root returns NotMonitorRoot; an unresolved node returns UnknownNode. | Test |
 | FR-016-AC-5 | A selected actual application yields its entire original CheckedApplicationOperation and the caller-resolved containing-node kind. A nonapplication terminal yields None. Changing the selected inline operation or path changes the observation; no support-policy verdict is inferred. | Test |
 | FR-016-AC-6 | An actual admitted role/ordinal is retained exactly; a nonmember occurrence returns OccurrenceMismatch. A genuine generated root without an occurrence succeeds with None without selecting a source-map row. | Test |
