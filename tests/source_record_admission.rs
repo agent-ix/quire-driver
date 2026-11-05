@@ -412,17 +412,26 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
         work: 100_000_000,
     };
     let native = quire_contract_model::read_checked_package(
-        root.emission.package().bytes(), read_limits, root.emission.evidence());
+        root.emission.package().bytes(),
+        read_limits,
+        root.emission.evidence(),
+    );
     let quire_contract_model::CheckedPackageDispatchResult::Refused(expected) = native else {
         panic!("original model documents are required by the strict owner reader")
     };
-    let error = admit_source_records(&root.emission, root.emission.evidence(), read_limits, 100_000)
-        .err().unwrap();
+    let error = admit_source_records(
+        &root.emission,
+        root.emission.evidence(),
+        read_limits,
+        100_000,
+    )
+    .err()
+    .unwrap();
     assert_eq!(error.code(), SourceRecordAdmissionErrorCode::ReadRefused);
     let SourceRecordAdmissionError::ReadRefused(actual) = error else {
         panic!("native reader refusal remains distinct")
     };
-    assert_eq!(actual, expected);
+    assert_eq!(*actual, expected);
     let mut evidence = root.emission.evidence().clone();
     evidence
         .insert_domain_package_document(identity, document)

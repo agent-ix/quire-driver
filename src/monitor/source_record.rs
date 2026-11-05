@@ -25,7 +25,7 @@ pub enum SourceRecordAdmissionErrorCode {
 pub enum SourceRecordAdmissionError {
     /// The strict reader's original refusal.
     #[error("source-record package read refused: {0:?}")]
-    ReadRefused(CheckedPackageRefusal),
+    ReadRefused(Box<CheckedPackageRefusal>),
     /// The strict reader's original incomplete result.
     #[error("source-record package read incomplete: {0:?}")]
     ReadIncomplete(CheckedPackageIncomplete),
@@ -102,7 +102,7 @@ pub fn admit_source_records(
     let package = match read_checked_package(emission.package().bytes(), read_limits, evidence) {
         CheckedPackageDispatchResult::AdmittedV2(package) => package,
         CheckedPackageDispatchResult::Refused(error) => {
-            return Err(SourceRecordAdmissionError::ReadRefused(error));
+            return Err(SourceRecordAdmissionError::ReadRefused(Box::new(error)));
         }
         CheckedPackageDispatchResult::Incomplete(error) => {
             return Err(SourceRecordAdmissionError::ReadIncomplete(error));
