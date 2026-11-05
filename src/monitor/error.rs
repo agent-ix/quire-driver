@@ -54,6 +54,44 @@ pub enum MonitorPreparationErrorCode {
     Internal,
 }
 
+impl MonitorPreparationErrorCode {
+    /// Stable machine-readable spelling, independent of diagnostic rendering.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Selection => "selection",
+            Self::TargetMismatch => "target_mismatch",
+            Self::Unsupported => "unsupported",
+            Self::Projection => "projection",
+            Self::Work => "work",
+            Self::Storage => "storage",
+            Self::Cancelled => "cancelled",
+            Self::Internal => "internal",
+        }
+    }
+
+    /// Every top-level category exposed by this preparation API.
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Selection,
+            Self::TargetMismatch,
+            Self::Unsupported,
+            Self::Projection,
+            Self::Work,
+            Self::Storage,
+            Self::Cancelled,
+            Self::Internal,
+        ]
+    }
+
+    /// Decode an exact stable spelling; unknown or differently cased text is absent.
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::all()
+            .iter()
+            .copied()
+            .find(|candidate| candidate.as_str() == code)
+    }
+}
+
 /// A typed stop with no partial program, environment, or temporal verdict.
 #[derive(Debug, thiserror::Error)]
 pub enum MonitorPreparationError {
@@ -100,9 +138,9 @@ pub enum MonitorPreparationError {
     /// Diagnostic construction violated the driver's lowering invariant.
     #[error("monitor preparation internal locus fault: {0:?}")]
     Internal(MonitorLocusError),
-    /// Native serialization failed while accounting admitted value material.
-    #[error("monitor preparation internal serialization fault: {0}")]
-    InternalSerialization(serde_json::Error),
+    /// Native allocation failure while reserving the iterative identity worklist.
+    #[error(transparent)]
+    Allocation(#[from] std::collections::TryReserveError),
     /// A strictly admitted clause no longer has its required retained body shape.
     #[error("monitor preparation internal admitted-clause fault")]
     InvalidAdmittedClause {
@@ -129,7 +167,7 @@ impl MonitorPreparationError {
             Self::Storage { .. } => MonitorPreparationErrorCode::Storage,
             Self::Cancelled(_) => MonitorPreparationErrorCode::Cancelled,
             Self::Internal(_) => MonitorPreparationErrorCode::Internal,
-            Self::InternalSerialization(_) => MonitorPreparationErrorCode::Internal,
+            Self::Allocation(_) => MonitorPreparationErrorCode::Storage,
             Self::InvalidAdmittedClause { .. } => MonitorPreparationErrorCode::Internal,
             Self::InvalidAdmittedEntry { .. } => MonitorPreparationErrorCode::Internal,
         }

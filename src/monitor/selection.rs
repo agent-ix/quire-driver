@@ -2,8 +2,8 @@
 //! Bind an independent selection to one immutable admitted monitor root.
 
 use quire_contract_model::{
-    CheckedMonitorPlanRef, CheckedNodeId, CheckedOccurrenceRole, CheckedSelectionRole, CheckedTerm,
-    LawRole,
+    CheckedMonitorPlanRef, CheckedNodeId, CheckedOccurrenceRole, CheckedPackageV2,
+    CheckedSelectionRole, CheckedTerm, LawRole,
 };
 use quire_exact::Cancel;
 
@@ -26,6 +26,14 @@ pub struct AdmittedMonitorSelection<'a> {
 }
 
 impl<'a> AdmittedMonitorSelection<'a> {
+    /// Original independently supplied request, immutably borrowed for this selection.
+    pub fn request(&self) -> &'a MonitorPreparationRequest<'a> {
+        self.request
+    }
+    /// Exact admitted package instance to which this selection is bound.
+    pub fn package(&self) -> &'a CheckedPackageV2 {
+        self.request.package
+    }
     /// Exact package-borrowed admitted plan whose independent values matched.
     pub fn plan(&self) -> CheckedMonitorPlanRef<'a> {
         self.plan

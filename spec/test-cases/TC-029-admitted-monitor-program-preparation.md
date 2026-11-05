@@ -131,3 +131,18 @@ complete-closure qualification. The public `prepare_monitor` returning retained
 `Rc<Program>`, complete owned lowering and this test case's healthy-build and
 execution obligations remain Planned. No full criterion is traced from these
 partial controls.
+
+The identity-material accountant walks nested canonical keys iteratively rather
+than invoking their recursive Serde representation. An isolated small-stack
+control supplies an independently selected key with 8,192 nested node segments
+and observes typed mismatch and work stops without aborting. Reintroducing the
+recursive identity serialization makes that control fail with stack overflow.
+Zero- and one-slot scratch allowances produce typed storage stops. This bound
+covers the live identity-worklist capacity, which is released after inspection;
+it is neither cumulative allocation accounting nor a bound on native projection
+scratch or future retained arenas.
+
+Independent adverse inputs additionally exercise missing root, changed lock,
+root/four-entry keys, clause/profile and buffer count/owner. Each returns the
+exact selected-field/native-node refusal and no borrowed selection; a buffer
+association error remains distinct from an admitted capacity value mismatch.

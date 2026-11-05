@@ -6,6 +6,7 @@
 
 mod budget;
 mod error;
+mod material;
 mod projection;
 mod request;
 mod selection;

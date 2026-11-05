@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Operating accounting for borrowed identity and value inspections.
 
-use std::io::{self, Write};
+use std::mem::size_of;
 
+use quire_contract_model::CheckedNodeId;
 use quire_exact::Cancel;
-use serde::Serialize;
 
-use super::{MonitorPreparationError, MonitorPreparationLimits};
+use super::{
+    material::Material, AdmittedMonitorSelection, MonitorPreparationError, MonitorPreparationLimits,
+};
 
 pub(super) struct Budget<'a> {
     cancel: &'a Cancel,
@@ -21,6 +23,16 @@ impl<'a> Budget<'a> {
             limits,
             work: 0,
         }
+    }
+
+    /// Resume the same total allowance after admission, without resetting its work prefix.
+    pub(super) fn resume(
+        selection: &AdmittedMonitorSelection<'_>,
+        cancel: &'a Cancel,
+    ) -> Result<Self, MonitorPreparationError> {
+        let mut budget = Self::new(selection.request().limits, cancel);
+        budget.charge(selection.work())?;
+        Ok(budget)
     }
 
     pub(super) fn charge(&mut self, next: u64) -> Result<(), MonitorPreparationError> {
@@ -39,22 +51,53 @@ impl<'a> Budget<'a> {
         Ok(())
     }
 
-    pub(super) fn inspect<T: Serialize + ?Sized>(
+    pub(super) fn inspect<T: Material + ?Sized>(
         &mut self,
         value: &T,
     ) -> Result<(), MonitorPreparationError> {
-        // Count the existing canonical value's serialized material without a
-        // JSON tree or an output buffer. The native writer stops at the first
-        // unavailable charge, before the subsequent semantic comparison.
-        let mut writer = ChargeWriter {
-            budget: self,
-            stopped: None,
-        };
-        let result = serde_json::to_writer(&mut writer, value);
-        if let Some(stopped) = writer.stopped {
-            return Err(stopped);
+        value.inspect_material(self)
+    }
+
+    pub(super) fn push_key<'key>(
+        &mut self,
+        pending: &mut Vec<&'key CheckedNodeId>,
+        node: &'key CheckedNodeId,
+    ) -> Result<(), MonitorPreparationError> {
+        self.charge(1)?;
+        if pending.len() == pending.capacity() {
+            let bytes = pending
+                .capacity()
+                .checked_mul(size_of::<&CheckedNodeId>())
+                .and_then(|bytes| u64::try_from(bytes).ok())
+                .unwrap_or(u64::MAX);
+            let next = u64::try_from(size_of::<&CheckedNodeId>()).unwrap_or(u64::MAX);
+            if next > self.limits.storage.saturating_sub(bytes) {
+                return Err(MonitorPreparationError::Storage {
+                    limit: self.limits.storage,
+                    consumed: bytes,
+                    next,
+                });
+            }
+            pending
+                .try_reserve_exact(1)
+                .map_err(MonitorPreparationError::Allocation)?;
+            // An allocator may grant more than the exact request. Never keep
+            // a worklist whose reported capacity exceeds the caller limit.
+            let granted = pending
+                .capacity()
+                .checked_mul(size_of::<&CheckedNodeId>())
+                .and_then(|bytes| u64::try_from(bytes).ok())
+                .unwrap_or(u64::MAX);
+            if granted > self.limits.storage {
+                return Err(MonitorPreparationError::Storage {
+                    limit: self.limits.storage,
+                    consumed: bytes,
+                    next: granted.saturating_sub(bytes),
+                });
+            }
         }
-        result.map_err(MonitorPreparationError::InternalSerialization)
+        pending.push(node);
+        Ok(())
     }
 
     pub(super) fn remaining(&self) -> u64 {
@@ -62,26 +105,5 @@ impl<'a> Budget<'a> {
     }
     pub(super) fn work(&self) -> u64 {
         self.work
-    }
-}
-
-struct ChargeWriter<'budget, 'cancel> {
-    budget: &'budget mut Budget<'cancel>,
-    stopped: Option<MonitorPreparationError>,
-}
-
-impl Write for ChargeWriter<'_, '_> {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        let amount = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        match self.budget.charge(amount) {
-            Ok(()) => Ok(bytes.len()),
-            Err(stopped) => {
-                self.stopped = Some(stopped);
-                Err(io::Error::other("operating inspection stopped"))
-            }
-        }
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
     }
 }

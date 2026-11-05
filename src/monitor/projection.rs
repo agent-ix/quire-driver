@@ -25,8 +25,7 @@ pub fn project_monitor_initializer(
     cancel: &Cancel,
 ) -> Result<ExactTypeProjection, Error> {
     let request = selection.request;
-    let mut budget = Budget::new(request.limits, cancel);
-    budget.charge(selection.work)?;
+    let mut budget = Budget::resume(selection, cancel)?;
     let init = selection.plan.init();
     budget.charge(1)?;
     let invalid = || Error::InvalidAdmittedEntry {
