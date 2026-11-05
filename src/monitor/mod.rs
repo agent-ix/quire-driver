@@ -6,6 +6,7 @@
 
 mod budget;
 mod error;
+mod final_subject;
 pub mod lowering;
 mod material;
 mod projection;
@@ -19,3 +20,5 @@ pub use selection::{
     admit_monitor_clock_selection, admit_monitor_selection, AdmittedMonitorClockSelection,
     AdmittedMonitorSelection,
 };
+
+pub use final_subject::{admit_monitor_final_subject, AdmittedMonitorFinalSubject};
