@@ -87,7 +87,7 @@ function combineTwo using v(a: Integer, b: Integer): Integer pure { a + b }
 }
 
 struct Fixture {
-    package: quire_contract_model::CheckedPackageV2,
+    package: Box<quire_contract_model::CheckedPackageV2>,
     identities: SelectedExactIdentities,
     originals: Vec<CheckedNodeId>,
 }
@@ -232,7 +232,34 @@ fn public_scalar_helper_retains_exact_operations_root_order_and_function_owners(
     for (at, name) in SCALAR_NAMES.iter().enumerate() {
         let function = id_for(at);
         let native = &functions[function.0];
+        let parameter_type = if matches!(*name, "notValue" | "andValue" | "orValue") {
+            ValueType::Boolean
+        } else {
+            ValueType::Integer
+        };
+        let parameter_count = if matches!(*name, "negValue" | "notValue" | "identityValue") {
+            1
+        } else {
+            2
+        };
+        assert_eq!(native.parameters, vec![parameter_type; parameter_count]);
+        let expected_result = if matches!(
+            *name,
+            "lessValue"
+                | "leValue"
+                | "greaterValue"
+                | "geValue"
+                | "notValue"
+                | "andValue"
+                | "orValue"
+        ) {
+            ValueType::Boolean
+        } else {
+            ValueType::Integer
+        };
+        assert_eq!(native.result, expected_result);
         let expression = &expressions[native.body.0];
+        assert_eq!(expression.value_type, expected_result);
         let read = package.source_callable(&originals[at], 100_000).unwrap();
         let callable = read.callable().unwrap();
         assert_eq!(expression.key, original_key(&package, &callable.body));
@@ -282,7 +309,7 @@ fn public_scalar_helper_retains_exact_operations_root_order_and_function_owners(
                 assert_eq!(*position, 0);
                 None
             }
-            other => panic!("wrong native operation for {name}: {other:?}"),
+            _ => panic!("wrong native operation for {name}"),
         };
         if let Some((left, right)) = binary {
             if *name == "nestedValue" {
@@ -380,8 +407,11 @@ function implyValue using v(a: Boolean, b: Boolean): Boolean pure { a implies b 
             &fixture.identities,
             allowances(),
             &Cancel::new(),
-        )
-        .unwrap_err();
+        );
+        let failure = match failure {
+            Ok(_) => panic!("excluded source unexpectedly produced native arenas"),
+            Err(failure) => failure,
+        };
         let MonitorPreparationError::Unsupported(payload) = failure else {
             panic!("expected located Unsupported, got {failure:?}");
         };
