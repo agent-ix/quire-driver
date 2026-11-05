@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Authentic QSL source-record witnesses joined to their own strict IR admission.
 
-use qsl_package::emit::Emission;
+use qsl_package::Emission;
 use quire_contract_model::{
     read_checked_package, CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageIncomplete,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageV2, ExactTypeProjection,
@@ -92,37 +92,42 @@ pub fn admit_source_records(
     read_limits: CheckedPackageReadLimits,
     join_work_limit: u64,
 ) -> Result<AdmittedSourceRecords, SourceRecordAdmissionError> {
-    let package = match read_checked_package(
-        emission.package().bytes(),
-        read_limits,
-        emission.evidence(),
-    ) {
-        CheckedPackageDispatchResult::AdmittedV2(package) => package,
-        CheckedPackageDispatchResult::Refused(error) => {
-            return Err(SourceRecordAdmissionError::ReadRefused(error));
-        }
-        CheckedPackageDispatchResult::Incomplete(error) => {
-            return Err(SourceRecordAdmissionError::ReadIncomplete(error));
-        }
-    };
-    let rows = emission.selected_source_record_rows().iter().map(|row| {
-        SelectedSourceRecordRow {
+    let package =
+        match read_checked_package(emission.package().bytes(), read_limits, emission.evidence()) {
+            CheckedPackageDispatchResult::AdmittedV2(package) => package,
+            CheckedPackageDispatchResult::Refused(error) => {
+                return Err(SourceRecordAdmissionError::ReadRefused(error));
+            }
+            CheckedPackageDispatchResult::Incomplete(error) => {
+                return Err(SourceRecordAdmissionError::ReadIncomplete(error));
+            }
+        };
+    let rows = emission
+        .selected_source_record_rows()
+        .iter()
+        .map(|row| SelectedSourceRecordRow {
             structural_node: row.structural_node.clone(),
             source_authority: row.source_authority.clone(),
             source_identity: row.source_identity.clone(),
             qualified_declaration: row.qualified_declaration.clone(),
             record_key: row.record_key.clone(),
-            members: row.members.iter().map(|member| SelectedSourceRecordMemberRow {
-                original_member_identity: member.original_member_identity.clone(),
-                admitted_name: member.admitted_name.clone(),
-                presence: member.presence,
-                type_node: member.type_node.clone(),
-                value_type: member.value_type.clone(),
-            }).collect(),
-        }
-    });
+            members: row
+                .members
+                .iter()
+                .map(|member| SelectedSourceRecordMemberRow {
+                    original_member_identity: member.original_member_identity.clone(),
+                    admitted_name: member.admitted_name.clone(),
+                    presence: member.presence,
+                    type_node: member.type_node.clone(),
+                    value_type: member.value_type.clone(),
+                })
+                .collect(),
+        });
     let identities = SelectedExactIdentities::empty()
         .with_source_record_rows(&package, rows, join_work_limit)
         .map_err(SourceRecordAdmissionError::Join)?;
-    Ok(AdmittedSourceRecords { package, identities })
+    Ok(AdmittedSourceRecords {
+        package,
+        identities,
+    })
 }
