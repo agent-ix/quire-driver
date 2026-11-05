@@ -449,7 +449,21 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
         },
         100_000,
     )
-    .unwrap();
+    .unwrap_or_else(|error| {
+        let quire_contract_model::CheckedPackageDispatchResult::AdmittedV2(package) =
+            quire_contract_model::read_checked_package(
+                root.emission.package().bytes(), read_limits, &evidence)
+        else {
+            panic!("the original final emission must first strictly admit")
+        };
+        let SourceRecordAdmissionError::Join(native) = &error else {
+            panic!("authentic final record admission failed: {error:?}")
+        };
+        let row = root.emission.selected_source_record_rows().iter()
+            .find(|row| &row.structural_node == native.requested.as_ref());
+        panic!("authentic final record join failed: {error:?}; original producer row: {row:?}; original admitted body: {:?}",
+            package.term(native.requested.as_ref()));
+    });
     assert_eq!(admitted.package().monitor_plans().count(), 1);
     assert_eq!(admitted.rows().count(), 2);
     for row in admitted.rows() {
