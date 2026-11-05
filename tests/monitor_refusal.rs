@@ -98,7 +98,35 @@ fn admit(emission: &Emission, evidence: &CheckedPackageEvidence) -> Box<CheckedP
         evidence,
     ) {
         CheckedPackageDispatchResult::AdmittedV2(package) => package,
-        other => panic!("strict admission of the real producer output: {other:?}"),
+        other => {
+            let wire: serde_json::Value =
+                serde_json::from_slice(emission.package().bytes()).unwrap();
+            let nodes = wire["semantic_graph"]["nodes"].as_array().unwrap();
+            let root = nodes
+                .iter()
+                .find(|node| node["semantic_form"] == "monitor_plan")
+                .unwrap();
+            let binding = |name: &str| {
+                root["body"]["members"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|member| member["name"] == name)
+                    .unwrap()["value"]["target"]
+                    .clone()
+            };
+            let state = binding("state");
+            let init = binding("init");
+            let init = nodes.iter().find(|node| node["node_id"] == init).unwrap();
+            let result = nodes
+                .iter()
+                .find(|node| node["node_id"] == init["semantic_type"])
+                .unwrap();
+            panic!(
+                "strict admission: {other:?}; state={state}; init result={} form={}",
+                init["semantic_type"], result["semantic_form"]
+            );
+        }
     }
 }
 
