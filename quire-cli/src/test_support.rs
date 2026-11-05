@@ -25,7 +25,7 @@ fn emitted_package_with_source_name(source_name: &str) -> qsl_package::EmittedPa
     );
     let packages = BTreeMap::new();
     let input = CompileInput {
-        source: SourceIdentity::new("agent-ix", source_name, "git", "1"),
+        source: SourceIdentity::new("agent-ix", source_name),
         package_name: "unit-test",
         path: "unit-test.native",
         bytes: source.as_bytes(),

@@ -126,8 +126,6 @@ fn assert_tc018_refused_range_observation(path: &std::path::Path, source_path: &
         serde_json::json!({
             "authority": "quire",
             "identity": source_path,
-            "revision_namespace": "filesystem",
-            "revision": "current",
         })
     );
     assert_eq!(observation["source_bytes"], serde_json::json!(bytes));
@@ -147,7 +145,7 @@ fn assert_tc018_refused_range_observation(path: &std::path::Path, source_path: &
 
 #[cfg(all(unix, feature = "tc018-test-adapter"))]
 fn expected_overflow_check_document(path: &str, bytes: &[u8]) -> Vec<u8> {
-    let source = SourceIdentity::new("quire", path, "filesystem", "current");
+    let source = SourceIdentity::new("quire", path);
     let limits = SpineLimits::default();
     let cancel = Cancel::new();
     let packages = std::collections::BTreeMap::new();
@@ -322,7 +320,7 @@ fn machine_run_writes_the_canonical_qsl_outcome() {
     let dependencies = DependencyInput::default();
     let source_bytes = std::fs::read(SOURCE).expect("read source fixture");
     let request = ExecutionRequest {
-        source: SourceIdentity::new("quire", SOURCE, "filesystem", "current"),
+        source: SourceIdentity::new("quire", SOURCE),
         package_name: SOURCE,
         path: SOURCE,
         bytes: &source_bytes,

@@ -1397,7 +1397,7 @@ mod tests {
             )
             .expect("both process descriptors join the QSL registry");
         let manifests = registry.manifest_snapshot();
-        let source = SourceIdentity::new("agent-ix", "ir813", "git", "1");
+        let source = SourceIdentity::new("agent-ix", "ir813");
         let input = CompileInput {
             source,
             package_name: "ir813",
@@ -1581,7 +1581,7 @@ mod tests {
         let driven = drive(
             &upstream,
             CompileInput {
-                source: SourceIdentity::new("agent-ix", "ir813", "git", "1"),
+                source: SourceIdentity::new("agent-ix", "ir813"),
                 package_name: "ir813",
                 path: "ir813.native",
                 bytes: source_text.as_bytes(),

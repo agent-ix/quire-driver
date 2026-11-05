@@ -32,7 +32,7 @@ const CHECK_INVALID_SOURCE: &str = concat!(
 
 fn parse_outcome_bytes(path: &'static str) -> Vec<u8> {
     let bytes = std::fs::read(path).expect("read parse fixture");
-    let source = SourceIdentity::new("quire", path, "filesystem", "current");
+    let source = SourceIdentity::new("quire", path);
     let limits = SpineLimits::default();
     let result = parse(
         &ParseRequest {
@@ -50,7 +50,7 @@ fn parse_outcome_bytes(path: &'static str) -> Vec<u8> {
 
 fn check_outcome_bytes(path: &'static str) -> Vec<u8> {
     let bytes = std::fs::read(path).expect("read check fixture");
-    let source = SourceIdentity::new("quire", path, "filesystem", "current");
+    let source = SourceIdentity::new("quire", path);
     let limits = SpineLimits::default();
     let cancel = Cancel::new();
     let result = parse(
@@ -81,7 +81,7 @@ fn check_outcome_bytes(path: &'static str) -> Vec<u8> {
 
 fn package_outcome_bytes(path: &'static str) -> Vec<u8> {
     let bytes = std::fs::read(path).expect("read package fixture");
-    let source = SourceIdentity::new("quire", path, "filesystem", "current");
+    let source = SourceIdentity::new("quire", path);
     let limits = SpineLimits::default();
     let dependencies = DependencyInput::default();
     let packages = std::collections::BTreeMap::new();
@@ -115,7 +115,7 @@ fn package_outcome_bytes(path: &'static str) -> Vec<u8> {
 
 fn format_outcome_bytes(path: &'static str) -> Vec<u8> {
     let bytes = std::fs::read(path).expect("read format fixture");
-    let source = SourceIdentity::new("quire", path, "filesystem", "current");
+    let source = SourceIdentity::new("quire", path);
     let limits = qsl_cst::Limits::default();
     let cancel = Cancel::new();
     let result = qsl_cst::parse_with_cancel(source, path, &bytes, limits, &cancel)
@@ -361,7 +361,7 @@ fn parse_refusal_emits_qsl_diagnostic_cause_and_locus() {
 fn format_writes_qsl_formatted_text_without_editing_the_source() {
     let source = std::fs::read(SOURCE).expect("read format fixture");
     let parsed = qsl_cst::parse_with_cancel(
-        SourceIdentity::new("quire", SOURCE, "filesystem", "current"),
+        SourceIdentity::new("quire", SOURCE),
         SOURCE,
         &source,
         qsl_cst::Limits::default(),
