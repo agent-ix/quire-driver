@@ -13,9 +13,10 @@ use qsl_package::Emission;
 use qsl_replay::{spine::SpineLimits, MonitorTarget, TimingObligationSettings};
 use qsl_semantics::{library::LibraryName, model::intake::package_input};
 use quire_contract_model::{
-    read_checked_package, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrenceRole,
-    CheckedPackageDispatchResult, CheckedPackageReadLimits, CheckedPackageV2, CheckedRational,
-    CheckedSelectionRole, CheckedTerm, SelectedExactIdentities, SelectedFactRows,
+    read_checked_package, CheckedCallableReadErrorCode, CheckedNodeId, CheckedNodePathSegment,
+    CheckedOccurrenceRole, CheckedPackageDispatchResult, CheckedPackageReadLimits,
+    CheckedPackageV2, CheckedRational, CheckedSelectionRole, CheckedTerm,
+    ExactTypeProjectionErrorCode, SelectedExactIdentities, SelectedFactRows,
 };
 use quire_driver::monitor::{
     admit_monitor_selection, project_monitor_initializer, MonitorPreparationError,
@@ -726,5 +727,92 @@ fn deep_caller_keys_return_typed_stops_on_a_small_stack() {
                 .join()
                 .expect("typed stop without host stack overflow");
         });
+    });
+}
+
+#[test]
+fn initializer_read_resumes_the_consumed_admission_allowance() {
+    with_request(|mut request| {
+        let required = admit_monitor_selection(&request, &Cancel::new())
+            .unwrap()
+            .work();
+        request.limits.work = required;
+        let admitted = admit_monitor_selection(&request, &Cancel::new())
+            .expect("exact admission allowance succeeds");
+        let identities = SelectedExactIdentities::from_stage_rows(
+            request.package,
+            request.witnesses.declarations.iter().cloned(),
+            request.witnesses.fields.iter().cloned(),
+        )
+        .unwrap();
+        let error = project_monitor_initializer(&admitted, &identities, &Cancel::new())
+            .expect_err("no fresh work allowance is granted to projection");
+        assert!(
+            matches!(error, MonitorPreparationError::Work { limit, consumed, next: 1 }
+            if limit == required && consumed == required)
+        );
+    });
+}
+
+#[test]
+fn actual_native_read_work_and_projection_causes_remain_distinct() {
+    with_request(|request| {
+        let plan = request.package.monitor_plans().next().unwrap();
+        let native = request
+            .package
+            .source_callable(plan.init().node_id(), 0)
+            .expect_err("the native callable allowance fails before the read");
+        assert_eq!(native.code, CheckedCallableReadErrorCode::WorkLimit);
+        assert_eq!(native.locus, *plan.init().node_id());
+        assert_eq!(native.work, 1);
+        let wrapped = MonitorPreparationError::from(native.clone());
+        assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Work);
+        let MonitorPreparationError::CallableRead(preserved) = wrapped else {
+            panic!("native callable payload variant");
+        };
+        assert_eq!(*preserved, native);
+
+        let mut absent = plan.init().node_id().clone();
+        absent.ordinal += 1;
+        let native = request
+            .package
+            .source_callable(&absent, 10)
+            .expect_err("an unknown callable is not a work stop");
+        assert_eq!(native.code, CheckedCallableReadErrorCode::UnknownNode);
+        let wrapped = MonitorPreparationError::from(native.clone());
+        assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Projection);
+        let MonitorPreparationError::CallableRead(preserved) = wrapped else {
+            panic!("native callable payload variant");
+        };
+        assert_eq!(*preserved, native);
+
+        let CheckedTerm::Aggregate { members } = plan.init().body() else {
+            panic!("admitted init body");
+        };
+        let CheckedTerm::Binding { value, .. } = &members[1] else {
+            panic!("init expression binding");
+        };
+        let CheckedTerm::Reference { target } = value.as_ref() else {
+            panic!("init expression reference");
+        };
+        let identities = SelectedExactIdentities::from_stage_rows(
+            request.package,
+            request.witnesses.declarations.iter().cloned(),
+            request.witnesses.fields.iter().cloned(),
+        )
+        .unwrap();
+        let native = request
+            .package
+            .project_exact_type(target, &identities, 0)
+            .expect_err("the native type allowance fails before its read");
+        assert_eq!(native.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+        assert_eq!(*native.requested, *target);
+        assert_eq!(native.work, 0);
+        let wrapped = MonitorPreparationError::from(native.clone());
+        assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Work);
+        let MonitorPreparationError::Projection(preserved) = wrapped else {
+            panic!("native type payload variant");
+        };
+        assert_eq!(preserved, native);
     });
 }

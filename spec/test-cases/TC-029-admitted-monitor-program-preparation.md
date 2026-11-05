@@ -138,11 +138,21 @@ control supplies an independently selected key with 8,192 nested node segments
 and observes typed mismatch and work stops without aborting. Reintroducing the
 recursive identity serialization makes that control fail with stack overflow.
 Zero- and one-slot scratch allowances produce typed storage stops. This bound
-covers the live identity-worklist capacity, which is released after inspection;
-it is neither cumulative allocation accounting nor a bound on native projection
-scratch or future retained arenas.
+covers live identity-worklist capacity and shares one storage ledger with future
+retained preparation arenas. Scratch is actually dropped and its reservation
+released after every successful or typed-stopped inspection. It is neither
+cumulative allocation accounting nor a bound on native projection scratch.
+An invalid internal release preserves the current reservation and reports its
+reserved/released counts as an internal accounting fault.
 
 Independent adverse inputs additionally exercise missing root, changed lock,
 root/four-entry keys, clause/profile and buffer count/owner. Each returns the
 exact selected-field/native-node refusal and no borrowed selection; a buffer
 association error remains distinct from an admitted capacity value mismatch.
+
+Native callable and type work-limit failures retain their original payload,
+first node and reported work while classifying as operating Work; other native
+read failures remain Projection. The initializer read resumes the actual
+admission work prefix against the same total allowance. The outer Program
+variant retains the native runtime construction refusal for the eventual real
+lowerer; no program is fabricated to exercise that catalog entry.

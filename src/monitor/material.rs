@@ -36,23 +36,29 @@ impl<T: Material + ?Sized> Material for Box<T> {
 impl Material for CheckedNodeId {
     fn inspect_material(&self, budget: &mut Budget<'_>) -> ReadResult {
         let mut pending = Vec::new();
-        budget.push_key(&mut pending, self)?;
-        while let Some(node) = pending.pop() {
-            node.package.inspect_material(budget)?;
-            budget.charge(8)?; // exact ordinal
-            budget.charge(1)?; // path container
-            for segment in &node.path {
-                budget.charge(1)?;
-                match segment {
-                    CheckedNodePathSegment::Name(name) => name.inspect_material(budget)?,
-                    CheckedNodePathSegment::Index(_) => budget.charge(8)?,
-                    CheckedNodePathSegment::Node(child) => {
-                        budget.push_key(&mut pending, child)?;
+        let storage_before = budget.storage();
+        let inspected = (|| {
+            budget.push_key(&mut pending, self)?;
+            while let Some(node) = pending.pop() {
+                node.package.inspect_material(budget)?;
+                budget.charge(8)?; // exact ordinal
+                budget.charge(1)?; // path container
+                for segment in &node.path {
+                    budget.charge(1)?;
+                    match segment {
+                        CheckedNodePathSegment::Name(name) => name.inspect_material(budget)?,
+                        CheckedNodePathSegment::Index(_) => budget.charge(8)?,
+                        CheckedNodePathSegment::Node(child) => {
+                            budget.push_key(&mut pending, child)?;
+                        }
                     }
                 }
             }
-        }
-        Ok(())
+            Ok(())
+        })();
+        drop(pending);
+        budget.release_scratch(storage_before)?;
+        inspected
     }
 }
 

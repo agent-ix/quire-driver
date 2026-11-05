@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Typed monitor preparation stops, separate from runtime outcomes.
 
-use quire_contract_model::{CheckedNodeId, ExactTypeProjectionError};
+use quire_contract_model::{
+    CheckedCallableReadError, CheckedCallableReadErrorCode, CheckedNodeId,
+    ExactTypeProjectionError, ExactTypeProjectionErrorCode,
+};
+use quire_contract_runtime::monitor::ProgramRefusal;
 use quire_exact::CancelCause;
 
 use crate::monitor_refusal::{MonitorLocusError, TargetMismatch, UnsupportedOperation};
@@ -44,6 +48,8 @@ pub enum MonitorPreparationErrorCode {
     Unsupported,
     /// An upstream Exact projection refused; its native payload is retained.
     Projection,
+    /// Original runtime program construction refused before any entry executed.
+    Program,
     /// Operating work was exhausted before the next inspection.
     Work,
     /// Operating storage was exhausted or allocation failed.
@@ -62,6 +68,7 @@ impl MonitorPreparationErrorCode {
             Self::TargetMismatch => "target_mismatch",
             Self::Unsupported => "unsupported",
             Self::Projection => "projection",
+            Self::Program => "program",
             Self::Work => "work",
             Self::Storage => "storage",
             Self::Cancelled => "cancelled",
@@ -76,6 +83,7 @@ impl MonitorPreparationErrorCode {
             Self::TargetMismatch,
             Self::Unsupported,
             Self::Projection,
+            Self::Program,
             Self::Work,
             Self::Storage,
             Self::Cancelled,
@@ -112,6 +120,12 @@ pub enum MonitorPreparationError {
     /// The native IR type-projection refusal without relabelling its cause.
     #[error(transparent)]
     Projection(#[from] ExactTypeProjectionError),
+    /// The original bounded selective callable-read failure and its first locus.
+    #[error(transparent)]
+    CallableRead(Box<CheckedCallableReadError>),
+    /// The original runtime construction refusal, before initialization.
+    #[error(transparent)]
+    Program(Box<ProgramRefusal>),
     /// Work stopped before inspecting the named input.
     #[error("monitor preparation work limit {limit} after {consumed}, next {next}")]
     Work {
@@ -127,7 +141,7 @@ pub enum MonitorPreparationError {
     Storage {
         /// Caller-selected limit.
         limit: u64,
-        /// Successfully reserved cumulative bytes.
+        /// Currently reserved live logical bytes.
         consumed: u64,
         /// Unreserved next byte count.
         next: u64,
@@ -141,6 +155,16 @@ pub enum MonitorPreparationError {
     /// Native allocation failure while reserving the iterative identity worklist.
     #[error(transparent)]
     Allocation(#[from] std::collections::TryReserveError),
+    /// Invalid internal release bookkeeping; the live reservation is unchanged.
+    #[error(
+        "monitor preparation internal storage release {released} exceeds reservation {reserved}"
+    )]
+    StorageAccounting {
+        /// Live reservation before the invalid release.
+        reserved: u64,
+        /// Byte count the internal caller attempted to release.
+        released: u64,
+    },
     /// A strictly admitted clause no longer has its required retained body shape.
     #[error("monitor preparation internal admitted-clause fault")]
     InvalidAdmittedClause {
@@ -162,14 +186,52 @@ impl MonitorPreparationError {
             Self::Selection { .. } => MonitorPreparationErrorCode::Selection,
             Self::TargetMismatch(_) => MonitorPreparationErrorCode::TargetMismatch,
             Self::Unsupported(_) => MonitorPreparationErrorCode::Unsupported,
-            Self::Projection(_) => MonitorPreparationErrorCode::Projection,
+            Self::Projection(native) => match native.code {
+                ExactTypeProjectionErrorCode::ExhaustedWork => MonitorPreparationErrorCode::Work,
+                ExactTypeProjectionErrorCode::UnknownNode
+                | ExactTypeProjectionErrorCode::ForeignNode
+                | ExactTypeProjectionErrorCode::UnavailableIdentityWitness
+                | ExactTypeProjectionErrorCode::MismatchedIdentityWitness
+                | ExactTypeProjectionErrorCode::ConflictingIdentityWitness
+                | ExactTypeProjectionErrorCode::UnresolvedSelectedDeclaration
+                | ExactTypeProjectionErrorCode::UnsupportedExactType => {
+                    MonitorPreparationErrorCode::Projection
+                }
+            },
+            Self::CallableRead(native) => match native.code {
+                CheckedCallableReadErrorCode::WorkLimit => MonitorPreparationErrorCode::Work,
+                CheckedCallableReadErrorCode::UnknownNode
+                | CheckedCallableReadErrorCode::MissingBody
+                | CheckedCallableReadErrorCode::MalformedBody
+                | CheckedCallableReadErrorCode::AmbiguousBody
+                | CheckedCallableReadErrorCode::UnavailableWitness
+                | CheckedCallableReadErrorCode::MissingSelectedJoin
+                | CheckedCallableReadErrorCode::ForeignSelectedJoin
+                | CheckedCallableReadErrorCode::MissingFrame => {
+                    MonitorPreparationErrorCode::Projection
+                }
+            },
+            Self::Program(_) => MonitorPreparationErrorCode::Program,
             Self::Work { .. } => MonitorPreparationErrorCode::Work,
             Self::Storage { .. } => MonitorPreparationErrorCode::Storage,
             Self::Cancelled(_) => MonitorPreparationErrorCode::Cancelled,
             Self::Internal(_) => MonitorPreparationErrorCode::Internal,
             Self::Allocation(_) => MonitorPreparationErrorCode::Storage,
+            Self::StorageAccounting { .. } => MonitorPreparationErrorCode::Internal,
             Self::InvalidAdmittedClause { .. } => MonitorPreparationErrorCode::Internal,
             Self::InvalidAdmittedEntry { .. } => MonitorPreparationErrorCode::Internal,
         }
+    }
+}
+
+impl From<CheckedCallableReadError> for MonitorPreparationError {
+    fn from(native: CheckedCallableReadError) -> Self {
+        Self::CallableRead(Box::new(native))
+    }
+}
+
+impl From<ProgramRefusal> for MonitorPreparationError {
+    fn from(native: ProgramRefusal) -> Self {
+        Self::Program(Box::new(native))
     }
 }

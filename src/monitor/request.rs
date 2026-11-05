@@ -32,9 +32,9 @@ impl<'a> MonitorSelection<'a> {
 pub struct MonitorPreparationLimits {
     /// Cumulative inspected identity/value material and native projection work.
     pub work: u64,
-    /// Maximum live identity-walk worklist capacity in bytes, checked before growth
-    /// and against the capacity actually granted. Scratch is released after each
-    /// inspection; this is not cumulative allocation or a native-projection bound.
+    /// Shared maximum live logical allocation capacity in bytes for scratch and
+    /// retained preparation arenas. Released storage becomes available again;
+    /// native projection scratch is not accounted by this driver ledger.
     pub storage: u64,
 }
 

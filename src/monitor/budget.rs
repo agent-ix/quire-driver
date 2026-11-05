@@ -10,10 +10,14 @@ use super::{
     material::Material, AdmittedMonitorSelection, MonitorPreparationError, MonitorPreparationLimits,
 };
 
+#[cfg(test)]
+mod tests;
+
 pub(super) struct Budget<'a> {
     cancel: &'a Cancel,
     limits: MonitorPreparationLimits,
     work: u64,
+    storage: u64,
 }
 
 impl<'a> Budget<'a> {
@@ -22,6 +26,7 @@ impl<'a> Budget<'a> {
             cancel,
             limits,
             work: 0,
+            storage: 0,
         }
     }
 
@@ -65,35 +70,26 @@ impl<'a> Budget<'a> {
     ) -> Result<(), MonitorPreparationError> {
         self.charge(1)?;
         if pending.len() == pending.capacity() {
-            let bytes = pending
-                .capacity()
-                .checked_mul(size_of::<&CheckedNodeId>())
-                .and_then(|bytes| u64::try_from(bytes).ok())
-                .unwrap_or(u64::MAX);
-            let next = u64::try_from(size_of::<&CheckedNodeId>()).unwrap_or(u64::MAX);
-            if next > self.limits.storage.saturating_sub(bytes) {
-                return Err(MonitorPreparationError::Storage {
-                    limit: self.limits.storage,
-                    consumed: bytes,
-                    next,
-                });
+            let before = pending.capacity();
+            let slot = size_of::<&CheckedNodeId>();
+            self.reserve_storage(slot)?;
+            if let Err(cause) = pending.try_reserve_exact(1) {
+                self.release_storage(slot)?;
+                return Err(MonitorPreparationError::Allocation(cause));
             }
-            pending
-                .try_reserve_exact(1)
-                .map_err(MonitorPreparationError::Allocation)?;
             // An allocator may grant more than the exact request. Never keep
             // a worklist whose reported capacity exceeds the caller limit.
-            let granted = pending
-                .capacity()
-                .checked_mul(size_of::<&CheckedNodeId>())
-                .and_then(|bytes| u64::try_from(bytes).ok())
-                .unwrap_or(u64::MAX);
-            if granted > self.limits.storage {
-                return Err(MonitorPreparationError::Storage {
-                    limit: self.limits.storage,
-                    consumed: bytes,
-                    next: granted.saturating_sub(bytes),
-                });
+            let extra_slots = pending.capacity() - before - 1;
+            if extra_slots != 0 {
+                let extra =
+                    extra_slots
+                        .checked_mul(slot)
+                        .ok_or(MonitorPreparationError::Storage {
+                            limit: self.limits.storage,
+                            consumed: self.storage,
+                            next: u64::MAX,
+                        })?;
+                self.reserve_storage(extra)?;
             }
         }
         pending.push(node);
@@ -105,5 +101,58 @@ impl<'a> Budget<'a> {
     }
     pub(super) fn work(&self) -> u64 {
         self.work
+    }
+
+    /// Reserve additional live allocation capacity before allocating.
+    pub(super) fn reserve_storage(&mut self, bytes: usize) -> Result<(), MonitorPreparationError> {
+        self.charge(0)?;
+        let next = u64::try_from(bytes).unwrap_or(u64::MAX);
+        if next > self.remaining_storage() {
+            return Err(MonitorPreparationError::Storage {
+                limit: self.limits.storage,
+                consumed: self.storage,
+                next,
+            });
+        }
+        self.storage += next;
+        Ok(())
+    }
+
+    /// Release actual freed capacity. Cleanup never polls cancellation.
+    pub(super) fn release_storage(&mut self, bytes: usize) -> Result<(), MonitorPreparationError> {
+        let released = u64::try_from(bytes).unwrap_or(u64::MAX);
+        let Some(remaining) = self.storage.checked_sub(released) else {
+            return Err(MonitorPreparationError::StorageAccounting {
+                reserved: self.storage,
+                released,
+            });
+        };
+        self.storage = remaining;
+        Ok(())
+    }
+
+    /// Remaining live storage allowance shared by scratch and retained arenas.
+    pub(super) fn remaining_storage(&self) -> u64 {
+        self.limits.storage - self.storage
+    }
+    /// Actual current live logical allocation reservations.
+    pub(super) fn storage(&self) -> u64 {
+        self.storage
+    }
+
+    /// Release this walk's scratch after its vector has actually been dropped.
+    pub(super) fn release_scratch(&mut self, before: u64) -> Result<(), MonitorPreparationError> {
+        let Some(released) = self.storage.checked_sub(before) else {
+            return Err(MonitorPreparationError::StorageAccounting {
+                reserved: self.storage,
+                released: before,
+            });
+        };
+        let bytes =
+            usize::try_from(released).map_err(|_| MonitorPreparationError::StorageAccounting {
+                reserved: self.storage,
+                released,
+            })?;
+        self.release_storage(bytes)
     }
 }
