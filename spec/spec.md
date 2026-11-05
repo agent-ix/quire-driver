@@ -140,7 +140,11 @@ Planned until IR-721 lands: FR-015 adds the library handoff from an
 independently selected admitted monitor root to RT's retained executable owner.
 It does not add monitor syntax, a temporal evaluator, another CLI operation or
 a second runtime representation. Producer qualification and runtime execution
-remain separate obligations.
+remain separate obligations. The partial native-subject API
+`admit_monitor_final_subject` consumes QSL PR #2395's original-subject to
+final-declaration lookup and exposes a private-field selection capability
+(FR-015-AC-15). Its clock continuation still requires native clock admission;
+healthy Timed clock receipt and complete runtime preparation remain Planned.
 
 ### 2.2 Out of Scope
 

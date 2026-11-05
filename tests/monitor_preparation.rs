@@ -2,237 +2,46 @@
 //! Real producer input to the driver's independent selection boundary.
 
 use std::{
-    path::PathBuf,
     process::Command,
     sync::{Arc, LazyLock},
 };
 
-use qsl_analyze::monitor_root::{emit_plan_root, PlanRootRequest};
-use qsl_foundation::SourceIdentity;
-use qsl_package::Emission;
-use qsl_replay::{spine::SpineLimits, MonitorTarget, TimingObligationSettings};
-use qsl_semantics::{library::LibraryName, model::intake::package_input};
+use ix_trace_rs::trace;
 use quire_contract_model::{
-    read_checked_package, CheckedCallableReadErrorCode, CheckedNodeId, CheckedNodePathSegment,
-    CheckedOccurrenceRole, CheckedPackageDispatchResult, CheckedPackageReadLimits,
-    CheckedPackageV2, CheckedRational, CheckedSelectionRole, CheckedTerm,
-    ExactTypeProjectionErrorCode, SelectedExactIdentities, SelectedFactRows,
+    CheckedCallableReadErrorCode, CheckedMonitorClockReadErrorCode, CheckedNodeId,
+    CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole, CheckedRational, CheckedTerm,
+    ExactTypeProjectionErrorCode, SelectedExactIdentities,
 };
 use quire_driver::monitor::{
-    admit_monitor_selection, project_monitor_initializer, MonitorPreparationError,
-    MonitorPreparationErrorCode, MonitorPreparationLimits, MonitorPreparationRequest,
+    admit_monitor_clock_selection, admit_monitor_selection, project_monitor_initializer,
+    MonitorPreparationError, MonitorPreparationErrorCode, MonitorPreparationRequest,
     MonitorSelection, MonitorSelectionField,
 };
 use quire_driver::monitor_refusal::TargetPremise;
-use quire_exact::{Cancel, CancelCause, Integer, Rational};
+use quire_exact::{Cancel, CancelCause};
 
-struct Fixture {
-    package: Box<CheckedPackageV2>,
-    emission: Emission,
-    buffers: Vec<(CheckedNodeId, Box<str>)>,
-}
+/// Native PlanRoot support shared by monitor integration suites.
+#[path = "common/monitor.rs"]
+pub mod monitor_fixture;
+use monitor_fixture::{Fixture, SAME_CLAUSE_TWIN};
 
-static FIXTURE: LazyLock<Fixture> = LazyLock::new(fixture);
-
-fn fixture() -> Fixture {
-    let output = Command::new(env!("CARGO"))
-        .args(["metadata", "--locked", "--format-version", "1", "--offline"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .expect("resolved dependency metadata");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let manifest = metadata["packages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|package| package["name"] == "qsl-replay")
-        .unwrap()["manifest_path"]
-        .as_str()
-        .unwrap();
-    let path = PathBuf::from(manifest);
-    let document = std::fs::read(
-        path.parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("examples/config-version/model.semantic-ir.json"),
-    )
-    .unwrap();
-    let document_value: serde_json::Value = serde_json::from_slice(&document).unwrap();
-    let identity = document_value["package"]["identity"].as_str().unwrap();
-    let packages = package_input([document.as_slice()]).unwrap();
-    let text = format!(
-        r#"language "ix:native" edition "1-draft";
-profile v = "quire.value.complete/v1";
-profile timed = "quire.temporal.timed/v1";
-profile complete = "quire.temporal.complete/v1";
-model Selected = "{identity}";
-dimension Time;
-unit second : Time = rational(1, 1);
-unit ms : Time = rational(1, 1000) * second;
-time Selected dense unit ms;
-temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) clock "model-time" on origin {{
-    eventually[0 ms, 4 ms] holds(candidate.versionNumber >= 0)
-}}
-"#
-    );
-    let source = SourceIdentity::new("agent-ix", "monitor-preparation");
-    let name = LibraryName::new("agent-ix/monitor-preparation").unwrap();
-    let target = MonitorTarget {
-        counter: "counter".to_owned(),
-        unit: "ms".to_owned(),
-        width_bits: 16,
-        uncertainty: Rational::from_integer(Integer::zero()),
-        max_event_rate: Some(Rational::from_integer(Integer::from(2_u64))),
-        max_reading_gap: 100,
-        max_activations: 8,
-    };
-    let root = emit_plan_root(
-        &PlanRootRequest {
-            source: &source,
-            path: "monitor-preparation.native",
-            bytes: text.as_bytes(),
-            packages: &packages,
-            package_name: &name,
-            limits: SpineLimits::default(),
-            clause: "SelectedMonitor",
-            target: &target,
-            settings: &TimingObligationSettings::default(),
-        },
-        &Cancel::new(),
-    )
-    .expect("actual final PlanRoot producer");
-    let mut evidence = root.emission.evidence().clone();
-    evidence
-        .insert_domain_package_document(identity, document)
-        .unwrap();
-    let package = match read_checked_package(
-        root.emission.package().bytes(),
-        CheckedPackageReadLimits {
-            bytes: 8 * 1024 * 1024,
-            nodes: 100_000,
-            edges: 1_000_000,
-            occurrences: 1_000_000,
-            diagnostics: 1_000,
-            work: 100_000_000,
-        },
-        &evidence,
-    ) {
-        CheckedPackageDispatchResult::AdmittedV2(package) => package,
-        other => panic!("strict final package admission: {other:?}"),
-    };
-    // Capacity values are selected from the producer-owned plan rather than
-    // recomputed by the driver. Retain its independently produced values and
-    // use the final emission's exact subformula identities.
-    let plan = package.monitor_plans().next().unwrap();
-    assert_eq!(plan.buffers().len(), root.plan.buffers().len());
-    let buffers = plan
-        .buffers()
-        .zip(root.plan.buffers())
-        .map(|(buffer, (_, capacity))| {
-            (
-                buffer.subformula().clone(),
-                capacity.to_string().into_boxed_str(),
-            )
-        })
-        .collect();
-    Fixture {
-        package,
-        emission: root.emission,
-        buffers,
-    }
-}
+static FIXTURE: LazyLock<Fixture> =
+    LazyLock::new(|| monitor_fixture::fixture("SelectedMonitor", "counter", SAME_CLAUSE_TWIN));
 
 fn with_request(test: impl FnOnce(MonitorPreparationRequest<'_>)) {
     let fixture = &*FIXTURE;
-    let package = fixture.package.as_ref();
-    let plan = package.monitor_plans().next().unwrap();
-    let source = package
-        .source_map()
+    let plan = fixture.package.monitor_plans().next().unwrap();
+    // Legacy partial selection chooses its authored fixture claim by name.
+    // Final-subject qualification uses the original native subject instead.
+    let ordinal = fixture
+        .package
+        .temporal_clause_names()
+        .unwrap()
         .iter()
-        .find(|row| row.node_id == *plan.clause() && row.role == CheckedOccurrenceRole::Claim)
-        .unwrap();
-    let CheckedTerm::Application { arguments, .. } = package.term(plan.clause()).unwrap() else {
-        panic!("clause application");
-    };
-    let CheckedTerm::Reference { target: subject } = &arguments[0] else {
-        panic!("original over parameter");
-    };
-    let profile = package
-        .lock()
-        .profile_selections
-        .iter()
-        .find(|profile| {
-            profile.role == CheckedSelectionRole::TemporalProfile
-                && profile.definition.identity.ends_with("temporal.timed/v1")
-        })
-        .unwrap();
-    let clock = package
-        .temporal_bindings()
-        .unwrap_or_default()
-        .iter()
-        .find(|row| row.declaration == *plan.clause() && row.occurrence == source.ordinal);
-    let tick = fixture
-        .emission
-        .selected_source_unit_rows()
-        .iter()
-        .find(|row| {
-            row.qualified_declaration
-                .last()
-                .is_some_and(|name| name.as_ref() == "ms")
-        })
-        .unwrap();
-    let equality = fixture.emission.equality_witness(package);
-    let rate = CheckedRational {
-        numerator: "2".into(),
-        denominator: "1".into(),
-    };
-    let uncertainty = CheckedRational {
-        numerator: "0".into(),
-        denominator: "1".into(),
-    };
-    let request = MonitorPreparationRequest {
-        package,
-        selection: MonitorSelection::new(package, plan.node_id()),
-        package_lock: package.lock(),
-        root_key: plan.structural_key(),
-        entry_keys: [
-            plan.init().structural_key(),
-            plan.on_event().structural_key(),
-            plan.on_watermark().structural_key(),
-            plan.on_gap().structural_key(),
-        ],
-        clause: plan.clause(),
-        subject,
-        occurrence: source,
-        profile,
-        clock_binding: clock,
-        counter: "counter",
-        tick_unit: &tick.structural_node,
-        counter_width_bits: 16,
-        max_reading_gap: 100,
-        max_event_rate: &rate,
-        uncertainty: &uncertainty,
-        buffers: &fixture.buffers,
-        activation_capacity: "8",
-        witnesses: SelectedFactRows {
-            declarations: fixture.emission.selected_exact_declaration_rows(),
-            fields: fixture.emission.selected_exact_field_rows(),
-            source_units: fixture.emission.selected_source_unit_rows(),
-            equality_applications: equality.applications(),
-            equality_facts: equality.facts(),
-        },
-        limits: MonitorPreparationLimits {
-            work: 100_000_000,
-            storage: 8 * 1024 * 1024,
-        },
-    };
-    test(request);
+        .find(|row| row.declaration == *plan.clause() && row.name.as_ref() == "SelectedMonitor")
+        .unwrap()
+        .occurrence;
+    monitor_fixture::with_request(fixture, ordinal, test);
 }
 
 #[test]
@@ -846,4 +655,222 @@ fn native_operation_and_key_invariant_failures_retain_their_payloads() {
         panic!("native key payload");
     };
     assert_eq!(preserved, native);
+}
+
+#[trace("FR-015-AC-13")]
+#[test]
+fn clock_admission_requires_native_clock_even_without_optional_expectation() {
+    with_request(|mut request| {
+        request.clock_binding = None;
+        let partial = admit_monitor_selection(&request, &Cancel::new()).unwrap();
+        assert_eq!(partial.plan().clause(), request.clause);
+        let native = partial
+            .plan()
+            .clock_for_claim(
+                request.clause,
+                &CheckedOccurrence {
+                    role: request.occurrence.role.clone(),
+                    ordinal: request.occurrence.ordinal,
+                },
+                u64::MAX,
+            )
+            .unwrap_err();
+        let error = admit_monitor_clock_selection(&request, &Cancel::new())
+            .err()
+            .unwrap();
+        assert_eq!(error.code(), MonitorPreparationErrorCode::Selection);
+        let MonitorPreparationError::ClockRead(actual) = error else {
+            panic!("native missing clock")
+        };
+        assert_eq!(actual.code, CheckedMonitorClockReadErrorCode::MissingClock);
+        assert_eq!(*actual, native);
+        assert!(actual.work > 0);
+        assert_eq!(actual.attempted_work, 0);
+    });
+}
+
+#[trace("FR-015-AC-13")]
+#[test]
+fn clock_admission_retains_native_wrong_clause_role_and_ordinal_payloads() {
+    for case in 0..3 {
+        with_request(|request| {
+            let plan = request.package.monitor_plans().next().unwrap();
+            let mut occurrence = request.occurrence.clone();
+            let clause = if case == 0 {
+                plan.state()
+            } else {
+                request.clause
+            };
+            let expected = match case {
+                0 => CheckedMonitorClockReadErrorCode::WrongClause,
+                1 => {
+                    occurrence.role = CheckedOccurrenceRole::Declaration;
+                    CheckedMonitorClockReadErrorCode::WrongRole
+                }
+                2 => {
+                    occurrence.ordinal = u64::MAX;
+                    CheckedMonitorClockReadErrorCode::UnknownOccurrence
+                }
+                _ => unreachable!(),
+            };
+            let request = MonitorPreparationRequest {
+                clause,
+                occurrence: &occurrence,
+                clock_binding: None,
+                ..request
+            };
+            let native = plan
+                .clock_for_claim(
+                    clause,
+                    &CheckedOccurrence {
+                        role: occurrence.role.clone(),
+                        ordinal: occurrence.ordinal,
+                    },
+                    u64::MAX,
+                )
+                .unwrap_err();
+            let error = admit_monitor_clock_selection(&request, &Cancel::new())
+                .err()
+                .unwrap();
+            assert_eq!(error.code(), MonitorPreparationErrorCode::Selection);
+            let MonitorPreparationError::ClockRead(actual) = error else {
+                panic!("native clock refusal")
+            };
+            assert_eq!(actual.code, expected);
+            assert_eq!(*actual, native);
+        });
+    }
+}
+
+#[trace("FR-015-AC-13")]
+#[test]
+fn same_clause_twin_claims_keep_their_exact_native_refusal_occurrences() {
+    with_request(|request| {
+        let names = request.package.temporal_clause_names().unwrap();
+        let twin = names
+            .iter()
+            .find(|row| row.name.as_ref() == "TwinMonitor")
+            .unwrap();
+        assert_eq!(&twin.declaration, request.clause, "native shared clause");
+        assert_ne!(twin.occurrence, request.occurrence.ordinal);
+        let occurrence = request
+            .package
+            .source_map()
+            .iter()
+            .find(|row| {
+                row.node_id == twin.declaration
+                    && row.role == CheckedOccurrenceRole::Claim
+                    && row.ordinal == twin.occurrence
+            })
+            .unwrap();
+        let request = MonitorPreparationRequest {
+            occurrence,
+            clock_binding: None,
+            ..request
+        };
+        let error = admit_monitor_clock_selection(&request, &Cancel::new())
+            .err()
+            .unwrap();
+        let MonitorPreparationError::ClockRead(actual) = error else {
+            panic!("native missing twin clock")
+        };
+        assert_eq!(actual.code, CheckedMonitorClockReadErrorCode::MissingClock);
+        assert_eq!(
+            actual.occurrence,
+            CheckedOccurrence {
+                role: CheckedOccurrenceRole::Claim,
+                ordinal: twin.occurrence
+            }
+        );
+        assert_eq!(actual.at.as_ref(), &twin.declaration);
+    });
+}
+
+#[trace("FR-015-AC-13")]
+#[test]
+fn clock_read_gets_remaining_work_with_exact_and_one_under_native_allowances() {
+    with_request(|mut request| {
+        request.clock_binding = None;
+        let prefix = admit_monitor_selection(&request, &Cancel::new())
+            .unwrap()
+            .work();
+        let plan = request.package.monitor_plans().next().unwrap();
+        let occurrence = CheckedOccurrence {
+            role: request.occurrence.role.clone(),
+            ordinal: request.occurrence.ordinal,
+        };
+        let semantic = plan
+            .clock_for_claim(request.clause, &occurrence, u64::MAX)
+            .unwrap_err();
+        assert_eq!(
+            semantic.code,
+            CheckedMonitorClockReadErrorCode::MissingClock
+        );
+        for allowance in [0, semantic.work - 1, semantic.work] {
+            request.limits.work = prefix + allowance;
+            let error = admit_monitor_clock_selection(&request, &Cancel::new())
+                .err()
+                .unwrap();
+            let expected_code = if allowance == semantic.work {
+                MonitorPreparationErrorCode::Selection
+            } else {
+                MonitorPreparationErrorCode::Work
+            };
+            assert_eq!(error.code(), expected_code);
+            let MonitorPreparationError::ClockRead(actual) = error else {
+                panic!("native allowance stop")
+            };
+            let expected = plan
+                .clock_for_claim(request.clause, &occurrence, allowance)
+                .unwrap_err();
+            assert_eq!(*actual, expected);
+            assert_eq!(actual.work, allowance);
+            assert_eq!(
+                actual.attempted_work,
+                if allowance == semantic.work { 0 } else { 1 }
+            );
+        }
+    });
+}
+
+#[trace("FR-015-AC-13")]
+#[test]
+fn clock_admission_preserves_pre_cancelled_deadline_and_original_inputs() {
+    with_request(|mut request| {
+        request.clock_binding = None;
+        let original_source = request.occurrence.clone();
+        let original_source_map = request.package.source_map().to_vec();
+        let original_root = request.selection_root().clone();
+        let original_clause = request.clause.clone();
+        let original_subject = request.subject.clone();
+        let original_profile = request.profile.clone();
+        let original_limits = request.limits;
+        let original_package = request.package;
+        // Establish that this authentic fixture otherwise reaches MissingClock.
+        assert!(matches!(
+            admit_monitor_clock_selection(&request, &Cancel::new()),
+            Err(MonitorPreparationError::ClockRead(native))
+                if native.code == CheckedMonitorClockReadErrorCode::MissingClock
+        ));
+        let cancel = Cancel::new();
+        cancel.cancel(CancelCause::Deadline);
+        let error = admit_monitor_clock_selection(&request, &cancel)
+            .err()
+            .expect("pre-cancellation returns no clock-admitted capability");
+        assert_eq!(error.code(), MonitorPreparationErrorCode::Cancelled);
+        assert!(matches!(
+            error,
+            MonitorPreparationError::Cancelled(CancelCause::Deadline)
+        ));
+        assert_eq!(cancel.cause(), Some(CancelCause::Deadline));
+        assert!(std::ptr::eq(request.package, original_package));
+        assert_eq!(request.selection_root(), &original_root);
+        assert_eq!(request.clause, &original_clause);
+        assert_eq!(request.subject, &original_subject);
+        assert_eq!(request.profile, &original_profile);
+        assert_eq!(request.limits, original_limits);
+        assert!(request.clock_binding.is_none());
+        assert_eq!(request.occurrence, &original_source);
+        assert_eq!(request.package.source_map(), original_source_map);
+    });
 }

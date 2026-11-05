@@ -64,7 +64,9 @@ pub struct MonitorPreparationRequest<'a> {
     pub occurrence: &'a CheckedSourceMapEntry,
     /// Independently selected profile; the selected package must retain it.
     pub profile: &'a CheckedSelection,
-    /// Independent canonical clock row, if available. Absence asserts no admitted clock association.
+    /// Optional independent canonical clock expectation. Absence waives only its comparison;
+    /// the separate clock-admission entry still requires a successful native read for the
+    /// explicit occurrence. The partial selection entry establishes no clock admission.
     pub clock_binding: Option<&'a TemporalBinding>,
     /// Exact independently selected hardware counter name.
     pub counter: &'a str,

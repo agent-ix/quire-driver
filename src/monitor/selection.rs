@@ -2,8 +2,8 @@
 //! Bind an independent selection to one immutable admitted monitor root.
 
 use quire_contract_model::{
-    CheckedMonitorPlanRef, CheckedNodeId, CheckedOccurrenceRole, CheckedPackageV2,
-    CheckedSelectionRole, CheckedTerm, LawRole,
+    CheckedMonitorClockRead, CheckedMonitorPlanRef, CheckedNodeId, CheckedOccurrence,
+    CheckedOccurrenceRole, CheckedPackageV2, CheckedSelectionRole, CheckedTerm, LawRole,
 };
 use quire_exact::Cancel;
 
@@ -14,11 +14,11 @@ use super::{
     MonitorPreparationError as Error, MonitorPreparationRequest, MonitorSelectionField as Field,
 };
 
-/// A verified package/root/occurrence/target binding, not an executable program.
+/// A partial package/root/occurrence/target binding, without clock admission or a program.
 ///
 /// This private-field borrow cannot be rebound to another package instance.
 /// It establishes no complete generated-source type environment or admitted
-/// order/progress association and authorizes no runtime initialization.
+/// clock/order/progress association and authorizes no runtime initialization.
 pub struct AdmittedMonitorSelection<'a> {
     pub(super) request: &'a MonitorPreparationRequest<'a>,
     pub(super) plan: CheckedMonitorPlanRef<'a>,
@@ -75,16 +75,13 @@ pub(super) fn bind<'a>(
     if request.package_lock != request.package.lock() {
         return Err(mismatch(Field::PackageLock, root));
     }
-    for (expected, actual, field) in [
-        (request.root_key, plan.structural_key(), Field::RootKey),
-        (request.clause, plan.clause(), Field::Clause),
-    ] {
-        budget.inspect(expected)?;
-        budget.inspect(actual)?;
-        if expected != actual {
-            return Err(mismatch(field, root));
-        }
+    budget.inspect(request.root_key)?;
+    budget.inspect(plan.structural_key())?;
+    if request.root_key != plan.structural_key() {
+        return Err(mismatch(Field::RootKey, root));
     }
+    budget.inspect(request.clause)?;
+    budget.inspect(plan.clause())?;
     for (expected, entry) in request.entry_keys.into_iter().zip([
         plan.init(),
         plan.on_event(),
@@ -96,23 +93,6 @@ pub(super) fn bind<'a>(
         if expected != entry.structural_key() {
             return Err(mismatch(Field::EntryKey, entry.node_id()));
         }
-    }
-    budget.inspect(request.occurrence)?;
-    if request.occurrence.node_id != *plan.clause()
-        || request.occurrence.role != CheckedOccurrenceRole::Claim
-    {
-        return Err(mismatch(Field::Occurrence, plan.clause()));
-    }
-    let mut occurrence_found = false;
-    for row in request.package.source_map() {
-        budget.inspect(row)?;
-        if row == request.occurrence {
-            occurrence_found = true;
-            break;
-        }
-    }
-    if !occurrence_found {
-        return Err(mismatch(Field::Occurrence, plan.clause()));
     }
     check_clause(request, plan, budget)?;
     budget.inspect(request.profile)?;
@@ -168,25 +148,6 @@ fn check_clause(
     }
     if !selected_law {
         return Err(mismatch(Field::Profile, plan.clause()));
-    }
-    if let Some(selected_clock) = request.clock_binding {
-        budget.inspect(selected_clock)?;
-        if selected_clock.declaration != *plan.clause()
-            || selected_clock.occurrence != request.occurrence.ordinal
-        {
-            return Err(mismatch(Field::Clock, plan.clause()));
-        }
-        let mut clock_found = false;
-        for row in request.package.temporal_bindings().unwrap_or_default() {
-            budget.inspect(row)?;
-            if row == selected_clock {
-                clock_found = true;
-                break;
-            }
-        }
-        if !clock_found {
-            return Err(mismatch(Field::Clock, plan.clause()));
-        }
     }
 
     Ok(())
@@ -266,10 +227,152 @@ pub fn admit_monitor_selection<'a>(
     cancel: &Cancel,
 ) -> Result<AdmittedMonitorSelection<'a>, Error> {
     let mut budget = Budget::new(request.limits, cancel);
-    let plan = bind(request, &mut budget)?;
+    select_with_budget(request, &mut budget)
+}
+
+pub(super) fn select_with_budget<'a>(
+    request: &'a MonitorPreparationRequest<'a>,
+    budget: &mut Budget<'_>,
+) -> Result<AdmittedMonitorSelection<'a>, Error> {
+    let plan = bind(request, budget)?;
+    if request.clause != plan.clause() {
+        return Err(mismatch(Field::Clause, plan.node_id()));
+    }
+    budget.inspect(request.occurrence)?;
+    if request.occurrence.node_id != *plan.clause()
+        || request.occurrence.role != CheckedOccurrenceRole::Claim
+    {
+        return Err(mismatch(Field::Occurrence, plan.clause()));
+    }
+    let mut occurrence_found = false;
+    for row in request.package.source_map() {
+        budget.inspect(row)?;
+        if row == request.occurrence {
+            occurrence_found = true;
+            break;
+        }
+    }
+    if !occurrence_found {
+        return Err(mismatch(Field::Occurrence, plan.clause()));
+    }
+    if let Some(selected_clock) = request.clock_binding {
+        budget.inspect(selected_clock)?;
+        if selected_clock.declaration != *plan.clause()
+            || selected_clock.occurrence != request.occurrence.ordinal
+        {
+            return Err(mismatch(Field::Clock, plan.clause()));
+        }
+        let mut clock_found = false;
+        for row in request.package.temporal_bindings().unwrap_or_default() {
+            budget.inspect(row)?;
+            if row == selected_clock {
+                clock_found = true;
+                break;
+            }
+        }
+        if !clock_found {
+            return Err(mismatch(Field::Clock, plan.clause()));
+        }
+    }
+
     Ok(AdmittedMonitorSelection {
         request,
         plan,
         work: budget.work(),
+    })
+}
+
+/// A distinct capability retaining one genuine native admitted clock receipt.
+///
+/// This establishes no order/progress association, complete source closure,
+/// final PlanRoot subject-occurrence mapping or executable program.
+pub struct AdmittedMonitorClockSelection<'a> {
+    selection: AdmittedMonitorSelection<'a>,
+    clock: CheckedMonitorClockRead<'a>,
+}
+
+impl<'a> AdmittedMonitorClockSelection<'a> {
+    /// The verified selection, including cumulative clock admission work.
+    pub fn selection(&self) -> &AdmittedMonitorSelection<'a> {
+        &self.selection
+    }
+    /// The native clock, original claim name and exact admitted occurrence.
+    pub fn clock(&self) -> &CheckedMonitorClockRead<'a> {
+        &self.clock
+    }
+}
+
+/// Admit the explicitly selected claim's clock under the cumulative allowance.
+///
+/// Unlike the partial selection entry, this entry requires the native owner
+/// read even when the optional independent clock expectation is absent. A
+/// missing clock gives the unchanged native refusal and no clock capability.
+/// The existing package/root, subject, profile, target and full source-map
+/// validations remain required. No occurrence or clock name is chosen here.
+pub fn admit_monitor_clock_selection<'a>(
+    request: &'a MonitorPreparationRequest<'a>,
+    cancel: &Cancel,
+) -> Result<AdmittedMonitorClockSelection<'a>, Error> {
+    let mut budget = Budget::new(request.limits, cancel);
+    let plan = bind(request, &mut budget)?;
+    clock_with_budget(request, plan, &mut budget)
+}
+
+pub(super) fn resume_clock<'a>(
+    selection: &AdmittedMonitorSelection<'a>,
+    cancel: &Cancel,
+) -> Result<AdmittedMonitorClockSelection<'a>, Error> {
+    let mut budget = Budget::resume(selection, cancel)?;
+    clock_with_budget(selection.request, selection.plan, &mut budget)
+}
+
+fn clock_with_budget<'a>(
+    request: &'a MonitorPreparationRequest<'a>,
+    plan: CheckedMonitorPlanRef<'a>,
+    budget: &mut Budget<'_>,
+) -> Result<AdmittedMonitorClockSelection<'a>, Error> {
+    budget.inspect(request.occurrence)?;
+    let mut occurrence_found = false;
+    for row in request.package.source_map() {
+        budget.inspect(row)?;
+        if row == request.occurrence {
+            occurrence_found = true;
+            break;
+        }
+    }
+    budget.charge(0)?;
+    let clock = plan
+        .clock_for_claim(
+            request.clause,
+            &CheckedOccurrence {
+                role: request.occurrence.role.clone(),
+                ordinal: request.occurrence.ordinal,
+            },
+            budget.remaining(),
+        )
+        .map_err(|native| Error::ClockRead(Box::new(native)))?;
+    // Native failures carry their own consumed/attempted work unchanged. Only
+    // a success continues with the live cumulative driver ledger.
+    budget.charge(clock.work())?;
+    if request.occurrence.node_id != *clock.clause() || !occurrence_found {
+        return Err(mismatch(Field::Occurrence, plan.clause()));
+    }
+    if let Some(expected) = request.clock_binding {
+        budget.inspect(expected)?;
+        if expected.declaration != *clock.clause()
+            || expected.occurrence != clock.occurrence().ordinal
+            || expected.clock_name.as_ref() != clock.clock_name()
+            || &expected.clock != clock.clock()
+        {
+            return Err(mismatch(Field::Clock, plan.clause()));
+        }
+    }
+    Ok(AdmittedMonitorClockSelection {
+        selection: AdmittedMonitorSelection {
+            request,
+            plan,
+            work: budget.work(),
+        },
+        clock,
     })
 }

@@ -2,8 +2,10 @@
 //! Typed monitor preparation stops, separate from runtime outcomes.
 
 use quire_contract_model::{
-    CheckedCallableReadError, CheckedCallableReadErrorCode, CheckedNodeId,
-    CheckedOperationViewError, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
+    CheckedCallableReadError, CheckedCallableReadErrorCode, CheckedMonitorClockReadError,
+    CheckedMonitorClockReadErrorCode, CheckedNodeId, CheckedOperationViewError,
+    CheckedPackageIncomplete, CheckedPackageRefusal, ExactTypeProjectionError,
+    ExactTypeProjectionErrorCode,
 };
 use quire_contract_runtime::monitor::ProgramRefusal;
 use quire_exact::{CancelCause, InvalidNodeKey};
@@ -33,6 +35,16 @@ pub enum MonitorSelectionField {
     Profile,
     /// The original selected clause clock row is missing or differs.
     Clock,
+    /// Strict admission of the supplied emission differs from the selected package.
+    EmissionPackage,
+    /// Native producer package, occurrence node or Claim role is inconsistent.
+    ProducerSubject,
+    /// The owner's final declaration does not match the independent clause.
+    FinalDeclaration,
+    /// The native Claim role/ordinal does not match the independent occurrence.
+    FinalOccurrence,
+    /// The native name at the exact final declaration/ordinal differs.
+    ClaimName,
     /// Buffer owner/count differs; no corresponding admitted capacity value exists.
     BufferAssociation,
 }
@@ -123,6 +135,18 @@ pub enum MonitorPreparationError {
     /// The original bounded selective callable-read failure and its first locus.
     #[error(transparent)]
     CallableRead(Box<CheckedCallableReadError>),
+    /// Original bounded IR clock-read refusal, retaining its exact cause and locus.
+    #[error(transparent)]
+    ClockRead(Box<CheckedMonitorClockReadError>),
+    /// The native declaration lookup has no row for the original subject.
+    #[error("no final declaration for monitor subject: {0:?}")]
+    MissingFinalSubject(Box<qsl_replay::MonitorSubject>),
+    /// Original strict native emission-admission refusal.
+    #[error("monitor emission admission refused: {0:?}")]
+    EmissionRefused(Box<CheckedPackageRefusal>),
+    /// Original strict native acquisition limit, outside the driver ledger.
+    #[error("monitor emission acquisition incomplete: {0:?}")]
+    EmissionIncomplete(Box<CheckedPackageIncomplete>),
     /// The original runtime construction refusal, before initialization.
     #[error(transparent)]
     Program(Box<ProgramRefusal>),
@@ -223,6 +247,19 @@ impl MonitorPreparationError {
                     MonitorPreparationErrorCode::Projection
                 }
             },
+            Self::ClockRead(native) => match native.code {
+                CheckedMonitorClockReadErrorCode::WorkLimit => MonitorPreparationErrorCode::Work,
+                CheckedMonitorClockReadErrorCode::WrongClause
+                | CheckedMonitorClockReadErrorCode::WrongRole
+                | CheckedMonitorClockReadErrorCode::UnknownOccurrence
+                | CheckedMonitorClockReadErrorCode::MissingClock => {
+                    MonitorPreparationErrorCode::Selection
+                }
+            },
+            Self::MissingFinalSubject(_) | Self::EmissionRefused(_) => {
+                MonitorPreparationErrorCode::Selection
+            }
+            Self::EmissionIncomplete(_) => MonitorPreparationErrorCode::Work,
             Self::Program(_) => MonitorPreparationErrorCode::Program,
             Self::OperationRead(_) => MonitorPreparationErrorCode::Internal,
             Self::Key(native) => match native {

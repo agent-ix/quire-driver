@@ -3,7 +3,6 @@
 
 use std::mem::size_of;
 
-use quire_contract_model::CheckedNodeId;
 use quire_exact::Cancel;
 
 use super::{
@@ -63,15 +62,15 @@ impl<'a> Budget<'a> {
         value.inspect_material(self)
     }
 
-    pub(super) fn push_key<'key>(
+    pub(super) fn push_key<T>(
         &mut self,
-        pending: &mut Vec<&'key CheckedNodeId>,
-        node: &'key CheckedNodeId,
+        pending: &mut Vec<T>,
+        node: T,
     ) -> Result<(), MonitorPreparationError> {
         self.charge(1)?;
         if pending.len() == pending.capacity() {
             let before = pending.capacity();
-            let slot = size_of::<&CheckedNodeId>();
+            let slot = size_of::<T>();
             self.reserve_storage(slot)?;
             if let Err(cause) = pending.try_reserve_exact(1) {
                 self.release_storage(slot)?;
