@@ -100,7 +100,7 @@ pub fn admit_source_records(
     join_work_limit: u64,
 ) -> Result<AdmittedSourceRecords, SourceRecordAdmissionError> {
     let package =
-        match read_checked_package(emission.package().bytes(), read_limits, emission.evidence()) {
+        match read_checked_package(emission.package().bytes(), read_limits, evidence) {
             CheckedPackageDispatchResult::AdmittedV2(package) => package,
             CheckedPackageDispatchResult::Refused(error) => {
                 return Err(SourceRecordAdmissionError::ReadRefused(error));

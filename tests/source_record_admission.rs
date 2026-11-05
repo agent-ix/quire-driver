@@ -211,6 +211,7 @@ fn native_structural_controls_reject_corrupt_claims_without_granting_authority()
     let (foreign_emission, _, _) = produce("record-foreign");
     let foreign = admit_source_records(
         &foreign_emission,
+        foreign_emission.evidence(),
         CheckedPackageReadLimits::bounded(),
         100_000,
     )
@@ -258,4 +259,74 @@ fn native_opaque_claim_acceptance_does_not_replace_emission_authority() {
     assert_ne!(counterfactual.members[0].value_type, original.members[0].value_type);
     let authentic = admit_source_records(&emission, emission.evidence(), CheckedPackageReadLimits::bounded(), 100_000).unwrap();
     assert_eq!(authentic.rows().find(|r| r.structural_node == original.structural_node), Some(original));
+}
+
+#[trace("FR-018-AC-1", "FR-018-AC-3")]
+#[test]
+fn final_real_plan_root_emission_retains_its_source_record_rows() {
+    use qsl_analyze::monitor_root::{emit_plan_root, PlanRootRequest};
+    use qsl_replay::{MonitorTarget, TimingObligationSettings};
+    use qsl_semantics::library::LibraryName;
+    use quire_exact::{Integer, Rational};
+
+    let metadata = std::process::Command::new("cargo")
+        .args(["metadata", "--format-version", "1", "--locked"])
+        .current_dir(env!("CARGO_MANIFEST_DIR")).output().unwrap();
+    assert!(metadata.status.success(), "{}", String::from_utf8_lossy(&metadata.stderr));
+    let metadata: serde_json::Value = serde_json::from_slice(&metadata.stdout).unwrap();
+    let manifest = metadata["packages"].as_array().unwrap().iter()
+        .find(|package| package["name"] == "qsl-replay").unwrap()["manifest_path"].as_str().unwrap();
+    let path = std::path::PathBuf::from(manifest);
+    let document = std::fs::read(path.parent().unwrap().parent().unwrap()
+        .join("examples/config-version/model.semantic-ir.json")).unwrap();
+    let parsed_document: serde_json::Value = serde_json::from_slice(&document).unwrap();
+    let identity = parsed_document["package"]["identity"].as_str().unwrap();
+    let packages = package_input([document.as_slice()]).unwrap();
+    let source = format!(r#"language "ix:native" edition "1-draft";
+profile v = "quire.value.complete/v1";
+profile timed = "quire.temporal.timed/v1";
+profile complete = "quire.temporal.complete/v1";
+model Selected = "{identity}";
+dimension Time;
+unit second : Time = rational(1, 1);
+unit ms : Time = rational(1, 1000) * second;
+time Selected dense unit ms;
+record Point {{ x: Integer; y: Integer; }}
+record Tagged {{ p: Point; note: Boolean?; maybe: Option<Integer>; }}
+function recordParameter using v(t: Tagged): Boolean pure {{ true }}
+temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) clock "model-time" on origin {{
+    eventually[0 ms, 4 ms] holds(candidate.versionNumber >= 0)
+}}
+"#);
+    let target = MonitorTarget {
+        counter: "counter".to_owned(), unit: "ms".to_owned(), width_bits: 16,
+        uncertainty: Rational::from_integer(Integer::zero()),
+        max_event_rate: Some(Rational::from_integer(Integer::from(2_u64))),
+        max_reading_gap: 100, max_activations: 8,
+    };
+    let root = emit_plan_root(&PlanRootRequest {
+        source: &SourceIdentity::new("agent-ix", "record-plan-root"),
+        path: "record-plan-root.native", bytes: source.as_bytes(), packages: &packages,
+        package_name: &LibraryName::new("agent-ix/record-plan-root").unwrap(),
+        limits: SpineLimits::default(), clause: "SelectedMonitor", target: &target,
+        settings: &TimingObligationSettings::default(),
+    }, &Cancel::new()).expect("genuine public final PlanRoot producer");
+    let mut evidence = root.emission.evidence().clone();
+    evidence.insert_domain_package_document(identity, document).unwrap();
+    let admitted = admit_source_records(&root.emission, &evidence, CheckedPackageReadLimits {
+        bytes: 8 * 1024 * 1024, nodes: 100_000, edges: 1_000_000,
+        occurrences: 1_000_000, diagnostics: 1_000, work: 100_000_000,
+    }, 100_000).unwrap();
+    assert_eq!(admitted.package().monitor_plans().count(), 1);
+    assert_eq!(admitted.rows().count(), 2);
+    for row in admitted.rows() {
+        assert!(admitted.package().node(&row.structural_node).is_some());
+        for member in &row.members {
+            assert!(admitted.package().node(&member.type_node).is_some());
+        }
+        let producer = root.emission.selected_source_record_rows().iter()
+            .find(|producer| producer.structural_node == row.structural_node).unwrap();
+        assert_eq!(row.record_key, producer.record_key);
+        assert_eq!(row.members.len(), producer.members.len());
+    }
 }
