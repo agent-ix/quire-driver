@@ -367,7 +367,16 @@ fn operations_and_native_child_paths_retain_the_original_terms() {
                         .code,
                     MonitorLocusErrorCode::InvalidBodyPath
                 );
-                let reached = unsupported_at(package, target, &[], kind, None).unwrap();
+                let target_kind = package
+                    .graph()
+                    .nodes
+                    .iter()
+                    .zip(package.node_kinds())
+                    .find(|(original, _)| &original.node_id == target)
+                    .unwrap()
+                    .1;
+                let reached = unsupported_at(package, target, &[], *target_kind, None).unwrap();
+                assert_eq!(reached.kind, *target_kind);
                 assert_eq!(reached.locus.node, *target);
                 assert!(reached.locus.body_path.is_empty());
             }

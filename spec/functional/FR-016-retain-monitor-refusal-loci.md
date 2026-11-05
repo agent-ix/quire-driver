@@ -157,11 +157,21 @@ second graph, or recompute content identities to construct a diagnostic.
 
 ## Qualification Status
 
-Planned until the public constructors and
-[TC-030](../test-cases/TC-030-monitor-refusal-loci.md) have executed. Passing this
-requirement establishes diagnostic derivation and retention only. It supplies
-no healthy preparation, target-admission decision, RT construction, temporal
-execution or whole FR-276 acceptance credit.
+The four focused `monitor_refusal` tests execute the diagnostic-constructor
+controls of AC-1 through AC-7 through public QSL checking/emission and strict
+IR admission. They cover all eight target-premise value paths and buffer
+ownership, complete original operation data, native child/reference boundaries,
+actual Generated/Expression occurrence distinctions, caller-selected None,
+typed failures, unchanged inputs and owned payloads after package destruction.
+AC-8 has source-inspection evidence only: the diagnostic module calls no parser,
+initializer or RT build, introduces no semantic DTO or support-policy classifier,
+and constructs no whole-graph index or replacement identity. No Test trace
+claims that inspection criterion.
+
+Independent implementation review and the final scoped gate remain pending.
+This evidence establishes diagnostic derivation and retention only. Healthy
+preparation, target-admission decisions, RT construction, temporal execution
+and whole FR-276 acceptance remain unqualified.
 
 ## Dependencies
 
