@@ -58,7 +58,7 @@ payload merely because an enum can be constructed or displayed.
    initializer, RT build, copied graph/index, identity recomputation, target
    comparison or runtime-support policy in the diagnostic implementation.
 
-7. Planned bounded-copy controls: invoke `copy_monitor_locus` directly with
+7. Bounded-copy controls: invoke `copy_monitor_locus` directly with
    the original already-resolved node/key/path/occurrence from steps 1–5.
    Compare every canonical field and the entire path, including target
    binding child zero. Also copy an unresolved selector with an independently
@@ -70,7 +70,7 @@ payload merely because an enum can be constructed or displayed.
    independently owned. Obtain admitted examples from owner paths; direct
    public canonical structs may additionally test copying mechanics but grant
    no admission/monitor-selection evidence.
-8. Planned operating controls: independently calculate the documented work
+8. Operating controls: independently calculate the documented work
    schedule and logical retained/scratch storage using native sizes, input
    capacities and each reached edge (count shared descendants per edge).
    Require exact work and peak-storage success, and a one-under stop for each
@@ -104,8 +104,9 @@ with no Test trace. This case establishes no full FR-015 preparation,
 FR-276 construction or temporal-execution acceptance.
 
 
-The bounded-copy procedures in steps 7–9 are Planned and establish no current
-execution credit. AC-9 through AC-11 require their own focused implementation
-evidence; AC-12 requires source inspection. Successful locus copying does not
+The bounded-copy controls have focused implementation evidence for AC-9 through
+AC-11: public native-copy tests, an actual admitted target-locus comparison, and
+private checked-arithmetic, native reservation-failure and text-capacity controls.
+AC-12 has source-inspection evidence only. Successful locus copying does not
 qualify existing target/unsupported constructors or selection/projection
 failures for bounded diagnostic retention.

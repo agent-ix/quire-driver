@@ -543,3 +543,34 @@ fn owned_diagnostics_outlive_the_package_and_occurrence_buffers() {
     assert_eq!(actual.operation, Some(expected_operation));
     assert_eq!(actual.locus.occurrence, Some(expected_occurrence));
 }
+
+#[test]
+#[trace("FR-016-AC-9")]
+fn bounded_copy_preserves_actual_resolved_target_axes() {
+    use quire_driver::{monitor::MonitorPreparationLimits, monitor_refusal::copy_monitor_locus};
+    let package = &FIXTURE.package;
+    let plan = package.monitor_plans().next().unwrap();
+    let actual = target_mismatch_at(
+        package,
+        plan.node_id(),
+        TargetPremise::BufferCapacity,
+        Some(0),
+        None,
+    )
+    .unwrap();
+    let copied = copy_monitor_locus(
+        &actual.locus.node,
+        &actual.locus.structural_key,
+        &actual.locus.body_path,
+        actual.locus.occurrence.as_ref(),
+        MonitorPreparationLimits {
+            work: u64::MAX,
+            storage: u64::MAX,
+        },
+        &Cancel::new(),
+    )
+    .unwrap();
+    assert_eq!(copied.locus, actual.locus);
+    assert_eq!(copied.locus.body_path.last(), Some(&0));
+    assert_eq!(copied.locus.structural_key, *plan.structural_key());
+}

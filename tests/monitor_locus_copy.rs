@@ -128,3 +128,77 @@ fn cancellation_wins_before_work_and_storage_reservations() {
         Err(MonitorLocusCopyError::Cancelled(CancelCause::Deadline))
     ));
 }
+
+#[test]
+#[trace("FR-016-AC-9", "FR-016-AC-10")]
+fn deep_native_edges_have_no_semantic_depth_cutoff() {
+    let mut child = Arc::new(CheckedNodeId {
+        package: "".into(),
+        path: Vec::new(),
+        ordinal: 0,
+    });
+    for ordinal in 0..2048 {
+        child = Arc::new(CheckedNodeId {
+            package: "".into(),
+            path: vec![Segment::Node(child)],
+            ordinal,
+        });
+    }
+    let copied = copy_monitor_locus(
+        &child,
+        &child,
+        &[3, 0],
+        None,
+        MonitorPreparationLimits {
+            work: u64::MAX,
+            storage: u64::MAX,
+        },
+        &Cancel::new(),
+    )
+    .unwrap();
+    let mut cursor = &copied.locus.node;
+    let mut edges = 0;
+    while let Some(Segment::Node(next)) = cursor.path.first() {
+        edges += 1;
+        cursor = next;
+    }
+    assert_eq!(edges, 2048);
+    assert_eq!(copied.locus.body_path, [3, 0]);
+}
+
+#[test]
+#[trace("FR-016-AC-10")]
+fn scratch_and_retained_bytes_share_the_same_peak_allowance() {
+    let child = Arc::new(CheckedNodeId {
+        package: "".into(),
+        path: Vec::new(),
+        ordinal: 0,
+    });
+    let node = CheckedNodeId {
+        package: "".into(),
+        path: vec![Segment::Node(child)],
+        ordinal: 0,
+    };
+    let retained = 2 * (size_of::<Segment>() + size_of::<CheckedNodeId>());
+    let peak = u64::try_from(retained + size_of::<&CheckedNodeId>()).unwrap();
+    let limits = MonitorPreparationLimits {
+        work: u64::MAX,
+        storage: peak,
+    };
+    let copied = copy_monitor_locus(&node, &node, &[], None, limits, &Cancel::new()).unwrap();
+    assert_eq!(copied.storage, u64::try_from(retained).unwrap());
+    assert!(matches!(
+        copy_monitor_locus(
+            &node,
+            &node,
+            &[],
+            None,
+            MonitorPreparationLimits {
+                storage: peak - 1,
+                ..limits
+            },
+            &Cancel::new()
+        ),
+        Err(MonitorLocusCopyError::Storage { .. })
+    ));
+}

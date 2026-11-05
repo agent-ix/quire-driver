@@ -251,7 +251,7 @@ a leaf without IR, driver or QSL dependencies. Preparation SHALL perform no
 QSL compile/recompile, source parsing, evaluator call, CG generation or external
 effect.
 
-The Planned bounded locus-copy component in
+The implemented independent bounded locus-copy component in
 [FR-016](FR-016-retain-monitor-refusal-loci.md) has an independent allowance and
 qualifies only already-resolved canonical locus retention. The driver owns
 later threading of remaining preparation work/storage into diagnostic

@@ -134,7 +134,7 @@ the application record. It SHALL neither infer an operation from display text
 nor decide that an operation is unsupported. Its caller makes the support
 policy decision before constructing this diagnostic payload.
 
-### Bounded copying of an already resolved locus (Planned)
+### Bounded copying of an already resolved locus
 
 The driver SHALL expose this independent component in `monitor_refusal`:
 
@@ -259,18 +259,22 @@ second graph, or recompute content identities to construct a diagnostic.
 | FR-016-AC-6 | An actual admitted role/ordinal is retained exactly; a nonmember occurrence returns OccurrenceMismatch. A genuine generated root succeeds with caller-supplied None even when it retains a Generated occurrence, without selecting a source-map row or inventing a selected occurrence. | Test |
 | FR-016-AC-7 | Construction retains typed error distinctions and returns no partial diagnostic on failure. Neither constructor changes the admitted package, target values, operation records or source correspondence. | Test |
 | FR-016-AC-8 | The diagnostic module uses native IR identities/terms and native Vec child paths, introduces no plan/target/expression DTO or evaluator, and performs no parse, initialization, runtime build, support-policy decision, whole-graph index collection or identity recomputation. | Inspection |
-
-| FR-016-AC-9 | Planned. The bounded copy entry returns the existing canonical locus with both original node axes, native path and exact optional occurrence; after source destruction, shared nested Arc keys and copied text/path fields remain usable. It performs no resolution or validity claim. | Test |
-| FR-016-AC-10 | Planned. Independently measured work and peak logical storage permit exact-limit success; one-under work/storage and pre-cancellation return their distinct original typed operating causes with no locus. Nested/shared keys, UTF-8 text and long native paths are included; arithmetic overflow refuses before allocation. | Test |
-| FR-016-AC-11 | Planned. Every allocating copy/scratch reservation is fallible and precharged; reservation failure preserves TryReserveError, excess text capacity returns Capacity before conversion, and cleanup releases partial output without allocating. No allocating native clone or infallible boxed-text shrink hides behind a successful receipt. | Test |
-| FR-016-AC-12 | Planned. Source inspection confirms opaque operation/native failure clones, existing diagnostic derivation and error boxing are outside bounded-copy coverage; no bounded whole-preparation claim or replacement native operation representation is introduced. | Inspection |
+| FR-016-AC-9 | The bounded copy entry returns the existing canonical locus with both original node axes, native path and exact optional occurrence; after source destruction, shared nested Arc keys and copied text/path fields remain usable. It performs no resolution or validity claim. | Test |
+| FR-016-AC-10 | Independently measured work and peak logical storage permit exact-limit success; one-under work/storage and pre-cancellation return their distinct original typed operating causes with no locus. Nested/shared keys, UTF-8 text and long native paths are included; arithmetic overflow refuses before allocation. | Test |
+| FR-016-AC-11 | Every allocating copy/scratch reservation is fallible and precharged; reservation failure preserves TryReserveError, excess text capacity returns Capacity before conversion, and cleanup releases partial output without allocating. No allocating native clone or infallible boxed-text shrink hides behind a successful receipt. | Test |
+| FR-016-AC-12 | Source inspection confirms opaque operation/native failure clones, existing diagnostic derivation and error boxing are outside bounded-copy coverage; no bounded whole-preparation claim or replacement native operation representation is introduced. | Inspection |
 
 ## Qualification Status
 
-AC-9 through AC-12 are Planned; this specification change supplies no implementation
-or execution evidence for the bounded copy component or its integrations.
+The independent `copy_monitor_locus` component implements AC-9 through AC-11;
+focused tests cover native ownership, exact independently calculated work/storage,
+operating refusals, deep shared keys and private reservation boundaries. AC-12
+has source-inspection evidence only. The copy path calls neither existing
+constructor, retains Arc backing without cloning its subtree, and constructs
+boxed text only after the exact-capacity guard. Its receipt covers this component
+only; bounded diagnostic integration remains Planned.
 
-The four focused `monitor_refusal` tests execute the diagnostic-constructor
+The four original focused `monitor_refusal` tests execute the diagnostic-constructor
 controls of AC-1 through AC-7 through public QSL checking/emission and strict
 IR admission. They cover all eight target-premise value paths and buffer
 ownership, complete original root-application data, admitted nonapplication
