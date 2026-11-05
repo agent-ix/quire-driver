@@ -185,8 +185,9 @@ corresponding value on the CG selected item;
 assert the driver returns FR-001's typed `runtime_invariant` fault before CG
 frame-target construction or replay. A typed refusal returned by CG itself is
 propagated unchanged and is not treated as a driver join mismatch. Both cases
-produce no settlement or terminal. The public APIs are available; full frame settlement is not part of this
-preparation check.
+produce no settlement or terminal. `tests/frame_replay.rs` verifies these
+preparation scenarios with real QSL compilation and CG-generated frame
+harness identities. Full frame settlement remains outside this check.
 
 ## Expected Results
 

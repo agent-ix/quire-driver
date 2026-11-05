@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 use std::time::Duration;
 
+use ix_trace_rs::trace;
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{default_accounting, DependencyInput, SpineLimits};
 use qsl_replay::{
@@ -244,7 +245,7 @@ impl Fixture {
     }
 }
 
-/// Trace: FR-009-AC-17, TC-016.
+#[trace("FR-009-AC-17", "TC-016")]
 #[test]
 fn frame_projection_preserves_inherited_and_redefined_declaring_owner() {
     for (redefined, owner) in [(false, "M.Base"), (true, "M.Child")] {
@@ -295,7 +296,7 @@ fn assert_join_fault(result: Result<cg::FrameReplay, FrameReplayFailure>) {
     ));
 }
 
-/// Trace: FR-009-AC-19, TC-016.
+#[trace("FR-009-AC-19", "TC-016")]
 #[test]
 fn frame_projection_rejects_missing_changed_and_caller_populated_associations() {
     let fixture = Fixture::new(false);
@@ -339,7 +340,7 @@ fn frame_projection_rejects_missing_changed_and_caller_populated_associations() 
     assert_join_fault(fixture.driven.prepare_frame_replay(inputs));
 }
 
-/// Trace: FR-009-AC-18, TC-016.
+#[trace("FR-009-AC-18", "TC-016")]
 #[test]
 fn frame_projection_preserves_qsl_refusal_before_any_join_or_codegen_check() {
     let fixture = Fixture::new(false);
@@ -372,7 +373,7 @@ fn frame_projection_preserves_qsl_refusal_before_any_join_or_codegen_check() {
     ));
 }
 
-/// Trace: FR-009-AC-19, TC-016.
+#[trace("FR-009-AC-19", "TC-016")]
 #[test]
 fn public_reporting_inventory_cannot_rebind_retained_frame_request() {
     let mut fixture = Fixture::new(false);
@@ -390,7 +391,7 @@ fn public_reporting_inventory_cannot_rebind_retained_frame_request() {
         .expect("private request inventory remains authoritative");
 }
 
-/// Trace: FR-009-AC-17, FR-009-AC-19, TC-016.
+#[trace("FR-009-AC-19", "TC-016")]
 #[test]
 fn frame_projection_preserves_native_codegen_failure_and_admitted_package_equality() {
     let fixture = Fixture::new(false);
