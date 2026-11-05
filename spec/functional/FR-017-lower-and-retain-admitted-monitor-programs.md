@@ -138,7 +138,14 @@ nominal, composite and other types are outside this initial capability.
 Functions SHALL have no context or frame. Their executable bodies may be a
 reference to one of that callable's authenticated ordered parameters, a
 reference to another supported executable node, or a root Application from
-the table below. A parameter reference SHALL become native
+the table below. Ordinary source callable reads SHALL retain authenticated
+Value(Parameter) and Value(Literal) body roots as supplied by the native reader.
+A direct Value(Parameter) body SHALL materialize its declared argument position,
+original body key and native scalar type. A Value(Literal) body is readable
+input but remains outside this helper's closed capability: it SHALL reach the
+driver's located Unsupported result with no operation record. This ordinary
+source capability SHALL NOT widen the separate monitor-entry Expression-only
+read or qualify a complete monitor entry. A parameter reference SHALL become native
 `Argument { function, position }` from callable membership and declaration
 order, never by interpreting its name/level metadata as executable syntax.
 References to parameters from another callable SHALL NOT acquire local ownership.
@@ -270,10 +277,13 @@ plain operations, exact parameter/result types, root order/repetition, native
 source keys, per-function shared-handle ownership, nested sharing, retained
 arenas after setup drop, different package keys, declared unsupported operation
 loci, bounded-type refusal and independent operating stops. Genuine source
-parameter-only and literal-only bodies currently encounter the native selective
-reader's MalformedBody refusal; the helper preserves that payload/work/locus.
-Parameter-only positive materialization remains Planned pending that owner read.
-No test fixture was rewritten to bypass it. Full criteria remain Planned until
+parameter-only and literal-only ordinary callable bodies now have native
+Value-root reads. Executed refreshed controls now retain parameter-only native
+Argument ownership, scalar type and original body key after setup destruction;
+read a literal before driver Unsupported at its original Value node with no
+operation; and preserve the complete native UnknownNode payload/work/locus for
+an actual selector from another strictly admitted package. Complete
+monitor-entry qualification remains Planned; its Expression-only rule is unchanged. Full criteria remain Planned until
 all their exact controls execute. The first
 intended public-helper checks cover the closed ordinary source scalar
 capability and native arena retention only. The existing original-source
