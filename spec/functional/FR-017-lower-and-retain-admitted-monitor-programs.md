@@ -118,6 +118,12 @@ supports calls, they SHALL reference retained callee addresses; recursive calls 
 recursion or an invented semantic depth limit.
 
 The lowerer SHALL retain the original expression key and native child path.
+A transparent Reference node with its own genuine structural key SHALL retain
+that key and its native projected type on a native Expression carrying the
+already lowered closed scalar operation and original operand addresses/owner.
+It SHALL NOT erase that original location, introduce a wrapper operation or
+compute a replacement value. Only the declared nonallocating scalar variants
+may be copied this way; future allocating variants require explicit support.
 The current strict IR boundary admits Application only at a node body root;
 nested Applications SHALL NOT be fabricated as lowering fixtures. Nonempty
 paths retain actual admitted nonapplication terms/reference boundaries under
@@ -208,8 +214,15 @@ Native reader success work SHALL come from its owning result, not a guessed
 formula, a returned-row count or charging all remaining allowance as a receipt.
 
 Work, storage and cancellation stops SHALL return no partial published owner.
-Storage reservations SHALL be checked before exposing owned arenas; allocation
-failure SHALL retain its native cause. Operating limits SHALL NOT change target
+Driver-owned vector, text and worklist storage reservations SHALL be checked
+before exposing owned arenas; allocation failure SHALL retain its native cause.
+The current scoped implementation accounts for measurable driver-owned capacity.
+Private native `NodeKey::try_new` constructor reservations and native diagnostic
+payload cloning are outside that measured ledger until a reservation-aware
+owner interface is supplied. This explicit limitation SHALL NOT be reported as
+complete retained-storage qualification, an exact whole-helper storage bound or
+a full preparation allowance; those storage controls remain Planned. Native
+constructor/diagnostic failures SHALL retain their original typed causes. Operating limits SHALL NOT change target
 premises, semantic capacities, source types or evaluation meaning.
 
 Source-fixture preflight may obtain genuine native callable/type/node views
