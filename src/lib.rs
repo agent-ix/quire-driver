@@ -49,6 +49,7 @@
 pub mod cache;
 mod drive;
 pub mod execute;
+mod frame_replay;
 mod handoff;
 pub mod limits;
 pub mod monitor;
@@ -69,6 +70,7 @@ pub use drive::{
     ScalarExecutionInput, ScalarNativeInput,
 };
 pub use execute::{execute, ExecutionEngine, ExecutionFailure, ExecutionRequest, ExecutionResult};
+pub use frame_replay::{FrameReplayFailure, FrameReplayFailureCode};
 pub use limits::{LimitError, LimitOverrides};
 pub use process_provider::{
     ProcessProvider, ProcessProviderLimits, ProcessProviderRequest, ProcessProviderSession,

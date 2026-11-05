@@ -112,6 +112,9 @@ pub enum DriverRefusal {
 /// A violated invariant between the driver and an upstream crate.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum DriverFault {
+    /// A frame replay was detached from its original admitted request.
+    #[error("frame replay selection does not match the retained request")]
+    FrameReplayAssociation,
     /// QSL's export did not return one result for each driver-built key.
     #[error("binding export returned {returned} results for {requested} items")]
     ExportCount {
@@ -591,7 +594,9 @@ impl DriverRefusal {
             Self::PackageNegotiation(_) => DriverStage::Negotiation,
             Self::Fault(DriverFault::RoutingTarget) => DriverStage::Routing,
             Self::Fault(
-                DriverFault::NativeExecutionLimitsMismatch | DriverFault::NativeReceiptMismatch,
+                DriverFault::NativeExecutionLimitsMismatch
+                | DriverFault::NativeReceiptMismatch
+                | DriverFault::FrameReplayAssociation,
             ) => DriverStage::Replay,
             Self::Fault(DriverFault::Spine { stage, .. }) => DriverStage::Compile(*stage),
             Self::HandoffLimit(_) | Self::Fault(DriverFault::HandoffRefused(_)) => {
