@@ -224,7 +224,7 @@ native InvalidNodeKey. Caller-owned input acquisition/allocation and native
 diagnostic payload cloning do not receive complete retained-storage
 qualification from these constructor cells. Exact whole-preparation storage
 controls remain Planned; native constructor coverage SHALL NOT upgrade them.
- Operating limits SHALL NOT change target
+Operating limits SHALL NOT change target
 premises, semantic capacities, source types or evaluation meaning.
 
 Source-fixture preflight may obtain genuine native callable/type/node views
