@@ -62,6 +62,5 @@ original typed operation data or typed constructor error. A wrong path,
 foreign occurrence, reminted identity or operation inferred from a label fails
 the test. The four focused `monitor_refusal` tests have passed for the diagnostic
 constructor controls of FR-016-AC-1 through AC-7. AC-8 remains a source inspection,
-with no Test trace. Independent implementation review and the final scoped gate
-are separate pending steps. This case establishes no full FR-015 preparation,
+with no Test trace. This case establishes no full FR-015 preparation,
 FR-276 construction or temporal-execution acceptance.
