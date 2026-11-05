@@ -186,6 +186,7 @@ const SCALAR_NAMES: &[&str] = &[
     "orValue",
     "sameSum",
     "nestedValue",
+    "identityValue",
 ];
 
 fn allowances() -> MonitorPreparationLimits {
@@ -400,31 +401,19 @@ function letValue using v(a: Integer): Integer pure { let x = a in x + a }
         ],
     );
     for (index, root) in fixture.originals.iter().enumerate() {
-        if index == 1 {
-            let native = fixture.package.source_callable(root, 100_000).unwrap_err();
-            assert_eq!(
-                native.code,
-                quire_contract_model::CheckedCallableReadErrorCode::MalformedBody
-            );
-            assert_eq!(native.locus, *root);
-            let failure = lower_scalar_functions(
-                &fixture.package,
-                std::slice::from_ref(root),
-                &fixture.identities,
-                allowances(),
-                &Cancel::new(),
-            );
-            let Err(MonitorPreparationError::CallableRead(actual)) = failure else {
-                panic!("native reader refusal must be retained without a tuple");
-            };
-            assert_eq!(*actual, native);
-            continue;
-        }
-        let read = fixture
-            .package
-            .source_callable(root, 100_000)
-            .expect("nonliteral excluded bodies reach the operation boundary");
+        let read = fixture.package.source_callable(root, 100_000).expect(
+            "all excluded ordinary bodies are available through the native callable reader",
+        );
         let callable = read.callable().unwrap();
+        if index == 1 {
+            assert!(
+                matches!(
+                    fixture.package.term(&callable.body),
+                    Some(quire_contract_model::CheckedTerm::Literal { .. })
+                ),
+                "literalValue reaches its genuine Value literal node"
+            );
+        }
         let failure = lower_scalar_functions(
             &fixture.package,
             std::slice::from_ref(root),
@@ -440,6 +429,10 @@ function letValue using v(a: Integer): Integer pure { let x = a in x + a }
             panic!("expected located Unsupported, got {failure:?}");
         };
         assert_eq!(payload.locus.node, callable.body);
+        assert_eq!(
+            Some(payload.kind),
+            fixture.package.node_kind(&callable.body)
+        );
         assert_eq!(
             payload.locus.structural_key,
             *fixture.package.structural_key(&callable.body).unwrap()
@@ -558,28 +551,30 @@ fn independent_component_stops_and_package_scoping_remain_native() {
 
 #[trace("FR-017-AC-5")]
 #[test]
-fn parameter_only_native_reader_boundary_keeps_its_original_failure() {
-    let fixture = source_fixture(
-        SCALAR_SOURCE,
-        "agent-ix/scalar-parameter-only",
-        &["identityValue"],
+fn foreign_package_callable_refusal_retains_its_original_payload() {
+    let fixture = source_fixture(SCALAR_SOURCE, "agent-ix/scalar-local", &["identityValue"]);
+    let foreign = source_fixture(SCALAR_SOURCE, "agent-ix/scalar-foreign", &["identityValue"]);
+    let root = &foreign.originals[0];
+    let authentic = foreign.package.source_callable(root, 100_000).unwrap();
+    assert!(
+        authentic.callable().is_some(),
+        "the foreign selector belongs to its actual strictly admitted source package"
     );
-    let root = &fixture.originals[0];
     let native = fixture.package.source_callable(root, 100_000).unwrap_err();
     assert_eq!(
         native.code,
-        quire_contract_model::CheckedCallableReadErrorCode::MalformedBody
+        quire_contract_model::CheckedCallableReadErrorCode::UnknownNode
     );
     assert_eq!(native.locus, *root);
     let result = lower_scalar_functions(
         &fixture.package,
-        &fixture.originals,
+        std::slice::from_ref(root),
         &fixture.identities,
         allowances(),
         &Cancel::new(),
     );
     let Err(MonitorPreparationError::CallableRead(actual)) = result else {
-        panic!("parameter-only read failure must remain native");
+        panic!("foreign-package read failure must remain native with no tuple");
     };
     assert_eq!(*actual, native);
 }
