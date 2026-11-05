@@ -1041,7 +1041,7 @@ mod native_receipt_integration_tests {
         let driven = drive(
             &crate::upstream::QslCg,
             CompileInput {
-                source: SourceIdentity::new("agent-ix", "ir-773", "native-receipt", "1"),
+                source: SourceIdentity::new("agent-ix", "ir-773"),
                 package_name: "native-receipt",
                 path: "native-receipt.native",
                 bytes: source.as_bytes(),

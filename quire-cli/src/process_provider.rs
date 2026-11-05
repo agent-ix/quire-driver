@@ -504,7 +504,7 @@ mod tests {
              function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
             "quire.value.complete/v1"
         );
-        let source = SourceIdentity::new("agent-ix", "configured-call", "git", "1");
+        let source = SourceIdentity::new("agent-ix", "configured-call");
         let path = "configured-call.native";
         let packages = std::collections::BTreeMap::new();
         let dependencies = DependencyInput::default();

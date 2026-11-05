@@ -797,6 +797,7 @@ fn package_read_refusal_cause(cause: CheckedPackageRefusalCause) -> &'static str
         CheckedPackageRefusalCause::InvalidValue => "invalid-value",
         CheckedPackageRefusalCause::DuplicateMember => "duplicate-member",
         CheckedPackageRefusalCause::TypeMismatch => "type-mismatch",
+        CheckedPackageRefusalCause::UnitMismatch => "unit-mismatch",
         CheckedPackageRefusalCause::UnsupportedSelection => "unsupported-selection",
         CheckedPackageRefusalCause::WrongSelectionRole => "wrong-selection-role",
         CheckedPackageRefusalCause::InexactInteger => "inexact-integer",
@@ -1428,6 +1429,12 @@ mod tests {
                 "invalid_semantic_graph",
                 "invalid-semantic-graph",
             ),
+            (
+                CheckedPackageRefusalCode::IllTyped,
+                CheckedPackageRefusalCause::UnitMismatch,
+                "ill_typed",
+                "unit-mismatch",
+            ),
         ] {
             let projection = ContractPackageRefusalProjection {
                 code,
@@ -1454,6 +1461,10 @@ mod tests {
             assert_eq!(diagnostic.code(), expected_code);
             assert_eq!(diagnostic.cause(), Some(expected_cause));
             assert_eq!(diagnostic.locus(), projection.locus.as_ref());
+            assert_eq!(
+                serde_json::to_value(cause).expect("the typed cause serializes"),
+                serde_json::json!(expected_cause)
+            );
         }
     }
 
@@ -1475,9 +1486,7 @@ mod tests {
             (
                 UnitListRefusal::SiblingImport {
                     identity: "sibling".to_owned(),
-                    unit: Box::new(qsl_foundation::SourceIdentity::new(
-                        "test", "sibling", "fixture", "1",
-                    )),
+                    unit: Box::new(qsl_foundation::SourceIdentity::new("test", "sibling")),
                     region: None,
                 },
                 "missing_import/missing-selection",

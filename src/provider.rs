@@ -479,7 +479,7 @@ mod tests {
             function f using v(x: Int[0, 9]): Boolean pure { x + 1 < 10 }\n";
             let compiled = compile_package(
                 qsl_replay::CompileUnit {
-                    source: SourceIdentity::new("driver-test", "provider.native", "git", "fixture"),
+                    source: SourceIdentity::new("driver-test", "provider.native"),
                     package_name: "provider".to_owned(),
                     path: "provider.native",
                     bytes: source.as_bytes(),
@@ -733,7 +733,7 @@ mod tests {
         crate::drive(
             &crate::QslCg,
             CompileInput {
-                source: SourceIdentity::new("driver-test", "provider.native", "git", "fixture"),
+                source: SourceIdentity::new("driver-test", "provider.native"),
                 package_name: "provider",
                 path: "provider.native",
                 bytes: source.as_bytes(),

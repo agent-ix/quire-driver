@@ -728,7 +728,7 @@ fn run(options: RunOptions) -> CommandResult {
             return CommandResult::catalog_failure(Code::IoError, message);
         }
     };
-    let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
+    let source = SourceIdentity::new("quire", &options.path);
     if !provider_config.providers.is_empty() {
         let configured = crate::signals::run(move |signals| {
             run_configured_providers(ConfiguredRunRequest {
@@ -1052,7 +1052,7 @@ fn compile(options: CompileOptions) -> CommandResult {
             return CommandResult::catalog_failure_for(Operation::Package, Code::IoError, message);
         }
     };
-    let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
+    let source = SourceIdentity::new("quire", &options.path);
     let dependencies = DependencyInput::default();
     let packages = BTreeMap::new();
     let cancel = Cancel::new();
@@ -1091,7 +1091,7 @@ fn check_source(options: CheckOptions) -> CommandResult {
             return CommandResult::catalog_failure_for(Operation::Check, Code::IoError, message);
         }
     };
-    let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
+    let source = SourceIdentity::new("quire", &options.path);
     let packages = BTreeMap::new();
     let cancel = Cancel::new();
     #[cfg(all(feature = "tc018-test-adapter", debug_assertions))]
@@ -1163,7 +1163,7 @@ fn parse_source(options: ParseOptions) -> CommandResult {
             return CommandResult::catalog_failure_for(Operation::Parse, Code::IoError, message);
         }
     };
-    let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
+    let source = SourceIdentity::new("quire", &options.path);
     let result = parse(
         &ParseRequest {
             source: &source,
@@ -1186,7 +1186,7 @@ fn format_source(options: FormatOptions) -> CommandResult {
             return CommandResult::catalog_failure_for(Operation::Format, Code::IoError, message);
         }
     };
-    let source = SourceIdentity::new("quire", &options.path, "filesystem", "current");
+    let source = SourceIdentity::new("quire", &options.path);
     let cancel = Cancel::new();
     let result = qsl_cst::parse_with_cancel(source, &options.path, &bytes, limits, &cancel)
         .map_err(FormatRefusal::DiagnosedSource)
@@ -1372,7 +1372,7 @@ mod outcome_tests {
     /// Trace: FR-002-AC-2, FR-002-AC-4; one QSL exit result reaches process exit unchanged through the kit.
     #[test]
     fn process_code_is_qsl_category_exit_code_without_remapping() {
-        let expected = [0, 10, 10, 20, 21, 22, 22, 30];
+        let expected = [0, 10, 10, 20, 21, 22, 0, 11, 22, 30];
         assert_eq!(Category::ALL.len(), expected.len());
         for (category, expected_code) in Category::ALL.into_iter().zip(expected) {
             assert_eq!(process_exit_code(category), ExitCode::from(expected_code));
@@ -1660,7 +1660,7 @@ mod configured_run_tests {
             "quire.value.complete/v1"
         );
         let path = "configured-run.native";
-        let source = SourceIdentity::new("agent-ix", path, "git", "1");
+        let source = SourceIdentity::new("agent-ix", path);
         let packages = std::collections::BTreeMap::new();
         let dependencies = qsl_replay::spine::DependencyInput::default();
         let limits = SpineLimits::default();
@@ -1832,7 +1832,7 @@ mod configured_run_tests {
             "quire.value.complete/v1"
         );
         let path = "configured-duplicate.native";
-        let source = SourceIdentity::new("agent-ix", path, "git", "1");
+        let source = SourceIdentity::new("agent-ix", path);
         let call = Call {
             function: "eq".to_owned(),
             arguments: vec![
