@@ -251,6 +251,16 @@ a leaf without IR, driver or QSL dependencies. Preparation SHALL perform no
 QSL compile/recompile, source parsing, evaluator call, CG generation or external
 effect.
 
+The implemented independent bounded locus-copy component in
+[FR-016](FR-016-retain-monitor-refusal-loci.md) has an independent allowance and
+qualifies only already-resolved canonical locus retention. The driver owns
+later threading of remaining preparation work/storage into diagnostic
+selection, target-path derivation, failure assembly and outer error boxing;
+these integrations remain Planned. IR/model owns allocation-aware copying of
+opaque operation and native projection/callable failure payloads. Caller-input
+acquisition and complete preparation/Program storage remain Planned; a locus
+copy receipt SHALL NOT reset or certify the complete preparation allowance.
+
 ## Acceptance Criteria
 
 | ID | Criteria | Verification |

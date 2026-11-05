@@ -58,6 +58,46 @@ payload merely because an enum can be constructed or displayed.
    initializer, RT build, copied graph/index, identity recomputation, target
    comparison or runtime-support policy in the diagnostic implementation.
 
+7. Bounded-copy controls: invoke `copy_monitor_locus` directly with
+   the original already-resolved node/key/path/occurrence from steps 1–5.
+   Compare every canonical field and the entire path, including target
+   binding child zero. Also copy an unresolved selector with an independently
+   supplied key to establish that copying makes no resolution/validity claim.
+   Exercise caller-selected None and actual native role/ordinal. Drop inputs
+   and the package, then inspect the returned locus. Use nested canonical
+   Node Arc segments with two parents sharing a child; require the original
+   Arc backing to be shared and the outer package/Name/path storage to be
+   independently owned. Obtain admitted examples from owner paths; direct
+   public canonical structs may additionally test copying mechanics but grant
+   no admission/monitor-selection evidence.
+8. Operating controls: independently calculate the documented work
+   schedule and logical retained/scratch storage using native sizes, input
+   capacities and each reached edge (count shared descendants per edge).
+   Require exact work and peak-storage success, and a one-under stop for each
+   limit separately. Include multibyte UTF-8 names, long native paths and
+   deep shared keys without a depth cutoff. Pre-cancel with a genuine Cancel
+   cause and require the same cause before allocation. Include a wide shared frontier whose independent work
+   calculation adds one unit per live reference relocated at each geometric
+   growth. Deny such a growth charge and require unchanged allocation pointer,
+   capacity, contents and storage ledger. Check the stable error code catalog,
+   exact round trips, actual error classification and unknown spellings.
+   Use deterministic
+   private reservation/capacity test seams to inject TryReserveError and
+   excess text capacity; require original Allocation or Capacity respectively,
+   no boxed-text shrink, no returned partial locus, and cleanup of all
+   outstanding component-owned reservations. These seams may exercise the
+   production reservation adapter; no mocked successful native operation or
+   duplicate copier supplies evidence. Exercise checked-arithmetic overflow
+   at that adapter with synthetic sizes, without attempting huge allocation.
+9. Inspect the production copy path and its reservation adapter for all new
+   allocations, Arc retention and cleanup. Require precharge and fallible
+   reservation, native canonical fields, no allocating Clone and no hidden
+   call to the unbounded resolution constructors. Confirm that private native
+   operation/projection-error copying, selection failure assembly, caller-input
+   acquisition and full Program preparation still have their named Planned
+   owner boundaries. These source inspections establish AC-12 only, not test
+   execution credit for opaque upstream allocation.
+
 ## Expected Results
 
 Every applicable FR-016 criterion returns the exact derived original locus,
@@ -67,3 +107,11 @@ the test. The four focused `monitor_refusal` tests have passed for the diagnosti
 constructor controls of FR-016-AC-1 through AC-7. AC-8 remains a source inspection,
 with no Test trace. This case establishes no full FR-015 preparation,
 FR-276 construction or temporal-execution acceptance.
+
+
+The bounded-copy controls have focused implementation evidence for AC-9 through
+AC-11: public native-copy tests, an actual admitted target-locus comparison, and
+private checked-arithmetic, native reservation-failure and text-capacity controls.
+AC-12 has source-inspection evidence only. Successful locus copying does not
+qualify existing target/unsupported constructors or selection/projection
+failures for bounded diagnostic retention.

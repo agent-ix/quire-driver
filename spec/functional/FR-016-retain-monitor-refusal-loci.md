@@ -134,6 +134,120 @@ the application record. It SHALL neither infer an operation from display text
 nor decide that an operation is unsupported. Its caller makes the support
 policy decision before constructing this diagnostic payload.
 
+### Bounded copying of an already resolved locus
+
+The driver SHALL expose this independent component in `monitor_refusal`:
+
+```rust
+copy_monitor_locus(
+    node: &CheckedNodeId,
+    structural_key: &CheckedNodeId,
+    body_path: &[usize],
+    occurrence: Option<&CheckedOccurrence>,
+    limits: MonitorPreparationLimits,
+    cancel: &Cancel,
+) -> Result<CopiedMonitorLocus, MonitorLocusCopyError>
+```
+
+`CopiedMonitorLocus` SHALL contain the existing `MonitorRefusalLocus` as
+`locus`, cumulative `work: u64` and retained `storage: u64`. It is an accounting
+receipt for this component, not a second location or semantic representation.
+The caller supplies the two original axes after resolving their meaning;
+this entry SHALL copy them without a package lookup, equality test, structural
+identity recomputation, occurrence-membership check or path derivation. In
+particular it SHALL preserve the entire supplied native path, including the
+final binding child zero when supplied by target derivation. Its success
+asserts copying only, not that a node/key/path/occurrence combination is valid.
+
+The component SHALL construct the canonical `CheckedNodeId` fields directly:
+fallibly copy each root's package text, path vector and `Name` text, retain
+`Index` and ordinal unchanged, and share each existing `Node(Arc<CheckedNodeId>)`
+by cloning that Arc. It SHALL NOT invoke the native allocating node/path Clone,
+serialize a key, allocate a replacement Arc, or duplicate an Arc's subtree.
+The occurrence SHALL retain its native role and ordinal without allocation.
+The native `Vec<usize>` path SHALL be copied with fallible capacity reservation.
+After success, the locus SHALL remain readable after every supplied buffer and
+its source package have been dropped.
+
+Before inspecting or copying each represented record, container, segment tag,
+integer scalar or UTF-8 byte, the component SHALL charge work: one unit per
+record/container/tag, eight per integer scalar, and one per UTF-8 byte. Each Arc
+edge SHALL also incur one unit before sharing. The same schedule applies to
+borrowed descendants reached for storage measurement. Traversal SHALL be
+iterative and interruptible, with no semantic depth limit, whole-package scan
+or uncharged scratch collection. Cancellation SHALL be polled before every
+charge, including an initial zero charge and allocation reservations. The scratch
+frontier SHALL grow geometrically by requesting twice its full current capacity
+(or one slot from empty), using fallible exact reservation. Before any growth
+reservation or storage-ledger mutation it SHALL additionally charge one work
+unit per live reference that the reservation may relocate. This relocation
+charge is separate from represented-material work; denied work SHALL leave
+the frontier allocation, capacity, contents and storage ledger unchanged.
+
+Before allocating new vector or text capacity, the component SHALL reserve
+its logical bytes against the storage limit. Scratch and retained allocations
+SHALL share one live ledger. Vector charge SHALL include capacity times native
+element size; boxed text charge SHALL include its UTF-8 length. Before retaining
+an existing Arc edge, the component SHALL charge its reachable native backing
+storage: each descendant node allocation, package text, path capacity and Name
+text. Shared descendants SHALL be counted per incoming edge, conservatively,
+without a deduplication index; the two root copies are accounted independently.
+The Arc control-block allocator overhead, like allocator bookkeeping for other
+allocations, is outside logical storage. Counting shared backing storage SHALL
+not trigger any copy of that storage. Cleanup SHALL release scratch and failed
+partial output without allocating or polling cancellation. The success receipt
+SHALL exclude released scratch; the peak live ledger SHALL never exceed the
+allowance for published output. An allocator's excess reported capacity SHALL
+be charged before that capacity is retained or used.
+
+Text copying SHALL use fallible reservation and a conversion to native
+`Box<str>` that performs no further allocation. An implementation using
+`String::into_boxed_str` SHALL first require capacity equal to length; it SHALL
+refuse excess capacity rather than invoke an infallible shrink allocation.
+This explicit portability refusal is `Capacity { requested, actual }`, not an
+input-semantic refusal. No allocating Clone, infallible reserve/collect or
+post-clone charge SHALL substitute for the bounded construction path.
+
+`MonitorLocusCopyErrorCode` SHALL expose stable Copy categories `Work`,
+`Storage`, `Allocation`, `Capacity` and `Cancelled`, with exact lowercase
+`as_str`, complete `all` and exact `from_code` catalog accessors. Each failure
+SHALL expose its category through a nonallocating `code` accessor without
+formatting or copying the native cause. Unknown spellings SHALL return None.
+
+`MonitorLocusCopyError` SHALL distinguish `Work { limit, consumed, next }`,
+`Storage { limit, consumed, next }`, `Allocation(TryReserveError)`,
+`Capacity { requested, actual }` and `Cancelled(CancelCause)`. Arithmetic
+capacity/charge overflow SHALL return Storage before allocation, using
+`next: u64::MAX`; it SHALL NOT wrap or truncate. Allocation and cancellation
+SHALL retain their original native causes. These errors SHALL contain no owned
+node/key/path/operation or formatted error text whose construction would itself
+require copying a diagnostic. Every failure SHALL return no partial locus and
+leave all supplied material unchanged.
+
+### Unqualified native ownership boundaries
+
+The bounded copy entry SHALL NOT call `target_mismatch_at` or `unsupported_at`
+as a hidden prepass. Those existing constructors perform package resolution,
+path derivation, membership scans and owned error construction outside this
+component's accounting. They remain functional diagnostic evidence only.
+
+Complete bounded diagnostic construction remains Planned. The IR/model owner
+must supply an allocation/work/storage-aware native copy or sharing API for
+`CheckedApplicationOperation`: its private retained record, execution point
+and admitted views cannot be reconstructed by this driver, and its public
+infallible Clone is not a bounded-copy API. Native callable/type-projection
+failure retention likewise needs the corresponding IR/model owner APIs.
+The driver owns later budget threading into target derivation, selection,
+unsupported and projection failure assembly and outer error boxing; neither
+this helper nor its receipt qualifies those paths. Caller-input acquisition
+remains caller-owned and unaccounted by this component. The complete preparer,
+TypeEnvironment, Layout and RT Program handoff remain Planned under
+[FR-015](FR-015-prepare-an-admitted-monitor-program.md) and
+[FR-017](FR-017-lower-and-retain-admitted-monitor-programs.md), with IR/model
+owning opaque native copies and RT owning its Program construction. No
+replacement operation DTO, copied semantic vocabulary or compatibility layer
+SHALL bypass a missing native owner API.
+
 ### Composition boundary
 
 The outer `MonitorPreparationError` remains owned by
@@ -157,10 +271,23 @@ second graph, or recompute content identities to construct a diagnostic.
 | FR-016-AC-6 | An actual admitted role/ordinal is retained exactly; a nonmember occurrence returns OccurrenceMismatch. A genuine generated root succeeds with caller-supplied None even when it retains a Generated occurrence, without selecting a source-map row or inventing a selected occurrence. | Test |
 | FR-016-AC-7 | Construction retains typed error distinctions and returns no partial diagnostic on failure. Neither constructor changes the admitted package, target values, operation records or source correspondence. | Test |
 | FR-016-AC-8 | The diagnostic module uses native IR identities/terms and native Vec child paths, introduces no plan/target/expression DTO or evaluator, and performs no parse, initialization, runtime build, support-policy decision, whole-graph index collection or identity recomputation. | Inspection |
+| FR-016-AC-9 | The bounded copy entry returns the existing canonical locus with both original node axes, native path and exact optional occurrence; after source destruction, shared nested Arc keys and copied text/path fields remain usable. It performs no resolution or validity claim. | Test |
+| FR-016-AC-10 | Independently measured work and peak logical storage permit exact-limit success; one-under work/storage and pre-cancellation return their distinct original typed operating causes with no locus. Nested/shared keys, UTF-8 text and long native paths are included; arithmetic overflow refuses before allocation. | Test |
+| FR-016-AC-11 | Every allocating copy/scratch reservation is fallible and precharged; reservation failure preserves TryReserveError, excess text capacity returns Capacity before conversion, and cleanup releases partial output without allocating. No allocating native clone or infallible boxed-text shrink hides behind a successful receipt. | Test |
+| FR-016-AC-12 | Source inspection confirms opaque operation/native failure clones, existing diagnostic derivation and error boxing are outside bounded-copy coverage; no bounded whole-preparation claim or replacement native operation representation is introduced. | Inspection |
 
 ## Qualification Status
 
-The four focused `monitor_refusal` tests execute the diagnostic-constructor
+The independent `copy_monitor_locus` component implements AC-9 through AC-11;
+focused tests cover native ownership, exact independently calculated work/storage,
+operating refusals, deep/shared and wide-frontier keys, precharged geometric
+relocation, stable error categories and private reservation boundaries. AC-12
+has source-inspection evidence only. The copy path calls neither existing
+constructor, retains Arc backing without cloning its subtree, and constructs
+boxed text only after the exact-capacity guard. Its receipt covers this component
+only; bounded diagnostic integration remains Planned.
+
+The four original focused `monitor_refusal` tests execute the diagnostic-constructor
 controls of AC-1 through AC-7 through public QSL checking/emission and strict
 IR admission. They cover all eight target-premise value paths and buffer
 ownership, complete original root-application data, admitted nonapplication

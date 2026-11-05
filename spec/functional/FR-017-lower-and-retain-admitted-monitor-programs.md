@@ -231,6 +231,13 @@ native InvalidNodeKey. Caller-owned input acquisition/allocation and native
 diagnostic payload cloning do not receive complete retained-storage
 qualification from these constructor cells. Exact whole-preparation storage
 controls remain Planned; native constructor coverage SHALL NOT upgrade them.
+The implemented independent locus-copy component in
+[FR-016](FR-016-retain-monitor-refusal-loci.md) covers only its explicit native
+locus fields. The driver owns later budget threading and outer failure
+assembly; IR/model owns bounded native operation and projection/callable-error
+copy APIs. Existing unsupported/selection/projection failure clones and caller
+input acquisition remain outside this component's evidence. Its independent
+receipt SHALL NOT reset lowering's allowance or certify a complete Program.
 Operating limits SHALL NOT change target
 premises, semantic capacities, source types or evaluation meaning.
 
