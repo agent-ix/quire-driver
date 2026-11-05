@@ -107,9 +107,11 @@ subsequent projection cannot reset that allowance.
 
 QSL's current timed PlanRoot has a time binding but its emitter supplies no
 clock row: `TemporalProfile::Timed` is excluded from native temporal clock row
-emission, while the three clock-emitting profiles have no timed plan binding.
-Authentic positive timed-PlanRoot clock qualification therefore remains
-blocked on the owning QSL emission handoff; no profile substitution or edited
+emission, while the three clock-emitting profiles have no timed plan binding. IR
+strict clock-row admission likewise configures only those three profiles and
+excludes `TemporalProfile::Timed`. Authentic positive timed-PlanRoot clock
+qualification therefore remains blocked on the owning QSL emission and IR
+admitted association contracts; no profile substitution or edited
 checked-package fixture establishes it.
 
 This partial clock component establishes no order or progress association,
@@ -322,7 +324,7 @@ copy receipt SHALL NOT reset or certify the complete preparation allowance.
 | FR-015-AC-11 | Planned until IR-721 lands. A large selected closure amid an unrelated long graph visits only relevant reachable nodes/edges and identity/value material under the caller allowance, without a whole-package sort or repeated full indexing. Equal budgets give equal typed work stops without a semantic depth/size ceiling. | Test |
 | FR-015-AC-12 | Planned until IR-721 lands. Public consumer/API and dependency controls establish one retained RT Program, no source input/callback, no driver seal/mint export or copied plan/expression/value family, and no IR/QSL/driver backedge from RT or RT edge from the cycle-free IR model. | Test |
 | FR-015-AC-13 | The separate clock-admission entry preserves native `WrongClause`, `WrongRole`, `UnknownOccurrence`, `MissingClock` and `WorkLimit` refusal payloads, including exact locus, occurrence, consumed work and attempted work. Semantic clock refusals map to outer `selection`; native work refusal maps to `work`. A missing clock returns no clock-admitted token even when the optional clock expectation is absent. Existing partial selection remains explicitly unclocked. | Test |
-| FR-015-AC-14 | Planned pending QSL's authentic timed-profile clock emission. A healthy clock-admission entry exposes the native `clock_for_claim` receipt for its independently selected final clause/Claim, charges successful receipt work exactly once to the remaining cumulative allowance, and compares every field of any optional independent clock row. The exposed inner selection retains that work prefix for later projection. This establishes no final PlanRoot subject-occurrence mapping, order/progress association or complete program. | Test |
+| FR-015-AC-14 | Planned pending authentic timed-profile clock emission and IR admission. A healthy clock-admission entry exposes the native `clock_for_claim` receipt for its independently selected final clause/Claim, charges successful receipt work exactly once to the remaining cumulative allowance, and compares every field of any optional independent clock row. The exposed inner selection retains that work prefix for later projection. This establishes no final PlanRoot subject-occurrence mapping, order/progress association or complete program. | Test |
 
 ## Dependencies
 

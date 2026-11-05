@@ -182,7 +182,9 @@ The existing partial `admit_monitor_selection` controls remain partial and
 exercise no clock authority. Until QSL emits a clock for its timed PlanRoot,
 its authentic positive clock receipt control is blocked: the native emitter
 skips `TemporalProfile::Timed`, while the clock-emitting profiles lack the
-time binding required by the timed plan producer. The default missing-clock,
+time binding required by the timed plan producer. Strict IR clock-row
+admission also excludes `TemporalProfile::Timed`; both owning association
+contracts must exist. The default missing-clock,
 role/ordinal/clause and work-refusal controls can execute independently; none
 substitutes for the blocked positive receipt or grants full criterion credit.
 

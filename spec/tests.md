@@ -177,7 +177,8 @@ Production-package execution remains pending the coherent QSL/codegen build;
 no component acceptance is claimed before the focused driver checks execute.
 FR-015-AC-14 healthy native clock receipt, optional independent row comparison
 and successful receipt accounting remain Planned: QSL's current timed-profile
-emitter does not emit the clock row its PlanRoot needs. Changing the profile
+emitter does not emit the clock row its PlanRoot needs and strict IR clock-row
+admission likewise excludes `TemporalProfile::Timed`. Changing the profile
 or editing checked-package bytes cannot replace that missing owner fact.
 
 This component does not qualify FR-015-AC-1 through FR-015-AC-12 or whole
