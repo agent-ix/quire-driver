@@ -14,8 +14,8 @@ use quire_contract_model::{
 };
 use quire_driver::monitor::{
     admit_monitor_clock_selection, admit_monitor_selection, project_monitor_initializer,
-    MonitorPreparationError, MonitorPreparationErrorCode, MonitorPreparationLimits,
-    MonitorPreparationRequest, MonitorSelection, MonitorSelectionField,
+    MonitorPreparationError, MonitorPreparationErrorCode, MonitorPreparationRequest,
+    MonitorSelection, MonitorSelectionField,
 };
 use quire_driver::monitor_refusal::TargetPremise;
 use quire_exact::{Cancel, CancelCause};
