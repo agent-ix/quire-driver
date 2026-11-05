@@ -164,6 +164,20 @@ replay context through QSL evaluation and report handling.
   object resolution; QSpec FR-323 owns the replay-target and packet/request
   shape. The driver does not derive the pair from CG's function selection or
   caller-supplied operation spelling.
+- The production `Driven::prepare_frame_replay` entry SHALL use the existing
+  CG `FrameReplayInputs` envelope and the original `Driven` request inventory.
+  The caller SHALL leave `selected_target` absent; a supplied target is a
+  driver `runtime_invariant` fault. The driver SHALL select QSL's operation
+  using the envelope's source, domain documents and dependency selections,
+  preserve a call-site refusal unchanged, then compare the emitted bytes with
+  the original admitted run. It SHALL authenticate the selected package,
+  request index and complete frame occurrence against that run's retained
+  request item before constructing CG's target. Missing items and package,
+  index, node, role or ordinal mismatches are driver `runtime_invariant`
+  faults. It SHALL populate the target only from the successful QSL site and
+  invoke public CG `FrameReplay::new`, preserving CG errors unchanged. The
+  returned preparation permits CG replay; it does not create settlement or
+  terminal records and does not add a request or routed item.
 - The driver SHALL NOT infer a function target, select a different package or
   request index, or add another routed item for an operation-frame replay.
 - When QSL call-site selection returns a typed refusal, the driver SHALL
@@ -261,7 +275,7 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-16 | For the FR-010-AC-4 vector and a proof request that reaches per-item settlement, the outcome holds one terminal record for each of A and C and none for B, whose refusal appears only in `Driven`'s per-item refusal member. | Test (TC-017) |
 | FR-009-AC-17 | For an operation-frame replay selected from an admitted package, the driver projects QSL's exact typed `OperationSite.frame_operation` value to the CG selected item associated with the same admitted package identity and request index, without changing the pair or deriving it from CG selection or caller spelling. QSL FR-121 owns pair shape and declaring-object resolution; QSpec FR-323 owns replay-target and packet/request shape. This driver criterion covers only object-type operations exposed by QSL's current call-site API; process/state-machine operations and state-clause projection are outside scope. | Planned (TC-016; QSL FR-121 / QSL-972; QSpec FR-323; CG IR-958 public API) |
 | FR-009-AC-18 | When QSL call-site selection returns a typed refusal for a frame operation, the driver preserves that refusal unchanged and stops before CG frame-target construction, replay, settlement, or terminal creation; it does not recast the refusal as a driver join fault. | Planned (TC-016; QSL FR-121 / QSL-972) |
-| FR-009-AC-19 | When QSL call-site selection succeeds but the driver detects that its retained association of the QSL result to the CG selected item has a package identity or request index that differs from the corresponding value on the CG item, the driver returns FR-001's typed `runtime_invariant` fault and stops before CG frame-target construction, replay, settlement, or terminal creation. A typed refusal actually returned by CG is preserved under CG's contract and is not this driver-detected join fault. | Planned (TC-016; CG IR-958 public API; FR-001) |
+| FR-009-AC-19 | When QSL call-site selection succeeds but the driver detects that its retained association of the QSL result to the CG selected item is missing or has a package identity, request index or complete occurrence that differs from the original run or the CG item, the driver returns FR-001's typed `runtime_invariant` fault and stops before CG frame-target construction, replay, settlement, or terminal creation. A typed refusal actually returned by CG is preserved under CG's contract and is not this driver-detected join fault. | Planned (TC-016; CG IR-958 public API; FR-001) |
 | FR-009-AC-20 | For a falsified function item with a complete valid transcript at the byte and value ceilings, the driver calls CG `parse_assertion_playback` once on exactly the retained `KaniRunOutcome::Falsified.counterexample`, with the selected item's retained source identity and context and the smaller caller/proving-run ceilings in each dimension. It passes the resulting typed `Playback`, exact proving-run identity and same admitted package to CG function replay. A reproducing replay remains subject to FR-009-AC-2 and CG terminal mapping. | Planned (TC-016; CG #621 typed function replay API merged; IR-610 E9 integration) |
 | FR-009-AC-21 | A full transcript that exceeds the byte ceiling, has more values than the value ceiling, or has no unique valid assertion yields CG's corresponding typed `PlaybackRefusal` from that single parse, even if a shortened assertion block would fit. The driver neither uses optional diagnostics nor invokes function replay, creates settlement, or creates a terminal for the refused item. | Planned (TC-016; CG #621 typed function replay API merged; IR-610 E9 integration) |
 | FR-009-AC-22 | A typed upstream refusal before playback intake is preserved before any parse, settlement, or terminal creation. A parser refusal is preserved without replay settlement or terminal creation and is not recast as replay parity or a driver join fault. After a successful parse, a CG typed identity, decode, or replay refusal or evidence failure follows CG's `ReplaySettlement` conversion and `run_terminal_value` mapping with the original execution evidence; the driver preserves the resulting typed terminal and never settles that result as `refuted`. | Planned (TC-016; CG #621 typed function replay API merged; IR-610 E9 integration) |
@@ -279,9 +293,9 @@ replay context through QSL evaluation and report handling.
   omission of arguments and occurrence key; QSL FR-121 / QSL #1215 owns the
   validated typed operation call-site result and its declaring object for
   inherited and redefined object-type operations. CG FR-024 / IR-958 owns the
-  selected-item packet projection and its typed failure behavior. The driver
-  mapping in FR-009-AC-17 through FR-009-AC-19 is planned until those public
-  APIs are available. QSL-973 owns the separate state-clause target API.
+  selected-item packet projection and its typed failure behavior. The public CG selected-item and selected-target input is available.
+  FR-009-AC-17 through FR-009-AC-19 are implemented through the bounded
+  production preparation entry; full frame settlement remains outside it. QSL-973 owns the separate state-clause target API.
 - QSL ADR-029 LC-1, CB-4 and library operation `prove`; ADR-013 O-16 and
   C-09; QSL report-claim contract; CG FR-032
   native-observation and scalar-replay binding contract; CG FR-017 owns Kani

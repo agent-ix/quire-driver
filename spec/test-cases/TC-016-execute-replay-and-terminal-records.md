@@ -161,7 +161,13 @@ Test location for Kani request/evidence forwarding and terminal mapping:
 `src/provider.rs`. Test location for native receipt and settlement qualification: `src/provider.rs`;
 full prove/replay integration remains planned.
 
-For the frame-target projection scenario, use object-type operation fixtures
+For the frame-target projection scenario, call production
+`Driven::prepare_frame_replay` with the real QSL producer and public CG
+consumer. Reject a prepopulated target, missing request item, changed package,
+index and complete occurrence (including node, role and ordinal) before CG
+construction. Compare the prepared CG packet and request targets and assert
+that request arguments, request occurrence key and function target are absent,
+and the original request/routed inventory is unchanged. Use object-type operation fixtures
 covering an inherited operation and a redefined operation. Obtain the
 `OperationSite.frame_operation` values from QSL's validated call-site result
 and compare each value unchanged with the target placed on the CG selected item
@@ -179,8 +185,8 @@ corresponding value on the CG selected item;
 assert the driver returns FR-001's typed `runtime_invariant` fault before CG
 frame-target construction or replay. A typed refusal returned by CG itself is
 propagated unchanged and is not treated as a driver join mismatch. Both cases
-produce no settlement or terminal. These checks remain planned until QSL-972
-and the CG IR-958 API are public.
+produce no settlement or terminal. The public APIs are available; full frame settlement is not part of this
+preparation check.
 
 ## Expected Results
 
