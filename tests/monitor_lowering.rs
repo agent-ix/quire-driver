@@ -684,7 +684,7 @@ fn measured_component_storage_includes_native_constructor_reservations() {
 fn heterogeneous_signature_retains_unused_types_and_nonzero_argument_position() {
     const SOURCE: &str = r#"language "ix:native" edition "1-draft";
 profile v = "quire.value.complete/v1";
-function mixedValue using v(unused: Integer, flag: Boolean, count: Integer): Boolean pure { not flag }
+function mixedValue using v(unused: Integer, flag: Boolean, retainedNumber: Integer): Boolean pure { not flag }
 "#;
     let fixture = source_fixture(SOURCE, "agent-ix/scalar-heterogeneous", &["mixedValue"]);
     let read = fixture
