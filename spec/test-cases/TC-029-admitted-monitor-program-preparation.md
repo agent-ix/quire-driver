@@ -185,3 +185,8 @@ skips `TemporalProfile::Timed`, while the clock-emitting profiles lack the
 time binding required by the timed plan producer. The default missing-clock,
 role/ordinal/clause and work-refusal controls can execute independently; none
 substitutes for the blocked positive receipt or grants full criterion credit.
+
+FR-015-AC-13 covers only the native refusal controls above. The healthy
+receipt, optional expectation mismatch and successful cumulative work controls
+belong to FR-015-AC-14 and remain Planned without trace credit until the
+authentic timed clock producer handoff exists and those controls execute.
