@@ -1372,7 +1372,7 @@ mod outcome_tests {
     /// Trace: FR-002-AC-2, FR-002-AC-4; one QSL exit result reaches process exit unchanged through the kit.
     #[test]
     fn process_code_is_qsl_category_exit_code_without_remapping() {
-        let expected = [0, 10, 10, 20, 21, 22, 22, 30];
+        let expected = [0, 10, 10, 20, 21, 22, 0, 11, 22, 30];
         assert_eq!(Category::ALL.len(), expected.len());
         for (category, expected_code) in Category::ALL.into_iter().zip(expected) {
             assert_eq!(process_exit_code(category), ExitCode::from(expected_code));
