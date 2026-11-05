@@ -12,6 +12,7 @@ mod material;
 mod projection;
 mod request;
 mod selection;
+pub mod source_record;
 
 pub use error::{MonitorPreparationError, MonitorPreparationErrorCode, MonitorSelectionField};
 pub use projection::project_monitor_initializer;
