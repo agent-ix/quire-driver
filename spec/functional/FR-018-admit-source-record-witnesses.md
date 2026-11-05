@@ -65,11 +65,23 @@ and executable Program construction remain outside this component.
 
 ## Qualification Status
 
-Qualification is Planned. The production API and genuine-source controls are
-authored, but their focused production test build is blocked in the upstream
-code generator by an exhaustive CallSiteRefusal match missing UnknownImport,
-UnknownImportedFunction and NotImportable. No authored positive control has
-executed and no source-record criterion is claimed complete.
+Qualification is partial. The production tests execute genuine ordinary-source
+record admission and Tagged/recursive Tree parameter projections successfully,
+including complete producer-field equality, native opaque keys and record views,
+join exhaustion, reader incompleteness, structural counterfactuals, opaque-claim
+authority separation and the stable error-code catalog. The affected monitor
+preparation and dependency-edge controls also execute successfully.
+
+The genuine final PlanRoot positive remains failing at the native source-record
+join: its authentic Activation row carries member admitted_name `origin_tick`,
+while the strictly admitted final record binds `origin` to the identical Integer
+type node. The original declared name correctly remains `origin_tick`. Native
+MismatchedIdentityWitness retains Activation as requested/at node and work 197.
+QSL must carry the final admitted binding rename into its immutable producer row;
+the driver does not repair/filter the row or publish a partial successful owner.
+Final PlanRoot record qualification remains Planned until that owner repair is
+adopted and its unchanged positive control passes. Historical review artifacts
+retain the earlier upstream compilation block as historical evidence.
 
 This independent record component contributes to the source-record slice
 of [FR-015](FR-015-prepare-an-admitted-monitor-program.md) and IR-721 AC1 only.

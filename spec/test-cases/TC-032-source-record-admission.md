@@ -54,3 +54,14 @@ counterfactuals return native mismatch/conflict/unknown dispositions with work;
 reader/join operating stops retain their original native payloads. Complete
 monitor qualification remains Planned; no MemberId is invented for source
 records and no native success-work receipt is inferred for the join.
+
+
+## Qualification Status
+
+The production ordinary-source, native error/control and error-catalog checks
+execute successfully. The genuine final PlanRoot positive is unqualified: QSL's
+Activation row retains admitted_name `origin_tick` after final emission renames
+the actual binding to `origin`. Native IR correctly returns its original
+MismatchedIdentityWitness at Activation with work 197. The test preserves this
+failing positive until the producer publishes the correct final binding name;
+it does not filter generated records or mutate/reseal the emitted package.
