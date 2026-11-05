@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Independent static review of frozen driver PR122, head 69b3885. Ticket: IR-721. Read AGENTS/CLAUDE, code-review Rust lane and rust-style references. No applicable AssuranceProfile found. No reviewer builds, tests, Cargo, global coverage census, advisors or final gate. Inspected supplied component harness: 16 tests pass and Clippy passes; this harness is diagnostic only. Actual production compile is BLOCKED by upstream codegen E0004 for three QSL CallSiteRefusal variants in /tmp/ir721-clock-compile2.log. Production validation is UNRUN; no merge-ready or full Program claim.
+Independent static review of original frozen PR122 source. Ticket: IR-721. Read AGENTS/CLAUDE, code-review Rust lane and rust-style references. No applicable AssuranceProfile found. No reviewer builds, tests, Cargo, global coverage census, advisors or final gate. Inspected supplied component harness: 16 tests pass and Clippy passes; this harness is diagnostic only. Actual production compile is BLOCKED by upstream codegen E0004 for three QSL CallSiteRefusal variants in /tmp/ir721-clock-compile2.log. Production validation is UNRUN; no merge-ready or full Program claim.
 
 ## Verdict
 
@@ -153,3 +153,25 @@ scope:
     belong to FR-015-AC-14 and remain Planned without trace credit until the authentic
     timed clock producer handoff exists and those controls execute.
 ```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The rewritten obligation names the shared validation prefix, native semantic first causes, and source-map/optional expectation checks before successful capability construction; it permits inspection before the read without replacing native semantic refusal. |
+
+### Fixed excerpt
+
+```rust
+The separate clock entry SHALL first validate the
+shared package/root/key, subject, profile and target prefix, then invoke the
+native clock reader with the independent clause and full role/ordinal.
+Native `WrongClause`, `WrongRole`, `UnknownOccurrence` and `MissingClock`
+refusals SHALL retain their first causes. Before constructing a successful
+clock-admitted capability, the driver SHALL validate full source-map
+authenticity and any optional independent clock expectation.
+```
+
+## Round 1 disposition checkpoint
+
+Rechecked round 1 fixed PR122 source against the original reviewed delta. Both SR-122001/FND-001 and SR-122004/FND-001 are fixed by inspected source/spec changes. No new findings in this method's changed scope. Original findings and original verdict above remain historical and unedited. Current static findings are clear; this is not production PASS or merge readiness. No reviewer builds, tests, Cargo, matrix, advisors, EARS engine or final gate. Supplied /tmp/ir721-clock-review-cancel-test.log reports the one new cancellation test passes only in the supplementary source harness. Production compilation was not rerun and remains BLOCKED on the codegen owner; authentic positive Timed clock emission/admission and FR015-AC14 remain Planned. Previous limitations and complete-program exclusions remain unchanged.
