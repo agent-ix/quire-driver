@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Bind an independent selection to one immutable admitted monitor root.
 
-use quire_contract_model::checked_package::{
-    CheckedMonitorPlanRef, CheckedNodeId, CheckedOccurrenceRole, CheckedSelectionRole,
-    CheckedTerm, LawRole,
+use quire_contract_model::{
+    CheckedMonitorPlanRef, CheckedNodeId, CheckedOccurrenceRole, CheckedSelectionRole, CheckedTerm,
+    LawRole,
 };
 use quire_exact::Cancel;
 
 use crate::monitor_refusal::{target_mismatch_at, TargetPremise};
 
 use super::budget::Budget;
-use super::{MonitorPreparationError as Error, MonitorPreparationRequest, MonitorSelectionField as Field};
+use super::{
+    MonitorPreparationError as Error, MonitorPreparationRequest, MonitorSelectionField as Field,
+};
 
 /// A verified package/root/occurrence/target binding, not an executable program.
 ///
@@ -25,17 +27,25 @@ pub struct AdmittedMonitorSelection<'a> {
 
 impl<'a> AdmittedMonitorSelection<'a> {
     /// Exact package-borrowed admitted plan whose independent values matched.
-    pub fn plan(&self) -> CheckedMonitorPlanRef<'a> { self.plan }
+    pub fn plan(&self) -> CheckedMonitorPlanRef<'a> {
+        self.plan
+    }
     /// Operating work admitted while matching the independent selection.
-    pub fn work(&self) -> u64 { self.work }
+    pub fn work(&self) -> u64 {
+        self.work
+    }
 }
 
 fn mismatch(field: Field, node: &CheckedNodeId) -> Error {
-    Error::Selection { field, node: Box::new(node.clone()) }
+    Error::Selection {
+        field,
+        node: Box::new(node.clone()),
+    }
 }
 
 pub(super) fn bind<'a>(
-    request: &'a MonitorPreparationRequest<'a>, budget: &mut Budget<'_>,
+    request: &'a MonitorPreparationRequest<'a>,
+    budget: &mut Budget<'_>,
 ) -> Result<CheckedMonitorPlanRef<'a>, Error> {
     budget.charge(1)?;
     let root = request.selection.root;
@@ -46,7 +56,10 @@ pub(super) fn bind<'a>(
     let mut found = None;
     for plan in request.package.monitor_plans() {
         budget.inspect(plan.node_id())?;
-        if plan.node_id() == root { found = Some(plan); break; }
+        if plan.node_id() == root {
+            found = Some(plan);
+            break;
+        }
     }
     let plan = found.ok_or_else(|| mismatch(Field::Root, root))?;
     budget.inspect(request.package_lock)?;
@@ -58,45 +71,82 @@ pub(super) fn bind<'a>(
         (request.root_key, plan.structural_key(), Field::RootKey),
         (request.clause, plan.clause(), Field::Clause),
     ] {
-        budget.inspect(expected)?; budget.inspect(actual)?;
-        if expected != actual { return Err(mismatch(field, root)); }
+        budget.inspect(expected)?;
+        budget.inspect(actual)?;
+        if expected != actual {
+            return Err(mismatch(field, root));
+        }
     }
     for (expected, entry) in request.entry_keys.into_iter().zip([
-        plan.init(), plan.on_event(), plan.on_watermark(), plan.on_gap(),
+        plan.init(),
+        plan.on_event(),
+        plan.on_watermark(),
+        plan.on_gap(),
     ]) {
-        budget.inspect(expected)?; budget.inspect(entry.structural_key())?;
-        if expected != entry.structural_key() { return Err(mismatch(Field::EntryKey, entry.node_id())); }
+        budget.inspect(expected)?;
+        budget.inspect(entry.structural_key())?;
+        if expected != entry.structural_key() {
+            return Err(mismatch(Field::EntryKey, entry.node_id()));
+        }
     }
     budget.inspect(request.occurrence)?;
     if request.occurrence.node_id != *plan.clause()
         || request.occurrence.role != CheckedOccurrenceRole::Claim
-    { return Err(mismatch(Field::Occurrence, plan.clause())); }
+    {
+        return Err(mismatch(Field::Occurrence, plan.clause()));
+    }
     let mut occurrence_found = false;
     for row in request.package.source_map() {
         budget.inspect(row)?;
-        if row == request.occurrence { occurrence_found = true; break; }
+        if row == request.occurrence {
+            occurrence_found = true;
+            break;
+        }
     }
-    if !occurrence_found { return Err(mismatch(Field::Occurrence, plan.clause())); }
+    if !occurrence_found {
+        return Err(mismatch(Field::Occurrence, plan.clause()));
+    }
     check_clause(request, plan, budget)?;
     budget.inspect(request.profile)?;
     let mut profile_found = false;
     for profile in &request.package.lock().profile_selections {
         budget.inspect(profile)?;
-        if profile == request.profile { profile_found = true; break; }
+        if profile == request.profile {
+            profile_found = true;
+            break;
+        }
     }
-    if !profile_found { return Err(mismatch(Field::Profile, plan.clause())); }
+    if !profile_found {
+        return Err(mismatch(Field::Profile, plan.clause()));
+    }
     check_target(request, plan, budget)?;
     Ok(plan)
 }
 
-fn check_clause(request: &MonitorPreparationRequest<'_>, plan: CheckedMonitorPlanRef<'_>, budget: &mut Budget<'_>) -> Result<(), Error> {
-    let invalid = || Error::InvalidAdmittedClause { node: Box::new(plan.clause().clone()) };
-    let Some(CheckedTerm::Application { operation, arguments, .. }) = request.package.term(plan.clause()) else {
+fn check_clause(
+    request: &MonitorPreparationRequest<'_>,
+    plan: CheckedMonitorPlanRef<'_>,
+    budget: &mut Budget<'_>,
+) -> Result<(), Error> {
+    let invalid = || Error::InvalidAdmittedClause {
+        node: Box::new(plan.clause().clone()),
+    };
+    let Some(CheckedTerm::Application {
+        operation,
+        arguments,
+        ..
+    }) = request.package.term(plan.clause())
+    else {
         return Err(invalid());
     };
-    let Some(CheckedTerm::Reference { target: subject }) = arguments.first() else { return Err(invalid()); };
-    budget.inspect(request.subject)?; budget.inspect(subject)?;
-    if request.subject != subject { return Err(mismatch(Field::Subject, plan.clause())); }
+    let Some(CheckedTerm::Reference { target: subject }) = arguments.first() else {
+        return Err(invalid());
+    };
+    budget.inspect(request.subject)?;
+    budget.inspect(subject)?;
+    if request.subject != subject {
+        return Err(mismatch(Field::Subject, plan.clause()));
+    }
     let operation = operation.read().map_err(|_| invalid())?;
     if request.profile.role != CheckedSelectionRole::TemporalProfile {
         return Err(mismatch(Field::Profile, plan.clause()));
@@ -104,66 +154,111 @@ fn check_clause(request: &MonitorPreparationRequest<'_>, plan: CheckedMonitorPla
     let mut selected_law = false;
     for law in operation.laws {
         budget.inspect(&law.definition)?;
-        if law.role == LawRole::TemporalProfile && law.definition == request.profile.definition { selected_law = true; }
+        if law.role == LawRole::TemporalProfile && law.definition == request.profile.definition {
+            selected_law = true;
+        }
     }
-    if !selected_law { return Err(mismatch(Field::Profile, plan.clause())); }
+    if !selected_law {
+        return Err(mismatch(Field::Profile, plan.clause()));
+    }
     budget.inspect(request.clock_binding)?;
     if request.clock_binding.declaration != *plan.clause()
-        || request.clock_binding.occurrence != request.occurrence.ordinal {
+        || request.clock_binding.occurrence != request.occurrence.ordinal
+    {
         return Err(mismatch(Field::Clock, plan.clause()));
     }
     let mut clock_found = false;
     for row in request.package.temporal_bindings().unwrap_or_default() {
         budget.inspect(row)?;
-        if row == request.clock_binding { clock_found = true; break; }
+        if row == request.clock_binding {
+            clock_found = true;
+            break;
+        }
     }
-    if !clock_found { return Err(mismatch(Field::Clock, plan.clause())); }
+    if !clock_found {
+        return Err(mismatch(Field::Clock, plan.clause()));
+    }
     Ok(())
 }
 
 fn check_target(
-    request: &MonitorPreparationRequest<'_>, plan: CheckedMonitorPlanRef<'_>, budget: &mut Budget<'_>,
+    request: &MonitorPreparationRequest<'_>,
+    plan: CheckedMonitorPlanRef<'_>,
+    budget: &mut Budget<'_>,
 ) -> Result<(), Error> {
     let refuse = |premise, index| {
         // The independent clause occurrence belongs to the clause, not the
         // generated monitor root. Do not select an arbitrary root occurrence.
         target_mismatch_at(request.package, plan.node_id(), premise, index, None)
-            .map(Error::TargetMismatch).unwrap_or_else(Error::Internal)
+            .map(Error::TargetMismatch)
+            .unwrap_or_else(Error::Internal)
     };
-    budget.inspect(request.counter)?; budget.inspect(plan.counter())?;
-    if request.counter != plan.counter() { return Err(refuse(TargetPremise::Counter, None)); }
+    budget.inspect(request.counter)?;
+    budget.inspect(plan.counter())?;
+    if request.counter != plan.counter() {
+        return Err(refuse(TargetPremise::Counter, None));
+    }
     budget.charge(1)?;
-    if request.counter_width_bits != plan.counter_width_bits() { return Err(refuse(TargetPremise::CounterWidth, None)); }
-    budget.inspect(request.tick_unit)?; budget.inspect(plan.tick_unit())?;
-    if request.tick_unit != plan.tick_unit() { return Err(refuse(TargetPremise::TickUnit, None)); }
+    if request.counter_width_bits != plan.counter_width_bits() {
+        return Err(refuse(TargetPremise::CounterWidth, None));
+    }
+    budget.inspect(request.tick_unit)?;
+    budget.inspect(plan.tick_unit())?;
+    if request.tick_unit != plan.tick_unit() {
+        return Err(refuse(TargetPremise::TickUnit, None));
+    }
     budget.charge(1)?;
-    if request.max_reading_gap != plan.max_reading_gap() { return Err(refuse(TargetPremise::MaxReadingGap, None)); }
-    budget.inspect(request.max_event_rate)?; budget.inspect(plan.max_event_rate())?;
-    if request.max_event_rate != plan.max_event_rate() { return Err(refuse(TargetPremise::MaxEventRate, None)); }
-    budget.inspect(request.uncertainty)?; budget.inspect(plan.uncertainty())?;
-    if request.uncertainty != plan.uncertainty() { return Err(refuse(TargetPremise::Uncertainty, None)); }
+    if request.max_reading_gap != plan.max_reading_gap() {
+        return Err(refuse(TargetPremise::MaxReadingGap, None));
+    }
+    budget.inspect(request.max_event_rate)?;
+    budget.inspect(plan.max_event_rate())?;
+    if request.max_event_rate != plan.max_event_rate() {
+        return Err(refuse(TargetPremise::MaxEventRate, None));
+    }
+    budget.inspect(request.uncertainty)?;
+    budget.inspect(plan.uncertainty())?;
+    if request.uncertainty != plan.uncertainty() {
+        return Err(refuse(TargetPremise::Uncertainty, None));
+    }
     let mut buffers = plan.buffers();
     budget.charge(1)?;
-    if buffers.len() != request.buffers.len() { return Err(mismatch(Field::BufferAssociation, plan.node_id())); }
+    if buffers.len() != request.buffers.len() {
+        return Err(mismatch(Field::BufferAssociation, plan.node_id()));
+    }
     for (index, (owner, capacity)) in request.buffers.iter().enumerate() {
-        budget.inspect(owner)?; budget.inspect(capacity)?;
-        let Some(buffer) = buffers.next() else { return Err(mismatch(Field::BufferAssociation, plan.node_id())); };
-        budget.inspect(buffer.subformula())?; budget.inspect(buffer.capacity())?;
-        if owner != buffer.subformula() { return Err(mismatch(Field::BufferAssociation, buffer.subformula())); }
+        budget.inspect(owner)?;
+        budget.inspect(capacity)?;
+        let Some(buffer) = buffers.next() else {
+            return Err(mismatch(Field::BufferAssociation, plan.node_id()));
+        };
+        budget.inspect(buffer.subformula())?;
+        budget.inspect(buffer.capacity())?;
+        if owner != buffer.subformula() {
+            return Err(mismatch(Field::BufferAssociation, buffer.subformula()));
+        }
         if capacity.as_ref() != buffer.capacity() {
             return Err(refuse(TargetPremise::BufferCapacity, Some(index)));
         }
     }
-    budget.inspect(request.activation_capacity)?; budget.inspect(plan.activation_capacity())?;
-    if request.activation_capacity != plan.activation_capacity() { return Err(refuse(TargetPremise::ActivationCapacity, None)); }
+    budget.inspect(request.activation_capacity)?;
+    budget.inspect(plan.activation_capacity())?;
+    if request.activation_capacity != plan.activation_capacity() {
+        return Err(refuse(TargetPremise::ActivationCapacity, None));
+    }
     Ok(())
 }
 
 /// Verify independently supplied identities and target premises before lowering.
 pub fn admit_monitor_selection<'a>(
-    request: &'a MonitorPreparationRequest<'a>, cancel: &Cancel,
+    request: &'a MonitorPreparationRequest<'a>,
+    cancel: &Cancel,
 ) -> Result<AdmittedMonitorSelection<'a>, Error> {
     let mut budget = Budget::new(request.limits, cancel);
     let plan = bind(request, &mut budget)?;
-    Ok(AdmittedMonitorSelection { request, plan, work: budget.work() })
+    Ok(AdmittedMonitorSelection {
+        request,
+        plan,
+        work: budget.work(),
+    })
 }

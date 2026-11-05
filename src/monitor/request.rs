@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Borrowed independent selections and original witnesses for monitor preparation.
 
-use quire_contract_model::checked_package::{
-    CheckedNodeId, CheckedPackageLockV2, CheckedPackageV2, CheckedRational,
-    CheckedSelection, CheckedSourceMapEntry, SelectedFactRows, TemporalBinding,
+use quire_contract_model::{
+    CheckedNodeId, CheckedPackageLockV2, CheckedPackageV2, CheckedRational, CheckedSelection,
+    CheckedSourceMapEntry, SelectedFactRows, TemporalBinding,
 };
 
 /// A package-instance-bound root selector captured before preparation.
@@ -22,7 +22,9 @@ impl<'a> MonitorSelection<'a> {
         Self { package, root }
     }
     /// The independently captured root selector, without inferring any premise.
-    pub fn root(&self) -> &'a CheckedNodeId { self.root }
+    pub fn root(&self) -> &'a CheckedNodeId {
+        self.root
+    }
 }
 
 /// Caller operating allowances, separate from the plan's semantic capacities.
@@ -86,5 +88,7 @@ pub struct MonitorPreparationRequest<'a> {
 
 impl<'a> MonitorPreparationRequest<'a> {
     /// The original independently selected root, before package resolution.
-    pub fn selection_root(&self) -> &'a CheckedNodeId { self.selection.root }
+    pub fn selection_root(&self) -> &'a CheckedNodeId {
+        self.selection.root
+    }
 }

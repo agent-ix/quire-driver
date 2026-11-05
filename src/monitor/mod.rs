@@ -6,11 +6,11 @@
 
 mod budget;
 mod error;
+mod projection;
 mod request;
 mod selection;
-mod projection;
 
 pub use error::{MonitorPreparationError, MonitorPreparationErrorCode, MonitorSelectionField};
+pub use projection::project_monitor_initializer;
 pub use request::{MonitorPreparationLimits, MonitorPreparationRequest, MonitorSelection};
 pub use selection::{admit_monitor_selection, AdmittedMonitorSelection};
-pub use projection::project_monitor_initializer;

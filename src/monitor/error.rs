@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Typed monitor preparation stops, separate from runtime outcomes.
 
-use quire_contract_model::checked_package::{CheckedNodeId, ExactTypeProjectionError};
+use quire_contract_model::{CheckedNodeId, ExactTypeProjectionError};
 use quire_exact::CancelCause;
 
 use crate::monitor_refusal::{MonitorLocusError, TargetMismatch, UnsupportedOperation};
