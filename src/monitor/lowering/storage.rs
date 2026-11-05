@@ -19,6 +19,8 @@ pub(super) fn push<T>(
 ) -> Result<(), Error> {
     budget.charge(1)?;
     if values.len() == values.capacity() {
+        // Admit relocation before any allocation or storage-ledger change.
+        budget.charge(u64::try_from(values.len()).unwrap_or(u64::MAX))?;
         let old = values.capacity();
         let additional = old.max(1);
         let bytes = additional
@@ -38,8 +40,6 @@ pub(super) fn push<T>(
         *reservation = reservation
             .checked_add(actual)
             .ok_or_else(|| overflow(budget))?;
-        // Reallocation may move the already initialized elements.
-        budget.charge(u64::try_from(values.len()).unwrap_or(u64::MAX))?;
     }
     values.push(value);
     Ok(())
@@ -58,4 +58,45 @@ pub(super) fn text(value: &str, budget: &mut Budget<'_>) -> Result<String, Error
     }
     owned.push_str(value);
     Ok(owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use ix_trace_rs::trace;
+    use quire_exact::Cancel;
+
+    use super::*;
+    use crate::monitor::MonitorPreparationLimits;
+
+    #[trace("FR-017-AC-5")]
+    #[test]
+    fn growth_work_denial_precedes_allocation_and_preserves_live_storage() {
+        let mut values = Vec::with_capacity(4);
+        values.extend(0_u64..u64::try_from(values.capacity()).unwrap());
+        let before = values.clone();
+        let capacity = values.capacity();
+        let pointer = values.as_ptr();
+        let mut reservation = capacity * size_of::<u64>();
+        let before_reservation = reservation;
+        let cancel = Cancel::new();
+        let mut budget = Budget::new(
+            MonitorPreparationLimits {
+                work: 1,
+                storage: 4096,
+            },
+            &cancel,
+        );
+        budget.reserve_storage(reservation).unwrap();
+        let before_storage = budget.storage();
+
+        let result = push(&mut values, 99, &mut budget, &mut reservation);
+        assert!(
+            matches!(result, Err(Error::Work { limit: 1, consumed: 1, next }) if next == u64::try_from(before.len()).unwrap())
+        );
+        assert_eq!(values, before);
+        assert_eq!(values.capacity(), capacity);
+        assert_eq!(values.as_ptr(), pointer);
+        assert_eq!(reservation, before_reservation);
+        assert_eq!(budget.storage(), before_storage);
+    }
 }

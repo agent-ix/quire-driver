@@ -678,3 +678,58 @@ fn measured_component_storage_includes_native_constructor_reservations() {
         Operation::IntegerAdd { .. }
     ));
 }
+
+#[trace("FR-017-AC-5", "FR-017-AC-6")]
+#[test]
+fn heterogeneous_signature_retains_unused_types_and_nonzero_argument_position() {
+    const SOURCE: &str = r#"language "ix:native" edition "1-draft";
+profile v = "quire.value.complete/v1";
+function mixedValue using v(unused: Integer, flag: Boolean, retainedNumber: Integer): Boolean pure { not flag }
+"#;
+    let fixture = source_fixture(SOURCE, "agent-ix/scalar-heterogeneous", &["mixedValue"]);
+    let read = fixture
+        .package
+        .source_callable(&fixture.originals[0], 100_000)
+        .unwrap();
+    let callable = read.callable().unwrap();
+    let expected = vec![ValueType::Integer, ValueType::Boolean, ValueType::Integer];
+    assert_eq!(callable.parameters.len(), expected.len());
+    for (parameter, expected) in callable.parameters.iter().zip(&expected) {
+        let native = fixture
+            .package
+            .project_exact_type(parameter, &fixture.identities, 100_000)
+            .unwrap();
+        assert_eq!(native.value_type(), expected);
+    }
+    let (roots, functions, expressions) = lower_scalar_functions(
+        &fixture.package,
+        &fixture.originals,
+        &fixture.identities,
+        allowances(),
+        &Cancel::new(),
+    )
+    .unwrap();
+    assert_eq!(roots, vec![FunctionId(0)]);
+    assert_eq!(functions.len(), 1);
+    assert_eq!(functions[0].parameters, expected);
+    assert_eq!(functions[0].result, ValueType::Boolean);
+    let body = &expressions[functions[0].body.0];
+    assert_eq!(body.value_type, ValueType::Boolean);
+    assert_eq!(body.key, original_key(&fixture.package, &callable.body));
+    let Operation::BooleanNot { value } = body.operation else {
+        panic!("expected actual BooleanNot body");
+    };
+    assert_argument(&expressions, value, FunctionId(0), 1);
+    assert_eq!(expressions[value.0].value_type, ValueType::Boolean);
+    assert_eq!(
+        expressions[value.0].key,
+        original_key(&fixture.package, &callable.parameters[1])
+    );
+    assert!(!expressions.iter().any(|e| matches!(
+        e.operation,
+        Operation::Argument {
+            position: 0 | 2,
+            ..
+        }
+    )));
+}
