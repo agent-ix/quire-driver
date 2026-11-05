@@ -37,9 +37,10 @@ Preparation SHALL execute no initializer or transition.
 The final producer has been re-measured after QSL-1630 and QSL-1631. Those
 completed changes provide body-sensitive plan identity and source enum rows;
 they do not supply the missing source record/member and union identity
-handoff needed by the generated program. The existing IR-1323 union seam and
-that authentic producer handoff remain prerequisites for healthy complete
-preparation. This specification does not report an implemented entry or
+handoff needed by the generated program. IR-905 delivered the IR-1323 native
+union admission/projection seam; authentic final QSL producer identity rows
+(QSL-1723) and generated record closure remain prerequisites for healthy
+complete preparation. This specification does not report an implemented entry or
 qualify a refusal-only implementation as a prepared program.
 
 This library boundary is downstream of QSL production and IR admission. It
@@ -305,6 +306,7 @@ copy receipt SHALL NOT reset or certify the complete preparation allowance.
 | FR-015-AC-10 | Planned until IR-721 lands. Real producer/read/lower/RT execution is compared with QSL's independent tick reference for RT FR-276's boundary, uncertainty, buffer21/22, wrap/gap, changed identity/order, activation and typed-stop controls. QSpec vectors are read by reference. Construction diagnostics and a single pilot plan receive no complete FR-276 execution credit. | Test |
 | FR-015-AC-11 | Planned until IR-721 lands. A large selected closure amid an unrelated long graph visits only relevant reachable nodes/edges and identity/value material under the caller allowance, without a whole-package sort or repeated full indexing. Equal budgets give equal typed work stops without a semantic depth/size ceiling. | Test |
 | FR-015-AC-12 | Planned until IR-721 lands. Public consumer/API and dependency controls establish one retained RT Program, no source input/callback, no driver seal/mint export or copied plan/expression/value family, and no IR/QSL/driver backedge from RT or RT edge from the cycle-free IR model. | Test |
+| FR-015-AC-13 | The partial selection boundary requires and exposes the native `clock_for_claim` receipt for its independently selected final clause/Claim. It preserves native semantic and work refusals unchanged, charges successful receipt work exactly once to the remaining allowance, and compares any optional independent clock row. Missing clock never produces a selection token. This component criterion establishes no final PlanRoot subject-occurrence mapping, order/progress association or complete program. | Test |
 
 ## Dependencies
 
@@ -320,8 +322,8 @@ copy receipt SHALL NOT reset or certify the complete preparation allowance.
   witness rows in the final `PlanRoot.emission`. QSL-1630 now binds atom,
   guard and helper bodies to plan identity; QSL-1631 now retains and rekeys
   source enum declaration/member rows. Collections are structural and require
-  no declaration identity row. Source union identity admission/projection
-  remains existing IR-1323 work before its matching final producer handoff;
+  no declaration identity row. IR-905 supplies source union identity admission/projection;
+  the matching authentic final producer handoff (QSL-1723) remains required;
   generated source record/member identities also require an authentic final
   handoff. Neither channel is supplied by selected model rows or delivered
   source enum rows. Final admitted clock/order/progress associations must also
