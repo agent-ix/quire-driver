@@ -3,10 +3,10 @@
 
 use qsl_package::Emission;
 use quire_contract_model::{
-    read_checked_package, CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageIncomplete,
-    CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageV2, ExactTypeProjection,
-    ExactTypeProjectionError, SelectedExactIdentities, SelectedSourceRecordMemberRow,
-    SelectedSourceRecordRow,
+    read_checked_package, CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence,
+    CheckedPackageIncomplete, CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageV2,
+    ExactTypeProjection, ExactTypeProjectionError, SelectedExactIdentities,
+    SelectedSourceRecordMemberRow, SelectedSourceRecordRow,
 };
 
 /// Stable disposition of an independent source-record admission failure.
@@ -99,16 +99,15 @@ pub fn admit_source_records(
     read_limits: CheckedPackageReadLimits,
     join_work_limit: u64,
 ) -> Result<AdmittedSourceRecords, SourceRecordAdmissionError> {
-    let package =
-        match read_checked_package(emission.package().bytes(), read_limits, evidence) {
-            CheckedPackageDispatchResult::AdmittedV2(package) => package,
-            CheckedPackageDispatchResult::Refused(error) => {
-                return Err(SourceRecordAdmissionError::ReadRefused(error));
-            }
-            CheckedPackageDispatchResult::Incomplete(error) => {
-                return Err(SourceRecordAdmissionError::ReadIncomplete(error));
-            }
-        };
+    let package = match read_checked_package(emission.package().bytes(), read_limits, evidence) {
+        CheckedPackageDispatchResult::AdmittedV2(package) => package,
+        CheckedPackageDispatchResult::Refused(error) => {
+            return Err(SourceRecordAdmissionError::ReadRefused(error));
+        }
+        CheckedPackageDispatchResult::Incomplete(error) => {
+            return Err(SourceRecordAdmissionError::ReadIncomplete(error));
+        }
+    };
     let rows = emission
         .selected_source_record_rows()
         .iter()
