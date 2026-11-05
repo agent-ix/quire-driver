@@ -15,4 +15,7 @@ mod selection;
 pub use error::{MonitorPreparationError, MonitorPreparationErrorCode, MonitorSelectionField};
 pub use projection::project_monitor_initializer;
 pub use request::{MonitorPreparationLimits, MonitorPreparationRequest, MonitorSelection};
-pub use selection::{admit_monitor_selection, AdmittedMonitorSelection};
+pub use selection::{
+    admit_monitor_clock_selection, admit_monitor_selection, AdmittedMonitorClockSelection,
+    AdmittedMonitorSelection,
+};

@@ -2,8 +2,9 @@
 //! Typed monitor preparation stops, separate from runtime outcomes.
 
 use quire_contract_model::{
-    CheckedCallableReadError, CheckedCallableReadErrorCode, CheckedNodeId,
-    CheckedOperationViewError, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
+    CheckedCallableReadError, CheckedCallableReadErrorCode, CheckedMonitorClockReadError,
+    CheckedMonitorClockReadErrorCode, CheckedNodeId, CheckedOperationViewError,
+    ExactTypeProjectionError, ExactTypeProjectionErrorCode,
 };
 use quire_contract_runtime::monitor::ProgramRefusal;
 use quire_exact::{CancelCause, InvalidNodeKey};
@@ -123,6 +124,9 @@ pub enum MonitorPreparationError {
     /// The original bounded selective callable-read failure and its first locus.
     #[error(transparent)]
     CallableRead(Box<CheckedCallableReadError>),
+    /// Original bounded IR clock-read refusal, retaining its exact cause and locus.
+    #[error(transparent)]
+    ClockRead(Box<CheckedMonitorClockReadError>),
     /// The original runtime construction refusal, before initialization.
     #[error(transparent)]
     Program(Box<ProgramRefusal>),
@@ -221,6 +225,15 @@ impl MonitorPreparationError {
                 | CheckedCallableReadErrorCode::ForeignSelectedJoin
                 | CheckedCallableReadErrorCode::MissingFrame => {
                     MonitorPreparationErrorCode::Projection
+                }
+            },
+            Self::ClockRead(native) => match native.code {
+                CheckedMonitorClockReadErrorCode::WorkLimit => MonitorPreparationErrorCode::Work,
+                CheckedMonitorClockReadErrorCode::WrongClause
+                | CheckedMonitorClockReadErrorCode::WrongRole
+                | CheckedMonitorClockReadErrorCode::UnknownOccurrence
+                | CheckedMonitorClockReadErrorCode::MissingClock => {
+                    MonitorPreparationErrorCode::Selection
                 }
             },
             Self::Program(_) => MonitorPreparationErrorCode::Program,

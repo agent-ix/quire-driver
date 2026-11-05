@@ -29,7 +29,7 @@ upstream APIs.
 | FR-002..FR-009 / TC-009..TC-016, TC-018 | QSL-backed execute and available proof-terminal serializers have unit coverage; `quire-cli` process tests cover selected-engine and limit exit behavior; full outcome-contract and prove/replay composition tests remain planned. |
 | Plugin wire, cache policy, execution semantics and AOT/interpreter parity | QSL ADR-029 owns the protocol and policy. Driver `quire-plugin-host` conformance is specified by TC-023..TC-026 under FR-013; implementation tests cover the listed session, typed-failure, cancellation/deadline and budget cases, with remaining cases identified in the matrix rows. TC-013, TC-014 and TC-015 specify composition boundaries; `quire-cache` behavior is verified by TC-020..TC-022 under FR-012. |
 | FR-010, FR-001-AC-17..FR-001-AC-21, FR-009-AC-16 / TC-017 | Driver partition, refusal and request-index tests are in `tests/drive.rs`; `quire-integration` PR 16 exercises the QSL/driver/CG composition. The full TC-017 outcome remains open. |
-| FR-015 / TC-029 | Planned QSL producer, strict IR admission, complete IR FR-357 generated-source projection, driver lowering and RT build/execution evidence. All twelve FR-015 criteria remain planned and untagged; TC-029 supplies the procedure, not execution credit. |
+| FR-015 / TC-029 | Planned QSL producer, strict IR admission, complete IR FR-357 generated-source projection, driver lowering and RT build/execution evidence. The twelve complete-preparation FR-015 criteria remain planned and untagged; TC-029 supplies the procedure, not execution credit. |
 | G5b acceptance evidence / IR-528 | `quire-integration` only: CLI/library parity across the eight outcome kinds with identical outcome bytes and exit codes; provider/plugin installation; cache hit/miss/never-store; AOT/interpreter parity; absence of a QSL user binary; and prove execution, replay and FR-331 records. End-to-end evidence is required on every OS declared supported at gate freeze; one platform's result does not establish acceptance on another. |
 
 The driver supplies the one user-facing CLI. CG FR-005's CLI-facing
@@ -169,3 +169,30 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | Verify plugin sessions, protocol, typed outcomes, cancellation, deadlines, budgets and cleanup | `quire-plugin-host` with deterministic process fixtures | component | TC-023, TC-024, TC-025, TC-026, TC-027 |
 | Verify CLI process-provider composition and cleanup on exit and handled signals | `quire-cli` adapter and `quire-plugin-host` with a descendant-spawning fixture | component | TC-028 |
 | Verify admitted monitor program preparation and execution from real emitted entries | QSL producer, strict IR reader, driver preparation and RT program | integration | TC-029 (planned) |
+
+The separate clock-admission refusal component has narrow FR-015-AC-13
+traces for native clause/role/ordinal, missing-clock and work-refusal payloads.
+The original partial selection controls retain their unclocked meaning.
+Contract CG PR #749 removes the previous production compilation blocker.
+Actual production component execution now passes all 17 `monitor_preparation`
+tests and all 8 `monitor_lowering` tests. The five clock-admission controls
+qualify narrow FR-015-AC-13: complete native refusal payloads, exact requested
+occurrences and remaining allowance, plus original pre-cancellation with no
+capability or mutation. This is component evidence, not a final gate or a
+complete preparation result.
+FR-015-AC-14 healthy native clock receipt, optional independent row comparison
+and successful receipt accounting remain Planned: QSL's current timed-profile
+emitter does not emit the clock row its PlanRoot needs and strict IR clock-row
+admission likewise excludes `TemporalProfile::Timed`. Changing the profile
+or editing checked-package bytes cannot replace that missing owner fact.
+
+This component does not qualify FR-015-AC-1 through FR-015-AC-12 or whole
+TC-029 execution. QSL-1728 final subject-occurrence mapping, admitted
+order/progress association, authentic final source-union producer identities,
+complete generated record closure and full Program preparation remain missing
+facts. Contract IR PR #905 supplies the native union seam and Contract IR
+PR #908 supplies the selected clock read. QSL PR #2385 supplies final
+source-record/member rows and Contract IR PR #910 supplies native record
+admission/projection; their driver join and complete closure qualification
+remain separate work. The clock component retains the direct native refusal
+when those available record rows are not joined.
