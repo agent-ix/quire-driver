@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Operating accounting for borrowed identity and value inspections.
 
-use std::{
-    fmt,
-    io::{self, Write},
-};
+use std::io::{self, Write};
 
 use quire_exact::Cancel;
 use serde::Serialize;
@@ -15,7 +12,6 @@ pub(super) struct Budget<'a> {
     cancel: &'a Cancel,
     limits: MonitorPreparationLimits,
     work: u64,
-    storage: u64,
 }
 
 impl<'a> Budget<'a> {
@@ -24,7 +20,6 @@ impl<'a> Budget<'a> {
             cancel,
             limits,
             work: 0,
-            storage: 0,
         }
     }
 
@@ -62,62 +57,11 @@ impl<'a> Budget<'a> {
         result.map_err(MonitorPreparationError::InternalSerialization)
     }
 
-    pub(super) fn reserve(&mut self, bytes: usize) -> Result<(), MonitorPreparationError> {
-        self.charge(0)?;
-        let next = u64::try_from(bytes).unwrap_or(u64::MAX);
-        if next > self.limits.storage.saturating_sub(self.storage) {
-            return Err(MonitorPreparationError::Storage {
-                limit: self.limits.storage,
-                consumed: self.storage,
-                next,
-            });
-        }
-        self.storage += next;
-        Ok(())
-    }
-
     pub(super) fn remaining(&self) -> u64 {
         self.limits.work - self.work
     }
     pub(super) fn work(&self) -> u64 {
         self.work
-    }
-
-    pub(super) fn inspect_debug(
-        &mut self,
-        value: &impl fmt::Debug,
-    ) -> Result<(), MonitorPreparationError> {
-        let mut writer = DebugChargeWriter {
-            budget: self,
-            stopped: None,
-        };
-        let result = fmt::write(&mut writer, format_args!("{value:?}"));
-        if let Some(stopped) = writer.stopped {
-            return Err(stopped);
-        }
-        // The only fallible writer operation records its exact operating stop.
-        debug_assert!(result.is_ok());
-        Ok(())
-    }
-}
-
-struct DebugChargeWriter<'budget, 'cancel> {
-    budget: &'budget mut Budget<'cancel>,
-    stopped: Option<MonitorPreparationError>,
-}
-
-impl fmt::Write for DebugChargeWriter<'_, '_> {
-    fn write_str(&mut self, value: &str) -> fmt::Result {
-        match self
-            .budget
-            .charge(u64::try_from(value.len()).unwrap_or(u64::MAX))
-        {
-            Ok(()) => Ok(()),
-            Err(stopped) => {
-                self.stopped = Some(stopped);
-                Err(fmt::Error)
-            }
-        }
     }
 }
 

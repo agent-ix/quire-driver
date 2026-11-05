@@ -126,8 +126,16 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
     // use the final emission's exact subformula identities.
     let plan = package.monitor_plans().next().unwrap();
     assert_eq!(plan.buffers().len(), root.plan.buffers().len());
-    let buffers = plan.buffers().zip(root.plan.buffers()).map(|(buffer, (_, capacity))|
-        (buffer.subformula().clone(), capacity.to_string().into_boxed_str())).collect();
+    let buffers = plan
+        .buffers()
+        .zip(root.plan.buffers())
+        .map(|(buffer, (_, capacity))| {
+            (
+                buffer.subformula().clone(),
+                capacity.to_string().into_boxed_str(),
+            )
+        })
+        .collect();
     Fixture {
         package,
         emission: root.emission,
@@ -135,7 +143,7 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
     }
 }
 
-fn with_request(test: impl FnOnce(&mut MonitorPreparationRequest<'_>)) {
+fn with_request(test: impl FnOnce(MonitorPreparationRequest<'_>)) {
     let fixture = &*FIXTURE;
     let package = fixture.package.as_ref();
     let plan = package.monitor_plans().next().unwrap();
@@ -161,10 +169,9 @@ fn with_request(test: impl FnOnce(&mut MonitorPreparationRequest<'_>)) {
         .unwrap();
     let clock = package
         .temporal_bindings()
-        .unwrap()
+        .unwrap_or_default()
         .iter()
-        .find(|row| row.declaration == *plan.clause() && row.occurrence == source.ordinal)
-        .unwrap();
+        .find(|row| row.declaration == *plan.clause() && row.occurrence == source.ordinal);
     let tick = fixture
         .emission
         .selected_source_unit_rows()
@@ -184,7 +191,7 @@ fn with_request(test: impl FnOnce(&mut MonitorPreparationRequest<'_>)) {
         numerator: "0".into(),
         denominator: "1".into(),
     };
-    let mut request = MonitorPreparationRequest {
+    let request = MonitorPreparationRequest {
         package,
         selection: MonitorSelection::new(package, plan.node_id()),
         package_lock: package.lock(),
@@ -220,13 +227,13 @@ fn with_request(test: impl FnOnce(&mut MonitorPreparationRequest<'_>)) {
             storage: 8 * 1024 * 1024,
         },
     };
-    test(&mut request);
+    test(request);
 }
 
 #[test]
 fn selection_binds_original_package_keys_subject_occurrence_and_target() {
     with_request(|request| {
-        let admitted = admit_monitor_selection(request, &Cancel::new())
+        let admitted = admit_monitor_selection(&request, &Cancel::new())
             .expect("genuine matching independent selection");
         assert_eq!(admitted.plan().node_id(), request.selection_root());
         assert_eq!(admitted.plan().structural_key(), request.root_key);
@@ -238,8 +245,11 @@ fn selection_binds_original_package_keys_subject_occurrence_and_target() {
 fn equal_value_foreign_instance_and_independent_identity_edits_refuse() {
     with_request(|request| {
         let cloned = request.package.clone();
-        request.package = &cloned;
-        let error = admit_monitor_selection(request, &Cancel::new())
+        let request = MonitorPreparationRequest {
+            package: &cloned,
+            ..request
+        };
+        let error = admit_monitor_selection(&request, &Cancel::new())
             .err()
             .expect("foreign instance stops");
         assert!(matches!(
@@ -250,9 +260,9 @@ fn equal_value_foreign_instance_and_independent_identity_edits_refuse() {
             }
         ));
     });
-    with_request(|request| {
+    with_request(|mut request| {
         request.subject = request.package.monitor_plans().next().unwrap().state();
-        let error = admit_monitor_selection(request, &Cancel::new())
+        let error = admit_monitor_selection(&request, &Cancel::new())
             .err()
             .expect("foreign subject stops");
         assert!(matches!(
@@ -266,8 +276,11 @@ fn equal_value_foreign_instance_and_independent_identity_edits_refuse() {
     with_request(|request| {
         let mut occurrence = request.occurrence.clone();
         occurrence.regions[0].start += 1;
-        request.occurrence = &occurrence;
-        let error = admit_monitor_selection(request, &Cancel::new())
+        let request = MonitorPreparationRequest {
+            occurrence: &occurrence,
+            ..request
+        };
+        let error = admit_monitor_selection(&request, &Cancel::new())
             .err()
             .expect("changed full occurrence stops");
         assert!(matches!(
@@ -287,8 +300,11 @@ fn target_mismatch_keeps_the_helpers_value_endpoint_unchanged() {
             numerator: "1".into(),
             denominator: "2".into(),
         };
-        request.uncertainty = &uncertainty;
-        let error = admit_monitor_selection(request, &Cancel::new())
+        let request = MonitorPreparationRequest {
+            uncertainty: &uncertainty,
+            ..request
+        };
+        let error = admit_monitor_selection(&request, &Cancel::new())
             .err()
             .expect("independent changed uncertainty stops");
         let MonitorPreparationError::TargetMismatch(mismatch) = error else {
@@ -304,10 +320,34 @@ fn target_mismatch_keeps_the_helpers_value_endpoint_unchanged() {
 
 #[test]
 fn operating_work_and_original_cancellation_are_not_selection_refusals() {
-    with_request(|request| {
+    with_request(|mut request| {
+        let required = admit_monitor_selection(&request, &Cancel::new())
+            .unwrap()
+            .work();
+        request.limits.work = required;
+        assert_eq!(
+            admit_monitor_selection(&request, &Cancel::new())
+                .unwrap()
+                .work(),
+            required
+        );
+        request.limits.work = required - 1;
+        let error = admit_monitor_selection(&request, &Cancel::new())
+            .err()
+            .expect("one below required work stops");
+        let MonitorPreparationError::Work {
+            limit,
+            consumed,
+            next,
+        } = error
+        else {
+            panic!("typed operating work stop");
+        };
+        assert_eq!(limit, required - 1);
+        assert!(consumed <= limit && next > limit - consumed);
         request.limits.work = 0;
         assert!(matches!(
-            admit_monitor_selection(request, &Cancel::new()),
+            admit_monitor_selection(&request, &Cancel::new()),
             Err(MonitorPreparationError::Work {
                 limit: 0,
                 consumed: 0,
@@ -317,22 +357,89 @@ fn operating_work_and_original_cancellation_are_not_selection_refusals() {
         let cancel = Cancel::new();
         cancel.cancel(CancelCause::Deadline);
         assert!(matches!(
-            admit_monitor_selection(request, &cancel),
+            admit_monitor_selection(&request, &cancel),
             Err(MonitorPreparationError::Cancelled(CancelCause::Deadline))
         ));
     });
 }
 
 #[test]
+fn every_independent_target_premise_preserves_its_native_value_locus() {
+    for (premise, expected_path) in [
+        (TargetPremise::Counter, vec![12, 0]),
+        (TargetPremise::CounterWidth, vec![8, 0]),
+        (TargetPremise::TickUnit, vec![13, 0]),
+        (TargetPremise::MaxReadingGap, vec![9, 0]),
+        (TargetPremise::MaxEventRate, vec![10, 0]),
+        (TargetPremise::Uncertainty, vec![14, 0]),
+        (TargetPremise::BufferCapacity, vec![11, 0, 0, 1, 0]),
+        (TargetPremise::ActivationCapacity, vec![16, 0]),
+    ] {
+        with_request(|request| {
+            let changed_rate = CheckedRational {
+                numerator: "3".into(),
+                denominator: "1".into(),
+            };
+            let changed_uncertainty = CheckedRational {
+                numerator: "1".into(),
+                denominator: "2".into(),
+            };
+            let mut changed_buffers = request.buffers.to_vec();
+            assert!(!changed_buffers.is_empty());
+            changed_buffers[0].1 = "999".into();
+            let edited = match premise {
+                TargetPremise::Counter => MonitorPreparationRequest {
+                    counter: "other-counter",
+                    ..request
+                },
+                TargetPremise::CounterWidth => MonitorPreparationRequest {
+                    counter_width_bits: 8,
+                    ..request
+                },
+                TargetPremise::TickUnit => MonitorPreparationRequest {
+                    tick_unit: request.clause,
+                    ..request
+                },
+                TargetPremise::MaxReadingGap => MonitorPreparationRequest {
+                    max_reading_gap: 101,
+                    ..request
+                },
+                TargetPremise::MaxEventRate => MonitorPreparationRequest {
+                    max_event_rate: &changed_rate,
+                    ..request
+                },
+                TargetPremise::Uncertainty => MonitorPreparationRequest {
+                    uncertainty: &changed_uncertainty,
+                    ..request
+                },
+                TargetPremise::BufferCapacity => MonitorPreparationRequest {
+                    buffers: &changed_buffers,
+                    ..request
+                },
+                TargetPremise::ActivationCapacity => MonitorPreparationRequest {
+                    activation_capacity: "0",
+                    ..request
+                },
+            };
+            let error = admit_monitor_selection(&edited, &Cancel::new())
+                .err()
+                .expect("independent changed premise stops");
+            let MonitorPreparationError::TargetMismatch(mismatch) = error else {
+                panic!("exact target mismatch for {premise:?}");
+            };
+            assert_eq!(mismatch.premise, premise);
+            assert_eq!(mismatch.locus.node, *edited.selection_root());
+            assert_eq!(mismatch.locus.structural_key, *edited.root_key);
+            assert_eq!(mismatch.locus.body_path, expected_path);
+            assert_eq!(mismatch.locus.occurrence, None);
+        });
+    }
+}
+
+#[test]
 fn initializer_projection_preserves_the_actual_native_source_type_stop() {
     with_request(|request| {
-        let admitted = admit_monitor_selection(request, &Cancel::new()).unwrap();
-        let error = project_monitor_initializer(&admitted, &Cancel::new())
-            .expect_err("current source record projection is genuinely unavailable");
-        assert_eq!(error.code(), MonitorPreparationErrorCode::Projection);
-        let MonitorPreparationError::Projection(native) = error else {
-            unreachable!()
-        };
+        let admitted = admit_monitor_selection(&request, &Cancel::new()).unwrap();
         let init = admitted.plan().init();
         let CheckedTerm::Aggregate { members } = init.body() else {
             panic!("admitted entry aggregate");
@@ -349,6 +456,12 @@ fn initializer_projection_preserves_the_actual_native_source_type_stop() {
             request.witnesses.fields.iter().cloned(),
         )
         .unwrap();
+        let error = project_monitor_initializer(&admitted, &identities, &Cancel::new())
+            .expect_err("current source record projection is genuinely unavailable");
+        assert_eq!(error.code(), MonitorPreparationErrorCode::Projection);
+        let MonitorPreparationError::Projection(native) = error else {
+            unreachable!()
+        };
         let original = request
             .package
             .project_exact_type(target, &identities, 1_000_000)

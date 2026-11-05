@@ -108,3 +108,26 @@ The first IR FR-357 witnessed subset cannot establish a complete
 `TypeEnvironment` or RT `ProgramParts`. No copied upstream fixture, reminted
 identity, semantic mirror, callback, new semantic cap or proof run supplies
 missing evidence.
+
+## Current Partial Source Evidence
+
+`tests/monitor_preparation.rs` exercises the real final QSL producer and strict
+IR admission before the driver's package-instance/root/four-entry/clause/full
+occurrence/subject/profile and independent target binding. All eight target
+premises retain the diagnostic helper's exact value endpoint, including the
+final binding child. Work-boundary and original cancellation controls execute.
+The borrowed selection is not an RT program or a complete admission certificate.
+
+The current producer emits no clock-binding rows in this fixture. An absent
+optional clock input establishes no clock/order/progress association. A supplied
+clock row must actually belong to that admitted package and clause occurrence;
+arbitrary caller bytes do not establish an association.
+
+The initializer-type read preserves the actual native source-type refusal. Its
+caller supplies an existing `SelectedExactIdentities`; constructing and joining
+that set is outside this read's allowance, not a hidden unbounded operation in
+the claimed type-read budget. This partial read provides no storage-bound or
+complete-closure qualification. The public `prepare_monitor` returning retained
+`Rc<Program>`, complete owned lowering and this test case's healthy-build and
+execution obligations remain Planned. No full criterion is traced from these
+partial controls.

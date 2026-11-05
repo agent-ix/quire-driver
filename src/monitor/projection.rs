@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! The actual bounded initializer type read, without an environment substitute.
 
-use quire_contract_model::{
-    CheckedTerm, ExactTypeProjection, SelectedExactIdentities,
-};
+use quire_contract_model::{CheckedTerm, ExactTypeProjection, SelectedExactIdentities};
 use quire_exact::Cancel;
 
 use super::budget::Budget;
 use super::{AdmittedMonitorSelection, MonitorPreparationError as Error};
 
-/// Read the initializer expression's native type using the original witnessed joins.
+/// Read the initializer expression's native type using identities admitted before this read.
+///
+/// The caller supplies an existing native identity set from the same acquisition.
+/// Constructing/joining that set is outside this operation's work allowance; this
+/// function does not call the unbounded `from_stage_rows` constructor. It is not
+/// an authenticated complete-closure entry. Native projection has no cancellation
+/// argument: cancellation is polled before it and before a successful result is exposed.
 ///
 /// This is a partial preparation read, not complete source-closure lowering.
 /// In particular its success does not authorize a `TypeEnvironment` or runtime
@@ -17,26 +21,12 @@ use super::{AdmittedMonitorSelection, MonitorPreparationError as Error};
 /// upstream projection errors, including their original node, cause and work.
 pub fn project_monitor_initializer(
     selection: &AdmittedMonitorSelection<'_>,
+    identities: &SelectedExactIdentities,
     cancel: &Cancel,
 ) -> Result<ExactTypeProjection, Error> {
     let request = selection.request;
     let mut budget = Budget::new(request.limits, cancel);
     budget.charge(selection.work)?;
-    for row in request.witnesses.declarations {
-        let before = budget.work();
-        budget.inspect_debug(row)?;
-        budget.reserve(usize::try_from(budget.work() - before).unwrap_or(usize::MAX))?;
-    }
-    for row in request.witnesses.fields {
-        let before = budget.work();
-        budget.inspect_debug(row)?;
-        budget.reserve(usize::try_from(budget.work() - before).unwrap_or(usize::MAX))?;
-    }
-    let identities = SelectedExactIdentities::from_stage_rows(
-        request.package,
-        request.witnesses.declarations.iter().cloned(),
-        request.witnesses.fields.iter().cloned(),
-    )?;
     let init = selection.plan.init();
     budget.charge(1)?;
     let invalid = || Error::InvalidAdmittedEntry {
@@ -62,8 +52,9 @@ pub fn project_monitor_initializer(
         return Err(invalid());
     };
     budget.inspect(target)?;
-    request
+    let projected = request
         .package
-        .project_exact_type(target, &identities, budget.remaining())
-        .map_err(Error::Projection)
+        .project_exact_type(target, identities, budget.remaining())?;
+    budget.charge(projected.work())?;
+    Ok(projected)
 }

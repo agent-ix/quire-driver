@@ -67,10 +67,10 @@ pub enum MonitorPreparationError {
     },
     /// Original target-mismatch payload, including the helper's unchanged value path.
     #[error("monitor target mismatch: {0:?}")]
-    TargetMismatch(TargetMismatch),
+    TargetMismatch(Box<TargetMismatch>),
     /// Original unsupported-operation payload and exact inline source locus.
     #[error("monitor operation unsupported: {0:?}")]
-    Unsupported(UnsupportedOperation),
+    Unsupported(Box<UnsupportedOperation>),
     /// The native IR type-projection refusal without relabelling its cause.
     #[error(transparent)]
     Projection(#[from] ExactTypeProjectionError),

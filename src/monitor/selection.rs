@@ -161,23 +161,26 @@ fn check_clause(
     if !selected_law {
         return Err(mismatch(Field::Profile, plan.clause()));
     }
-    budget.inspect(request.clock_binding)?;
-    if request.clock_binding.declaration != *plan.clause()
-        || request.clock_binding.occurrence != request.occurrence.ordinal
-    {
-        return Err(mismatch(Field::Clock, plan.clause()));
-    }
-    let mut clock_found = false;
-    for row in request.package.temporal_bindings().unwrap_or_default() {
-        budget.inspect(row)?;
-        if row == request.clock_binding {
-            clock_found = true;
-            break;
+    if let Some(selected_clock) = request.clock_binding {
+        budget.inspect(selected_clock)?;
+        if selected_clock.declaration != *plan.clause()
+            || selected_clock.occurrence != request.occurrence.ordinal
+        {
+            return Err(mismatch(Field::Clock, plan.clause()));
+        }
+        let mut clock_found = false;
+        for row in request.package.temporal_bindings().unwrap_or_default() {
+            budget.inspect(row)?;
+            if row == selected_clock {
+                clock_found = true;
+                break;
+            }
+        }
+        if !clock_found {
+            return Err(mismatch(Field::Clock, plan.clause()));
         }
     }
-    if !clock_found {
-        return Err(mismatch(Field::Clock, plan.clause()));
-    }
+
     Ok(())
 }
 
@@ -190,7 +193,7 @@ fn check_target(
         // The independent clause occurrence belongs to the clause, not the
         // generated monitor root. Do not select an arbitrary root occurrence.
         target_mismatch_at(request.package, plan.node_id(), premise, index, None)
-            .map(Error::TargetMismatch)
+            .map(|mismatch| Error::TargetMismatch(Box::new(mismatch)))
             .unwrap_or_else(Error::Internal)
     };
     budget.inspect(request.counter)?;

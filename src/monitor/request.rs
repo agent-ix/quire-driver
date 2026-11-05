@@ -32,7 +32,7 @@ impl<'a> MonitorSelection<'a> {
 pub struct MonitorPreparationLimits {
     /// Cumulative inspected identity/value material and native projection work.
     pub work: u64,
-    /// Cumulative temporary bytes reserved by preparation, excluding input storage.
+    /// Reserved allowance for later owned lowering; selection/type reads do not enforce it.
     pub storage: u64,
 }
 
@@ -62,8 +62,8 @@ pub struct MonitorPreparationRequest<'a> {
     pub occurrence: &'a CheckedSourceMapEntry,
     /// Independently selected profile; the selected package must retain it.
     pub profile: &'a CheckedSelection,
-    /// Independently selected canonical clock row of this exact clause occurrence.
-    pub clock_binding: &'a TemporalBinding,
+    /// Independent canonical clock row, if available. Absence asserts no admitted clock association.
+    pub clock_binding: Option<&'a TemporalBinding>,
     /// Exact independently selected hardware counter name.
     pub counter: &'a str,
     /// Exact independently selected tick-unit ID.
