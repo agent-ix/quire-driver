@@ -58,10 +58,37 @@ by moving canonical `TypeEnvironment`, `Layout`, functions and expressions into
 After success, the program SHALL retain no source/package/request/witness or
 temporary preparation borrow.
 
-Private component work may materialize existing RT `FunctionId` root addresses,
-`Vec<Function>` and `Vec<Expression>` directly. Such staging consists only of
-native RT owners, not another plan/type/expression DTO. It SHALL NOT be exposed
-as a separate public scalar preparation API or counted as a complete Program.
+The agreed preparer-independent public helper is
+`quire_driver::monitor::lowering::lower_scalar_functions`:
+
+```rust
+pub fn lower_scalar_functions(
+    package: &CheckedPackageV2,
+    roots: &[CheckedNodeId],
+    identities: &SelectedExactIdentities,
+    limits: MonitorPreparationLimits,
+    cancel: &quire_exact::Cancel,
+) -> Result<
+    (Vec<quire_contract_runtime::monitor::FunctionId>,
+     Vec<quire_contract_runtime::monitor::Function>,
+     Vec<quire_contract_runtime::monitor::Expression>),
+    MonitorPreparationError,
+>;
+```
+
+Its tuple SHALL contain only existing owned RT requested-root addresses,
+functions and expressions, with no source/package/preparation borrow or second
+plan/type/expression DTO. Root addresses SHALL preserve requested-root order;
+repeated roots SHALL resolve to the same FunctionId rather than duplicate the
+function. Empty roots SHALL return empty native arrays, subject to cancellation
+and operating checks. Failure SHALL return no partial tuple. This helper is
+not a complete Program or a monitor preparation entry.
+
+The public helper SHALL start its explicit independent operating allowance.
+The full by-value `lower_monitor` SHALL reuse the same private worklist under
+admission's inherited budget; it SHALL NOT invoke the public helper with a
+fresh allowance that discards admission work. P8 owns shared module registration,
+exports, budget/error/request interfaces, manifest and lock changes.
 The full entry SHALL NOT be published as a constant-unavailable placeholder
 while its required authority-bearing inputs remain absent.
 
@@ -86,8 +113,8 @@ table supplies a missing selective read.
 Function and expression edges SHALL retain source order, native operand types,
 parameter positions and actual owning `FunctionId` context. The selected
 ordinary operation SHALL map to its corresponding closed RT `Operation`, not
-a computed result or a reimplemented evaluator. Calls SHALL reference retained
-callee addresses; recursive calls SHALL remain graph edges rather than host
+a computed result or a reimplemented evaluator. Where the complete lowerer
+supports calls, they SHALL reference retained callee addresses; recursive calls SHALL remain graph edges rather than host
 recursion or an invented semantic depth limit.
 
 The lowerer SHALL retain the original expression key and native child path.
@@ -95,6 +122,64 @@ The current strict IR boundary admits Application only at a node body root;
 nested Applications SHALL NOT be fabricated as lowering fixtures. Nonempty
 paths retain actual admitted nonapplication terms/reference boundaries under
 [FR-016](FR-016-retain-monitor-refusal-loci.md).
+
+### Closed initial scalar capability
+
+The standalone helper SHALL accept only ordinary source functions whose native
+projected parameter, result and reached executable types are exactly
+`quire_exact::ValueType::Integer` or `ValueType::Boolean`. Bounded numeric,
+nominal, composite and other types are outside this initial capability.
+Functions SHALL have no context or frame. Their executable bodies may be a
+reference to one of that callable's authenticated ordered parameters, a
+reference to another supported executable node, or a root Application from
+the table below. A parameter reference SHALL become native
+`Argument { function, position }` from callable membership and declaration
+order, never by interpreting its name/level metadata as executable syntax.
+References to parameters from another callable SHALL NOT acquire local ownership.
+
+Every supported Application SHALL have the exact listed native operator class,
+arity and operand/result types. Its reader-admitted `operation.read()` SHALL
+have mode None, member None, execution_point None, and empty laws, constraints
+and leaves. All operands SHALL be original ordered reference terms to supported
+executable nodes or parameters. No broad operator family implies support.
+
+| Native operation identity | Operator / arity | Operand types -> result | Native RT operation |
+| --- | --- | --- | --- |
+| `quire.op.integer.add` | Binary / 2 | Integer, Integer -> Integer | IntegerAdd |
+| `quire.op.integer.sub` | Binary / 2 | Integer, Integer -> Integer | IntegerSubtract |
+| `quire.op.integer.mul` | Binary / 2 | Integer, Integer -> Integer | IntegerMultiply |
+| `quire.op.integer.negate` | Unary / 1 | Integer -> Integer | IntegerNegate |
+| `quire.op.integer.lt` | Binary / 2 | Integer, Integer -> Boolean | IntegerOrder, OrderingOperator::Less |
+| `quire.op.integer.le` | Binary / 2 | Integer, Integer -> Boolean | IntegerOrder, OrderingOperator::LessOrEqual |
+| `quire.op.integer.gt` | Binary / 2 | Integer, Integer -> Boolean | IntegerOrder, OrderingOperator::Greater |
+| `quire.op.integer.ge` | Binary / 2 | Integer, Integer -> Boolean | IntegerOrder, OrderingOperator::GreaterOrEqual |
+| `quire.op.boolean.not` | Unary / 1 | Boolean -> Boolean | BooleanNot |
+| `quire.op.boolean.and` | Binary / 2 | Boolean, Boolean -> Boolean | BooleanAnd |
+| `quire.op.boolean.or` | Binary / 2 | Boolean, Boolean -> Boolean | BooleanOr |
+
+This is a closed initial set, not an illustrative list. Literal, If, Let,
+ordinary source Call, equality, integer division/remainder/modulo, Boolean
+implies, dependency references, general aggregate construction and every other
+form/identity/metadata shape SHALL return located typed UnsupportedOperation
+when admitted but outside this set. The parameter metadata aggregate is read
+only through authenticated callable membership, not lowered as an aggregate.
+A native selective callable/type/operation read failure SHALL retain its
+original native payload rather than becoming Unsupported. An admitted root
+with no supported ordinary source callable SHALL receive a located Unsupported
+result, not an invented callable. No generic integer operation, implied Boolean
+expansion, evaluator or nominal environment supplies missing support.
+
+The helper SHALL discover only requested functions and their reached supported
+expression dependencies iteratively, in requested-root and source-operand
+order, bounded by actual caller work/storage and cancellation. Ordinary calls
+are initially unsupported: no callee graph is traversed or recursive callable
+body expanded; a reached Call produces Unsupported at that original locus.
+Repeated acyclic expression references SHALL share within their correct owner
+context. A native reader's cycle refusal SHALL remain native; an impossible
+pending-expression cycle after admission SHALL be a typed driver invariant
+fault, not host recursion or a fabricated successful arena. Supporting calls
+later requires an explicit capability amendment and reserved native function
+addresses before body discovery, not an implicit expansion of this set.
 
 ### Preserve scoped sharing and package identity
 
@@ -127,12 +212,13 @@ Storage reservations SHALL be checked before exposing owned arenas; allocation
 failure SHALL retain its native cause. Operating limits SHALL NOT change target
 premises, semantic capacities, source types or evaluation meaning.
 
-Component tests may obtain genuine native callable/type/node views in explicit
-setup before exercising the private assembly phase. Their phase allowance
-covers that phase only. Setup outside it SHALL NOT be reported as accounted
-full preparation work, nor shall a component result satisfy the resumed-total
-budget criterion. The production handoff still requires the actual selective
-native reads and their reported work.
+Source-fixture preflight may obtain genuine native callable/type/node views
+in explicit setup without claiming lowering accounting. The public scalar
+helper SHALL account for its own selective native reads and assembly under
+its independent allowance, using actual owner-reported read work. Pre-acquired
+setup views SHALL NOT substitute for those production reads or their receipts.
+Neither source preflight nor standalone helper success satisfies the inherited
+whole-preparation budget criterion.
 
 ### Preserve native dispositions and authority
 
@@ -146,7 +232,7 @@ admitted semantic input. New native outer error payloads remain owned by
 A missing nominal/type/association channel SHALL NOT produce an invented
 `TypeEnvironment`, member identity, empty/default association or successful
 Program. It remains an unqualified owner boundary until the real input and
-read exist. Private primitive component success does not discharge those
+read exist. Standalone primitive helper success does not discharge those
 complete-program obligations.
 
 ## Acceptance Criteria
@@ -157,16 +243,17 @@ complete-program obligations.
 | FR-017-AC-2 | After complete success, dropping all source, package, witness, request and preparation objects leaves the RT-owned program usable. Two actual runtime builds retain independent initialized state without rebinding or a borrowed compiler owner. | Test |
 | FR-017-AC-3 | Full lowering preserves admission's already consumed work under the same total limit, native read success work, charged storage and original cancellation. An exact/one-under operating stop returns its original typed cause and no partial owner; no guessed reader receipt or semantic-capacity change supplies success. | Test |
 | FR-017-AC-4 | Native IR refusal, unsupported source operation, operating stop, cancellation, runtime ProgramRefusal and driver invariant failure remain distinct, with original source node/path and native payload. No failure becomes a temporal outcome or a partial successful program. | Test |
-| FR-017-AC-5 | A private component consumes genuine QSL-produced/strictly admitted ordinary Integer/Boolean callable facts and materializes native RT root addresses/functions/expressions. Its selected arithmetic/Boolean/call operations, argument positions, native projected types and complete source keys match the actual input; no source parse or evaluator supplies lowering meaning. This is component evidence only. | Test |
-| FR-017-AC-6 | Within one genuine checked package, two functions sharing actual parameter/query handles retain distinct native Argument FunctionId owners and positions. Context-qualified memoization retains the identical original source keys without merging the owning invocations or rewriting keys. Native scalar outputs remain inspectable after setup destruction; separately lowered packages also retain their own qualified keys and scoped addresses. This supplies no temporal subformula-association credit. | Test |
+| FR-017-AC-5 | The public lower_scalar_functions helper accepts the closed initial scalar set and returns owned native RT root addresses/functions/expressions under its independent allowance. Requested order and repeated-root FunctionId sharing, exact supported operation metadata/arity/types, parameter ownership and unsupported/native-reader dispositions match the declared contract. No source parse or evaluator supplies meaning; this is component evidence only. | Test |
+| FR-017-AC-6 | Within one genuine checked package, two functions sharing actual parameter handles retain distinct native Argument FunctionId owners and positions. Context-qualified memoization retains the identical original source keys without merging the owning invocations or rewriting keys. Native scalar outputs remain inspectable after setup destruction; separately lowered packages also retain their own qualified keys and scoped addresses. This supplies no temporal subformula-association credit. | Test |
 | FR-017-AC-7 | The complete monitor program retains original clause/subject/occurrence/root/buffer ownership. Equal numeric subformula indices under different genuine subjects do not alias in selection or retained Layout; no scalar-only sample substitutes for this control. | Test |
 | FR-017-AC-8 | Lowering consumes native typed owner facts and emits only RT-native executable types, with no copied evaluator, transition implementation, second IR reader/plan vocabulary, hidden identity mint, whole-package index, repeated unrelated callable scan or semantic depth cap. | Inspection |
 
 ## Qualification Status
 
 All criteria remain Planned until their exact controls execute. The first
-intended component checks cover ordinary source scalar arena materialization
-and retention only. They invoke no `emit_plan_root`, fabricated monitor
+intended public-helper checks cover the closed ordinary source scalar
+capability and native arena retention only. The existing original-source
+preflight establishes genuine shared parameter/body handles, not helper success. They invoke no `emit_plan_root`, fabricated monitor
 selection, complete `Layout`, replacement `TypeEnvironment` or RT build.
 Complete Program ownership, resumed whole-preparer accounting, authenticated
 anonymous-entry/type closure and subject/subformula association evidence remain
