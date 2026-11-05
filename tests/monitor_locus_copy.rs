@@ -31,7 +31,7 @@ fn native_axes_share_backing_and_obey_independent_exact_limits() {
         ],
         ordinal: 2,
     };
-    let path = vec![0; 128];
+    let path: Vec<usize> = (0..127).chain(std::iter::once(0)).collect();
     let occurrence = CheckedOccurrence {
         role: CheckedOccurrenceRole::Generated,
         ordinal: 19,
@@ -95,7 +95,10 @@ fn native_axes_share_backing_and_obey_independent_exact_limits() {
     let none = copy_monitor_locus(&node, &node, &path, None, limits, &Cancel::new()).unwrap();
     assert_eq!(none.locus.occurrence, None);
     drop((node, child, path, occurrence));
-    assert_eq!(copied.locus.body_path, vec![0; 128]);
+    assert_eq!(
+        copied.locus.body_path,
+        (0..127).chain(std::iter::once(0)).collect::<Vec<_>>()
+    );
     assert_eq!(copied.locus.occurrence.unwrap().ordinal, 19);
     let Segment::Node(retained) = &copied.locus.structural_key.path[2] else {
         panic!("missing retained child")
