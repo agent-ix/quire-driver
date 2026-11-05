@@ -467,3 +467,46 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
         assert_eq!(row.members.len(), producer.members.len());
     }
 }
+
+#[trace("FR-018-AC-3")]
+#[test]
+fn source_record_error_catalog_has_exact_distinct_round_trip_spellings() {
+    use SourceRecordAdmissionErrorCode::{Join, ReadIncomplete, ReadRefused};
+
+    let expected = [
+        (ReadRefused, "read_refused"),
+        (ReadIncomplete, "read_incomplete"),
+        (Join, "join"),
+    ];
+    assert_eq!(
+        SourceRecordAdmissionErrorCode::all(),
+        &[ReadRefused, ReadIncomplete, Join]
+    );
+    let mut spellings = std::collections::BTreeSet::new();
+    for (code, spelling) in expected {
+        assert_eq!(code.as_str(), spelling);
+        assert_eq!(
+            SourceRecordAdmissionErrorCode::from_code(spelling),
+            Some(code)
+        );
+        assert!(
+            spellings.insert(code.as_str()),
+            "distinct catalog spellings"
+        );
+        assert_eq!(
+            SourceRecordAdmissionErrorCode::from_code(&spelling.to_uppercase()),
+            None
+        );
+    }
+    for invalid in [
+        "",
+        "unknown",
+        "ReadRefused",
+        "read-refused",
+        " join",
+        "join ",
+        "read_incomplete\n",
+    ] {
+        assert_eq!(SourceRecordAdmissionErrorCode::from_code(invalid), None);
+    }
+}

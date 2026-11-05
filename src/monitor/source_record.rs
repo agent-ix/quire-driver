@@ -20,6 +20,30 @@ pub enum SourceRecordAdmissionErrorCode {
     Join,
 }
 
+impl SourceRecordAdmissionErrorCode {
+    /// Stable machine-readable spelling, independent of diagnostic rendering.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadRefused => "read_refused",
+            Self::ReadIncomplete => "read_incomplete",
+            Self::Join => "join",
+        }
+    }
+
+    /// Every top-level category exposed by source-record admission.
+    pub const fn all() -> &'static [Self] {
+        &[Self::ReadRefused, Self::ReadIncomplete, Self::Join]
+    }
+
+    /// Decode an exact stable spelling; unknown or differently cased text is absent.
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::all()
+            .iter()
+            .copied()
+            .find(|candidate| candidate.as_str() == code)
+    }
+}
+
 /// Original owner payload from strict reading or native source-record joining.
 #[derive(Debug, thiserror::Error)]
 pub enum SourceRecordAdmissionError {
