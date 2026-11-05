@@ -10,7 +10,8 @@ use quire_contract_model::{
     CheckedNodeId, CheckedPackageReadLimits, ExactTypeProjectionErrorCode, SelectedExactIdentities,
 };
 use quire_driver::monitor::source_record::{
-    admit_source_records, SourceRecordAdmissionError, SourceRecordAdmissionErrorCode,
+    admit_source_records, AdmittedSourceRecords, SourceRecordAdmissionError,
+    SourceRecordAdmissionErrorCode,
 };
 use quire_exact::{Cancel, Presence, ValueType};
 
@@ -59,23 +60,19 @@ function tree using v(t: Tree): Boolean pure { true }
     (emit_checked(checked.package()).unwrap(), tagged, tree)
 }
 
-#[trace("FR-018-AC-1", "FR-018-AC-3", "FR-018-AC-4")]
-#[test]
-fn authentic_complete_rows_and_parameter_projections_preserve_opaque_types() {
-    let (emission, tagged, tree) = produce("record-positive");
-    let admitted = admit_source_records(
-        &emission,
-        emission.evidence(),
-        CheckedPackageReadLimits::bounded(),
-        100_000,
-    )
-    .unwrap();
-    assert_eq!(admitted.rows().count(), 3);
+fn assert_complete_producer_rows(admitted: &AdmittedSourceRecords, emission: &Emission) {
+    let originals = emission.selected_source_record_rows();
+    assert!(
+        !originals.is_empty(),
+        "authentic producer supplies source records"
+    );
+    assert_eq!(admitted.rows().count(), originals.len());
     for original in emission.selected_source_record_rows() {
         let row = admitted
             .rows()
             .find(|r| r.structural_node == original.structural_node)
             .unwrap();
+        assert_eq!(row.structural_node, original.structural_node);
         assert_eq!(row.source_authority, original.source_authority);
         assert_eq!(row.source_identity, original.source_identity);
         assert_eq!(row.qualified_declaration, original.qualified_declaration);
@@ -92,6 +89,21 @@ fn authentic_complete_rows_and_parameter_projections_preserve_opaque_types() {
             assert_eq!(actual.value_type, original.value_type);
         }
     }
+}
+
+#[trace("FR-018-AC-1", "FR-018-AC-3", "FR-018-AC-4")]
+#[test]
+fn authentic_complete_rows_and_parameter_projections_preserve_opaque_types() {
+    let (emission, tagged, tree) = produce("record-positive");
+    let admitted = admit_source_records(
+        &emission,
+        emission.evidence(),
+        CheckedPackageReadLimits::bounded(),
+        100_000,
+    )
+    .unwrap();
+    assert_eq!(admitted.rows().count(), 3);
+    assert_complete_producer_rows(&admitted, &emission);
     let row = admitted
         .rows()
         .find(|r| r.qualified_declaration == [Box::from("Tagged")])
@@ -465,20 +477,45 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
             package.term(native.requested.as_ref()));
     });
     assert_eq!(admitted.package().monitor_plans().count(), 1);
-    assert_eq!(admitted.rows().count(), 2);
+    assert_complete_producer_rows(&admitted, &root.emission);
     for row in admitted.rows() {
         assert!(admitted.package().node_kind(&row.structural_node).is_some());
         for member in &row.members {
             assert!(admitted.package().node_kind(&member.type_node).is_some());
         }
-        let producer = root
+    }
+    for (original_name, admitted_name) in [("origin_tick", "origin"), ("amount", "value")] {
+        let (producer, index) = root
             .emission
             .selected_source_record_rows()
             .iter()
-            .find(|producer| producer.structural_node == row.structural_node)
+            .find_map(|row| {
+                row.members
+                    .iter()
+                    .position(|member| {
+                        member.original_member_identity.as_ref() == original_name
+                            && member.admitted_name.as_ref() == admitted_name
+                    })
+                    .map(|index| (row, index))
+            })
+            .expect("genuine generated row retains its original identity and final binding rename");
+        let row = admitted
+            .rows()
+            .find(|row| row.structural_node == producer.structural_node)
             .unwrap();
-        assert_eq!(row.record_key, producer.record_key);
-        assert_eq!(row.members.len(), producer.members.len());
+        assert_eq!(
+            row.members[index].original_member_identity.as_ref(),
+            original_name
+        );
+        assert_eq!(row.members[index].admitted_name.as_ref(), admitted_name);
+        assert_eq!(
+            row.members[index].type_node,
+            producer.members[index].type_node
+        );
+        assert_eq!(
+            row.members[index].value_type,
+            producer.members[index].value_type
+        );
     }
 }
 
