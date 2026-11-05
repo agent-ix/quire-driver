@@ -96,3 +96,45 @@ scope:
 ## Risk assessment
 
 FR-015 native mapping: technical risk medium; volatility high. Mitigation: strict native admission, narrow capability, foreign/two-clause controls, and retained explicit AC-14 limitation.
+
+## Round 1 disposition checkpoint
+
+Current verdict: PASS for the changed seam; both original code findings are fixed and no new defect was found. Original findings and initial verdict above are retained as history. The shared tests/common/monitor.rs now owns producer/document/admission/request construction for both suites; explicit companion source preserves the legacy same-clause twins and distinct mapping clauses. Direct package names, both complete native NodeKeys and native origin role/ordinal are charged before their corresponding comparisons or conversion. The borrowed iterative native walker accounts key/container/tag, ordinal and UTF-8 material and releases scratch on typed failure. Integration tests cover zero-work precedence, package exact/one-under boundaries and denial before comparison when the second native key cannot be inspected; unit tests cover nested UTF-8 exact/one-under work, storage denial and original cancellation cleanup.
+
+The generic Budget.push_key retains the existing one-unit logical push schedule and actual-capacity storage accounting. Broad frontiers may cause repeated Vec reservations; the changed contract specifies identity/material traversal units and scratch storage, not allocator relocation CPU units or an aggregate runtime bound. No new relocation finding is asserted. The separate diagnostic-copy relocation schedule does not silently redefine this ledger. This conclusion grants no full preparation work/storage qualification.
+
+Supplied production logs show eight final-subject, seventeen preparation, eight lowering and ten focused unit tests passed. Supplied Clippy, formatter and specification checks passed. These are coder execution receipts inspected by this independent reviewer; no reviewer builds or gates ran. The source mapping, native payload classification, full selected-root/source/name checks and genuine MissingClock continuation remain unchanged. AC-14 and whole Program preparation remain Planned.
+
+### Round 1 examined units
+
+```yaml
+scope:
+- id: FR-015/native-precomparison
+  path: spec/functional/FR-015-prepare-an-admitted-monitor-program.md
+  role: examined
+  excerpt: Native NodeKeys SHALL be walked iteratively through the owner's borrowed
+    `view()`/path-segment views, without owned path extraction, Serde or identity
+    copies.
+- id: src/monitor/material.rs
+  path: src/monitor/material.rs
+  role: examined
+  excerpt: impl Material for NodeKey {
+- id: src/monitor/budget.rs
+  path: src/monitor/budget.rs
+  role: examined
+  excerpt: '    pub(super) fn push_key<T>('
+- id: tests/common/monitor.rs
+  path: tests/common/monitor.rs
+  role: examined
+  excerpt: 'pub fn fixture(selected: &str, counter: &''static str, additional_clause:
+    &str) -> Fixture {'
+- id: tests/monitor_final_subject.rs/producer-material
+  path: tests/monitor_final_subject.rs
+  role: examined
+  excerpt: fn producer_material_is_charged_before_early_identity_mismatches() {
+- id: src/monitor/budget/tests.rs/native-material
+  path: src/monitor/budget/tests.rs
+  role: examined
+  excerpt: fn native_key_borrowed_material_charges_nested_utf8_and_releases_all_scratch()
+    {
+```
