@@ -248,14 +248,19 @@ fn every_target_premise_names_its_actual_admitted_value() {
     let before = serde_json::to_value((package.graph(), package.source_map())).unwrap();
     let plan = package.monitor_plans().next().unwrap();
     let root = plan.node_id();
-    assert!(package
+    let generated = package
         .graph()
         .nodes
         .iter()
         .find(|node| &node.node_id == root)
-        .unwrap()
-        .occurrences
-        .is_empty());
+        .unwrap();
+    assert_eq!(
+        generated.occurrences,
+        vec![CheckedOccurrence {
+            role: CheckedOccurrenceRole::Generated,
+            ordinal: 0
+        }]
+    );
     for (premise, name, slot, buffer) in [
         (TargetPremise::Counter, "counter", 12, None),
         (TargetPremise::CounterWidth, "counter_width_bits", 8, None),
@@ -312,7 +317,7 @@ fn operations_and_native_child_paths_retain_the_original_terms() {
     for identity in [
         "quire.op.integer.add",
         "quire.op.integer.mod",
-        "quire.op.numeric.convert",
+        "quire.op.numeric.convert_rounding",
     ] {
         let (node, kind) = operation(package, identity);
         let CheckedTerm::Application {
@@ -323,6 +328,12 @@ fn operations_and_native_child_paths_retain_the_original_terms() {
         else {
             panic!("actual application");
         };
+        if identity == "quire.op.numeric.convert_rounding" {
+            assert!(
+                expected.mode().unwrap().is_some(),
+                "the real rounding conversion carries its owner mode"
+            );
+        }
         let actual = unsupported_at(package, node, &[], kind, None).unwrap();
         assert_eq!(actual.operation.as_ref(), Some(expected));
         assert_eq!(actual.kind, kind);

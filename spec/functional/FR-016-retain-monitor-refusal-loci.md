@@ -97,8 +97,8 @@ children or translate paths to a second location vocabulary.
 When an occurrence is supplied, the helper SHALL require the exact role and
 ordinal in that node's admitted occurrence list. It SHALL return
 `OccurrenceMismatch` for a nonmember. When `None` is supplied, the helper SHALL
-retain `None`, including for genuine generated monitor roots without source
-occurrences. No first source-map row or fabricated ordinal supplies an absent
+retain `None`, including for genuine generated monitor roots whose generated
+occurrences were not selected by the caller. No first source-map row or fabricated ordinal supplies an absent
 occurrence; source-map absence alone does not invalidate an admitted occurrence.
 
 ### Derive a target-premise location
@@ -151,7 +151,7 @@ second graph, or recompute content identities to construct a diagnostic.
 | FR-016-AC-3 | On a genuinely admitted monitor root, Every TargetPremise resolves the value of its own actual named binding, including the final Binding.value child zero, without comparing or changing that value. Uncertainty resolves its actual uncertainty value path; BufferCapacity resolves the chosen capacity value path, including its final child zero and original row owner. | Test |
 | FR-016-AC-4 | BufferCapacity without an index, an out-of-range buffer index, and an index supplied for another premise each return InvalidPremiseIndex, with no target payload. A known ordinary node used as a root returns NotMonitorRoot; an unresolved node returns UnknownNode. | Test |
 | FR-016-AC-5 | A selected actual application yields its entire original CheckedApplicationOperation and the caller-resolved containing-node kind. A nonapplication terminal yields None. Changing the selected inline operation or path changes the observation; no support-policy verdict is inferred. | Test |
-| FR-016-AC-6 | An actual admitted role/ordinal is retained exactly; a nonmember occurrence returns OccurrenceMismatch. A genuine generated root without an occurrence succeeds with None without selecting a source-map row. | Test |
+| FR-016-AC-6 | An actual admitted role/ordinal is retained exactly; a nonmember occurrence returns OccurrenceMismatch. A genuine generated root succeeds with caller-supplied None even when it retains a Generated occurrence, without selecting a source-map row or inventing a selected occurrence. | Test |
 | FR-016-AC-7 | Construction retains typed error distinctions and returns no partial diagnostic on failure. Neither constructor changes the admitted package, target values, operation records or source correspondence. | Test |
 | FR-016-AC-8 | The diagnostic module uses native IR identities/terms and native Vec child paths, introduces no plan/target/expression DTO or evaluator, and performs no parse, initialization, runtime build, support-policy decision, whole-graph index collection or identity recomputation. | Inspection |
 

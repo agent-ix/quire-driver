@@ -44,8 +44,9 @@ payload merely because an enum can be constructed or displayed.
    passed as a monitor root yields NotMonitorRoot; an unresolved selector yields
    UnknownNode. Missing/excessive buffer indices and an index on a nonbuffer
    premise yield InvalidPremiseIndex. Do not branch on error messages.
-5. Pass None for a genuine generated root lacking an occurrence and assert
-   that None remains absent. Use a real occurrence from an admitted node for
+5. Pass None for a genuine generated root, independently assert its actual
+   Generated role/ordinal, and require that the diagnostic still retains None
+   rather than choosing that available occurrence. Use a real occurrence from an admitted node for
    the positive role/ordinal control; no arbitrary source-map first row is
    selected. Drop the package and path/occurrence input buffers and inspect the
    owned payload's original fields afterward.
