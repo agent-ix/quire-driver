@@ -55,7 +55,7 @@ function second using v(a: Integer, b: Integer): Integer pure { a + b }
             .graph()
             .function_identity(name)
             .expect("a named original function identity");
-        let wire = node_key_to_json(identity).expect("the owner encodes its genuine key");
+        let wire = node_key_to_json(&identity).expect("the owner encodes its genuine key");
         serde_json::from_value::<CheckedNodeId>(wire).expect("IR reads that original key shape")
     });
     let emission = emit_checked(checked.package()).expect("the real QSL producer emits");
