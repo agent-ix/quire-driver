@@ -1,261 +1,35 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Real producer input to the driver's independent selection boundary.
+//! Authentic final-subject mapping and native refusal controls.
 
-use std::{path::PathBuf, process::Command, sync::LazyLock};
+use std::sync::LazyLock;
 
 use ix_trace_rs::trace;
-use qsl_analyze::monitor_root::{emit_plan_root, PlanRootRequest};
-use qsl_foundation::SourceIdentity;
-use qsl_package::Emission;
-use qsl_replay::{spine::SpineLimits, MonitorTarget, TimingObligationSettings};
-use qsl_semantics::{library::LibraryName, model::intake::package_input};
+use qsl_semantics::library::LibraryName;
 use quire_contract_model::{
-    read_checked_package, CheckedMonitorClockReadErrorCode, CheckedNodeId, CheckedOccurrence,
-    CheckedOccurrenceRole, CheckedPackageDispatchResult, CheckedPackageReadLimits,
-    CheckedPackageV2, CheckedRational, CheckedSelectionRole, CheckedTerm, SelectedFactRows,
+    read_checked_package, CheckedMonitorClockReadErrorCode, CheckedOccurrence,
+    CheckedOccurrenceRole, CheckedPackageDispatchResult,
 };
 use quire_driver::monitor::{
     admit_monitor_final_subject, MonitorPreparationError, MonitorPreparationErrorCode,
-    MonitorPreparationLimits, MonitorPreparationRequest, MonitorSelection, MonitorSelectionField,
+    MonitorPreparationRequest, MonitorSelectionField,
 };
-use quire_exact::{Cancel, CancelCause, Integer, Rational};
+use quire_exact::{Cancel, CancelCause};
 
-struct Fixture {
-    package: Box<CheckedPackageV2>,
-    subject: qsl_replay::MonitorSubject,
-    evidence: quire_contract_model::CheckedPackageEvidence,
-    counter: &'static str,
-    emission: Emission,
-    buffers: Vec<(CheckedNodeId, Box<str>)>,
-}
+/// Native PlanRoot support shared by monitor integration suites.
+#[path = "common/monitor.rs"]
+pub mod monitor_fixture;
+use monitor_fixture::{fixture, read_limits, Fixture, DISTINCT_CLAUSE};
 
-static FIRST: LazyLock<Fixture> = LazyLock::new(|| fixture("SelectedMonitor", "counter"));
-static SECOND: LazyLock<Fixture> = LazyLock::new(|| fixture("OtherMonitor", "counter"));
-static FOREIGN: LazyLock<Fixture> = LazyLock::new(|| fixture("SelectedMonitor", "other-counter"));
-
-fn fixture(selected: &str, counter: &'static str) -> Fixture {
-    let output = Command::new(env!("CARGO"))
-        .args(["metadata", "--locked", "--format-version", "1", "--offline"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .expect("resolved dependency metadata");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let manifest = metadata["packages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|package| package["name"] == "qsl-replay")
-        .unwrap()["manifest_path"]
-        .as_str()
-        .unwrap();
-    let path = PathBuf::from(manifest);
-    let document = std::fs::read(
-        path.parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("examples/config-version/model.semantic-ir.json"),
-    )
-    .unwrap();
-    let document_value: serde_json::Value = serde_json::from_slice(&document).unwrap();
-    let identity = document_value["package"]["identity"].as_str().unwrap();
-    let packages = package_input([document.as_slice()]).unwrap();
-    let text = format!(
-        r#"language "ix:native" edition "1-draft";
-profile v = "quire.value.complete/v1";
-profile timed = "quire.temporal.timed/v1";
-profile complete = "quire.temporal.complete/v1";
-model Selected = "{identity}";
-dimension Time;
-unit second : Time = rational(1, 1);
-unit ms : Time = rational(1, 1000) * second;
-time Selected dense unit ms;
-temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) clock "model-time" on origin {{
-    eventually[0 ms, 4 ms] holds(candidate.versionNumber >= 0)
-}}
-temporal OtherMonitor using timed over (candidate: Selected::ConfigVersion) clock "model-time" on origin {{
-    eventually[0 ms, 3 ms] holds(candidate.versionNumber >= 1)
-}}
-"#
-    );
-    let source = SourceIdentity::new("agent-ix", "monitor-preparation");
-    let name = LibraryName::new("agent-ix/monitor-preparation").unwrap();
-    let target = MonitorTarget {
-        counter: counter.to_owned(),
-        unit: "ms".to_owned(),
-        width_bits: 16,
-        uncertainty: Rational::from_integer(Integer::zero()),
-        max_event_rate: Some(Rational::from_integer(Integer::from(2_u64))),
-        max_reading_gap: 100,
-        max_activations: 8,
-    };
-    let root = emit_plan_root(
-        &PlanRootRequest {
-            source: &source,
-            path: "monitor-preparation.native",
-            bytes: text.as_bytes(),
-            packages: &packages,
-            package_name: &name,
-            limits: SpineLimits::default(),
-            clause: selected,
-            target: &target,
-            settings: &TimingObligationSettings::default(),
-        },
-        &Cancel::new(),
-    )
-    .expect("actual final PlanRoot producer");
-    let mut evidence = root.emission.evidence().clone();
-    evidence
-        .insert_domain_package_document(identity, document)
-        .unwrap();
-    let package = match read_checked_package(
-        root.emission.package().bytes(),
-        CheckedPackageReadLimits {
-            bytes: 8 * 1024 * 1024,
-            nodes: 100_000,
-            edges: 1_000_000,
-            occurrences: 1_000_000,
-            diagnostics: 1_000,
-            work: 100_000_000,
-        },
-        &evidence,
-    ) {
-        CheckedPackageDispatchResult::AdmittedV2(package) => package,
-        other => panic!("strict final package admission: {other:?}"),
-    };
-    // Capacity values are selected from the producer-owned plan rather than
-    // recomputed by the driver. Retain its independently produced values and
-    // use the final emission's exact subformula identities.
-    let plan = package.monitor_plans().next().unwrap();
-    assert_eq!(plan.buffers().len(), root.plan.buffers().len());
-    let buffers = plan
-        .buffers()
-        .zip(root.plan.buffers())
-        .map(|(buffer, (_, capacity))| {
-            (
-                buffer.subformula().clone(),
-                capacity.to_string().into_boxed_str(),
-            )
-        })
-        .collect();
-    Fixture {
-        package,
-        subject: root.plan.subject().clone(),
-        evidence,
-        counter,
-        emission: root.emission,
-        buffers,
-    }
-}
+static FIRST: LazyLock<Fixture> =
+    LazyLock::new(|| fixture("SelectedMonitor", "counter", DISTINCT_CLAUSE));
+static SECOND: LazyLock<Fixture> =
+    LazyLock::new(|| fixture("OtherMonitor", "counter", DISTINCT_CLAUSE));
+static FOREIGN: LazyLock<Fixture> =
+    LazyLock::new(|| fixture("SelectedMonitor", "other-counter", DISTINCT_CLAUSE));
 
 fn with_request(fixture: &Fixture, test: impl FnOnce(MonitorPreparationRequest<'_>)) {
-    let package = fixture.package.as_ref();
-    let plan = package.monitor_plans().next().unwrap();
-    // The sole root is independently selected. The ordinal comes from the
-    // original native subject, not a row position or name search.
-    assert_eq!(package.monitor_plans().len(), 1);
     let ordinal = fixture.subject.occurrence().origin().ordinal();
-    let source = package
-        .source_map()
-        .iter()
-        .find(|row| {
-            row.node_id == *plan.clause()
-                && row.role == CheckedOccurrenceRole::Claim
-                && row.ordinal == ordinal
-        })
-        .unwrap();
-    let CheckedTerm::Application { arguments, .. } = package.term(plan.clause()).unwrap() else {
-        panic!("clause application");
-    };
-    let CheckedTerm::Reference { target: subject } = &arguments[0] else {
-        panic!("original over parameter");
-    };
-    let profile = package
-        .lock()
-        .profile_selections
-        .iter()
-        .find(|profile| {
-            profile.role == CheckedSelectionRole::TemporalProfile
-                && profile.definition.identity.ends_with("temporal.timed/v1")
-        })
-        .unwrap();
-    let clock = package
-        .temporal_bindings()
-        .unwrap_or_default()
-        .iter()
-        .find(|row| row.declaration == *plan.clause() && row.occurrence == source.ordinal);
-    let tick = fixture
-        .emission
-        .selected_source_unit_rows()
-        .iter()
-        .find(|row| {
-            row.qualified_declaration
-                .last()
-                .is_some_and(|name| name.as_ref() == "ms")
-        })
-        .unwrap();
-    let equality = fixture.emission.equality_witness(package);
-    let rate = CheckedRational {
-        numerator: "2".into(),
-        denominator: "1".into(),
-    };
-    let uncertainty = CheckedRational {
-        numerator: "0".into(),
-        denominator: "1".into(),
-    };
-    let request = MonitorPreparationRequest {
-        package,
-        selection: MonitorSelection::new(package, plan.node_id()),
-        package_lock: package.lock(),
-        root_key: plan.structural_key(),
-        entry_keys: [
-            plan.init().structural_key(),
-            plan.on_event().structural_key(),
-            plan.on_watermark().structural_key(),
-            plan.on_gap().structural_key(),
-        ],
-        clause: plan.clause(),
-        subject,
-        occurrence: source,
-        profile,
-        clock_binding: clock,
-        counter: fixture.counter,
-        tick_unit: &tick.structural_node,
-        counter_width_bits: 16,
-        max_reading_gap: 100,
-        max_event_rate: &rate,
-        uncertainty: &uncertainty,
-        buffers: &fixture.buffers,
-        activation_capacity: "8",
-        witnesses: SelectedFactRows {
-            declarations: fixture.emission.selected_exact_declaration_rows(),
-            fields: fixture.emission.selected_exact_field_rows(),
-            source_units: fixture.emission.selected_source_unit_rows(),
-            equality_applications: equality.applications(),
-            equality_facts: equality.facts(),
-        },
-        limits: MonitorPreparationLimits {
-            work: 100_000_000,
-            storage: 8 * 1024 * 1024,
-        },
-    };
-    test(request);
-}
-
-fn read_limits() -> CheckedPackageReadLimits {
-    CheckedPackageReadLimits {
-        bytes: 8 * 1024 * 1024,
-        nodes: 100_000,
-        edges: 1_000_000,
-        occurrences: 1_000_000,
-        diagnostics: 1_000,
-        work: 100_000_000,
-    }
+    monitor_fixture::with_request(fixture, ordinal, test);
 }
 
 fn assert_field(error: MonitorPreparationError, expected: MonitorSelectionField) {
@@ -650,5 +424,123 @@ fn final_subject_cancellation_work_and_clock_continuation_preserve_the_original_
             assert_eq!(error.code(), MonitorPreparationErrorCode::Work);
         }
         assert_eq!(request.occurrence, &source);
+    });
+}
+
+#[trace("FR-015-AC-15")]
+#[test]
+fn producer_material_is_charged_before_early_identity_mismatches() {
+    use qsl_foundation::source::provenance::OccurrenceKey;
+    use qsl_replay::MonitorSubject;
+    use quire_exact::{NodeKey, Origin, PathSegment, Role};
+    for case in 0..4 {
+        with_request(&FIRST, |mut request| {
+            let original = &FIRST.subject;
+            let package = if case == 0 {
+                LibraryName::new("agent-ix/foreign").unwrap()
+            } else {
+                original.package().clone()
+            };
+            let node = if case == 1 {
+                SECOND.subject.clause_node()
+            } else {
+                original.clause_node()
+            };
+            let role = if case == 2 { "declaration" } else { "claim" };
+            let ordinal = if case == 3 {
+                u64::MAX
+            } else {
+                original.occurrence().origin().ordinal()
+            };
+            let subject = MonitorSubject::new(
+                package,
+                original.clause_node().clone(),
+                OccurrenceKey::new(node.clone(), Origin::new(Role::new(role), ordinal)),
+                original.clause_name(),
+            );
+            request.limits.work = 0;
+            let error = admit_monitor_final_subject(
+                &request,
+                &subject,
+                &FIRST.emission,
+                &FIRST.evidence,
+                read_limits(),
+                &Cancel::new(),
+            )
+            .err()
+            .unwrap();
+            assert!(matches!(
+                error,
+                MonitorPreparationError::Work {
+                    limit: 0,
+                    consumed: 0,
+                    next: 1
+                }
+            ));
+        });
+    }
+    with_request(&FIRST, |mut request| {
+        let original = &FIRST.subject;
+        let subject = MonitorSubject::new(
+            LibraryName::new("agent-ix/foreign").unwrap(),
+            original.clause_node().clone(),
+            original.occurrence().clone(),
+            original.clause_name(),
+        );
+        let names = 2
+            + u64::try_from(subject.package().as_str().len()).unwrap()
+            + u64::try_from(FIRST.emission.package().name().len()).unwrap();
+        request.limits.work = names - 1;
+        let error = admit_monitor_final_subject(
+            &request,
+            &subject,
+            &FIRST.emission,
+            &FIRST.evidence,
+            read_limits(),
+            &Cancel::new(),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.code(), MonitorPreparationErrorCode::Work);
+        request.limits.work = names;
+        let error = admit_monitor_final_subject(
+            &request,
+            &subject,
+            &FIRST.emission,
+            &FIRST.evidence,
+            read_limits(),
+            &Cancel::new(),
+        )
+        .err()
+        .unwrap();
+        assert_field(error, MonitorSelectionField::ProducerSubject);
+    });
+    with_request(&FIRST, |mut request| {
+        let original = &FIRST.subject;
+        let node =
+            NodeKey::try_new("p".to_owned(), vec![PathSegment::Text("x".to_owned())], 0).unwrap();
+        let subject = MonitorSubject::new(
+            original.package().clone(),
+            original.clause_node().clone(),
+            OccurrenceKey::new(node, original.occurrence().origin().clone()),
+            original.clause_name(),
+        );
+        let names = 2 + 2 * u64::try_from(original.package().as_str().len()).unwrap();
+        // This simple native key costs 15 material units. The second key must
+        // be charged before comparing the unequal keys, so its push is denied.
+        request.limits.work = names + 15;
+        let error = admit_monitor_final_subject(
+            &request,
+            &subject,
+            &FIRST.emission,
+            &FIRST.evidence,
+            read_limits(),
+            &Cancel::new(),
+        )
+        .err()
+        .unwrap();
+        assert!(
+            matches!(error, MonitorPreparationError::Work { consumed, next: 1, .. } if consumed == names + 15)
+        );
     });
 }

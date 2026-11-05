@@ -92,11 +92,19 @@ pub fn admit_monitor_final_subject<'a>(
     if !same_package {
         return Err(mismatch(Field::EmissionPackage, request.clause));
     }
-    if subject.package().as_str() != emission.package().name()
-        || subject.occurrence().node() != subject.clause_node()
-    {
+    budget.inspect(subject.package().as_str())?;
+    budget.inspect(emission.package().name())?;
+    if subject.package().as_str() != emission.package().name() {
         return Err(mismatch(Field::ProducerSubject, request.clause));
     }
+    budget.inspect(subject.occurrence().node())?;
+    budget.inspect(subject.clause_node())?;
+    if subject.occurrence().node() != subject.clause_node() {
+        return Err(mismatch(Field::ProducerSubject, request.clause));
+    }
+    budget.charge(1)?; // native origin record
+    budget.inspect(subject.occurrence().origin().role().as_str())?;
+    budget.charge(8)?; // native origin ordinal, before conversion
     let Some(occurrence) = qsl_package::checked_occurrence(subject.occurrence().origin()) else {
         return Err(mismatch(Field::ProducerSubject, request.clause));
     };
