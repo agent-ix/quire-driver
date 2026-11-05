@@ -29,6 +29,14 @@ or second plan DTO is introduced by the test harness.
    Obtain actual native callable headers, primitive type projections, node
    metadata and structural keys from that same admission. Do not hand-build
    a callable, nominal environment, semantic identity or checked package.
+   Read direct ordinary Value(Parameter) and Value(Literal) bodies through the
+   actual native callable API. Include the original identityValue source in the
+   positive requested roots, retaining its native body key, scalar type and
+   owning Argument position. Require literalValue read success followed by
+   driver Unsupported at that original Value(Literal) node, with no operation.
+   Preserve a native UnknownNode failure using an actual function selector
+   from another independently produced and strictly admitted package; invent
+   no foreign key. Compare its complete native payload, including work/locus.
 2. Invoke the public helper with that package, requested root selectors,
    original SelectedExactIdentities, independent limits and Cancel. Inspect its
    existing RT root FunctionId addresses, Function and Expression arenas.
@@ -113,7 +121,9 @@ Observed partial execution covers the eleven plain operation mappings, exact
 native parameter/result types, requested order and repeated roots, shared
 parameter/body handles with distinct FunctionId owners, nested expression
 sharing, retained keys after setup drop, package scoping, bounded-type refusal,
-and original unsupported modulo/call/If/Let/implies loci. Native parameter-only
-and literal-only callable reads currently refuse with MalformedBody; tests
-preserve the exact original native payload rather than substituting a driver
-Unsupported or claiming parameter-only success. That positive remains Planned.
+and original unsupported modulo/call/If/Let/implies loci. The refreshed ordinary
+Value-root controls remain Planned until execution: parameter-only success,
+literal read success followed by located driver Unsupported, and original native
+UnknownNode from a genuine foreign-package selector. No expectation retains
+the resolved Expression-only ordinary-reader narrowing. Complete monitor-entry
+Expression-only acceptance and full monitor preparation remain Planned.
