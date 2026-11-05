@@ -32,7 +32,9 @@ impl<'a> MonitorSelection<'a> {
 pub struct MonitorPreparationLimits {
     /// Cumulative inspected identity/value material and native projection work.
     pub work: u64,
-    /// Reserved allowance for later owned lowering; selection/type reads do not enforce it.
+    /// Shared maximum live logical allocation capacity in bytes for scratch and
+    /// retained preparation arenas. Released storage becomes available again;
+    /// native projection scratch is not accounted by this driver ledger.
     pub storage: u64,
 }
 

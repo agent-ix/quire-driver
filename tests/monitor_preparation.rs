@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Real producer input to the driver's independent selection boundary.
 
-use std::{path::PathBuf, process::Command, sync::LazyLock};
+use std::{
+    path::PathBuf,
+    process::Command,
+    sync::{Arc, LazyLock},
+};
 
 use qsl_analyze::monitor_root::{emit_plan_root, PlanRootRequest};
 use qsl_foundation::SourceIdentity;
@@ -9,9 +13,10 @@ use qsl_package::Emission;
 use qsl_replay::{spine::SpineLimits, MonitorTarget, TimingObligationSettings};
 use qsl_semantics::{library::LibraryName, model::intake::package_input};
 use quire_contract_model::{
-    read_checked_package, CheckedNodeId, CheckedOccurrenceRole, CheckedPackageDispatchResult,
-    CheckedPackageReadLimits, CheckedPackageV2, CheckedRational, CheckedSelectionRole, CheckedTerm,
-    SelectedExactIdentities, SelectedFactRows,
+    read_checked_package, CheckedCallableReadErrorCode, CheckedNodeId, CheckedNodePathSegment,
+    CheckedOccurrenceRole, CheckedPackageDispatchResult, CheckedPackageReadLimits,
+    CheckedPackageV2, CheckedRational, CheckedSelectionRole, CheckedTerm,
+    ExactTypeProjectionErrorCode, SelectedExactIdentities, SelectedFactRows,
 };
 use quire_driver::monitor::{
     admit_monitor_selection, project_monitor_initializer, MonitorPreparationError,
@@ -237,6 +242,8 @@ fn selection_binds_original_package_keys_subject_occurrence_and_target() {
             .expect("genuine matching independent selection");
         assert_eq!(admitted.plan().node_id(), request.selection_root());
         assert_eq!(admitted.plan().structural_key(), request.root_key);
+        assert!(std::ptr::eq(admitted.request(), &request));
+        assert!(std::ptr::eq(admitted.package(), request.package));
         assert!(admitted.work() > 0);
     });
 }
@@ -307,6 +314,11 @@ fn target_mismatch_keeps_the_helpers_value_endpoint_unchanged() {
         let error = admit_monitor_selection(&request, &Cancel::new())
             .err()
             .expect("independent changed uncertainty stops");
+        assert_eq!(error.code().as_str(), "target_mismatch");
+        assert_eq!(
+            MonitorPreparationErrorCode::from_code("target_mismatch"),
+            Some(error.code())
+        );
         let MonitorPreparationError::TargetMismatch(mismatch) = error else {
             panic!("exact target mismatch");
         };
@@ -335,6 +347,8 @@ fn operating_work_and_original_cancellation_are_not_selection_refusals() {
         let error = admit_monitor_selection(&request, &Cancel::new())
             .err()
             .expect("one below required work stops");
+        assert_eq!(error.code().as_str(), "work");
+        assert!(MonitorPreparationErrorCode::all().contains(&error.code()));
         let MonitorPreparationError::Work {
             limit,
             consumed,
@@ -459,6 +473,7 @@ fn initializer_projection_preserves_the_actual_native_source_type_stop() {
         let error = project_monitor_initializer(&admitted, &identities, &Cancel::new())
             .expect_err("current source record projection is genuinely unavailable");
         assert_eq!(error.code(), MonitorPreparationErrorCode::Projection);
+        assert_eq!(error.code().as_str(), "projection");
         let MonitorPreparationError::Projection(native) = error else {
             unreachable!()
         };
@@ -468,5 +483,336 @@ fn initializer_projection_preserves_the_actual_native_source_type_stop() {
             .expect_err("native unavailable source type");
         assert_eq!(native, original);
         assert_eq!(*native.requested, *target);
+    });
+}
+
+#[derive(Clone, Copy)]
+enum IdentityEdit {
+    Root,
+    Lock,
+    RootKey,
+    Entry(usize),
+    Clause,
+    Profile,
+    BufferOwner,
+    BufferCount,
+}
+
+#[test]
+fn independent_identity_and_buffer_association_edits_refuse_at_the_exact_field() {
+    for edit in [
+        IdentityEdit::Root,
+        IdentityEdit::Lock,
+        IdentityEdit::RootKey,
+        IdentityEdit::Entry(0),
+        IdentityEdit::Entry(1),
+        IdentityEdit::Entry(2),
+        IdentityEdit::Entry(3),
+        IdentityEdit::Clause,
+        IdentityEdit::Profile,
+        IdentityEdit::BufferOwner,
+        IdentityEdit::BufferCount,
+    ] {
+        with_request(|request| {
+            let plan = request.package.monitor_plans().next().unwrap();
+            let original_key = plan.structural_key().clone();
+            let mut absent = plan.node_id().clone();
+            absent.ordinal += 1;
+            let mut changed_lock = request.package_lock.clone();
+            changed_lock
+                .required_features
+                .push("independently-unselected-feature".into());
+            let mut changed_profile = request.profile.clone();
+            changed_profile.definition.identity = "independently-unselected-profile".into();
+            let mut changed_buffers = request.buffers.to_vec();
+            assert!(!changed_buffers.is_empty());
+            let original_buffer = changed_buffers[0].0.clone();
+            let original_entries = [
+                plan.init(),
+                plan.on_event(),
+                plan.on_watermark(),
+                plan.on_gap(),
+            ];
+            let mut entry_keys = request.entry_keys;
+            let (edited, expected_field, expected_node) = match edit {
+                IdentityEdit::Root => (
+                    MonitorPreparationRequest {
+                        selection: MonitorSelection::new(request.package, &absent),
+                        ..request
+                    },
+                    MonitorSelectionField::Root,
+                    &absent,
+                ),
+                IdentityEdit::Lock => (
+                    MonitorPreparationRequest {
+                        package_lock: &changed_lock,
+                        ..request
+                    },
+                    MonitorSelectionField::PackageLock,
+                    plan.node_id(),
+                ),
+                IdentityEdit::RootKey => (
+                    MonitorPreparationRequest {
+                        root_key: &absent,
+                        ..request
+                    },
+                    MonitorSelectionField::RootKey,
+                    plan.node_id(),
+                ),
+                IdentityEdit::Entry(index) => {
+                    entry_keys[index] = plan.structural_key();
+                    (
+                        MonitorPreparationRequest {
+                            entry_keys,
+                            ..request
+                        },
+                        MonitorSelectionField::EntryKey,
+                        original_entries[index].node_id(),
+                    )
+                }
+                IdentityEdit::Clause => (
+                    MonitorPreparationRequest {
+                        clause: plan.state(),
+                        ..request
+                    },
+                    MonitorSelectionField::Clause,
+                    plan.node_id(),
+                ),
+                IdentityEdit::Profile => (
+                    MonitorPreparationRequest {
+                        profile: &changed_profile,
+                        ..request
+                    },
+                    MonitorSelectionField::Profile,
+                    plan.clause(),
+                ),
+                IdentityEdit::BufferOwner => {
+                    changed_buffers[0].0 = plan.state().clone();
+                    (
+                        MonitorPreparationRequest {
+                            buffers: &changed_buffers,
+                            ..request
+                        },
+                        MonitorSelectionField::BufferAssociation,
+                        &original_buffer,
+                    )
+                }
+                IdentityEdit::BufferCount => {
+                    changed_buffers.clear();
+                    (
+                        MonitorPreparationRequest {
+                            buffers: &changed_buffers,
+                            ..request
+                        },
+                        MonitorSelectionField::BufferAssociation,
+                        plan.node_id(),
+                    )
+                }
+            };
+            let error = admit_monitor_selection(&edited, &Cancel::new())
+                .err()
+                .expect("the changed independent identity must refuse");
+            assert_eq!(error.code().as_str(), "selection");
+            assert_eq!(
+                MonitorPreparationErrorCode::from_code("selection"),
+                Some(error.code())
+            );
+            assert!(MonitorPreparationErrorCode::all().contains(&error.code()));
+            assert_eq!(MonitorPreparationErrorCode::from_code("unrecognized"), None);
+            let MonitorPreparationError::Selection { field, node } = error else {
+                panic!("typed selection refusal, not a target capacity error");
+            };
+            assert_eq!(field, expected_field);
+            assert_eq!(node.as_ref(), expected_node);
+            assert_eq!(
+                edited
+                    .package
+                    .monitor_plans()
+                    .next()
+                    .unwrap()
+                    .structural_key(),
+                &original_key
+            );
+        });
+    }
+}
+
+#[test]
+fn identity_worklist_storage_stops_before_exceeding_zero_or_one_slot() {
+    let slot = u64::try_from(std::mem::size_of::<&CheckedNodeId>()).unwrap();
+    for (limit, expected_consumed) in [(0, 0), (slot, slot)] {
+        with_request(|mut request| {
+            request.limits.storage = limit;
+            let error = admit_monitor_selection(&request, &Cancel::new())
+                .err()
+                .expect("identity scratch must respect the finite worklist capacity");
+            assert_eq!(error.code().as_str(), "storage");
+            assert_eq!(
+                MonitorPreparationErrorCode::from_code("storage"),
+                Some(error.code())
+            );
+            let MonitorPreparationError::Storage {
+                limit: observed,
+                consumed,
+                next,
+            } = error
+            else {
+                panic!("typed scratch capacity stop");
+            };
+            assert_eq!(observed, limit);
+            assert_eq!(consumed, expected_consumed);
+            assert!(next > limit - consumed);
+        });
+    }
+}
+
+#[test]
+fn deep_caller_keys_return_typed_stops_on_a_small_stack() {
+    const CHILD: &str = "QUIRE_DRIVER_MONITOR_KEY_STACK_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "deep_caller_keys_return_typed_stops_on_a_small_stack",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .expect("isolated stack-safety regression process");
+        assert!(
+            output.status.success(),
+            "small-stack child failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    LazyLock::force(&FIXTURE); // Producer/compiler setup is not run on the small stack.
+    with_request(|request| {
+        let mut deep = CheckedNodeId {
+            package: "independent-key".into(),
+            path: vec![CheckedNodePathSegment::Name("leaf".into())],
+            ordinal: 0,
+        };
+        for _ in 0..8192 {
+            deep = CheckedNodeId {
+                package: "independent-key".into(),
+                path: vec![CheckedNodePathSegment::Node(Arc::new(deep))],
+                ordinal: 0,
+            };
+        }
+        std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .stack_size(64 * 1024)
+                .spawn_scoped(scope, move || {
+                    let edited = MonitorPreparationRequest {
+                        root_key: &deep,
+                        ..request
+                    };
+                    let error = admit_monitor_selection(&edited, &Cancel::new())
+                        .err()
+                        .expect("a deep independent expected key must return a mismatch");
+                    let MonitorPreparationError::Selection { field, node } = error else {
+                        panic!("typed mismatch, not a process abort");
+                    };
+                    assert_eq!(field, MonitorSelectionField::RootKey);
+                    assert_eq!(node.as_ref(), edited.selection_root());
+                    let mut limited = edited;
+                    limited.limits.work = 4096;
+                    let error = admit_monitor_selection(&limited, &Cancel::new())
+                        .err()
+                        .expect("finite work must stop the same deep request");
+                    assert_eq!(error.code(), MonitorPreparationErrorCode::Work);
+                })
+                .expect("small-stack thread")
+                .join()
+                .expect("typed stop without host stack overflow");
+        });
+    });
+}
+
+#[test]
+fn initializer_read_resumes_the_consumed_admission_allowance() {
+    with_request(|mut request| {
+        let required = admit_monitor_selection(&request, &Cancel::new())
+            .unwrap()
+            .work();
+        request.limits.work = required;
+        let admitted = admit_monitor_selection(&request, &Cancel::new())
+            .expect("exact admission allowance succeeds");
+        let identities = SelectedExactIdentities::from_stage_rows(
+            request.package,
+            request.witnesses.declarations.iter().cloned(),
+            request.witnesses.fields.iter().cloned(),
+        )
+        .unwrap();
+        let error = project_monitor_initializer(&admitted, &identities, &Cancel::new())
+            .expect_err("no fresh work allowance is granted to projection");
+        assert!(
+            matches!(error, MonitorPreparationError::Work { limit, consumed, next: 1 }
+            if limit == required && consumed == required)
+        );
+    });
+}
+
+#[test]
+fn actual_native_read_work_and_projection_causes_remain_distinct() {
+    with_request(|request| {
+        let plan = request.package.monitor_plans().next().unwrap();
+        let native = request
+            .package
+            .source_callable(plan.init().node_id(), 0)
+            .expect_err("the native callable allowance fails before the read");
+        assert_eq!(native.code, CheckedCallableReadErrorCode::WorkLimit);
+        assert_eq!(native.locus, *plan.init().node_id());
+        assert_eq!(native.work, 1);
+        let wrapped = MonitorPreparationError::from(native.clone());
+        assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Work);
+        let MonitorPreparationError::CallableRead(preserved) = wrapped else {
+            panic!("native callable payload variant");
+        };
+        assert_eq!(*preserved, native);
+
+        let mut absent = plan.init().node_id().clone();
+        absent.ordinal += 1;
+        let native = request
+            .package
+            .source_callable(&absent, 10)
+            .expect_err("an unknown callable is not a work stop");
+        assert_eq!(native.code, CheckedCallableReadErrorCode::UnknownNode);
+        let wrapped = MonitorPreparationError::from(native.clone());
+        assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Projection);
+        let MonitorPreparationError::CallableRead(preserved) = wrapped else {
+            panic!("native callable payload variant");
+        };
+        assert_eq!(*preserved, native);
+
+        let CheckedTerm::Aggregate { members } = plan.init().body() else {
+            panic!("admitted init body");
+        };
+        let CheckedTerm::Binding { value, .. } = &members[1] else {
+            panic!("init expression binding");
+        };
+        let CheckedTerm::Reference { target } = value.as_ref() else {
+            panic!("init expression reference");
+        };
+        let identities = SelectedExactIdentities::from_stage_rows(
+            request.package,
+            request.witnesses.declarations.iter().cloned(),
+            request.witnesses.fields.iter().cloned(),
+        )
+        .unwrap();
+        let native = request
+            .package
+            .project_exact_type(target, &identities, 0)
+            .expect_err("the native type allowance fails before its read");
+        assert_eq!(native.code, ExactTypeProjectionErrorCode::ExhaustedWork);
+        assert_eq!(*native.requested, *target);
+        assert_eq!(native.work, 0);
+        let wrapped = MonitorPreparationError::from(native.clone());
+        assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Work);
+        let MonitorPreparationError::Projection(preserved) = wrapped else {
+            panic!("native type payload variant");
+        };
+        assert_eq!(preserved, native);
     });
 }
