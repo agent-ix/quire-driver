@@ -3,10 +3,10 @@
 
 use quire_contract_model::{
     CheckedCallableReadError, CheckedCallableReadErrorCode, CheckedNodeId,
-    ExactTypeProjectionError, ExactTypeProjectionErrorCode,
+    CheckedOperationViewError, ExactTypeProjectionError, ExactTypeProjectionErrorCode,
 };
 use quire_contract_runtime::monitor::ProgramRefusal;
-use quire_exact::CancelCause;
+use quire_exact::{CancelCause, InvalidNodeKey};
 
 use crate::monitor_refusal::{MonitorLocusError, TargetMismatch, UnsupportedOperation};
 
@@ -126,6 +126,12 @@ pub enum MonitorPreparationError {
     /// The original runtime construction refusal, before initialization.
     #[error(transparent)]
     Program(Box<ProgramRefusal>),
+    /// An operation view was requested without its native admission proof.
+    #[error(transparent)]
+    OperationRead(#[from] CheckedOperationViewError),
+    /// Native structural-key copy/allocation failure, without replacing its payload.
+    #[error(transparent)]
+    Key(#[from] InvalidNodeKey),
     /// Work stopped before inspecting the named input.
     #[error("monitor preparation work limit {limit} after {consumed}, next {next}")]
     Work {
@@ -177,6 +183,12 @@ pub enum MonitorPreparationError {
         /// Entry whose retained body disagrees with strict monitor admission.
         node: Box<CheckedNodeId>,
     },
+    /// Missing or cyclic scalar facts violated the driver's admitted-input invariant.
+    #[error("monitor preparation internal admitted-scalar fault")]
+    InvalidAdmittedScalar {
+        /// Original admitted scalar node at the invariant failure.
+        node: Box<CheckedNodeId>,
+    },
 }
 
 impl MonitorPreparationError {
@@ -212,6 +224,13 @@ impl MonitorPreparationError {
                 }
             },
             Self::Program(_) => MonitorPreparationErrorCode::Program,
+            Self::OperationRead(_) => MonitorPreparationErrorCode::Internal,
+            Self::Key(native) => match native {
+                InvalidNodeKey::Allocation { .. } => MonitorPreparationErrorCode::Storage,
+                InvalidNodeKey::EmptyPackage
+                | InvalidNodeKey::EmptyPath
+                | InvalidNodeKey::OrdinalOutOfRange => MonitorPreparationErrorCode::Internal,
+            },
             Self::Work { .. } => MonitorPreparationErrorCode::Work,
             Self::Storage { .. } => MonitorPreparationErrorCode::Storage,
             Self::Cancelled(_) => MonitorPreparationErrorCode::Cancelled,
@@ -220,6 +239,7 @@ impl MonitorPreparationError {
             Self::StorageAccounting { .. } => MonitorPreparationErrorCode::Internal,
             Self::InvalidAdmittedClause { .. } => MonitorPreparationErrorCode::Internal,
             Self::InvalidAdmittedEntry { .. } => MonitorPreparationErrorCode::Internal,
+            Self::InvalidAdmittedScalar { .. } => MonitorPreparationErrorCode::Internal,
         }
     }
 }

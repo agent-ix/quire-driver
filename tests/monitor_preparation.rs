@@ -816,3 +816,34 @@ fn actual_native_read_work_and_projection_causes_remain_distinct() {
         assert_eq!(preserved, native);
     });
 }
+
+#[test]
+fn native_operation_and_key_invariant_failures_retain_their_payloads() {
+    // Direct decoding does not grant the native operation admission proof.
+    let operation: quire_contract_model::CheckedApplicationOperation = serde_json::from_value(
+        serde_json::json!({"identity": "quire.op.integer.add", "mode": null,
+            "laws": [], "member": null, "constraints": [], "leaves": []}),
+    )
+    .unwrap();
+    let native = operation
+        .read()
+        .expect_err("an unadmitted operation cannot expose its views");
+    let wrapped = MonitorPreparationError::from(native);
+    assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Internal);
+    let MonitorPreparationError::OperationRead(preserved) = wrapped else {
+        panic!("native operation-read payload");
+    };
+    assert_eq!(preserved, native);
+
+    // Invalid shape from the native fallible copier is an internal fault, not
+    // an ordinary independently selected target inequality or temporal result.
+    let native = quire_exact::NodeKey::try_new("package".to_owned(), Vec::new(), 0)
+        .expect_err("an empty original key path has no canonical shape");
+    assert_eq!(native, quire_exact::InvalidNodeKey::EmptyPath);
+    let wrapped = MonitorPreparationError::from(native);
+    assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Internal);
+    let MonitorPreparationError::Key(preserved) = wrapped else {
+        panic!("native key payload");
+    };
+    assert_eq!(preserved, native);
+}

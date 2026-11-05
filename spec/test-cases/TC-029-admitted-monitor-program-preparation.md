@@ -156,3 +156,10 @@ read failures remain Projection. The initializer read resumes the actual
 admission work prefix against the same total allowance. The outer Program
 variant retains the native runtime construction refusal for the eventual real
 lowerer; no program is fabricated to exercise that catalog entry.
+
+The shared outer error also preserves native operation-read and fallible key
+payloads for the scalar component: a missing admission proof or invalid key
+shape is an internal invariant fault; native key allocation failure remains
+Storage. An impossible missing/cyclic admitted scalar fact names its original
+node as an internal fault. These categories supply no scalar lowering success
+or complete owner qualification on their own.
