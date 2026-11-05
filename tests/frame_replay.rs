@@ -291,7 +291,7 @@ fn assert_join_fault(result: Result<cg::FrameReplay, FrameReplayFailure>) {
     assert_eq!(error.code(), "runtime_invariant");
     assert_eq!(error.stage(), quire_driver::DriverStage::Replay);
     assert!(matches!(
-        error,
+        *error,
         quire_driver::DriverRefusal::Fault(quire_driver::DriverFault::FrameReplayAssociation)
     ));
 }
@@ -315,6 +315,11 @@ fn frame_projection_rejects_missing_changed_and_caller_populated_associations() 
         occurrence: fixture.site.frame_occurrence.clone(),
     });
     assert_join_fault(fixture.driven.prepare_frame_replay(inputs));
+    assert!(fixture
+        .driven
+        .request_items
+        .iter()
+        .any(|item| item.occurrence() != &fixture.site.frame_occurrence));
     for item in &fixture.driven.request_items {
         if item.occurrence() == &fixture.site.frame_occurrence {
             continue;
@@ -366,11 +371,22 @@ fn frame_projection_preserves_qsl_refusal_before_any_join_or_codegen_check() {
     else {
         panic!("QSL refusal must precede driver and CG checks");
     };
-    assert_eq!(format!("{actual}"), format!("{expected}"));
-    assert!(matches!(
-        *actual,
-        qsl_replay::CallSiteRefusal::UnknownOperation { .. }
-    ));
+    assert_eq!(actual.code(), expected.code());
+    let (
+        qsl_replay::CallSiteRefusal::UnknownOperation {
+            selection: actual_selection,
+            package: actual_package,
+        },
+        qsl_replay::CallSiteRefusal::UnknownOperation {
+            selection: expected_selection,
+            package: expected_package,
+        },
+    ) = (*actual, *expected)
+    else {
+        panic!("original QSL UnknownOperation payload must survive");
+    };
+    assert_eq!(actual_selection, expected_selection);
+    assert_eq!(actual_package, expected_package);
 }
 
 #[trace("FR-009-AC-19", "TC-016")]

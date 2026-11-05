@@ -21,7 +21,7 @@ pub enum FrameReplayFailure {
     CallSite(Box<qsl_replay::CallSiteRefusal>),
     /// The selected frame is not associated with the retained driver run.
     #[error(transparent)]
-    Driver(DriverRefusal),
+    Driver(Box<DriverRefusal>),
     /// CG refused preparation; the complete typed payload is unchanged.
     #[error(transparent)]
     Codegen(FrameReplayError),
@@ -77,7 +77,9 @@ impl Driven {
         )
         .map_err(FrameReplayFailure::CallSite)?;
         let mismatch = || {
-            FrameReplayFailure::Driver(DriverRefusal::Fault(DriverFault::FrameReplayAssociation))
+            FrameReplayFailure::Driver(Box::new(DriverRefusal::Fault(
+                DriverFault::FrameReplayAssociation,
+            )))
         };
         let selected = &inputs.selected_item;
         let original = self
