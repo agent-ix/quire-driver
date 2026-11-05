@@ -30,3 +30,11 @@ Ticket: IR-1333. Frozen head: `5150b44bd7717224b76148344177109c27e6e89c`. Review
 - `FR-001-AC-22` excerpt: "When CG returns `EnvelopeRefusal::ContractPackageReadRefused`, the driver emits an FR-272 refusal diagnostic at `package_read`, retaining the complete CG projection unchanged as typed source data: `code`, `path`, `cause`, `locus`, `contract_version`, `document_pointer`, `expected` and `actual`. The diagnostic carries the same code and cause, has category `refusal`, maps `path` to the FR-274 `json_path` location, and carries `locus` as a `CheckedNodeId` payload when present; every returned code has an FR-271 row."
 - The changed test has a meaningful oracle for the driver's new mapping: changing the new match arm away from `unit-mismatch` fails its `package_read_cause` and diagnostic assertions. The serialization assertion checks the upstream enum's serde spelling; it does not substitute for the driver assertions.
 - Review was scoped to the PR diff. Aggregate gates were not run in this reviewer pass.
+
+## Dispositions
+
+Round 1 reviewed fix commit `fa9697e89f2e6fbcea23307caab5c8e2b1db33e8`. All 18 CLI constructor calls now pass QSL's two labels; comparison of the deleted and added calls confirms that every authority and identity argument is unchanged. The TC-018 observation oracle now expects exactly QSL's two serialized fields. No new finding arose from the fix diff.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The 18 CLI call sites use the two-argument constructor; `quire-cli/src/cli.rs:731` is now `SourceIdentity::new("quire", &options.path)`. A focused `cargo check -p quire-cli --tests --locked` passes on the fix head. |
