@@ -15,13 +15,7 @@ pub(super) fn map_application(
     operands: &[ValueType],
     result: &ValueType,
 ) -> Option<Operation> {
-    if source.mode.is_some()
-        || source.member.is_some()
-        || source.execution_point.is_some()
-        || !source.laws.is_empty()
-        || !source.constraints.is_empty()
-        || !source.leaves.is_empty()
-    {
+    if !accepts_header(operator, source, arguments.len()) {
         return None;
     }
     match (operator, arguments, operands, result) {
@@ -91,5 +85,39 @@ pub(super) fn map_application(
             _ => None,
         },
         _ => None,
+    }
+}
+
+/// Reject an excluded operation at its own locus before visiting its operands.
+pub(super) fn accepts_header(
+    operator: &ApplicationOperator,
+    source: CheckedOperationRead<'_>,
+    arity: usize,
+) -> bool {
+    if source.mode.is_some()
+        || source.member.is_some()
+        || source.execution_point.is_some()
+        || !source.laws.is_empty()
+        || !source.constraints.is_empty()
+        || !source.leaves.is_empty()
+    {
+        return false;
+    }
+    match (operator, arity, source.identity) {
+        (ApplicationOperator::Unary, 1, "quire.op.integer.negate" | "quire.op.boolean.not") => true,
+        (
+            ApplicationOperator::Binary,
+            2,
+            "quire.op.integer.add"
+            | "quire.op.integer.sub"
+            | "quire.op.integer.mul"
+            | "quire.op.integer.lt"
+            | "quire.op.integer.le"
+            | "quire.op.integer.gt"
+            | "quire.op.integer.ge"
+            | "quire.op.boolean.and"
+            | "quire.op.boolean.or",
+        ) => true,
+        _ => false,
     }
 }
