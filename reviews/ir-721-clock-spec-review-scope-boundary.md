@@ -157,3 +157,38 @@ scope:
 ## Round 1 disposition checkpoint
 
 Rechecked round 1 fixed PR122 source against the original reviewed delta. Both SR-122001/FND-001 and SR-122004/FND-001 are fixed by inspected source/spec changes. No new findings in this method's changed scope. Original findings and original verdict above remain historical and unedited. Current static findings are clear; this is not production PASS or merge readiness. No reviewer builds, tests, Cargo, matrix, advisors, EARS engine or final gate. Supplied /tmp/ir721-clock-review-cancel-test.log reports the one new cancellation test passes only in the supplementary source harness. Production compilation was not rerun and remains BLOCKED on the codegen owner; authentic positive Timed clock emission/admission and FR015-AC14 remain Planned. Previous limitations and complete-program exclusions remain unchanged.
+
+## Round 2 production evidence and dependency checkpoint
+
+Same reviewer continuation for PR122 after normal main dependency adoption and production component execution. The original review and round 1 UNRUN/BLOCKED observations above describe their historical checkpoints; the following facts supersede that evidence/dependency status only. Both original findings remain fixed. No new findings in this method's changed scope. Current scoped review: CLEAR for the partial clock refusal component, pending the lead's one final scoped gate after artifact custody. This review is not that gate and does not qualify healthy clock admission or a complete program.
+
+Inspected the complete delta since the fixed static source: no driver production code, tests, Cargo.toml, Makefile or CI behavior changed. Cargo.lock adopts normal branch=main CG repair, coherent QSL packages from one main cohort, and coherent IR/model main packages. The installed CG source explicitly maps the three new imported call-site refusals through their original setup refusal codes; CG PR749 is merged. No pin, dependency checkout patch, synthetic clock row, relaxed assertion or gate change was introduced.
+
+Actual production quire-driver receipts inspected: /tmp/ir721-clock-production-focused-tests.log reports 17 monitor_preparation and 8 monitor_lowering tests passed with zero failed/ignored; /tmp/ir721-clock-production-monitor-units.log reports 9 selected library units passed, 82 filtered out; /tmp/ir721-clock-production-clippy.log completes successfully for the production crate and selected tests; supplied warning-denied invocation is reported by the lead. /tmp/ir721-clock-production-fmt.log and /tmp/ir721-clock-production-spec.log contain no failure; stable rustfmt configuration and installed module warnings remain visible. This is production component evidence, no longer only the supplementary harness. No reviewer builds, tests, Cargo, matrix, advisors, EARS engine or final gate were run.
+
+Only FR015-AC13 refusal controls are qualified: native wrong clause/role/ordinal and MissingClock retain complete payloads; same-clause twins retain requested ordinals; zero/one-under/exact native work allowance retains first stops; pre-cancelled Deadline returns its original cause, no capability and unchanged inputs. FR015-AC14 healthy native receipt, optional independent clock comparison and successful cumulative work remain Planned. QSL1728 final PlanRoot subject mapping, admitted order/progress associations and full Program preparation remain Planned. QSL PR2385 and IR PR910 are merged and supply source-record/member rows and native record projection; driver joins and complete generated record closure are separate unqualified work. Native union seam is delivered; authentic final source-union producer handoff remains separate. The current status prose accurately separates these available producer/IR facts from driver qualification.
+
+### Current examined units
+
+```yaml
+scope:
+- id: FR-015-AC-13
+  path: spec/functional/FR-015-prepare-an-admitted-monitor-program.md
+  role: examined
+  excerpt: Pre-cancellation returns the original cancellation cause, no clock-admitted
+    token and unchanged inputs.
+- id: FR-015-AC-14
+  path: spec/functional/FR-015-prepare-an-admitted-monitor-program.md
+  role: examined
+  excerpt: Planned pending authentic timed-profile clock emission and IR admission.
+- id: TC-029-clock-production
+  path: spec/test-cases/TC-029-admitted-monitor-program-preparation.md
+  role: examined
+  excerpt: 'After adopting Contract CG PR #749, the production driver runs all 17
+    `monitor_preparation` tests and all 8 `monitor_lowering` tests successfully.'
+- id: clock-status
+  path: spec/tests.md
+  role: examined
+  excerpt: This is component evidence, not a final gate or a complete preparation
+    result.
+```
