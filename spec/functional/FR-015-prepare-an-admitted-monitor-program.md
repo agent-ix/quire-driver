@@ -76,6 +76,34 @@ No authored source, parser, formula renderer or QSL evaluator is an input to
 preparation. This specification invents no missing QSL witness carrier and
 claims no already implemented handoff for one.
 
+### Concrete clock admission within the partial selection boundary
+
+`admit_monitor_selection` SHALL call the selected IR plan's `clock_for_claim`
+with the independently supplied final clause and full `CheckedOccurrence`,
+under the remaining work allowance. Every successful selection SHALL retain
+that native `CheckedMonitorClockRead` and expose it as a borrow; missing clock
+association SHALL refuse, including when `clock_binding` is absent. The
+optional independent `TemporalBinding` is an additional expectation: when
+present its declaration, ordinal, clock name and closed clock configuration
+SHALL match the native read. Its absence waives only that comparison and
+SHALL NOT waive native clock admission or choose an occurrence or clock name.
+
+The driver SHALL retain every native clock refusal payload unchanged,
+including code, `at`, occurrence, consumed work and attempted work. Native
+`WorkLimit` SHALL map to the outer stable `work` code; `WrongClause`,
+`WrongRole`, `UnknownOccurrence` and `MissingClock` SHALL map to `selection`.
+A successful native receipt SHALL be charged exactly once to the same
+cumulative preparation allowance. All existing package/root, subject,
+profile, target and witness boundaries remain required.
+
+This partial clock component establishes no order or progress association,
+complete generated record closure, full `Program`, or producer-to-runtime
+qualification. QSL-1728 remains the missing explicit mapping (or owner-specified,
+mutation-checked proof) from `PlanRoot.plan.subject.occurrence` to the final
+emitted checked clause Claim occurrence after writer rekeying. A component
+fixture may independently select a known admitted Claim; it SHALL NOT claim
+that unresolved producer mapping or select the first row as production policy.
+
 ### Public entry shape and unresolved input handoff
 
 The public entry's request/result shape SHALL be:

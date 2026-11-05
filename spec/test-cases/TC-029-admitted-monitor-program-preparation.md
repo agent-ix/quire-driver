@@ -163,3 +163,17 @@ shape is an internal invariant fault; native key allocation failure remains
 Storage. An impossible missing/cyclic admitted scalar fact names its original
 node as an internal fault. These categories supply no scalar lowering success
 or complete owner qualification on their own.
+
+### Partial clock component controls
+
+Exercise a native producer-emitted and strictly admitted clock-bearing Claim
+with the driver's partial selection API. Assert the exposed native clock,
+claim name and exact occurrence; include same-clause twin occurrences with
+distinct names, wrong clause, role and ordinal, missing clock, optional
+independent clock-row mismatch, and one-under/exact native work allowance.
+Retain native refusal payloads and verify cumulative receipt accounting.
+The real default PlanRoot occurrence with no admitted clock must refuse with
+`MissingClock`. Independently selecting a known admitted Claim for this
+component is not final PlanRoot mapping qualification: QSL-1728 remains open.
+Existing non-clock identity and target controls remain required. These tests
+claim no whole FR-015 criterion or complete TC-029 execution credit.
