@@ -88,6 +88,7 @@ fn key_work_failure_releases_scratch_and_preserves_retained_storage() {
     budget.release_storage(bytes).unwrap();
 }
 
+#[ix_trace_rs::trace("FR-015-AC-15")]
 #[test]
 fn cancellation_during_key_walk_releases_scratch_with_original_cause() {
     for native in [false, true] {
@@ -188,6 +189,7 @@ fn native_key() -> quire_exact::NodeKey {
     .unwrap()
 }
 
+#[ix_trace_rs::trace("FR-015-AC-15")]
 #[test]
 fn native_key_borrowed_material_charges_nested_utf8_and_releases_all_scratch() {
     let key = native_key();

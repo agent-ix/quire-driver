@@ -232,7 +232,7 @@ no driver work receipt and receive no cumulative-work credit. These controls
 trace only FR-015-AC-15; healthy clock receipt AC-14, source-record closure and
 full Program remain Planned.
 
-The seven `tests/monitor_final_subject.rs` production tests execute this narrow
+The eight `tests/monitor_final_subject.rs` production tests execute this narrow
 procedure, including successful final-subject tokens for each distinct clause
 and the token's genuine native MissingClock continuation. Full native
 acquisition refusal/incomplete payloads, foreign associations, absent mappings,
@@ -245,3 +245,10 @@ before ProducerSubject, plus exact/one-under complete native key material
 charges and cancellation cleanup during the borrowed native key walk. Shared
 test support preserves the legacy same-clause twins and the final-subject
 suite's distinct clauses; neither suite substitutes the other's source shape.
+
+The additional early-identity boundary control requires zero-work refusal
+before wrong producer package/node/role/ordinal selection. Exact package-name
+material and both native keys are charged before comparison. Native borrowed
+key unit controls cover nested UTF-8 material, exact/one-under work and scratch
+release on work, storage and cancellation stops. Both integration suites use
+one shared native producer/request builder with explicit source shapes.

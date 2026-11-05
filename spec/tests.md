@@ -207,7 +207,7 @@ is preserved through the mapped token's actual native clock continuation.
 This component supplies no healthy Timed clock or complete preparation
 qualification. Source-record driver joining and full closure remain separate.
 
-Production `tests/monitor_final_subject.rs` executes seven FR-015-AC-15
+Production `tests/monitor_final_subject.rs` executes eight FR-015-AC-15
 controls: two-clause owner mapping and actual native MissingClock continuation;
 another declaration that maps in the same emission; absent lookup and edited
 node/role/name/package; full native package and instance mismatches; independent
@@ -216,3 +216,10 @@ original cancellation with exact/one-under driver prefix continuation. The
 existing 17 preparation controls also execute unchanged. These receipts
 qualify only native final-subject selection and refusal continuation, not
 healthy Timed clock receipt or whole TC-029 preparation.
+
+The additional early-identity boundary control requires zero-work refusal
+before wrong producer package/node/role/ordinal selection. Exact package-name
+material and both native keys are charged before comparison. Native borrowed
+key unit controls cover nested UTF-8 material, exact/one-under work and scratch
+release on work, storage and cancellation stops. Both integration suites use
+one shared native producer/request builder with explicit source shapes.
