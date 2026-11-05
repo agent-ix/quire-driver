@@ -449,6 +449,19 @@ fn complete_native_package_authentication_rejects_foreign_emission_and_keeps_ins
         .unwrap();
         assert_field(error, MonitorSelectionField::EmissionPackage);
     });
+    with_request(&FOREIGN, |request| {
+        let error = admit_monitor_final_subject(
+            &request,
+            &FIRST.subject,
+            &FIRST.emission,
+            &FIRST.evidence,
+            read_limits(),
+            &Cancel::new(),
+        )
+        .err()
+        .unwrap();
+        assert_field(error, MonitorSelectionField::EmissionPackage);
+    });
     with_request(&FIRST, |request| {
         let cloned = request.package.clone();
         let request = MonitorPreparationRequest {

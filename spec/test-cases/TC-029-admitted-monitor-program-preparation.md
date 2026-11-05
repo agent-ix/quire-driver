@@ -231,3 +231,10 @@ MissingClock. The owner's linear lookup and native acquisition/equality have
 no driver work receipt and receive no cumulative-work credit. These controls
 trace only FR-015-AC-15; healthy clock receipt AC-14, source-record closure and
 full Program remain Planned.
+
+The seven `tests/monitor_final_subject.rs` production tests execute this narrow
+procedure, including successful final-subject tokens for each distinct clause
+and the token's genuine native MissingClock continuation. Full native
+acquisition refusal/incomplete payloads, foreign associations, absent mappings,
+independent selections, cancellation and exact/one-under driver work controls
+are asserted. The separate preparation regression suite remains unchanged.

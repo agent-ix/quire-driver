@@ -180,8 +180,9 @@ linear declaration lookup are explicitly outside the driver's material-work
 ledger. The owner lookup has no bounded-read receipt: `TemporalBindingRows`
 `len()` counts clock rows, including zero for a mapped Timed subject, and
 SHALL NOT be used as a declaration-work count. Native read limits govern the
-acquisition; cancellation SHALL be checked before and after its synchronous
-native work. Driver identity/name comparisons, partial selection and resumed
+acquisition; cancellation SHALL be checked before acquisition and before continuing
+after successful synchronous native steps. Native failure payloads SHALL
+return unchanged. Driver identity/name comparisons, partial selection and resumed
 clock admission SHALL consume their actual existing ledger prefix. This
 component SHALL NOT claim full preparation work/storage qualification.
 
