@@ -145,3 +145,24 @@ scope:
 
     '
 ```
+
+## Normative disposition round 1
+
+Reviewed the exact published p9 fix through read-only detached IR-721-AC2-spec-review. Only FR017/TC031 are disposition subjects; original source117 findings and shared-source checkpoint statuses are not reopened. Original Findings/Verdict remain historical and unchanged.
+
+FND-001 fixed: FR017 Outputs now explicitly declares the accepted public path quire_driver::monitor::lowering::lower_scalar_functions and the exact agreed package/roots/identities/limits/cancel -> Result<(Vec<RT FunctionId>,Vec<RT Function>,Vec<RT Expression>),MonitorPreparationError> signature. Only RT-native owned tuple output is exposed. Requested-root order, repeated-root FunctionId sharing, empty-root behavior and no partial tuple are specified. TC031 now exercises that actual public helper. The former private-only prohibition is removed; only the shared implementation worklist remains private. The standalone helper uses its independent allowance, while full by-value lower_monitor must use the SAME worklist under admission-inherited accounting. P8 retains all shared registration/budget/error/request/manifest/lock ownership, and the full lowerer is not published as a placeholder.
+
+FND-002 fixed: the initial capability is now closed and explicit: integer add/sub/mul/negate, integer lt/le/gt/ge mapped to native OrderingOperator::{Less,LessOrEqual,Greater,GreaterOrEqual}, and Boolean not/and/or. All eleven map to actual existing RT Operation alternatives. Parameter/result/reached types must be exactly native Integer or Boolean; the table fixes Unary/Binary class, arity, input/output types and source operand order. Mode/member/execution_point must be absent and laws/constraints/leaves empty. Parameter/reference bodies use authentic callable membership/position, not name/level inference. Literal, If/Let, source calls, equality, division/remainder/modulo/implies, dependency/aggregate/nominal/other forms and unsupported metadata explicitly retain located UnsupportedOperation; actual native reader failures remain native. Calls are not implicitly traversed or expanded; future support needs a capability amendment. TC031 covers the declared positive set and genuine excluded forms, requested order/repeats, scoped same-package handles and no synthesized semantics.
+
+Native type/enum names were source-checked against RT/Exact owner APIs. No guessed arithmetic/evaluation semantics are added, no IR shadow reader or whole callable table is authorized, and owner-reported successful read work is still required. All criteria remain Planned. The existing source-fixture preflight is context only and supplies no helper, full Program/Layout/environment, RT build or total-budget qualification. Full ownership waits the named real IR/producer inputs. No new normative defect was found in this fix; source implementation review remains separate.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Public helper path/signature/native tuple and accounting split now match active contract b363b8e4. |
+| FND-002 | fixed | Closed eleven-operation capability, exact types/arity/metadata and typed unsupported remainder are specified. |
+
+### Round 1 verdict
+
+PASS normative scope: both original findings fixed, no new findings. This permits implementation against the declared closed capability when genuine native owner interfaces are available; it is not executable or full-preparer qualification. No Cargo/build/test/global scan/advisor or repository edit occurred.
