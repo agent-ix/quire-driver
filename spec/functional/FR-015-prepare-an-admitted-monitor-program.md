@@ -124,11 +124,79 @@ checked-package fixture establishes it.
 
 This partial clock component establishes no order or progress association,
 complete generated record closure, full `Program`, or producer-to-runtime
-qualification. QSL-1728 remains the missing explicit mapping (or owner-specified,
-mutation-checked proof) from `PlanRoot.plan.subject.occurrence` to the final
-emitted checked clause Claim occurrence after writer rekeying. A component
-fixture may independently select a known admitted Claim; it SHALL NOT claim
-that unresolved producer mapping or select the first row as production policy.
+qualification. QSL PR #2395 (QSL-1728) now supplies the owner lookup from
+an original `MonitorSubject` clause key and Claim ordinal to its final emitted
+checked declaration. Driver consumption of that mapping is defined below;
+the lookup does not supply a Timed clock configuration.
+
+### Native final-subject admission
+
+The driver SHALL expose this partial native-subject entry without a production
+`qsl-analyze` dependency or a copied plan representation:
+
+```rust
+admit_monitor_final_subject(
+    request: &MonitorPreparationRequest<'_>,
+    subject: &qsl_replay::MonitorSubject,
+    emission: &qsl_package::Emission,
+    evidence: &quire_contract_model::CheckedPackageEvidence,
+    read_limits: quire_contract_model::CheckedPackageReadLimits,
+    cancel: &quire_exact::Cancel,
+) -> Result<AdmittedMonitorFinalSubject<'_>, MonitorPreparationError>
+```
+
+The caller SHALL retain the genuine plan's native `subject()` and its final
+`Emission`. The driver SHALL strictly read that emission with native evidence
+and explicit native read limits, then compare the complete native admitted
+package with the independently selected request package using IR's complete
+package equality. Equal package names, display labels or partial tables SHALL
+NOT establish this association. Native read refusals and incomplete outcomes
+SHALL retain their unchanged typed payloads; the outer codes SHALL be
+`selection` and `work`, respectively.
+
+The entry SHALL require the subject's occurrence node to equal its clause
+node, its package to match the emission's native package name, and its full
+origin to denote a Claim. It SHALL execute
+`emission.temporal_binding_rows().declaration(subject.clause_node(),
+subject.occurrence().origin().ordinal())`; `None` SHALL return a typed mapping
+absence retaining the original native subject. A declaration elsewhere in the
+emission SHALL NOT substitute for the selected root's clause. The mapped
+final declaration and native Claim role/ordinal SHALL match the independent
+request's clause and full authentic source-map row. The admitted name row at
+that exact declaration/ordinal SHALL match the subject's retained name; a
+name SHALL never select a row. Existing package-instance/root/keys, subject,
+profile, target and full source-map validations SHALL remain required.
+
+The successful private-field token SHALL retain native subject/emission
+borrows and the verified partial selection. Its `admit_clock(cancel)` method
+SHALL resume the same driver work prefix through the existing native clock
+admission path; it SHALL NOT reset the allowance or derive a clock config.
+Mapping success alone SHALL establish no complete plan identity, formula or
+target provenance beyond the independent request checks, no clock receipt,
+no source-record closure, and no executable Program.
+
+Native strict acquisition, complete native package equality and the owner's
+linear declaration lookup are explicitly outside the driver's material-work
+ledger. The owner lookup has no bounded-read receipt: `TemporalBindingRows`
+`len()` counts clock rows, including zero for a mapped Timed subject, and
+SHALL NOT be used as a declaration-work count. Native read limits govern the
+acquisition; cancellation SHALL be checked before acquisition and before continuing
+after successful synchronous native steps. Native failure payloads SHALL
+return unchanged. Driver identity/name comparisons, partial selection and resumed
+clock admission SHALL consume their actual existing ledger prefix. This
+component SHALL NOT claim full preparation work/storage qualification.
+
+Before direct producer comparisons or origin conversion, the driver SHALL
+inspect both package-name byte strings, the complete occurrence and clause
+native NodeKeys, and the origin role/ordinal under its material ledger.
+Native NodeKeys SHALL be walked iteratively through the owner's borrowed
+`view()`/path-segment views, without owned path extraction, Serde or identity
+copies. Work SHALL charge each native key/container/tag, eight units per
+ordinal and each UTF-8 byte under the existing material schedule. Traversal
+scratch SHALL share the existing storage ledger and be released on work or
+cancellation failure. These direct comparisons are not part of the native
+acquisition/equality/owner-lookup exclusions. With a valid same emission,
+zero driver work SHALL refuse before comparing an edited producer identity.
 
 ### Executed narrow clock refusal evidence
 
@@ -140,7 +208,7 @@ exact native allowances retain the original work receipt; and pre-cancelled
 `Deadline` returns no clock capability and leaves the original inputs intact.
 Contract CG PR #749 removes the previous production compilation blocker.
 These controls establish the narrow refusal component only. FR-015-AC-14,
-QSL-1728 mapping, complete generated record closure, order/progress and full
+complete generated record closure, order/progress and full
 `Program` preparation remain Planned.
 
 ### Public entry shape and unresolved input handoff
@@ -346,6 +414,7 @@ copy receipt SHALL NOT reset or certify the complete preparation allowance.
 | FR-015-AC-12 | Planned until IR-721 lands. Public consumer/API and dependency controls establish one retained RT Program, no source input/callback, no driver seal/mint export or copied plan/expression/value family, and no IR/QSL/driver backedge from RT or RT edge from the cycle-free IR model. | Test |
 | FR-015-AC-13 | The separate clock-admission entry preserves native `WrongClause`, `WrongRole`, `UnknownOccurrence`, `MissingClock` and `WorkLimit` refusal payloads, including exact locus, occurrence, consumed work and attempted work. Semantic clock refusals map to outer `selection`; native work refusal maps to `work`. A missing clock returns no clock-admitted token even when the optional clock expectation is absent. Pre-cancellation returns the original cancellation cause, no clock-admitted token and unchanged inputs. Existing partial selection remains explicitly unclocked. | Test |
 | FR-015-AC-14 | Planned pending authentic timed-profile clock emission and IR admission. A healthy clock-admission entry exposes the native `clock_for_claim` receipt for its independently selected final clause/Claim, charges successful receipt work exactly once to the remaining cumulative allowance, and compares every field of any optional independent clock row. The exposed inner selection retains that work prefix for later projection. This establishes no final PlanRoot subject-occurrence mapping, order/progress association or complete program. | Test |
+| FR-015-AC-15 | A real PlanRoot's original native subject and final emission admit one final-subject token only after strict native emission/package equality, owner declaration lookup, exact root/clause/Claim, full source-map, native name and existing independent selection checks. Two-clause controls select their own final declarations; absent lookup, foreign subject/emission/package, role/node/ordinal and independent request discrepancies give typed refusal. Native read limits preserve exact payloads; cancellation returns the original cause and no token. Driver work is retained across the token's actual native clock path, which currently gives genuine MissingClock rather than a healthy receipt. Native acquisition/equality/linear lookup remain explicitly outside the driver ledger. No AC-14 or complete preparation credit is claimed. | Test |
 
 ## Dependencies
 

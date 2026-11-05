@@ -176,7 +176,7 @@ independent clock-row mismatch, and one-under/exact native work allowance.
 Retain native refusal payloads and verify cumulative receipt accounting.
 The real default PlanRoot occurrence with no admitted clock must refuse with
 `MissingClock`. Independently selecting a known admitted Claim for this
-component is not final PlanRoot mapping qualification: QSL-1728 remains open.
+component is not final PlanRoot mapping qualification: QSL PR #2395 supplies that owner mapping; driver consumption is qualified separately by FR-015-AC-15.
 Existing non-clock identity and target controls remain required. Executed
 refusal controls qualify only FR-015-AC-13, not the complete preparation
 criteria, healthy clock receipt or whole TC-029 procedure.
@@ -209,3 +209,46 @@ read: this clock component does not join the available source-record rows.
 No successful full source-record closure or retained `Program` is claimed.
 The healthy receipt and its successful cumulative work accounting remain
 FR-015-AC-14 Planned work.
+
+### Final subject mapping component
+
+Use actual `emit_plan_root` results with two distinct authored clauses. Retain
+each original `plan.subject()` before consuming its final emission. Admit that
+emission through the native IR reader and independently select its root,
+clause, subject and full Claim row. Call `admit_monitor_final_subject`; assert
+that its final declaration is the owner's original-key/ordinal lookup result
+and its exact admitted name is the selected clause's name. No first row or
+role/ordinal guess supplies the match. Another subject can map elsewhere in
+the same emission and must still refuse against the selected root.
+
+Exercise owner lookup None, foreign native subject/emission/package, wrong
+subject occurrence node/role/ordinal, independent request clause/occurrence
+and existing selectors, missing native evidence and native read exhaustion.
+Assert exact typed payloads, original pre-cancellation and unchanged inputs.
+Observe exact/one-under driver allowance and continuation of its actual prefix
+through token.admit_clock; the authentic Timed result remains native
+MissingClock. The owner's linear lookup and native acquisition/equality have
+no driver work receipt and receive no cumulative-work credit. These controls
+trace only FR-015-AC-15; healthy clock receipt AC-14, source-record closure and
+full Program remain Planned.
+
+The eight `tests/monitor_final_subject.rs` production tests execute this narrow
+procedure, including successful final-subject tokens for each distinct clause
+and the token's genuine native MissingClock continuation. Full native
+acquisition refusal/incomplete payloads, foreign associations, absent mappings,
+independent selections, cancellation and exact/one-under driver work controls
+are asserted. The separate preparation regression suite remains unchanged.
+
+Final-subject accounting controls also supply an edited native subject with
+the same valid emission and zero driver work. Require Work with zero consumed
+before ProducerSubject, plus exact/one-under complete native key material
+charges and cancellation cleanup during the borrowed native key walk. Shared
+test support preserves the legacy same-clause twins and the final-subject
+suite's distinct clauses; neither suite substitutes the other's source shape.
+
+The additional early-identity boundary control requires zero-work refusal
+before wrong producer package/node/role/ordinal selection. Exact package-name
+material and both native keys are charged before comparison. Native borrowed
+key unit controls cover nested UTF-8 material, exact/one-under work and scratch
+release on work, storage and cancellation stops. Both integration suites use
+one shared native producer/request builder with explicit source shapes.

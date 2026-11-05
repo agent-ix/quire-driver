@@ -187,7 +187,8 @@ admission likewise excludes `TemporalProfile::Timed`. Changing the profile
 or editing checked-package bytes cannot replace that missing owner fact.
 
 This component does not qualify FR-015-AC-1 through FR-015-AC-12 or whole
-TC-029 execution. QSL-1728 final subject-occurrence mapping, admitted
+TC-029 execution. QSL PR #2395 supplies the final subject-occurrence owner
+lookup; its driver consumer has separate FR-015-AC-15 controls. Admitted
 order/progress association, authentic final source-union producer identities,
 complete generated record closure and full Program preparation remain missing
 facts. Contract IR PR #905 supplies the native union seam and Contract IR
@@ -196,3 +197,29 @@ source-record/member rows and Contract IR PR #910 supplies native record
 admission/projection; their driver join and complete closure qualification
 remain separate work. The clock component retains the direct native refusal
 when those available record rows are not joined.
+
+The native final-subject API retains the genuine `MonitorSubject` and final
+`Emission`, strictly authenticates the complete native package, and consumes
+the original-key/ordinal owner declaration lookup. Native acquisition, full
+package equality and the owner's unbounded linear lookup are outside the
+driver ledger; declaration `len()` is not a work receipt. The driver prefix
+is preserved through the mapped token's actual native clock continuation.
+This component supplies no healthy Timed clock or complete preparation
+qualification. Source-record driver joining and full closure remain separate.
+
+Production `tests/monitor_final_subject.rs` executes eight FR-015-AC-15
+controls: two-clause owner mapping and actual native MissingClock continuation;
+another declaration that maps in the same emission; absent lookup and edited
+node/role/name/package; full native package and instance mismatches; independent
+clause/full occurrence/subject changes; native acquisition payloads/limits; and
+original cancellation with exact/one-under driver prefix continuation. The
+existing 17 preparation controls also execute unchanged. These receipts
+qualify only native final-subject selection and refusal continuation, not
+healthy Timed clock receipt or whole TC-029 preparation.
+
+The additional early-identity boundary control requires zero-work refusal
+before wrong producer package/node/role/ordinal selection. Exact package-name
+material and both native keys are charged before comparison. Native borrowed
+key unit controls cover nested UTF-8 material, exact/one-under work and scratch
+release on work, storage and cancellation stops. Both integration suites use
+one shared native producer/request builder with explicit source shapes.

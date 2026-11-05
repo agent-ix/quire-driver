@@ -7,6 +7,8 @@ use quire_contract_model::{
     TemporalBinding,
 };
 
+use quire_exact::{NodeKey, PathSegmentView};
+
 use super::{budget::Budget, MonitorPreparationError};
 
 type ReadResult = Result<(), MonitorPreparationError>;
@@ -51,6 +53,32 @@ impl Material for CheckedNodeId {
                         CheckedNodePathSegment::Node(child) => {
                             budget.push_key(&mut pending, child)?;
                         }
+                    }
+                }
+            }
+            Ok(())
+        })();
+        drop(pending);
+        budget.release_scratch(storage_before)?;
+        inspected
+    }
+}
+
+impl Material for NodeKey {
+    fn inspect_material(&self, budget: &mut Budget<'_>) -> ReadResult {
+        let mut pending = Vec::new();
+        let storage_before = budget.storage();
+        let inspected = (|| {
+            budget.push_key(&mut pending, self.view())?;
+            while let Some(node) = pending.pop() {
+                node.package().inspect_material(budget)?;
+                budget.charge(8)?; // exact native ordinal
+                budget.charge(1)?; // path container, before borrowed iteration
+                for segment in node.path() {
+                    budget.charge(1)?;
+                    match segment {
+                        PathSegmentView::Text(text) => text.inspect_material(budget)?,
+                        PathSegmentView::Node(child) => budget.push_key(&mut pending, child)?,
                     }
                 }
             }

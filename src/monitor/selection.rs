@@ -227,7 +227,14 @@ pub fn admit_monitor_selection<'a>(
     cancel: &Cancel,
 ) -> Result<AdmittedMonitorSelection<'a>, Error> {
     let mut budget = Budget::new(request.limits, cancel);
-    let plan = bind(request, &mut budget)?;
+    select_with_budget(request, &mut budget)
+}
+
+pub(super) fn select_with_budget<'a>(
+    request: &'a MonitorPreparationRequest<'a>,
+    budget: &mut Budget<'_>,
+) -> Result<AdmittedMonitorSelection<'a>, Error> {
+    let plan = bind(request, budget)?;
     if request.clause != plan.clause() {
         return Err(mismatch(Field::Clause, plan.node_id()));
     }
@@ -308,6 +315,22 @@ pub fn admit_monitor_clock_selection<'a>(
 ) -> Result<AdmittedMonitorClockSelection<'a>, Error> {
     let mut budget = Budget::new(request.limits, cancel);
     let plan = bind(request, &mut budget)?;
+    clock_with_budget(request, plan, &mut budget)
+}
+
+pub(super) fn resume_clock<'a>(
+    selection: &AdmittedMonitorSelection<'a>,
+    cancel: &Cancel,
+) -> Result<AdmittedMonitorClockSelection<'a>, Error> {
+    let mut budget = Budget::resume(selection, cancel)?;
+    clock_with_budget(selection.request, selection.plan, &mut budget)
+}
+
+fn clock_with_budget<'a>(
+    request: &'a MonitorPreparationRequest<'a>,
+    plan: CheckedMonitorPlanRef<'a>,
+    budget: &mut Budget<'_>,
+) -> Result<AdmittedMonitorClockSelection<'a>, Error> {
     budget.inspect(request.occurrence)?;
     let mut occurrence_found = false;
     for row in request.package.source_map() {
