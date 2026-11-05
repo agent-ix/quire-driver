@@ -3,7 +3,7 @@
 
 use qsl_package::Emission;
 use quire_contract_model::{
-    read_checked_package, CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageIncomplete,
+    read_checked_package, CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence, CheckedPackageIncomplete,
     CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageV2, ExactTypeProjection,
     ExactTypeProjectionError, SelectedExactIdentities, SelectedSourceRecordMemberRow,
     SelectedSourceRecordRow,
@@ -84,6 +84,10 @@ impl AdmittedSourceRecords {
 
 /// Strictly read an authentic emission and join its complete source-record rows.
 ///
+/// `evidence` is IR's native reader input. Ordinary callers pass the emission's
+/// evidence; model-dependent callers extend it with original domain documents
+/// through the native insertion API. IR validates those inputs.
+///
 /// IR owns reader limits and the finite `join_work_limit`. Row materialization
 /// and producer acquisition are outside the native join allowance. The native
 /// join returns no success-work receipt, so these independent limits do not
@@ -91,6 +95,7 @@ impl AdmittedSourceRecords {
 /// No caller-created row or separately admitted package supplies authority.
 pub fn admit_source_records(
     emission: &Emission,
+    evidence: &CheckedPackageEvidence,
     read_limits: CheckedPackageReadLimits,
     join_work_limit: u64,
 ) -> Result<AdmittedSourceRecords, SourceRecordAdmissionError> {

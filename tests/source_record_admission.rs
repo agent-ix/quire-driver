@@ -64,7 +64,7 @@ function tree using v(t: Tree): Boolean pure { true }
 fn authentic_complete_rows_and_parameter_projections_preserve_opaque_types() {
     let (emission, tagged, tree) = produce("record-positive");
     let admitted =
-        admit_source_records(&emission, CheckedPackageReadLimits::bounded(), 100_000).unwrap();
+        admit_source_records(&emission, emission.evidence(), CheckedPackageReadLimits::bounded(), 100_000).unwrap();
     assert_eq!(admitted.rows().count(), 3);
     for original in emission.selected_source_record_rows() {
         let row = admitted
@@ -139,11 +139,11 @@ fn authentic_complete_rows_and_parameter_projections_preserve_opaque_types() {
 fn join_exhaustion_preserves_the_exact_native_failure() {
     let (emission, _, _) = produce("record-budget");
     let admitted =
-        admit_source_records(&emission, CheckedPackageReadLimits::bounded(), 100_000).unwrap();
+        admit_source_records(&emission, emission.evidence(), CheckedPackageReadLimits::bounded(), 100_000).unwrap();
     let native = SelectedExactIdentities::empty()
         .with_source_record_rows(admitted.package(), admitted.rows().cloned(), 0)
         .unwrap_err();
-    let error = admit_source_records(&emission, CheckedPackageReadLimits::bounded(), 0)
+    let error = admit_source_records(&emission, emission.evidence(), CheckedPackageReadLimits::bounded(), 0)
         .err()
         .unwrap();
     assert_eq!(error.code(), SourceRecordAdmissionErrorCode::Join);
@@ -160,7 +160,7 @@ fn join_exhaustion_preserves_the_exact_native_failure() {
 fn native_structural_controls_reject_corrupt_claims_without_granting_authority() {
     let (emission, _, _) = produce("record-controls");
     let admitted =
-        admit_source_records(&emission, CheckedPackageReadLimits::bounded(), 100_000).unwrap();
+        admit_source_records(&emission, emission.evidence(), CheckedPackageReadLimits::bounded(), 100_000).unwrap();
     let original = admitted.rows().find(|r| r.members.len() == 3).unwrap();
     let mut controls = Vec::new();
     let mut row = original.clone();
@@ -230,7 +230,7 @@ fn reader_incompleteness_retains_its_original_native_payload() {
     let quire_contract_model::CheckedPackageDispatchResult::Incomplete(expected) = native else {
         panic!("zero bytes must stop native reading")
     };
-    let actual = admit_source_records(&emission, limits, 100_000).err().unwrap();
+    let actual = admit_source_records(&emission, emission.evidence(), limits, 100_000).err().unwrap();
     assert_eq!(actual.code(), SourceRecordAdmissionErrorCode::ReadIncomplete);
     let SourceRecordAdmissionError::ReadIncomplete(actual) = actual else {
         panic!("reader incompleteness remains distinct")
@@ -244,7 +244,7 @@ fn reader_incompleteness_retains_its_original_native_payload() {
 #[test]
 fn native_opaque_claim_acceptance_does_not_replace_emission_authority() {
     let (emission, _, _) = produce("record-opaque-control");
-    let admitted = admit_source_records(&emission, CheckedPackageReadLimits::bounded(), 100_000).unwrap();
+    let admitted = admit_source_records(&emission, emission.evidence(), CheckedPackageReadLimits::bounded(), 100_000).unwrap();
     let original = admitted.rows().find(|r| r.qualified_declaration == [Box::from("Tagged")]).unwrap();
     let point = admitted.rows().find(|r| r.qualified_declaration == [Box::from("Point")]).unwrap();
     let mut counterfactual = original.clone();
@@ -256,6 +256,6 @@ fn native_opaque_claim_acceptance_does_not_replace_emission_authority() {
     assert_eq!(structural_only.source_record_rows().next(), Some(&counterfactual));
     assert_ne!(counterfactual.record_key, original.record_key);
     assert_ne!(counterfactual.members[0].value_type, original.members[0].value_type);
-    let authentic = admit_source_records(&emission, CheckedPackageReadLimits::bounded(), 100_000).unwrap();
+    let authentic = admit_source_records(&emission, emission.evidence(), CheckedPackageReadLimits::bounded(), 100_000).unwrap();
     assert_eq!(authentic.rows().find(|r| r.structural_node == original.structural_node), Some(original));
 }
