@@ -353,33 +353,35 @@ fn operations_and_native_child_paths_retain_the_original_terms() {
         let actual = unsupported_at(package, node, &[], kind, None).unwrap();
         assert_eq!(actual.operation.as_ref(), Some(expected));
         assert_eq!(actual.kind, kind);
+        assert!(
+            !arguments.is_empty(),
+            "the actual application has child references"
+        );
         for (index, argument) in arguments.iter().enumerate() {
-            let child = unsupported_at(package, node, &[index], kind, None).unwrap();
-            let expected = match argument {
-                CheckedTerm::Application { operation, .. } => Some(operation),
-                _ => None,
+            let CheckedTerm::Reference { target } = argument else {
+                panic!("the actual source operation uses an admitted child reference, not a nested application");
             };
-            assert_eq!(child.operation.as_ref(), expected);
-            if let CheckedTerm::Reference { target } = argument {
-                assert_eq!(
-                    unsupported_at(package, node, &[index, 0], kind, None)
-                        .unwrap_err()
-                        .code,
-                    MonitorLocusErrorCode::InvalidBodyPath
-                );
-                let target_kind = package
-                    .graph()
-                    .nodes
-                    .iter()
-                    .zip(package.node_kinds())
-                    .find(|(original, _)| &original.node_id == target)
-                    .unwrap()
-                    .1;
-                let reached = unsupported_at(package, target, &[], *target_kind, None).unwrap();
-                assert_eq!(reached.kind, *target_kind);
-                assert_eq!(reached.locus.node, *target);
-                assert!(reached.locus.body_path.is_empty());
-            }
+            let child = unsupported_at(package, node, &[index], kind, None).unwrap();
+            assert_eq!(child.operation, None, "the nonempty path names a reference");
+            assert_eq!(child.locus.body_path, vec![index]);
+            assert_eq!(
+                unsupported_at(package, node, &[index, 0], kind, None)
+                    .unwrap_err()
+                    .code,
+                MonitorLocusErrorCode::InvalidBodyPath
+            );
+            let target_kind = package
+                .graph()
+                .nodes
+                .iter()
+                .zip(package.node_kinds())
+                .find(|(original, _)| &original.node_id == target)
+                .unwrap()
+                .1;
+            let reached = unsupported_at(package, target, &[], *target_kind, None).unwrap();
+            assert_eq!(reached.kind, *target_kind);
+            assert_eq!(reached.locus.node, *target);
+            assert!(reached.locus.body_path.is_empty());
         }
         assert_eq!(
             unsupported_at(package, node, &[arguments.len()], kind, None)
@@ -397,9 +399,27 @@ fn operations_and_native_child_paths_retain_the_original_terms() {
         .find(|(node, _)| &node.node_id == plan.init().node_id())
         .unwrap()
         .1;
-    let value = unsupported_at(package, plan.init().node_id(), &[1, 0], *kind, None).unwrap();
-    assert!(value.operation.is_none());
-    assert_eq!(value.locus.body_path, vec![1, 0]);
+    let init = plan.init().node_id();
+    assert!(matches!(
+        selected(package, init, &[1]),
+        CheckedTerm::Binding { .. }
+    ));
+    assert!(matches!(
+        selected(package, init, &[1, 0]),
+        CheckedTerm::Reference { .. }
+    ));
+    assert!(matches!(
+        selected(package, init, &[0, 0]),
+        CheckedTerm::Aggregate { .. }
+    ));
+    for path in [vec![1], vec![1, 0], vec![0, 0]] {
+        let value = unsupported_at(package, init, &path, *kind, None).unwrap();
+        assert_eq!(
+            value.operation, None,
+            "the real nonempty path selects a nonapplication"
+        );
+        assert_eq!(value.locus.body_path, path);
+    }
     for path in [&[1, 1][..], &[1, 0, 0][..]] {
         assert_eq!(
             unsupported_at(package, plan.init().node_id(), path, *kind, None)

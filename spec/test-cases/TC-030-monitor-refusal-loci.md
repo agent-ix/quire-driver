@@ -31,13 +31,16 @@ payload merely because an enum can be constructed or displayed.
    zero for all target premises and each buffer capacity; assert that the
    preceding path resolves to that actual Binding whose value is the endpoint. Verify that the original graph-local selector and resolved content
    key are retained separately.
-3. Select an actual application, including an inline application under a
-   binding or aggregate when present. Invoke `unsupported_at` with the kind
-   already decoded from its containing admitted node. Compare the returned
-   complete operation with that actual typed subterm, including its original
-   operation-specific data. A second real operation/path must yield the second
-   record; a nonapplication terminal yields None. No supported/unsupported
-   runtime verdict is asserted by this constructor test.
+3. Select actual root applications at empty paths. Invoke `unsupported_at`
+   with the kind already decoded from each containing admitted node. Compare
+   the returned complete operation with that actual root record, including
+   the IEEE conversion's original law, mode and member data. Selecting a
+   second actual root operation must retain its different original record.
+   Strict IR admits no Application below a node body root; no nested-application
+   fixture or conditional observation supplies coverage. For actual nonempty
+   child paths, explicitly require admitted Binding, Aggregate and Reference
+   terms and a None application record. Check their exact child paths and
+   reference stopping boundary. No runtime support-policy verdict is asserted.
 4. Exercise an unavailable child, binding child other than zero, continuation
    through a reference and a foreign role/ordinal. Require their exact typed
    InvalidBodyPath or OccurrenceMismatch errors. An ordinary admitted node

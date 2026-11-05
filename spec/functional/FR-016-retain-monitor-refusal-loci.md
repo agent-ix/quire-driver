@@ -44,9 +44,12 @@ unsupported_at(
 All `Checked*` types are the canonical Contract IR types. The caller supplies
 `kind` from the admitted containing node already resolved by its bounded
 traversal. The helper SHALL retain that value without a second graph-wide
-metadata lookup or another supported-operation classifier. For an inline
-term, `kind` remains the containing node's kind; the optional application
-record identifies the inline operation independently.
+metadata lookup or another supported-operation classifier. For a nonempty
+child path, `kind` remains the containing node's kind. The current strict IR
+contract permits `Application` only at a node body root: nested applications
+are owner-refused. Therefore full application records are observed at empty
+paths; admitted nonempty paths select nonapplication terms and reference
+boundaries, not an inline application.
 
 `TargetPremise` SHALL distinguish `Counter`, `CounterWidth`, `TickUnit`,
 `MaxReadingGap`, `MaxEventRate`, `Uncertainty`, `BufferCapacity` and
@@ -124,7 +127,7 @@ independent target equality and first-mismatch policy belong to its caller.
 ### Retain an unsupported operation
 
 The unsupported constructor SHALL resolve the exact typed subterm at the
-requested node/path. For an `Application`, it SHALL clone the complete original
+requested node/path. For an admitted root `Application` selected by an empty path, it SHALL clone the complete original
 `CheckedApplicationOperation`, preserving identity, laws, modes and every
 other retained field. For another terminal term, it SHALL retain `None` for
 the application record. It SHALL neither infer an operation from display text
@@ -150,7 +153,7 @@ second graph, or recompute content identities to construct a diagnostic.
 | FR-016-AC-2 | Aggregate/application source-order children and binding child zero resolve their actual typed subterms. An unavailable child, nonzero binding child or continuation past a reference returns InvalidBodyPath; selecting the referenced original node starts a separate path. | Test |
 | FR-016-AC-3 | On a genuinely admitted monitor root, Every TargetPremise resolves the value of its own actual named binding, including the final Binding.value child zero, without comparing or changing that value. Uncertainty resolves its actual uncertainty value path; BufferCapacity resolves the chosen capacity value path, including its final child zero and original row owner. | Test |
 | FR-016-AC-4 | BufferCapacity without an index, an out-of-range buffer index, and an index supplied for another premise each return InvalidPremiseIndex, with no target payload. A known ordinary node used as a root returns NotMonitorRoot; an unresolved node returns UnknownNode. | Test |
-| FR-016-AC-5 | A selected actual application yields its entire original CheckedApplicationOperation and the caller-resolved containing-node kind. A nonapplication terminal yields None. Changing the selected inline operation or path changes the observation; no support-policy verdict is inferred. | Test |
+| FR-016-AC-5 | Each selected actual root application at an empty path yields its entire original CheckedApplicationOperation and caller-resolved containing-node kind. Selecting a different root operation retains its different original record. Admitted nonempty paths select actual nonapplication terms and yield None; reference continuations fail rather than fabricate nested application coverage. Nested Applications are forbidden by the current owner admission contract. No support-policy verdict is inferred. | Test |
 | FR-016-AC-6 | An actual admitted role/ordinal is retained exactly; a nonmember occurrence returns OccurrenceMismatch. A genuine generated root succeeds with caller-supplied None even when it retains a Generated occurrence, without selecting a source-map row or inventing a selected occurrence. | Test |
 | FR-016-AC-7 | Construction retains typed error distinctions and returns no partial diagnostic on failure. Neither constructor changes the admitted package, target values, operation records or source correspondence. | Test |
 | FR-016-AC-8 | The diagnostic module uses native IR identities/terms and native Vec child paths, introduces no plan/target/expression DTO or evaluator, and performs no parse, initialization, runtime build, support-policy decision, whole-graph index collection or identity recomputation. | Inspection |
@@ -160,7 +163,8 @@ second graph, or recompute content identities to construct a diagnostic.
 The four focused `monitor_refusal` tests execute the diagnostic-constructor
 controls of AC-1 through AC-7 through public QSL checking/emission and strict
 IR admission. They cover all eight target-premise value paths and buffer
-ownership, complete original operation data, native child/reference boundaries,
+ownership, complete original root-application data, admitted nonapplication
+child paths and reference boundaries,
 actual Generated/Expression occurrence distinctions, caller-selected None,
 typed failures, unchanged inputs and owned payloads after package destruction.
 AC-8 has source-inspection evidence only: the diagnostic module calls no parser,
