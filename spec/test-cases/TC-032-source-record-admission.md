@@ -25,14 +25,20 @@ is inferred from this component.
    Compare every complete native joined row with the original producer row:
    source identity/authority, qualified declaration, structural node, opaque
    record key and every ordered member identity/name/presence/type node/value.
-3. Read actual ordinary callable parameter IDs from the admitted package;
+3. Also emit a genuine final PlanRoot containing ordinary source records via
+   public QSL emit_plan_root. Add its original model document through the native
+   IR evidence insertion API. Admit its untouched final emission and verify the
+   final structural/member type IDs resolve in that exact admitted package.
+   Without the required native document evidence, compare the driver refusal
+   against the original native reader refusal.
+4. Read actual ordinary callable parameter IDs from the admitted package;
    project those parameter types through the driver owner. Compare native
    Composite keys and complete source_record_view rows. Require native failure
    without witnesses and with zero projection allowance. Drop the emission and
    retain the owned native rows.
-4. Compare zero join allowance and zero reader byte allowance errors to the
+5. Compare zero join allowance and zero reader byte allowance errors to the
    complete original native owner payloads. Return no partial admitted owner.
-5. Separately mutate cloned native rows as counterfactual structural controls:
+6. Separately mutate cloned native rows as counterfactual structural controls:
    foreign source/declaration, missing/reordered members, wrong presence/type,
    empty original field name or wrong admitted name, duplicate rows, and rows from a genuine
    independently emitted foreign package. Exercise IR's native join directly.

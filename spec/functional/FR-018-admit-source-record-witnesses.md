@@ -60,7 +60,13 @@ and executable Program construction remain outside this component.
 
 ## Qualification Status
 
-Planned. This independent record component contributes to the source-record slice
+Qualification is Planned. The production API and genuine-source controls are
+authored, but their focused production test build is blocked in the upstream
+code generator by an exhaustive CallSiteRefusal match missing UnknownImport,
+UnknownImportedFunction and NotImportable. No authored positive control has
+executed and no source-record criterion is claimed complete.
+
+This independent record component contributes to the source-record slice
 of [FR-015](FR-015-prepare-an-admitted-monitor-program.md) and IR-721 AC1 only.
 Complete IR-721 AC1, monitor preparation and whole-preparation limits remain Planned.
 
