@@ -216,13 +216,15 @@ formula, a returned-row count or charging all remaining allowance as a receipt.
 Work, storage and cancellation stops SHALL return no partial published owner.
 Driver-owned vector, text and worklist storage reservations SHALL be checked
 before exposing owned arenas; allocation failure SHALL retain its native cause.
-The current scoped implementation accounts for measurable driver-owned capacity.
-Private native `NodeKey::try_new` constructor reservations and native diagnostic
-payload cloning are outside that measured ledger until a reservation-aware
-owner interface is supplied. This explicit limitation SHALL NOT be reported as
-complete retained-storage qualification, an exact whole-helper storage bound or
-a full preparation allowance; those storage controls remain Planned. Native
-constructor/diagnostic failures SHALL retain their original typed causes. Operating limits SHALL NOT change target
+The scoped implementation accounts for measurable driver-owned capacity and
+native key-constructor internal reservations through the owner's
+`NodeKey::try_new_with` callback. Constructor Policy failures SHALL retain the
+original budget/cancellation error unchanged; Construction failures SHALL retain
+native InvalidNodeKey. Caller-owned input acquisition/allocation and native
+diagnostic payload cloning do not receive complete retained-storage
+qualification from these constructor cells. Exact whole-preparation storage
+controls remain Planned; native constructor coverage SHALL NOT upgrade them.
+ Operating limits SHALL NOT change target
 premises, semantic capacities, source types or evaluation meaning.
 
 Source-fixture preflight may obtain genuine native callable/type/node views
@@ -263,7 +265,16 @@ complete-program obligations.
 
 ## Qualification Status
 
-All criteria remain Planned until their exact controls execute. The first
+Qualification is partial. Executed scalar-component evidence covers the eleven
+plain operations, exact parameter/result types, root order/repetition, native
+source keys, per-function shared-handle ownership, nested sharing, retained
+arenas after setup drop, different package keys, declared unsupported operation
+loci, bounded-type refusal and independent operating stops. Genuine source
+parameter-only and literal-only bodies currently encounter the native selective
+reader's MalformedBody refusal; the helper preserves that payload/work/locus.
+Parameter-only positive materialization remains Planned pending that owner read.
+No test fixture was rewritten to bypass it. Full criteria remain Planned until
+all their exact controls execute. The first
 intended public-helper checks cover the closed ordinary source scalar
 capability and native arena retention only. The existing original-source
 preflight establishes genuine shared parameter/body handles, not helper success. They invoke no `emit_plan_root`, fabricated monitor

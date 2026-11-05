@@ -2,7 +2,7 @@
 //! Iterative conversion of original structural fields through the native key constructor.
 
 use quire_contract_model::{CheckedNodeId, CheckedNodePathSegment};
-use quire_exact::{NodeKey, PathSegment};
+use quire_exact::{NodeKey, NodeKeyConstructionError, PathSegment};
 
 use super::{storage, Budget, Error};
 
@@ -13,9 +13,9 @@ struct Frame<'a> {
     path_storage: usize,
 }
 
-/// Driver-owned scratch, text and path storage is charged here. The current
-/// native constructor's opaque internal reservations need its owner hook before
-/// the complete retained-storage obligation can be qualified.
+/// Driver-owned scratch, text and path storage is charged before allocation.
+/// The native owner reports its own internal reservation requests through the
+/// canonical constructor hook; its policy refusal is returned unchanged.
 pub(super) fn own_key(source: &CheckedNodeId, budget: &mut Budget<'_>) -> Result<NodeKey, Error> {
     let mut frames = Vec::new();
     let mut frame_storage = 0;
@@ -73,7 +73,13 @@ pub(super) fn own_key(source: &CheckedNodeId, budget: &mut Budget<'_>) -> Result
             let package = storage::text(&frame.source.package, budget)?;
             budget.charge(8)?;
             let key =
-                NodeKey::try_new(package, frame.path, frame.source.ordinal).map_err(Error::Key)?;
+                NodeKey::try_new_with(package, frame.path, frame.source.ordinal, &mut |bytes| {
+                    budget.reserve_storage(bytes)
+                })
+                .map_err(|error| match error {
+                    NodeKeyConstructionError::Policy(error) => error,
+                    NodeKeyConstructionError::Construction(error) => Error::Key(error),
+                })?;
             // Native construction consumed and freed the input path vector;
             // its text and nested keys now belong to the returned native owner.
             budget.release_storage(frame.path_storage)?;

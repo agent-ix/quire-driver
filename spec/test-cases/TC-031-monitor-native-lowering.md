@@ -101,10 +101,19 @@ lowering allowance or temporal subject/subformula evidence. Full AC-1/2/3/4/7
 remain Planned until the required native interfaces and exact controls execute.
 AC-8 is Inspection; no Test trace substitutes for that evidence method.
 
-The current native-key constructor and diagnostic clone do not expose all
-internal allocation reservations. Tests of zero driver storage or measured
-vector/text/worklist stops qualify those boundaries only. Exact/one-under
-complete retained-storage qualification remains Planned until the owner hook
-accounts for those native allocations. Source-authored tests have no executed
-qualification credit until the real registered public module is compiled and
-run against the coherent native API cohort.
+Native key-constructor internal reservations are now observed through the
+owner's callback, alongside measurable driver vector/text/worklist storage.
+The same genuine public-helper fixture exercises measured storage success and
+one-under typed denial. This qualifies those component reservation cells only;
+caller-owned input acquisition and native diagnostic clone allocation remain
+outside complete retained-storage qualification. Exact whole-preparation
+storage remains Planned.
+
+Observed partial execution covers the eleven plain operation mappings, exact
+native parameter/result types, requested order and repeated roots, shared
+parameter/body handles with distinct FunctionId owners, nested expression
+sharing, retained keys after setup drop, package scoping, bounded-type refusal,
+and original unsupported modulo/call/If/Let/implies loci. Native parameter-only
+and literal-only callable reads currently refuse with MalformedBody; tests
+preserve the exact original native payload rather than substituting a driver
+Unsupported or claiming parameter-only success. That positive remains Planned.

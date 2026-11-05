@@ -24,8 +24,9 @@ type NativeArenas = (Vec<FunctionId>, Vec<Function>, Vec<Expression>);
 /// Requested root order is retained and repeated roots share FunctionId.
 /// Every returned arena owns its keys and types; no source borrow escapes.
 /// The explicit allowance is independent of monitor admission. Native key
-/// constructor internal storage remains an unqualified owner boundary until
-/// the reservation hook is available; this is not full monitor preparation.
+/// constructor reservations use the original owner hook. Input acquisition and
+/// diagnostic clone allocation are not complete retained-storage qualification;
+/// this is not full monitor preparation.
 pub fn lower_scalar_functions(
     package: &CheckedPackageV2,
     roots: &[CheckedNodeId],

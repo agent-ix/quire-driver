@@ -618,3 +618,63 @@ function boundedValue using v(a: Int[0, 9], b: Int[0, 9]): Integer pure { a + b 
         *fixture.package.structural_key(parameter).unwrap()
     );
 }
+
+#[trace("FR-017-AC-5")]
+#[test]
+fn measured_component_storage_includes_native_constructor_reservations() {
+    let fixture = source_fixture(
+        SCALAR_SOURCE,
+        "agent-ix/scalar-storage-boundary",
+        SCALAR_NAMES,
+    );
+    let invoke = |storage| {
+        lower_scalar_functions(
+            &fixture.package,
+            &fixture.originals[..1],
+            &fixture.identities,
+            MonitorPreparationLimits {
+                storage,
+                ..allowances()
+            },
+            &Cancel::new(),
+        )
+    };
+    let mut lower = 0;
+    let mut upper = allowances().storage;
+    assert!(invoke(upper).is_ok());
+    // Bounded integer bisection over this one real assembly, not an estimate
+    // of native private layouts or an assertion about full input acquisition.
+    while lower < upper {
+        let middle = lower + (upper - lower) / 2;
+        match invoke(middle) {
+            Ok(_) => upper = middle,
+            Err(MonitorPreparationError::Storage {
+                limit,
+                consumed,
+                next,
+            }) => {
+                assert_eq!(limit, middle);
+                assert!(next > limit - consumed);
+                lower = middle + 1;
+            }
+            Err(other) => panic!("unexpected component storage stop: {other:?}"),
+        }
+    }
+    assert!(lower > 0);
+    let Err(MonitorPreparationError::Storage {
+        limit,
+        consumed,
+        next,
+    }) = invoke(lower - 1)
+    else {
+        panic!("one-under measured component storage must return no tuple");
+    };
+    assert_eq!(limit, lower - 1);
+    assert!(next > limit - consumed);
+    let (roots, functions, expressions) = invoke(lower).unwrap();
+    assert_eq!(roots, vec![FunctionId(0)]);
+    assert!(matches!(
+        expressions[functions[0].body.0].operation,
+        Operation::IntegerAdd { .. }
+    ));
+}
