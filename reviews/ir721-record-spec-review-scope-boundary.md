@@ -9,7 +9,7 @@ review_set: subset
 
 ## Summary
 
-Ticket IR-721 (nonclosing). Independent static review of frozen PR123 head 6e05051078c6ed468b73edd187bacd993d95319f. Reviewer made no code edits. No applicable AssuranceProfile was found.
+Ticket IR-721 (nonclosing). Independent static review of the original frozen PR123 source. Reviewer made no code edits. No applicable AssuranceProfile was found.
 
 ## Verdict
 
@@ -82,3 +82,7 @@ scope:
   role: examined
   excerpt: Complete changed file and its role in authentic source-record admission.
 ```
+
+## Latest verdict
+
+Round 1: statically clear within this method’s changed source-record seam; no open or new findings. Production qualification remains BLOCKED/UNRUN by the unchanged upstream CG exhaustive-match failure. No reviewer Cargo/build/test/gate ran. Root retains the sole final gate after the upstream repair and actual focused checks. IR-721 remains nonclosing. This does not establish production PASS or merge readiness.
