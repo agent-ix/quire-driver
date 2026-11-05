@@ -428,33 +428,31 @@ mod tests {
     #[trace("FR-016-AC-10", "FR-016-AC-11")]
     fn operating_error_catalog_classifies_native_failures_without_formatting() {
         use MonitorLocusCopyErrorCode as Code;
-        let allocation = Vec::<u8>::new().try_reserve_exact(usize::MAX).unwrap_err();
+        let cancel = Cancel::new();
+        let mut ledger = Ledger {
+            limits: MonitorPreparationLimits {
+                work: 0,
+                storage: 0,
+            },
+            cancel: &cancel,
+            work: 0,
+            storage: 0,
+        };
+        let work = ledger.charge(1).unwrap_err();
+        let storage = ledger.bytes(1, 1).unwrap_err();
+        ledger.limits = MonitorPreparationLimits {
+            work: u64::MAX,
+            storage: u64::MAX,
+        };
+        let allocation = ledger.vector::<u8>(usize::MAX).unwrap_err();
+        cancel.cancel(CancelCause::Deadline);
+        let cancelled = ledger.charge(0).unwrap_err();
         let errors = [
-            (
-                MonitorLocusCopyError::Work {
-                    limit: 0,
-                    consumed: 0,
-                    next: 1,
-                },
-                Code::Work,
-            ),
-            (
-                MonitorLocusCopyError::Storage {
-                    limit: 0,
-                    consumed: 0,
-                    next: 1,
-                },
-                Code::Storage,
-            ),
-            (
-                MonitorLocusCopyError::Allocation(allocation),
-                Code::Allocation,
-            ),
+            (work, Code::Work),
+            (storage, Code::Storage),
+            (allocation, Code::Allocation),
             (exact_text_capacity(1, 2).unwrap_err(), Code::Capacity),
-            (
-                MonitorLocusCopyError::Cancelled(CancelCause::Deadline),
-                Code::Cancelled,
-            ),
+            (cancelled, Code::Cancelled),
         ];
         assert_eq!(errors.len(), Code::all().len());
         for (error, expected) in errors {
