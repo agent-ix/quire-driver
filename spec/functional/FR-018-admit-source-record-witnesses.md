@@ -16,7 +16,7 @@ all original native identity and value fields.
 
 ## Inputs
 
-The component accepts a genuine QSL Emission, native package-reader limits,
+The component accepts a genuine QSL Emission, native IR reader evidence and package-reader limits,
 and a separate finite native source-record join allowance.
 
 ## Outputs
@@ -27,8 +27,11 @@ reader refusal, incompleteness, or projection failure.
 
 ## Behavior
 
-The public admission function SHALL read the emission's own bytes with its own
-evidence using IR's public strict reader. The function SHALL obtain source-record
+The public admission function SHALL read the emission's own bytes using IR's
+public strict reader and native evidence. Ordinary callers supply the emission's
+evidence; model-dependent callers extend that original native evidence with the
+original domain documents using IR's public insertion API. Native reading, not a
+driver trust flag or copied schema reader, validates those documents. The function SHALL obtain source-record
 rows only from that same emission's immutable getter. The function SHALL map every
 source authority, source identity, qualified declaration segment, structural node,
 opaque record key, ordered original declared member name, admitted binding name,
