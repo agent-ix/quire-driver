@@ -220,3 +220,13 @@ scope:
     Aggregate.members and Application.arguments use source-order child indices; Binding.value
     uses child0.'
 ```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Behavior, AC-3, TC-030 step 2 and the agreed interface contract now consistently require the premise value endpoint, including final Binding.value child zero, for every ordinary target premise and buffer capacity. TC-030 independently resolves the preceding Binding and its value. Examples match the locked IR root field order and remain explicitly derived rather than authoritative indices. |
+
+## Latest verdict
+
+Normative disposition pass 1 at frozen 7d742873d019b5652744512e2f0d97e879e88eca: PASS. FND-001 is fixed; no open or new normative findings remain. This clears specification-first implementation of the agreed diagnostic interface only. No source implementation, healthy preparation, support-policy decision, target-admission, RT build/execution or whole FR-276 acceptance is credited. No Cargo, tests, gates or global metrics were run.
