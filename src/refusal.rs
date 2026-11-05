@@ -1486,9 +1486,7 @@ mod tests {
             (
                 UnitListRefusal::SiblingImport {
                     identity: "sibling".to_owned(),
-                    unit: Box::new(qsl_foundation::SourceIdentity::new(
-                        "test", "sibling", "fixture", "1",
-                    )),
+                    unit: Box::new(qsl_foundation::SourceIdentity::new("test", "sibling")),
                     region: None,
                 },
                 "missing_import/missing-selection",

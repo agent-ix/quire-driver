@@ -208,7 +208,7 @@ mod tests {
 
     fn request(engine: ExecutionEngine, limits: SpineLimits) -> ExecutionRequest<'static> {
         ExecutionRequest {
-            source: SourceIdentity::new("quire-driver-test", "unit", "test", "current"),
+            source: SourceIdentity::new("quire-driver-test", "unit"),
             package_name: "unit",
             path: "unit.qsl",
             bytes: UNIT.as_bytes(),
@@ -267,8 +267,7 @@ mod tests {
              model M = \"driver/ir608-model\";\n\
              function query_present using v(p: Population<M::Thing>[1], r: M::Thing): M::Thing pure { lookup<M::Thing>(p, r) absent refused }\n\
              function query_absent using v(p: Population<M::Thing>[1], r: M::Thing): M::Thing pure { lookup<M::Thing>(p, r) absent undefined }\n";
-        let source_identity =
-            SourceIdentity::new("quire-driver-test", "object-context", "test", "current");
+        let source_identity = SourceIdentity::new("quire-driver-test", "object-context");
         let cancel = Cancel::new();
         let parsed = qsl_replay::spine::parse(
             &qsl_replay::spine::ParseRequest {
@@ -392,7 +391,7 @@ mod tests {
         reference: quire_exact::ObjectReference,
     ) -> ExecutionRequest<'a> {
         ExecutionRequest {
-            source: SourceIdentity::new("quire-driver-test", "object-context", "test", "current"),
+            source: SourceIdentity::new("quire-driver-test", "object-context"),
             package_name: "object-context",
             path: "object-context.qsl",
             bytes: fixture.source.as_bytes(),

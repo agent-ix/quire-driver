@@ -513,7 +513,7 @@ fn manifest(identity: &str, kinds: &[&str]) -> ProviderManifest {
 
 fn input(packages: &qsl_semantics::model::intake::PackageInput) -> CompileInput<'_> {
     CompileInput {
-        source: SourceIdentity::new("agent-ix", "driver-test", "git", "1"),
+        source: SourceIdentity::new("agent-ix", "driver-test"),
         path: "unit.native",
         bytes: UNIT.as_bytes(),
         package_name: "driver-test",
@@ -544,7 +544,7 @@ fn cancellation_boundaries(
     let cancel = Cancel::observing(move || {
         seen.fetch_add(1, Ordering::SeqCst);
     });
-    let source = SourceIdentity::new("agent-ix", "driver-cancellation", "fixture", "1");
+    let source = SourceIdentity::new("agent-ix", "driver-cancellation");
     let request = ParseRequest {
         source: &source,
         path: "cancellation-model.native",
@@ -717,7 +717,7 @@ fn tc_019_cancellation_preserves_every_stage_and_cause() {
             let outcome = drive(
                 &recorder,
                 CompileInput {
-                    source: SourceIdentity::new("agent-ix", "driver-cancellation", "fixture", "1"),
+                    source: SourceIdentity::new("agent-ix", "driver-cancellation"),
                     package_name: "driver-cancellation",
                     path: "cancellation-model.native",
                     bytes: source_text.as_bytes(),
@@ -764,7 +764,7 @@ fn tc_019_cancellation_preserves_every_stage_and_cause() {
     let refusal = drive(
         &recorder,
         CompileInput {
-            source: SourceIdentity::new("agent-ix", "driver-cancellation", "fixture", "1"),
+            source: SourceIdentity::new("agent-ix", "driver-cancellation"),
             package_name: "driver-cancellation",
             path: "cancellation-model.native",
             bytes: source_text.as_bytes(),
@@ -793,7 +793,7 @@ fn tc_019_e5_receives_source_provision_and_checked_unit_retains_bounded_root() {
     let (source_text, packages) = cancellation_source_and_packages();
     let registry = build_registry(&[]).expect("an empty registry builds");
     let recorder = Recorder::default();
-    let source = SourceIdentity::new("agent-ix", "driver-cancellation", "fixture", "1");
+    let source = SourceIdentity::new("agent-ix", "driver-cancellation");
     let limits = SpineLimits::default();
     let driven = drive(
         &recorder,
