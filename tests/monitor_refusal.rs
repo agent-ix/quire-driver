@@ -52,7 +52,7 @@ function fixtureWatermark using v(s: DState, delta: Integer, progress: DScope): 
 function fixtureGap using v(s: DState, delta: Integer): DStep pure { DStep(s, emptyResults()) }
 function plus using v(a: Integer, b: Integer): Integer pure { a + b }
 function remainder using v(a: Integer, b: Integer): Integer pure { a mod b }
-function narrowed using v(a: Float64[nearest-even]): Float32[down] pure { convert<Float32[down]>(a) }
+function narrowed using v(a: Float64[nearest-even]): Float32[toward-negative] pure { convert<Float32[toward-negative]>(a) }
 "#;
 
 struct Fixture {
