@@ -85,9 +85,7 @@ impl Driven {
             .ok_or_else(mismatch)?;
         if inputs.selected_target.is_some()
             || located.package != self.emitted().bytes()
-            || !std::ptr::eq(selected.package, self.checked())
-            || selected.package.name() != self.checked().name()
-            || selected.package.lock() != self.checked().lock()
+            || selected.package != self.checked()
             || original.index().get() != selected.request_index
             || original.occurrence() != selected.occurrence
             || located.site.frame_occurrence != *selected.occurrence

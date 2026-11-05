@@ -59,8 +59,11 @@ impl Fixture {
         let ty = |name: &str, parents, operations| {
             json!({"identity": format!("ix://driver/model/{name}"),
             "displayName": name, "kind": {"module": "driver/model", "name": "entity"},
-            "roles": [], "origin": origin(name), "constraints": [], "extensions": [],
-            "unknownPolicy": "reject", "supertypes": parents, "fields": [], "operations": operations})
+            "roles": [], "origin": origin(&format!("ix://driver/model/{name}")), "constraints": [], "extensions": [],
+            "unknownPolicy": "reject", "supertypes": parents, "fields": if name == "Base" {json!([{
+                "identity": "ix://driver/model/Base/balance", "name": "balance",
+                "typeRef": "ix://driver/model/Amount", "presence": "required", "nullable": false, "defaultKind": "none", "multiplicity": {"lower": 1, "upper": 1, "ordered": false, "unique": true},
+                "origin": origin("ix://driver/model/Base/balance")}])} else {json!([])}, "operations": operations})
         };
         let mut child_op = op("Child");
         child_op["redefines"] = json!("ix://driver/model/Base/touch");
@@ -68,12 +71,23 @@ impl Fixture {
             "source": {"identity": "ix://driver/model", "version": "1.0.0", "dialect": "spec-bundle"},
             "package": {"identity": "driver/model", "version": "1.0.0", "mappingVersions": [], "profileVersions": []},
             "occurrences": [], "extensions": [], "constructs": [{"kind": {"module": "driver/model", "name": "entity"},
-                "moduleVersion": "1.0.0", "construct": {"identity": "entity", "shape": "record", "members": {},
-                    "meaning": "quire.meaning.model.object-type/v1"}}],
-            "types": [ty("Base", json!([]), json!([op("Base")])),
+                "moduleVersion": "1.0.0", "construct": {"identity": "none", "shape": "record", "members": {},
+                    "meaning": "quire.meaning.model.object-type/v1"}},
+                {"kind": {"module": "driver/model", "name": "value_type"}, "moduleVersion": "1.0.0",
+                    "construct": {"identity": "none", "shape": "record", "members": {}, "meaning": "quire.meaning.model.value-type/v1"}}],
+            "types": [{"identity": "ix://driver/model/Amount", "displayName": "Amount", "kind": {"module": "driver/model", "name": "value_type"},
+                "roles": [], "origin": origin("ix://driver/model/Amount"), "extensions": [], "unknownPolicy": "reject", "scalar": "integer",
+                "constraints": [
+                    {"identity": "ix://driver/model/Amount/min", "keyword": "min", "operands": {"value": "0"}, "appliesTo": "ix://quire/native/Integer", "diagnosticCode": "bound.min", "origin": origin("ix://driver/model/Amount")},
+                    {"identity": "ix://driver/model/Amount/max", "keyword": "max", "operands": {"value": "10"}, "appliesTo": "ix://quire/native/Integer", "diagnosticCode": "bound.max", "origin": origin("ix://driver/model/Amount")} ]}, ty("Base", json!([]), json!([op("Base")])),
                 ty("Child", json!(["ix://driver/model/Base"]), if redefined {json!([child_op])} else {json!([])})]})
             .to_string().into_bytes();
-        let unit = "language \"ix:native\" edition \"1-draft\";\nprofile v = \"quire.value.complete/v1\";\nmodel M = \"driver/model\";\npost Holds using v on M::Child::touch { true }\n".to_owned();
+        let unit = "language \"ix:native\" edition \"1-draft\";\nprofile v = \"quire.value.complete/v1\";\nmodel M = \"driver/model\";\npost Holds using v on M::Child::touch { self.balance >= pre(self.balance) }\n".to_owned();
+        let unit = if redefined {
+            unit
+        } else {
+            unit.replace("on M::Child::touch", "on M::Base::touch")
+        };
         let packages = qsl_semantics::model::intake::package_input([domain.as_slice()]).unwrap();
         let driven = drive(
             &QslCg,
@@ -136,7 +150,7 @@ impl Fixture {
             package: driven.checked(),
             clause: clause_node,
             state_path: "crate::State",
-            state_fields: &[],
+            state_fields: &["balance"],
             subject_path: "crate::touch",
             unwind: 2,
         })
@@ -150,7 +164,7 @@ impl Fixture {
             .unwrap()
             .index()
             .get();
-        let transcript = format!("/// Test generated for harness `{}`\n/// Check for `assertion`: \"frame\"\n#[test]\nfn kani_concrete_playback_check_1() {{\n    let concrete_vals: Vec<Vec<u8>> = vec![\n    ];\n    kani::concrete_playback_run(concrete_vals, check);\n}}\n", harness.harness_path());
+        let transcript = format!("/// Test generated for harness `{}`\n/// Check for `assertion`: \"frame\"\n#[test]\nfn kani_concrete_playback_check_1() {{\n    let concrete_vals: Vec<Vec<u8>> = vec![\n        // 0\n        vec![0, 0, 0, 0, 0, 0, 0, 0],\n    ];\n    kani::concrete_playback_run(concrete_vals, check);\n}}\n", harness.harness_path());
         Self {
             unit,
             domain,
@@ -195,7 +209,7 @@ impl Fixture {
                 ),
                 document(
                     json!({"identity": {"authority": "driver", "identity": "pre"}, "populations": [{"population": "objects", "complete": true,
-                    "objects": [{"key": "one", "type": "ix://driver/model/Child", "fields": {}}]}]}),
+                    "objects": [{"key": "one", "type": "ix://driver/model/Child", "fields": {"balance": {"integer": "0"}}}]}]}),
                 ),
             ],
             operation: operation("touch"),
@@ -233,7 +247,7 @@ impl Fixture {
 /// Trace: FR-009-AC-17, TC-016.
 #[test]
 fn frame_projection_preserves_inherited_and_redefined_declaring_owner() {
-    for (redefined, owner) in [(false, "M::Base"), (true, "M::Child")] {
+    for (redefined, owner) in [(false, "M.Base"), (true, "M.Child")] {
         let fixture = Fixture::new(redefined);
         let count = (
             fixture.driven.request_items.len(),
@@ -269,7 +283,8 @@ fn frame_projection_preserves_inherited_and_redefined_declaring_owner() {
 }
 
 fn assert_join_fault(result: Result<cg::FrameReplay, FrameReplayFailure>) {
-    let FrameReplayFailure::Driver(error) = result.expect_err("selection must fail closed") else {
+    let FrameReplayFailure::Driver(error) = result.err().expect("selection must fail closed")
+    else {
         panic!("expected driver association fault");
     };
     assert_eq!(error.code(), "runtime_invariant");
@@ -320,7 +335,7 @@ fn frame_projection_rejects_missing_changed_and_caller_populated_associations() 
         assert_join_fault(fixture.driven.prepare_frame_replay(inputs));
     }
     let mut inputs = fixture.inputs();
-    inputs.run.source.bytes.extend_from_slice(b"\n");
+    inputs.run.source.identity = "different".into();
     assert_join_fault(fixture.driven.prepare_frame_replay(inputs));
 }
 
@@ -342,12 +357,15 @@ fn frame_projection_preserves_qsl_refusal_before_any_join_or_codegen_check() {
     inputs.operation = operation("missing");
     inputs.selected_item.request_index = usize::MAX;
     inputs.harness.state_fields.push("invalid-for-cg".into());
-    let FrameReplayFailure::CallSite(actual) =
-        fixture.driven.prepare_frame_replay(inputs).unwrap_err()
+    let FrameReplayFailure::CallSite(actual) = fixture
+        .driven
+        .prepare_frame_replay(inputs)
+        .err()
+        .expect("QSL refusal")
     else {
         panic!("QSL refusal must precede driver and CG checks");
     };
-    assert_eq!(format!(actual), format!(expected));
+    assert_eq!(format!("{actual}"), format!("{expected}"));
     assert!(matches!(
         *actual,
         qsl_replay::CallSiteRefusal::UnknownOperation { .. }
@@ -370,4 +388,49 @@ fn public_reporting_inventory_cannot_rebind_retained_frame_request() {
         .driven
         .prepare_frame_replay(fixture.inputs())
         .expect("private request inventory remains authoritative");
+}
+
+/// Trace: FR-009-AC-17, FR-009-AC-19, TC-016.
+#[test]
+fn frame_projection_preserves_native_codegen_failure_and_admitted_package_equality() {
+    let fixture = Fixture::new(false);
+    let admitted_copy = fixture.driven.checked().clone();
+    let mut inputs = fixture.inputs();
+    inputs.selected_item.package = &admitted_copy;
+    fixture
+        .driven
+        .prepare_frame_replay(inputs)
+        .expect("equal admitted package is the same selection");
+    let mut inputs = fixture.inputs();
+    inputs
+        .harness
+        .state_fields
+        .push("not-granted-or-checked".into());
+    let error = fixture
+        .driven
+        .prepare_frame_replay(inputs)
+        .err()
+        .expect("CG refusal");
+    assert_eq!(error.code(), quire_driver::FrameReplayFailureCode::Codegen);
+    let FrameReplayFailure::Codegen(cg::FrameReplayError::FieldSetMismatch {
+        state_fields,
+        granted,
+        checked,
+    }) = error
+    else {
+        panic!("native CG field-set refusal must survive unchanged");
+    };
+    assert_eq!(state_fields, ["balance", "not-granted-or-checked"]);
+    assert!(granted.is_empty());
+    assert_eq!(checked, ["balance"]);
+    for code in quire_driver::FrameReplayFailureCode::all() {
+        assert_eq!(
+            quire_driver::FrameReplayFailureCode::from_code(code.as_str()),
+            Some(*code)
+        );
+    }
+    assert_eq!(
+        quire_driver::FrameReplayFailureCode::from_code("unknown"),
+        None
+    );
 }
