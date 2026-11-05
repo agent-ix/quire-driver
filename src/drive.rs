@@ -144,6 +144,8 @@ pub struct Driven {
     /// All QSL-produced request items, including export-refused items. Only
     /// bound entries construct the CG envelope or FR-331 process request.
     pub request_items: Vec<RequirementItem>,
+    /// Immutable original request inventory for replay association.
+    replay_items: Vec<RequirementItem>,
     /// Every item settled `supported`, with its routed backend, in request
     /// order.
     pub routed: Vec<Routed>,
@@ -157,6 +159,10 @@ pub struct Driven {
 }
 
 impl Driven {
+    pub(crate) fn replay_item(&self, index: usize) -> Option<&RequirementItem> {
+        self.replay_items.get(index)
+    }
+
     /// The compiled in-process QSL package.
     pub fn package(&self) -> &CheckedUnit {
         &self.package
@@ -461,6 +467,7 @@ pub fn drive(
         checked,
         item_refusals: partition.item_refusals,
         settlements,
+        replay_items: items.clone(),
         request_items: items,
         routed,
         generation,
