@@ -186,7 +186,6 @@ const SCALAR_NAMES: &[&str] = &[
     "orValue",
     "sameSum",
     "nestedValue",
-    "identityValue",
 ];
 
 fn allowances() -> MonitorPreparationLimits {
@@ -399,7 +398,23 @@ function implyValue using v(a: Boolean, b: Boolean): Boolean pure { a implies b 
         ],
     );
     for root in &fixture.originals {
-        let read = fixture.package.source_callable(root, 100_000).unwrap();
+        let read = match fixture.package.source_callable(root, 100_000) {
+            Ok(read) => read,
+            Err(native) => {
+                let failure = lower_scalar_functions(
+                    &fixture.package,
+                    std::slice::from_ref(root),
+                    &fixture.identities,
+                    allowances(),
+                    &Cancel::new(),
+                );
+                let Err(MonitorPreparationError::CallableRead(actual)) = failure else {
+                    panic!("native reader refusal must be retained without a tuple");
+                };
+                assert_eq!(*actual, native);
+                continue;
+            }
+        };
         let callable = read.callable().unwrap();
         let failure = lower_scalar_functions(
             &fixture.package,
@@ -508,4 +523,32 @@ fn independent_component_stops_and_package_scoping_remain_native() {
     )
     .unwrap();
     assert!(empty.0.is_empty() && empty.1.is_empty() && empty.2.is_empty());
+}
+
+#[trace("FR-017-AC-5")]
+#[test]
+fn parameter_only_native_reader_boundary_keeps_its_original_failure() {
+    let fixture = source_fixture(
+        SCALAR_SOURCE,
+        "agent-ix/scalar-parameter-only",
+        &["identityValue"],
+    );
+    let root = &fixture.originals[0];
+    let native = fixture.package.source_callable(root, 100_000).unwrap_err();
+    assert_eq!(
+        native.code,
+        quire_contract_model::CheckedCallableReadErrorCode::MalformedBody
+    );
+    assert_eq!(native.locus, *root);
+    let result = lower_scalar_functions(
+        &fixture.package,
+        &fixture.originals,
+        &fixture.identities,
+        allowances(),
+        &Cancel::new(),
+    );
+    let Err(MonitorPreparationError::CallableRead(actual)) = result else {
+        panic!("parameter-only read failure must remain native");
+    };
+    assert_eq!(*actual, native);
 }
