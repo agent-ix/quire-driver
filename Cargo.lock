@@ -1491,7 +1491,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-codegen"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#516a4826bdfffd20807b544103434fa095252caa"
+source = "git+https://github.com/agent-ix/quire-contract-codegen?branch=main#469c0fb6c61bef76134cde83da6c342012c40184"
 dependencies = [
  "command-fds",
  "ix-trace-rs",
@@ -1554,7 +1554,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-runtime"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-runtime?branch=main#1c4b99ed509933b10f8b74b4cccc8d58db887dd0"
+source = "git+https://github.com/agent-ix/quire-contract-runtime?branch=main#71c1c858ad072fdab1936252cd501da40aa00eea"
 
 [[package]]
 name = "quire-driver"
