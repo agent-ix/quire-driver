@@ -69,19 +69,27 @@ Qualification is partial. The production tests execute genuine ordinary-source
 record admission and Tagged/recursive Tree parameter projections successfully,
 including complete producer-field equality, native opaque keys and record views,
 join exhaustion, reader incompleteness, structural counterfactuals, opaque-claim
-authority separation and the stable error-code catalog. The affected monitor
-preparation and dependency-edge controls also execute successfully.
+authority separation and the stable error-code catalog. Earlier affected
+monitor preparation and dependency-edge controls were also executed; this
+update's focused evidence is the source-record target.
 
-The genuine final PlanRoot positive remains failing at the native source-record
-join: its authentic Activation row carries member admitted_name `origin_tick`,
-while the strictly admitted final record binds `origin` to the identical Integer
-type node. The original declared name correctly remains `origin_tick`. Native
-MismatchedIdentityWitness retains Activation as requested/at node and work 197.
-QSL must carry the final admitted binding rename into its immutable producer row;
-the driver does not repair/filter the row or publish a partial successful owner.
-Final PlanRoot record qualification remains Planned until that owner repair is
-adopted and its unchanged positive control passes. Historical review artifacts
-retain the earlier upstream compilation block as historical evidence.
+After adopting merged QSL-1741, all seven production
+`tests/source_record_admission.rs` controls execute successfully. The genuine
+final PlanRoot now joins every immutable final producer row (30 rows in the
+current fixture), including generated records. The test requires a nonempty
+producer set and exact native row-count equality rather than a fixed count or
+filtered subset. It compares every source/structural/declaration/opaque-key
+field and every ordered original member identity, admitted name, presence,
+type node and Exact value type with that same emission's producer rows.
+
+The generated `origin_tick` to `origin` and `amount` to `value` binding renames
+are exercised against real final producer rows, with the original member
+identities retained. Every final record and member type ID resolves in the
+strictly admitted package. Missing original domain evidence still preserves
+the exact native reader refusal. No driver row repair, filtering, fabricated
+witness or emitted-package mutation supplies this success. Historical review
+artifacts retain the earlier compilation and producer-rename blockers as
+historical evidence; they are not current qualification status.
 
 This independent record component contributes to the source-record slice
 of [FR-015](FR-015-prepare-an-admitted-monitor-program.md) and IR-721 AC1 only.

@@ -29,6 +29,10 @@ is inferred from this component.
    public QSL emit_plan_root. Add its original model document through the native
    IR evidence insertion API. Admit its untouched final emission and verify the
    final structural/member type IDs resolve in that exact admitted package.
+   Require nonempty producer rows, exact joined/producer count equality and
+   complete native-field equality for every row, including generated rows.
+   Assert genuine `origin_tick` to `origin` and `amount` to `value` admitted
+   binding renames while retaining the original declared member identities.
    Without the required native document evidence, compare the driver refusal
    against the original native reader refusal.
 4. Read actual ordinary callable parameter IDs from the admitted package;
@@ -58,10 +62,17 @@ records and no native success-work receipt is inferred for the join.
 
 ## Qualification Status
 
-The production ordinary-source, native error/control and error-catalog checks
-execute successfully. The genuine final PlanRoot positive is unqualified: QSL's
-Activation row retains admitted_name `origin_tick` after final emission renames
-the actual binding to `origin`. Native IR correctly returns its original
-MismatchedIdentityWitness at Activation with work 197. The test preserves this
-failing positive until the producer publishes the correct final binding name;
-it does not filter generated records or mutate/reseal the emitted package.
+All seven production source-record admission tests execute successfully after
+adopting merged QSL-1741. The genuine final PlanRoot joins its complete final
+producer row set, currently 30 rows for this fixture, and compares every
+native row/member field without filtering generated records. Both generated
+binding renames (`origin_tick` to `origin`, `amount` to `value`) retain their
+original member identities and authentic producer type/value fields.
+
+The ordinary-source projections, original reader/join error payloads,
+structural counterfactuals, opaque-authority distinction and error catalog
+remain covered by the same target. This is source-record admission evidence,
+not complete IR-721 AC1 or generated executable-closure qualification.
+Whole-preparation work/storage limits, healthy Timed clock receipt and retained
+Program construction remain Planned; independent native limits are not combined into
+a fabricated success-work receipt.
