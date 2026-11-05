@@ -129,16 +129,42 @@ pub(super) fn accepts_header(
 /// original transparent-reference location. Future allocating variants must
 /// not enter this copy through a generic Operation clone.
 pub(super) fn copy_scalar_operation(source: &Operation) -> Option<Operation> {
-    match source {
-        Operation::Argument { .. }
-        | Operation::IntegerAdd { .. }
-        | Operation::IntegerSubtract { .. }
-        | Operation::IntegerMultiply { .. }
-        | Operation::IntegerNegate { .. }
-        | Operation::IntegerOrder { .. }
-        | Operation::BooleanNot { .. }
-        | Operation::BooleanAnd { .. }
-        | Operation::BooleanOr { .. } => Some(source.clone()),
-        _ => None,
-    }
+    Some(match source {
+        Operation::Argument { function, position } => Operation::Argument {
+            function: *function,
+            position: *position,
+        },
+        Operation::IntegerAdd { left, right } => Operation::IntegerAdd {
+            left: *left,
+            right: *right,
+        },
+        Operation::IntegerSubtract { left, right } => Operation::IntegerSubtract {
+            left: *left,
+            right: *right,
+        },
+        Operation::IntegerMultiply { left, right } => Operation::IntegerMultiply {
+            left: *left,
+            right: *right,
+        },
+        Operation::IntegerNegate { value } => Operation::IntegerNegate { value: *value },
+        Operation::IntegerOrder {
+            operator,
+            left,
+            right,
+        } => Operation::IntegerOrder {
+            operator: *operator,
+            left: *left,
+            right: *right,
+        },
+        Operation::BooleanNot { value } => Operation::BooleanNot { value: *value },
+        Operation::BooleanAnd { left, right } => Operation::BooleanAnd {
+            left: *left,
+            right: *right,
+        },
+        Operation::BooleanOr { left, right } => Operation::BooleanOr {
+            left: *left,
+            right: *right,
+        },
+        _ => return None,
+    })
 }
