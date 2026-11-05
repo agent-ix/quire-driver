@@ -47,9 +47,9 @@ function emptyResults using v(): DResults pure { sequence[] }
 function fixtureInit using v(): DState pure {
     let initial = DState { now: 0, history_start: 0 - 1, buffer_0: sequence[], activations: sequence[], event_position: 0 } in initial
 }
-function fixtureEvent using v(s: DState, delta: Integer, i: DInputs): DStep pure { let result = DStep(s, emptyResults()) in result }
-function fixtureWatermark using v(s: DState, delta: Integer, progress: DScope): DStep pure { let result = DStep(s, emptyResults()) in result }
-function fixtureGap using v(s: DState, delta: Integer): DStep pure { let result = DStep(s, emptyResults()) in result }
+function fixtureEvent using v(s: DState, delta: Integer, i: DInputs): DStep pure { let pair = DStep(s, emptyResults()) in pair }
+function fixtureWatermark using v(s: DState, delta: Integer, progress: DScope): DStep pure { let pair = DStep(s, emptyResults()) in pair }
+function fixtureGap using v(s: DState, delta: Integer): DStep pure { let pair = DStep(s, emptyResults()) in pair }
 function plus using v(a: Integer, b: Integer): Integer pure { a + b }
 function remainder using v(a: Integer, b: Integer): Integer pure { a mod b }
 function narrowed using v(a: Float64[nearest-even]): Float32[toward-negative] pure { convert<Float32[toward-negative]>(a) }
