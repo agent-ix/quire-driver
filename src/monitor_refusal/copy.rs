@@ -454,6 +454,13 @@ mod tests {
             (exact_text_capacity(1, 2).unwrap_err(), Code::Capacity),
             (cancelled, Code::Cancelled),
         ];
+        assert_eq!(
+            Code::all()
+                .iter()
+                .map(|code| code.as_str())
+                .collect::<Vec<_>>(),
+            ["work", "storage", "allocation", "capacity", "cancelled"]
+        );
         assert_eq!(errors.len(), Code::all().len());
         for (error, expected) in errors {
             assert_eq!(error.code(), expected);
