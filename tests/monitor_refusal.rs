@@ -277,6 +277,18 @@ fn every_target_premise_names_its_actual_admitted_value() {
         ),
     ] {
         let actual = target_mismatch_at(package, root, premise, buffer, None).unwrap();
+        let explicit = target_mismatch_at(
+            package,
+            root,
+            premise,
+            buffer,
+            Some(&generated.occurrences[0]),
+        )
+        .unwrap();
+        assert_eq!(
+            explicit.locus.occurrence,
+            Some(generated.occurrences[0].clone())
+        );
         let path = if buffer.is_some() {
             vec![slot, 0, 0, 1, 0]
         } else {
@@ -317,7 +329,7 @@ fn operations_and_native_child_paths_retain_the_original_terms() {
     for identity in [
         "quire.op.integer.add",
         "quire.op.integer.mod",
-        "quire.op.numeric.convert_rounding",
+        "quire.op.ieee.to_float32",
     ] {
         let (node, kind) = operation(package, identity);
         let CheckedTerm::Application {
@@ -328,11 +340,15 @@ fn operations_and_native_child_paths_retain_the_original_terms() {
         else {
             panic!("actual application");
         };
-        if identity == "quire.op.numeric.convert_rounding" {
+        if identity == "quire.op.ieee.to_float32" {
             assert!(
                 expected.mode().unwrap().is_some(),
                 "the real rounding conversion carries its owner mode"
             );
+        }
+        if identity == "quire.op.ieee.to_float32" {
+            assert!(!expected.law_definitions().unwrap().is_empty());
+            assert!(expected.member_declaration().unwrap().is_some());
         }
         let actual = unsupported_at(package, node, &[], kind, None).unwrap();
         assert_eq!(actual.operation.as_ref(), Some(expected));
@@ -420,6 +436,22 @@ fn invalid_indices_occurrences_and_selectors_keep_distinct_typed_failures() {
         .expect("a real source operation occurrence");
     let original = unsupported_at(package, node, &[], kind, Some(occurrence)).unwrap();
     assert_eq!(original.locus.occurrence.as_ref(), Some(occurrence));
+    let root_foreign = CheckedOccurrence {
+        role: CheckedOccurrenceRole::Expression,
+        ordinal: 0,
+    };
+    assert_eq!(
+        target_mismatch_at(
+            package,
+            root,
+            TargetPremise::Uncertainty,
+            None,
+            Some(&root_foreign)
+        )
+        .unwrap_err()
+        .code,
+        MonitorLocusErrorCode::OccurrenceMismatch
+    );
     let foreign = CheckedOccurrence {
         role: CheckedOccurrenceRole::Expression,
         ordinal: u64::MAX,
