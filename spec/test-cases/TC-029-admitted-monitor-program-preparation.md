@@ -238,3 +238,10 @@ and the token's genuine native MissingClock continuation. Full native
 acquisition refusal/incomplete payloads, foreign associations, absent mappings,
 independent selections, cancellation and exact/one-under driver work controls
 are asserted. The separate preparation regression suite remains unchanged.
+
+Final-subject accounting controls also supply an edited native subject with
+the same valid emission and zero driver work. Require Work with zero consumed
+before ProducerSubject, plus exact/one-under complete native key material
+charges and cancellation cleanup during the borrowed native key walk. Shared
+test support preserves the legacy same-clause twins and the final-subject
+suite's distinct clauses; neither suite substitutes the other's source shape.

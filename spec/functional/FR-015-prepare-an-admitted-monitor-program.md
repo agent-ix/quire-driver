@@ -186,6 +186,18 @@ return unchanged. Driver identity/name comparisons, partial selection and resume
 clock admission SHALL consume their actual existing ledger prefix. This
 component SHALL NOT claim full preparation work/storage qualification.
 
+Before direct producer comparisons or origin conversion, the driver SHALL
+inspect both package-name byte strings, the complete occurrence and clause
+native NodeKeys, and the origin role/ordinal under its material ledger.
+Native NodeKeys SHALL be walked iteratively through the owner's borrowed
+`view()`/path-segment views, without owned path extraction, Serde or identity
+copies. Work SHALL charge each native key/container/tag, eight units per
+ordinal and each UTF-8 byte under the existing material schedule. Traversal
+scratch SHALL share the existing storage ledger and be released on work or
+cancellation failure. These direct comparisons are not part of the native
+acquisition/equality/owner-lookup exclusions. With a valid same emission,
+zero driver work SHALL refuse before comparing an edited producer identity.
+
 ### Executed narrow clock refusal evidence
 
 The production `tests/monitor_preparation.rs` controls execute FR-015-AC-13:
