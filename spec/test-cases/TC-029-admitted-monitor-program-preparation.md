@@ -55,7 +55,14 @@ compiler control.
 6. Supply a reachable admitted ordinary operation not in RT's closed
    vocabulary and an unrelated unsupported node outside the selected closure.
    The former gives the exact unsupported source locus before init; the latter
-   does not affect the selected plan. No callback or replacement temporal
+   does not affect the selected plan. Place a checked unsupported ordinary
+   operation, such as integer division or modulus, in a reachable rendered
+   entry, then recompile/re-emit and strictly admit it with fresh matching
+   selection and witnesses. A changed held atom alone may only change an
+   event capture, not the rendered transition; it is not this lowering control.
+   For changed-target refusal, keep the healthy original package and vary the
+   independently supplied target rather than relabelling a different package
+   as the same selection. No callback or replacement temporal
    computation is supplied.
 7. Exhaust lowering work/storage and cancel at independently selected
    boundaries. Exercise a native upstream read refusal and a real RT
@@ -88,9 +95,15 @@ Each [FR-015](../functional/FR-015-prepare-an-admitted-monitor-program.md)
 criterion has executed evidence with exact positive and adverse outcomes.
 Partial construction or pilot evidence remains partial; it does not qualify
 all of RT FR-276 or close IR-722. QSL-1463 retains and rekeys final-emission
-equality producer/fact and selected source-unit rows. QSL-1631 source-owned
-enum, collection and union witnesses, complete IR FR-357 generated-source
-projection and driver lowering remain planned until implemented and exercised.
+equality producer/fact and selected source-unit rows. QSL-1630 supplies
+body-sensitive plan identity and QSL-1631 supplies source enum
+declaration/member rows; collections are structural and need no identity
+row. Authentic generated source record/member handoff and source union
+admission/projection plus final producer rows remain prerequisites; IR-1323 owns
+the existing union seam. Final admitted clock/order/progress associations also
+need their owning public handoff. Concrete request fields cannot be qualified
+before those inputs exist. Complete IR FR-357 generated-source projection and
+driver lowering remain planned until implemented and exercised.
 The first IR FR-357 witnessed subset cannot establish a complete
 `TypeEnvironment` or RT `ProgramParts`. No copied upstream fixture, reminted
 identity, semantic mirror, callback, new semantic cap or proof run supplies

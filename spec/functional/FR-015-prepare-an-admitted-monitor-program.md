@@ -34,6 +34,14 @@ once into the runtime-owned immutable program. The driver SHALL preserve the
 admitted selection, native identities, types, provenance and exact premises.
 Preparation SHALL execute no initializer or transition.
 
+The final producer has been re-measured after QSL-1630 and QSL-1631. Those
+completed changes provide body-sensitive plan identity and source enum rows;
+they do not supply the missing source record/member and union identity
+handoff needed by the generated program. The existing IR-1323 union seam and
+that authentic producer handoff remain prerequisites for healthy complete
+preparation. This specification does not report an implemented entry or
+qualify a refusal-only implementation as a prepared program.
+
 This library boundary is downstream of QSL production and IR admission. It
 implements the consumer handoff of [IR FR-038](ix://agent-ix/quire-contract-ir/FR-038)
 and [RT FR-276](ix://agent-ix/quire-contract-runtime/FR-276), rather than another
@@ -68,6 +76,35 @@ No authored source, parser, formula renderer or QSL evaluator is an input to
 preparation. This specification invents no missing QSL witness carrier and
 claims no already implemented handoff for one.
 
+### Public entry shape and unresolved input handoff
+
+The public entry's request/result shape SHALL be:
+
+```rust
+prepare_monitor(
+    request: MonitorPreparationRequest<'_>,
+    cancel: &quire_exact::Cancel,
+) -> Result<Rc<quire_contract_runtime::monitor::Program>, MonitorPreparationError>
+```
+
+`MonitorPreparationRequest` SHALL group borrows of the selected admitted
+package/root, the independent canonical selection and original admitted
+associations, same-final-emission witness rows, and finite operating
+work/storage allowances. It SHALL NOT accept `ProgramParts`, a caller-built
+`TypeEnvironment`, replacement bodies or a callback supplying semantics.
+The package SHALL resolve its selected root and four entries itself; a foreign
+borrowed view SHALL NOT replace that resolution.
+
+This freezes the entry/result shape and failure distinctions, not a concrete
+request field list or an implemented Rust type. The request's concrete public
+fields SHALL be frozen only after the owning interfaces supply authentic
+final source record/member and union identities and admitted clock/order/
+progress associations. `PlanRoot` currently contains no final `AdmittedContext`;
+its selected model rows cannot establish generated source record authority.
+Raw caller bytes or a new local association wrapper SHALL NOT be treated as
+proof that an order/progress association was independently admitted. No
+speculative carrier for those unavailable inputs is introduced here.
+
 ## Outputs
 
 On success, preparation SHALL return the runtime's retained `Rc<monitor::Program>`
@@ -86,6 +123,14 @@ SHALL escape. The error SHALL distinguish:
   witness or admitted nominal/equality read;
 - an operating work/storage stop or cancellation; and
 - the runtime's original `ProgramRefusal` during construction.
+
+`MonitorPreparationError` SHALL expose distinct typed categories for selection,
+unsupported operation, upstream projection, work, storage, cancellation and
+runtime program construction. A broken lowering invariant SHALL retain the
+distinct driver internal-fault category. Native node/body-path or occurrence
+loci and upstream causes SHALL remain available without parsing human-readable
+error text. These are failure categories, not temporal outcomes or a complete
+new catalog of upstream causes.
 
 If the driver breaks an invariant of its lowering contract, the error SHALL
 remain a driver internal fault with its native construction/read cause, rather
@@ -139,17 +184,18 @@ SHALL NOT interpret temporal formula operators to supply missing body meaning.
 
 The driver SHALL materialize the needed admitted native type/declaration
 closure in canonical QSV `TypeEnvironment`, using the original Exact shared
-values/types and identities. Source-owned records, tuples, collections and
-unions SHALL retain declaration order, closed/open shape, presence and payload
-types. The driver SHALL NOT treat a selected-domain projection as a complete
-projection of generated source types, or invent an identity when the required
+values/types and identities. Source-owned records, tuples and unions SHALL
+retain declaration order, closed/open shape, presence and payload types. Collections SHALL retain their
+structural Exact element, kind and cardinality types without inventing a
+collection declaration identity. The driver SHALL NOT treat a selected-domain
+projection as a complete projection of generated source types, or invent an identity when the required
 projection/witness is unavailable.
 
 [IR FR-357](ix://agent-ix/quire-contract-ir/FR-357) owns the complete selected
 generated-source type/declaration projection needed for this environment.
-Its first bounded witnessed subset reads selected model declaration/field and
-equality facts only; it does not traverse the monitor root or establish the
-complete closure. That subset alone SHALL NOT be used to construct a complete
+Its first bounded witnessed subset, exercised by merged integration PR #47,
+reads explicitly selected model declaration/field and equality facts only;
+it does not traverse the monitor root or establish the complete closure. That subset alone SHALL NOT be used to construct a complete
 `TypeEnvironment` or RT `ProgramParts`.
 
 For equality, the driver SHALL obtain opaque `AdmittedEqualityDecision` through
@@ -233,9 +279,17 @@ effect.
   entry semantics. Its public producer is
   `qsl_analyze::monitor_root::emit_plan_root`. Merged QSL-1463 retains and
   rekeys model declaration/field, equality producer/fact and selected source-unit
-  witness rows in the final `PlanRoot.emission`. QSL-1631 remains pending for
-  source-owned enum, collection and union witnesses required by the complete
-  generated-source closure. No new QSL carrier is defined here.
+  witness rows in the final `PlanRoot.emission`. QSL-1630 now binds atom,
+  guard and helper bodies to plan identity; QSL-1631 now retains and rekeys
+  source enum declaration/member rows. Collections are structural and require
+  no declaration identity row. Source union identity admission/projection
+  remains existing IR-1323 work before its matching final producer handoff;
+  generated source record/member identities also require an authentic final
+  handoff. Neither channel is supplied by selected model rows or delivered
+  source enum rows. Final admitted clock/order/progress associations must also
+  come from their owning admitted interfaces. No new QSL carrier is defined
+  here, and the concrete preparation request field list remains unfrozen until
+  those inputs exist.
 - [IR FR-353](ix://agent-ix/quire-contract-ir/FR-353) owns the no-recheck equality
   read; [IR FR-354](ix://agent-ix/quire-contract-ir/FR-354) owns nominal reads.
   [IR FR-357](ix://agent-ix/quire-contract-ir/FR-357) owns the complete selected
