@@ -100,10 +100,17 @@ profile, target and witness boundaries remain required.
 
 The existing `admit_monitor_selection` remains an explicitly partial
 package/root/occurrence/target selection. Its `AdmittedMonitorSelection` does
-not claim clock admission. The separate clock entry SHALL first preserve all
-of that partial boundary's validations and then obtain the native clock
-receipt. Its exposed inner selection SHALL include the clock work prefix so
-subsequent projection cannot reset that allowance.
+not claim clock admission. The separate clock entry SHALL first validate the
+shared package/root/key, subject, profile and target prefix, then invoke the
+native clock reader with the independent clause and full role/ordinal.
+Native `WrongClause`, `WrongRole`, `UnknownOccurrence` and `MissingClock`
+refusals SHALL retain their first causes. Before constructing a successful
+clock-admitted capability, the driver SHALL validate full source-map
+authenticity and any optional independent clock expectation. Source-map
+inspection may consume work before the native read; its equality check SHALL
+NOT replace the native semantic refusal. The exposed inner selection SHALL
+include the clock work prefix so subsequent projection cannot reset that
+allowance.
 
 QSL's current timed PlanRoot has a time binding but its emitter supplies no
 clock row: `TemporalProfile::Timed` is excluded from native temporal clock row
@@ -323,7 +330,7 @@ copy receipt SHALL NOT reset or certify the complete preparation allowance.
 | FR-015-AC-10 | Planned until IR-721 lands. Real producer/read/lower/RT execution is compared with QSL's independent tick reference for RT FR-276's boundary, uncertainty, buffer21/22, wrap/gap, changed identity/order, activation and typed-stop controls. QSpec vectors are read by reference. Construction diagnostics and a single pilot plan receive no complete FR-276 execution credit. | Test |
 | FR-015-AC-11 | Planned until IR-721 lands. A large selected closure amid an unrelated long graph visits only relevant reachable nodes/edges and identity/value material under the caller allowance, without a whole-package sort or repeated full indexing. Equal budgets give equal typed work stops without a semantic depth/size ceiling. | Test |
 | FR-015-AC-12 | Planned until IR-721 lands. Public consumer/API and dependency controls establish one retained RT Program, no source input/callback, no driver seal/mint export or copied plan/expression/value family, and no IR/QSL/driver backedge from RT or RT edge from the cycle-free IR model. | Test |
-| FR-015-AC-13 | The separate clock-admission entry preserves native `WrongClause`, `WrongRole`, `UnknownOccurrence`, `MissingClock` and `WorkLimit` refusal payloads, including exact locus, occurrence, consumed work and attempted work. Semantic clock refusals map to outer `selection`; native work refusal maps to `work`. A missing clock returns no clock-admitted token even when the optional clock expectation is absent. Existing partial selection remains explicitly unclocked. | Test |
+| FR-015-AC-13 | The separate clock-admission entry preserves native `WrongClause`, `WrongRole`, `UnknownOccurrence`, `MissingClock` and `WorkLimit` refusal payloads, including exact locus, occurrence, consumed work and attempted work. Semantic clock refusals map to outer `selection`; native work refusal maps to `work`. A missing clock returns no clock-admitted token even when the optional clock expectation is absent. Pre-cancellation returns the original cancellation cause, no clock-admitted token and unchanged inputs. Existing partial selection remains explicitly unclocked. | Test |
 | FR-015-AC-14 | Planned pending authentic timed-profile clock emission and IR admission. A healthy clock-admission entry exposes the native `clock_for_claim` receipt for its independently selected final clause/Claim, charges successful receipt work exactly once to the remaining cumulative allowance, and compares every field of any optional independent clock row. The exposed inner selection retains that work prefix for later projection. This establishes no final PlanRoot subject-occurrence mapping, order/progress association or complete program. | Test |
 
 ## Dependencies

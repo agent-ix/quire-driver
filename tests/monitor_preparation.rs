@@ -1041,3 +1041,45 @@ fn clock_read_gets_remaining_work_with_exact_and_one_under_native_allowances() {
         }
     });
 }
+
+#[trace("FR-015-AC-13")]
+#[test]
+fn clock_admission_preserves_pre_cancelled_deadline_and_original_inputs() {
+    with_request(|mut request| {
+        request.clock_binding = None;
+        let original_source = request.occurrence.clone();
+        let original_source_map = request.package.source_map().to_vec();
+        let original_root = request.selection_root().clone();
+        let original_clause = request.clause.clone();
+        let original_subject = request.subject.clone();
+        let original_profile = request.profile.clone();
+        let original_limits = request.limits;
+        let original_package = request.package;
+        // Establish that this authentic fixture otherwise reaches MissingClock.
+        assert!(matches!(
+            admit_monitor_clock_selection(&request, &Cancel::new()),
+            Err(MonitorPreparationError::ClockRead(native))
+                if native.code == CheckedMonitorClockReadErrorCode::MissingClock
+        ));
+        let cancel = Cancel::new();
+        cancel.cancel(CancelCause::Deadline);
+        let error = admit_monitor_clock_selection(&request, &cancel)
+            .err()
+            .expect("pre-cancellation returns no clock-admitted capability");
+        assert_eq!(error.code(), MonitorPreparationErrorCode::Cancelled);
+        assert!(matches!(
+            error,
+            MonitorPreparationError::Cancelled(CancelCause::Deadline)
+        ));
+        assert_eq!(cancel.cause(), Some(CancelCause::Deadline));
+        assert!(std::ptr::eq(request.package, original_package));
+        assert_eq!(request.selection_root(), &original_root);
+        assert_eq!(request.clause, &original_clause);
+        assert_eq!(request.subject, &original_subject);
+        assert_eq!(request.profile, &original_profile);
+        assert_eq!(request.limits, original_limits);
+        assert!(request.clock_binding.is_none());
+        assert_eq!(request.occurrence, &original_source);
+        assert_eq!(request.package.source_map(), original_source_map);
+    });
+}
