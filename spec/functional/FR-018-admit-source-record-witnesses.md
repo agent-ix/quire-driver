@@ -98,6 +98,13 @@ witness or emitted-package mutation supplies this success. Historical review
 artifacts retain the earlier compilation and producer-rename blockers as
 historical evidence; they are not current qualification status.
 
+The eighth focused control runs against the merged native join budget. It
+measures positive work and storage charges from authentic rows, succeeds at
+both exact limits, and preserves the original native refusal when either
+allowance is one unit short. The new projection-code arms are exercised with
+typed payload assertions. This still provides no cumulative preparation
+receipt.
+
 This independent record component contributes to the source-record slice
 of [FR-015](FR-015-prepare-an-admitted-monitor-program.md) and IR-721 AC1 only.
 Complete IR-721 AC1, monitor preparation and whole-preparation limits remain Planned.
