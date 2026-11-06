@@ -10,7 +10,7 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedCallableReadErrorCode, CheckedMonitorClockReadErrorCode, CheckedNodeId,
     CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole, CheckedRational, CheckedTerm,
-    ExactTypeProjectionErrorCode, SelectedExactIdentities,
+    ExactTypeProjectionErrorCode, NativeJoinBudget, SelectedExactIdentities,
 };
 use quire_driver::monitor::{
     admit_monitor_clock_selection, admit_monitor_selection, project_monitor_initializer,
@@ -273,10 +273,12 @@ fn initializer_projection_preserves_the_actual_native_source_type_stop() {
         let CheckedTerm::Reference { target } = value.as_ref() else {
             panic!("original initializer expression");
         };
+        let mut budget = NativeJoinBudget::new(request.limits.work, request.limits.storage);
         let identities = SelectedExactIdentities::from_stage_rows(
             request.package,
             request.witnesses.declarations.iter().cloned(),
             request.witnesses.fields.iter().cloned(),
+            &mut budget,
         )
         .unwrap();
         let error = project_monitor_initializer(&admitted, &identities, &Cancel::new())
@@ -542,16 +544,19 @@ fn deep_caller_keys_return_typed_stops_on_a_small_stack() {
 #[test]
 fn initializer_read_resumes_the_consumed_admission_allowance() {
     with_request(|mut request| {
+        let setup_limits = request.limits;
         let required = admit_monitor_selection(&request, &Cancel::new())
             .unwrap()
             .work();
         request.limits.work = required;
         let admitted = admit_monitor_selection(&request, &Cancel::new())
             .expect("exact admission allowance succeeds");
+        let mut budget = NativeJoinBudget::new(setup_limits.work, setup_limits.storage);
         let identities = SelectedExactIdentities::from_stage_rows(
             request.package,
             request.witnesses.declarations.iter().cloned(),
             request.witnesses.fields.iter().cloned(),
+            &mut budget,
         )
         .unwrap();
         let error = project_monitor_initializer(&admitted, &identities, &Cancel::new())
@@ -604,10 +609,12 @@ fn actual_native_read_work_and_projection_causes_remain_distinct() {
         let CheckedTerm::Reference { target } = value.as_ref() else {
             panic!("init expression reference");
         };
+        let mut budget = NativeJoinBudget::new(request.limits.work, request.limits.storage);
         let identities = SelectedExactIdentities::from_stage_rows(
             request.package,
             request.witnesses.declarations.iter().cloned(),
             request.witnesses.fields.iter().cloned(),
+            &mut budget,
         )
         .unwrap();
         let native = request

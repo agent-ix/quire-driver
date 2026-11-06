@@ -8,7 +8,7 @@ use qsl_replay::spine::{check, parse, select, DependencyInput, ParseRequest, Spi
 use qsl_semantics::model::intake::package_input;
 use quire_contract_model::{
     read_checked_package, CheckedCallableIdentity, CheckedNodeId, CheckedPackageDispatchResult,
-    CheckedPackageReadLimits, SelectedExactIdentities,
+    CheckedPackageReadLimits, NativeJoinBudget, SelectedExactIdentities,
 };
 use quire_contract_runtime::monitor::{FunctionId, Operation};
 use quire_driver::monitor::{
@@ -141,10 +141,13 @@ fn source_fixture(source: &str, package_name: &str, names: &[&str]) -> Fixture {
         CheckedPackageDispatchResult::AdmittedV2(package) => package,
         other => panic!("strict IR admission of the original emission: {other:?}"),
     };
+    let limits = allowances();
+    let mut budget = NativeJoinBudget::new(limits.work, limits.storage);
     let identities = SelectedExactIdentities::from_stage_rows(
         &package,
         emission.selected_exact_declaration_rows().iter().cloned(),
         emission.selected_exact_field_rows().iter().cloned(),
+        &mut budget,
     )
     .expect("the native owner joins the actual producer's primitive setup rows");
     Fixture {
