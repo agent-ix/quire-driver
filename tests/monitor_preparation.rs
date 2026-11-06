@@ -721,7 +721,11 @@ fn clock_admission_reads_native_model_time_without_optional_expectation() {
 #[test]
 fn timed_model_clock_refuses_an_independent_extra_configured_row() {
     with_request(|request| {
-        assert!(request.package.temporal_bindings().unwrap_or_default().is_empty());
+        assert!(request
+            .package
+            .temporal_bindings()
+            .unwrap_or_default()
+            .is_empty());
         let extra = TemporalBinding {
             declaration: request.clause.clone(),
             occurrence: request.occurrence.ordinal,
