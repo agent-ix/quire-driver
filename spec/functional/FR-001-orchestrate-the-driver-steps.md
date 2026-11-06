@@ -47,7 +47,10 @@ into bound and refused (FR-010).
 
 Between steps 2 and 3, the E5 hand-off: IR's checked-package reader
 (`read_checked_package`) reads the emitted v2 bytes, and the driver accepts
-the admitted package that E4 emitted.
+the admitted package that E4 emitted. QSL's admission evidence receives the
+same caller-owned `SpineLimits.package.emit()` ceiling used for E4, alongside
+the caller's import-read limits, so dependency-closure emissions remain under
+the request's selected byte ceiling.
 
 ## Inputs
 
@@ -316,6 +319,7 @@ the admitted package that E4 emitted.
 | FR-001-AC-5 | Each command-level refusal carries its step, catalog code and outcome kind. A `Compile` refusal's code renders `code/cause` when the refusing stage names a cause (e.g. `missing_import`/`missing-selection`), not just the bare code. | Test (TC-004, TC-007, TC-008) |
 | FR-001-AC-6 | CG generation is called once, after routing, over the routed items only, each with its request index, its admitted `CheckedNodeId`, its routed backend and its kind; its output is keyed by request index, ascending; a missing kind context refuses the run, and a routed item naming a node the checked package does not hold is an internal fault. | Test (TC-006, TC-007) |
 | FR-001-AC-7 | The E5 read receives every caller-supplied FR-056 domain package document under its supplied identity and bytes unchanged, then admits the emitted v2 bytes; an IR refusal is an internal fault at the hand-off before any backend conversion. | Test (TC-004, TC-006) |
+| FR-001-AC-24 | The driver passes the caller's `SpineLimits.package.emit()` to QSL admission evidence at E5, preserving the exact `emit.output_bytes` value used for E4, including a caller-selected value. | Test (TC-001) |
 | FR-001-AC-8 | CG generation's output carries the FR-014 claim map CG derived for the Kani group (IR-294), `Some` whenever one ran; a node whose operation has no derivable claim settles `Unsupported` with `no_derivable_claim` and does not affect its routed siblings' records or harnesses. | Test (TC-006) |
 | FR-001-AC-9 | The same caller-owned `Cancel` handle is passed to QSL `parse`, `select`, `check` and `package`; cancellation returns `DriverRefusal::Cancelled` with QSL's stage and cause, and the driver adds no category or exit mapping. | Test (TC-019) |
 | FR-001-AC-10 | E5 receives the E4 `EmittedUnit` source provision; the returned `Driven` contains no `EmittedUnit`, retains the `CheckedUnit` root source for diagnostic loci, retains no library source under the current empty `DependencyInput`, and retains no more root-source bytes than `SpineLimits.source.source_bytes`. | Test (TC-019) |
