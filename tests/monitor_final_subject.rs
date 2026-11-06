@@ -93,6 +93,10 @@ fn original_subjects_select_their_own_final_claims_and_native_model_time() {
                 .expect("native model-time source");
             assert_eq!(clock.clause(), owner);
             assert_eq!(clock.unit(), request.tick_unit);
+            let admitted = token.admit_clock(&Cancel::new()).unwrap();
+            assert_eq!(admitted.clock().clock_name(), "model-time");
+            assert_eq!(admitted.clock().claim_name(), fixture.subject.clause_name());
+            assert!(admitted.selection().work() > token.selection().work());
             declarations.push(owner.clone());
         });
     }

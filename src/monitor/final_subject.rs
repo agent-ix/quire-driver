@@ -45,7 +45,7 @@ impl<'a> AdmittedMonitorFinalSubject<'a> {
     }
     /// Continue native clock admission without resetting the driver work prefix.
     ///
-    /// Current Timed emissions return the original native `MissingClock`.
+    /// Current Timed emissions read their native model-time source.
     /// Mapping success never supplies or derives a clock configuration.
     pub fn admit_clock(&self, cancel: &Cancel) -> Result<AdmittedMonitorClockSelection<'a>, Error> {
         selection::resume_clock(&self.selection, cancel)

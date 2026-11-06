@@ -174,41 +174,37 @@ claim name and exact occurrence; include same-clause twin occurrences with
 distinct names, wrong clause, role and ordinal, missing clock, optional
 independent clock-row mismatch, and one-under/exact native work allowance.
 Retain native refusal payloads and verify cumulative receipt accounting.
-The real default PlanRoot occurrence with no admitted clock must refuse with
-`MissingClock`. Independently selecting a known admitted Claim for this
+An admitted non-Timed monitor Claim with no clock binding must refuse with
+`MissingClock`. The current authentic Timed PlanRoot reads its model-time source.
+Independently selecting a known admitted Claim for this
 component is not final PlanRoot mapping qualification: QSL PR #2395 supplies that owner mapping; driver consumption is qualified separately by FR-015-AC-15.
 Existing non-clock identity and target controls remain required. Executed
-refusal controls qualify only FR-015-AC-13, not the complete preparation
-criteria, healthy clock receipt or whole TC-029 procedure.
+controls qualify only the covered parts of FR-015-AC-13 and FR-015-AC-14,
+not complete preparation or the whole TC-029 procedure.
 
 The existing partial `admit_monitor_selection` controls remain partial and
-exercise no clock authority. Until QSL emits a clock for its timed PlanRoot,
-its authentic positive clock receipt control is blocked: the native emitter
-skips `TemporalProfile::Timed`, while the clock-emitting profiles lack the
-time binding required by the timed plan producer. Strict IR clock-row
-admission also excludes `TemporalProfile::Timed`; both owning association
-contracts must exist. The default missing-clock,
-role/ordinal/clause and work-refusal controls can execute independently; none
-substitutes for the blocked positive receipt or qualifies FR-015-AC-14.
+exercise no clock authority. The authentic Timed PlanRoot now admits a native
+model-time source without a temporal clock row. Wrong role/ordinal/clause and
+work-refusal controls execute independently. A real driver `MissingClock`
+control needs an admitted non-Timed monitor plan without a binding row.
 
-FR-015-AC-13 covers only the native refusal controls above. The healthy
-receipt, optional expectation mismatch and successful cumulative work controls
-belong to FR-015-AC-14 and remain Planned without trace credit until the
-authentic timed clock producer handoff exists and those controls execute.
+FR-015-AC-13's no-token `MissingClock` obligation remains unqualified. The
+healthy model-time receipt and successful cumulative work controls exercise
+part of FR-015-AC-14; optional expectation mismatch remains Planned.
 
 ### Executed production component checks
 
-After adopting Contract CG PR #749, the production driver runs all 17
-`monitor_preparation` tests and all 8 `monitor_lowering` tests successfully.
-The clock-admission tests establish FR-015-AC-13's native semantic/work
-refusals, absent-expectation refusal, twin occurrence retention and original
+After adopting Contract CG PR #749, the production driver runs the
+`monitor_preparation` and `monitor_lowering` suites successfully.
+The clock-admission tests establish the reached FR-015-AC-13 native semantic/work
+refusals, `MissingClock` payload classification, twin occurrence retention and original
 pre-cancellation cause with no capability or input mutation. Existing partial
 selection and scalar lowering controls retain their component scope.
 The initializer read still compares its refusal with the direct native IR
 read: this clock component does not join the available source-record rows.
 No successful full source-record closure or retained `Program` is claimed.
-The healthy receipt and its successful cumulative work accounting remain
-FR-015-AC-14 Planned work.
+The healthy model-time receipt and its successful cumulative work accounting
+exercise FR-015-AC-14; full qualification remains Planned.
 
 ### Final subject mapping component
 
@@ -226,18 +222,17 @@ subject occurrence node/role/ordinal, independent request clause/occurrence
 and existing selectors, missing native evidence and native read exhaustion.
 Assert exact typed payloads, original pre-cancellation and unchanged inputs.
 Observe exact/one-under driver allowance and continuation of its actual prefix
-through token.admit_clock; the authentic Timed result remains native
-MissingClock. The owner's linear lookup and native acquisition/equality have
+through native model-time reading. The owner's linear lookup and native acquisition/equality have
 no driver work receipt and receive no cumulative-work credit. These controls
-trace only FR-015-AC-15; healthy clock receipt AC-14, source-record closure and
+trace only FR-015-AC-15; optional clock comparison AC-14, source-record closure and
 full Program remain Planned.
 
 The eight `tests/monitor_final_subject.rs` production tests execute this narrow
 procedure, including successful final-subject tokens for each distinct clause
-and the token's genuine native MissingClock continuation. Full native
+and the token's genuine native model-time source read. Full native
 acquisition refusal/incomplete payloads, foreign associations, absent mappings,
 independent selections, cancellation and exact/one-under driver work controls
-are asserted. The separate preparation regression suite remains unchanged.
+are asserted. The separate preparation regression suite covers model-time admission.
 
 Final-subject accounting controls also supply an edited native subject with
 the same valid emission and zero driver work. Require Work with zero consumed

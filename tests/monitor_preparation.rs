@@ -8,10 +8,10 @@ use std::{
 
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedCallableReadErrorCode, CheckedMonitorClock, CheckedMonitorClockReadErrorCode,
-    CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole,
-    CheckedRational, CheckedTerm, ExactTypeProjectionErrorCode, NativeJoinBudget,
-    SelectedExactIdentities,
+    CheckedCallableReadErrorCode, CheckedMonitorClock, CheckedMonitorClockReadError,
+    CheckedMonitorClockReadErrorCode, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence,
+    CheckedOccurrenceRole, CheckedRational, CheckedTerm, ExactTypeProjectionErrorCode,
+    NativeJoinBudget, SelectedExactIdentities,
 };
 use quire_driver::monitor::{
     admit_monitor_clock_selection, admit_monitor_selection, project_monitor_initializer,
@@ -663,6 +663,29 @@ fn native_operation_and_key_invariant_failures_retain_their_payloads() {
         panic!("native key payload");
     };
     assert_eq!(preserved, native);
+}
+
+#[trace("FR-015-AC-13")]
+#[test]
+fn native_missing_clock_payload_still_maps_to_selection() {
+    with_request(|request| {
+        let native = CheckedMonitorClockReadError {
+            code: CheckedMonitorClockReadErrorCode::MissingClock,
+            at: Box::new(request.clause.clone()),
+            occurrence: CheckedOccurrence {
+                role: request.occurrence.role.clone(),
+                ordinal: request.occurrence.ordinal,
+            },
+            work: 8,
+            attempted_work: 0,
+        };
+        let wrapped = MonitorPreparationError::ClockRead(Box::new(native.clone()));
+        assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Selection);
+        let MonitorPreparationError::ClockRead(actual) = wrapped else {
+            panic!("native missing-clock payload")
+        };
+        assert_eq!(*actual, native);
+    });
 }
 
 #[trace("FR-015-AC-13")]

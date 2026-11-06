@@ -144,7 +144,8 @@ remain separate obligations. The partial native-subject API
 `admit_monitor_final_subject` consumes QSL PR #2395's original-subject to
 final-declaration lookup and exposes a private-field selection capability
 (FR-015-AC-15). Its clock continuation still requires native clock admission;
-healthy Timed clock receipt and complete runtime preparation remain Planned.
+the healthy Timed model-time read is exercised, while complete runtime
+preparation remains Planned.
 
 ### 2.2 Out of Scope
 

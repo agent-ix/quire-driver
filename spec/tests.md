@@ -170,21 +170,21 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | Verify CLI process-provider composition and cleanup on exit and handled signals | `quire-cli` adapter and `quire-plugin-host` with a descendant-spawning fixture | component | TC-028 |
 | Verify admitted monitor program preparation and execution from real emitted entries | QSL producer, strict IR reader, driver preparation and RT program | integration | TC-029 (planned) |
 
-The separate clock-admission refusal component has narrow FR-015-AC-13
-traces for native clause/role/ordinal, missing-clock and work-refusal payloads.
+The separate clock-admission component has narrow FR-015-AC-13
+traces for native clause/role/ordinal and work-refusal payloads, plus
+`MissingClock` payload classification. An admitted non-Timed no-clock driver
+entry is still needed for the no-token `MissingClock` obligation.
 The original partial selection controls retain their unclocked meaning.
 Contract CG PR #749 removes the previous production compilation blocker.
-Actual production component execution now passes all 17 `monitor_preparation`
-tests and all 8 `monitor_lowering` tests. The five clock-admission controls
-qualify narrow FR-015-AC-13: complete native refusal payloads, exact requested
+Actual production component execution passes the `monitor_preparation` and
+`monitor_lowering` suites. The clock-admission controls
+exercise reached FR-015-AC-13 native refusal payloads, exact requested
 occurrences and remaining allowance, plus original pre-cancellation with no
 capability or mutation. This is component evidence, not a final gate or a
 complete preparation result.
-FR-015-AC-14 healthy native clock receipt, optional independent row comparison
-and successful receipt accounting remain Planned: QSL's current timed-profile
-emitter does not emit the clock row its PlanRoot needs and strict IR clock-row
-admission likewise excludes `TemporalProfile::Timed`. Changing the profile
-or editing checked-package bytes cannot replace that missing owner fact.
+The authentic Timed PlanRoot now provides a native model-time clock receipt and
+successful cumulative work accounting under FR-015-AC-14. Optional independent
+row comparison and full criterion qualification remain Planned.
 
 This component does not qualify FR-015-AC-1 through FR-015-AC-12 or whole
 TC-029 execution. QSL PR #2395 supplies the final subject-occurrence owner
@@ -204,18 +204,19 @@ the original-key/ordinal owner declaration lookup. Native acquisition, full
 package equality and the owner's unbounded linear lookup are outside the
 driver ledger; declaration `len()` is not a work receipt. The driver prefix
 is preserved through the mapped token's actual native clock continuation.
-This component supplies no healthy Timed clock or complete preparation
-qualification. Source-record driver joining and full closure remain separate.
+This component reads the healthy native Timed model-time source but supplies no
+complete preparation qualification. Source-record driver joining and full
+closure remain separate.
 
 Production `tests/monitor_final_subject.rs` executes eight FR-015-AC-15
-controls: two-clause owner mapping and actual native MissingClock continuation;
+controls: two-clause owner mapping and native model-time source reading;
 another declaration that maps in the same emission; absent lookup and edited
 node/role/name/package; full native package and instance mismatches; independent
 clause/full occurrence/subject changes; native acquisition payloads/limits; and
 original cancellation with exact/one-under driver prefix continuation. The
-existing 17 preparation controls also execute unchanged. These receipts
-qualify only native final-subject selection and refusal continuation, not
-healthy Timed clock receipt or whole TC-029 preparation.
+preparation controls also exercise native model-time admission. These receipts
+qualify final-subject selection and its bounded native source read, not whole
+TC-029 preparation.
 
 The additional early-identity boundary control requires zero-work refusal
 before wrong producer package/node/role/ordinal selection. Exact package-name
