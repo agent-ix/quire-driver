@@ -8,9 +8,10 @@ use std::{
 
 use ix_trace_rs::trace;
 use quire_contract_model::{
-    CheckedCallableReadErrorCode, CheckedMonitorClockReadErrorCode, CheckedNodeId,
-    CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole, CheckedRational, CheckedTerm,
-    ExactTypeProjectionErrorCode, NativeJoinBudget, SelectedExactIdentities,
+    CheckedCallableReadErrorCode, CheckedMonitorClock, CheckedMonitorClockReadErrorCode,
+    CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence, CheckedOccurrenceRole,
+    CheckedRational, CheckedTerm, ExactTypeProjectionErrorCode, NativeJoinBudget,
+    SelectedExactIdentities,
 };
 use quire_driver::monitor::{
     admit_monitor_clock_selection, admit_monitor_selection, project_monitor_initializer,
@@ -666,7 +667,7 @@ fn native_operation_and_key_invariant_failures_retain_their_payloads() {
 
 #[trace("FR-015-AC-13")]
 #[test]
-fn clock_admission_requires_native_clock_even_without_optional_expectation() {
+fn clock_admission_reads_native_model_time_without_optional_expectation() {
     with_request(|mut request| {
         request.clock_binding = None;
         let partial = admit_monitor_selection(&request, &Cancel::new()).unwrap();
@@ -681,18 +682,15 @@ fn clock_admission_requires_native_clock_even_without_optional_expectation() {
                 },
                 u64::MAX,
             )
-            .unwrap_err();
-        let error = admit_monitor_clock_selection(&request, &Cancel::new())
-            .err()
             .unwrap();
-        assert_eq!(error.code(), MonitorPreparationErrorCode::Selection);
-        let MonitorPreparationError::ClockRead(actual) = error else {
-            panic!("native missing clock")
+        assert_eq!(native.clock_name(), "model-time");
+        assert_eq!(native.claim_name(), "SelectedMonitor");
+        let CheckedMonitorClock::ModelTime { unit, .. } = native.clock() else {
+            panic!("native model-time clock")
         };
-        assert_eq!(actual.code, CheckedMonitorClockReadErrorCode::MissingClock);
-        assert_eq!(*actual, native);
-        assert!(actual.work > 0);
-        assert_eq!(actual.attempted_work, 0);
+        assert_eq!(unit, request.tick_unit);
+        let admitted = admit_monitor_clock_selection(&request, &Cancel::new()).unwrap();
+        assert_eq!(admitted.clock(), &native);
     });
 }
 
@@ -751,7 +749,7 @@ fn clock_admission_retains_native_wrong_clause_role_and_ordinal_payloads() {
 
 #[trace("FR-015-AC-13")]
 #[test]
-fn same_clause_twin_claims_keep_their_exact_native_refusal_occurrences() {
+fn same_clause_twin_claims_keep_their_exact_native_model_time_occurrences() {
     with_request(|request| {
         let names = request.package.temporal_clause_names().unwrap();
         let twin = names
@@ -775,21 +773,29 @@ fn same_clause_twin_claims_keep_their_exact_native_refusal_occurrences() {
             clock_binding: None,
             ..request
         };
-        let error = admit_monitor_clock_selection(&request, &Cancel::new())
-            .err()
+        let native = request
+            .package
+            .monitor_plans()
+            .next()
+            .unwrap()
+            .clock_for_claim(
+                request.clause,
+                &CheckedOccurrence {
+                    role: CheckedOccurrenceRole::Claim,
+                    ordinal: twin.occurrence,
+                },
+                u64::MAX,
+            )
             .unwrap();
-        let MonitorPreparationError::ClockRead(actual) = error else {
-            panic!("native missing twin clock")
+        let clock = admit_monitor_clock_selection(&request, &Cancel::new()).unwrap();
+        assert_eq!(clock.clock(), &native);
+        assert_eq!(native.claim_name(), "TwinMonitor");
+        assert_eq!(native.clock_name(), "model-time");
+        assert_eq!(native.occurrence().ordinal, twin.occurrence);
+        let CheckedMonitorClock::ModelTime { unit, .. } = native.clock() else {
+            panic!("native twin model-time clock")
         };
-        assert_eq!(actual.code, CheckedMonitorClockReadErrorCode::MissingClock);
-        assert_eq!(
-            actual.occurrence,
-            CheckedOccurrence {
-                role: CheckedOccurrenceRole::Claim,
-                ordinal: twin.occurrence
-            }
-        );
-        assert_eq!(actual.at.as_ref(), &twin.declaration);
+        assert_eq!(unit, request.tick_unit);
     });
 }
 
@@ -808,22 +814,16 @@ fn clock_read_gets_remaining_work_with_exact_and_one_under_native_allowances() {
         };
         let semantic = plan
             .clock_for_claim(request.clause, &occurrence, u64::MAX)
-            .unwrap_err();
-        assert_eq!(
-            semantic.code,
-            CheckedMonitorClockReadErrorCode::MissingClock
-        );
-        for allowance in [0, semantic.work - 1, semantic.work] {
-            request.limits.work = prefix + allowance;
+            .unwrap();
+        let full = admit_monitor_clock_selection(&request, &Cancel::new()).unwrap();
+        let prelude = full.selection().work() - semantic.work();
+        assert!(prelude >= prefix);
+        for allowance in [0, semantic.work() - 1] {
+            request.limits.work = prelude + allowance;
             let error = admit_monitor_clock_selection(&request, &Cancel::new())
                 .err()
                 .unwrap();
-            let expected_code = if allowance == semantic.work {
-                MonitorPreparationErrorCode::Selection
-            } else {
-                MonitorPreparationErrorCode::Work
-            };
-            assert_eq!(error.code(), expected_code);
+            assert_eq!(error.code(), MonitorPreparationErrorCode::Work);
             let MonitorPreparationError::ClockRead(actual) = error else {
                 panic!("native allowance stop")
             };
@@ -832,11 +832,11 @@ fn clock_read_gets_remaining_work_with_exact_and_one_under_native_allowances() {
                 .unwrap_err();
             assert_eq!(*actual, expected);
             assert_eq!(actual.work, allowance);
-            assert_eq!(
-                actual.attempted_work,
-                if allowance == semantic.work { 0 } else { 1 }
-            );
+            assert_eq!(actual.attempted_work, 1);
         }
+        request.limits.work = prelude + semantic.work();
+        let exact = admit_monitor_clock_selection(&request, &Cancel::new()).unwrap();
+        assert_eq!(exact.clock(), &semantic);
     });
 }
 
@@ -853,12 +853,9 @@ fn clock_admission_preserves_pre_cancelled_deadline_and_original_inputs() {
         let original_profile = request.profile.clone();
         let original_limits = request.limits;
         let original_package = request.package;
-        // Establish that this authentic fixture otherwise reaches MissingClock.
-        assert!(matches!(
-            admit_monitor_clock_selection(&request, &Cancel::new()),
-            Err(MonitorPreparationError::ClockRead(native))
-                if native.code == CheckedMonitorClockReadErrorCode::MissingClock
-        ));
+        // Establish that this authentic fixture otherwise admits model time.
+        let admitted = admit_monitor_clock_selection(&request, &Cancel::new()).unwrap();
+        assert_eq!(admitted.clock().clock_name(), "model-time");
         let cancel = Cancel::new();
         cancel.cancel(CancelCause::Deadline);
         let error = admit_monitor_clock_selection(&request, &cancel)
