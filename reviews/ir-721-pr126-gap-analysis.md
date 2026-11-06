@@ -54,6 +54,6 @@ Plan completion: not assessed. Changed trace bindings were compared with their a
 
 ## Dispositions
 
-| Finding | Outcome | Evidence |
+| FND | outcome | reason |
 | --- | --- | --- |
-| FND-001 | fixed | FR-015 and its qualification pages now retain the `MissingClock` obligation, distinguish the native Timed model-time receipt from a non-Timed missing binding, and mark the unexercised no-token case pending. The driver test exercises the retained native `MissingClock` payload classification. |
+| FND-001 | still-open | FR-015-AC-13 still requires the driver entry to return the native MissingClock refusal with no clock-admitted token when clock_binding is absent. The new test directly constructs MonitorPreparationError::ClockRead and checks only its classifier/payload; it never calls admit_monitor_clock_selection or token.admit_clock on a missing-clock plan. The revised qualification text explicitly says that admitted non-Timed driver-entry case is still needed. |
