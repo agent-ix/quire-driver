@@ -113,14 +113,11 @@ NOT replace the native semantic refusal. The exposed inner selection SHALL
 include the clock work prefix so subsequent projection cannot reset that
 allowance.
 
-QSL's current timed PlanRoot has a time binding but its emitter supplies no
-clock row: `TemporalProfile::Timed` is excluded from native temporal clock row
-emission, while the three clock-emitting profiles have no timed plan binding. IR
-strict clock-row admission likewise configures only those three profiles and
-excludes `TemporalProfile::Timed`. Authentic positive timed-PlanRoot clock
-qualification therefore remains blocked on the owning QSL emission and IR
-admitted association contracts; no profile substitution or edited
-checked-package fixture establishes it.
+QSL's current Timed PlanRoot has a model-time binding and no temporal clock
+row. IR reads that admitted model-time source directly, including its exact
+unit. Configured clock rows remain a separate association for non-Timed
+profiles. The no-token `MissingClock` case needs a non-Timed admitted monitor
+plan without such a row; the current Timed producer does not exercise it.
 
 This partial clock component establishes no order or progress association,
 complete generated record closure, full `Program`, or producer-to-runtime
@@ -200,16 +197,18 @@ zero driver work SHALL refuse before comparing an edited producer identity.
 
 ### Executed narrow clock refusal evidence
 
-The production `tests/monitor_preparation.rs` controls execute FR-015-AC-13:
+The production `tests/monitor_preparation.rs` controls exercise FR-015-AC-13:
 wrong clause, role and ordinal preserve the original native payload; the
-real timed PlanRoot without a clock refuses with `MissingClock`; same-clause
-twin claims retain their exact requested occurrences; zero, one-under and
-exact native allowances retain the original work receipt; and pre-cancelled
+native `MissingClock` payload retains its outer `selection` classification;
+same-clause twin claims retain their exact requested occurrences; one-under
+native allowances preserve the original work refusal; and pre-cancelled
 `Deadline` returns no clock capability and leaves the original inputs intact.
-Contract CG PR #749 removes the previous production compilation blocker.
-These controls establish the narrow refusal component only. FR-015-AC-14,
-complete generated record closure, order/progress and full
-`Program` preparation remain Planned.
+The authentic Timed PlanRoot now admits a native model-time clock, including
+its exact claim name, clock name and unit. A driver entry test with an admitted
+non-Timed plan lacking a clock row is still needed to qualify the no-token
+`MissingClock` obligation. Contract CG PR #749 removes the previous production
+compilation blocker. Complete generated record closure, order/progress and
+full `Program` preparation remain Planned.
 
 ### Public entry shape and unresolved input handoff
 
@@ -413,8 +412,8 @@ copy receipt SHALL NOT reset or certify the complete preparation allowance.
 | FR-015-AC-11 | Planned until IR-721 lands. A large selected closure amid an unrelated long graph visits only relevant reachable nodes/edges and identity/value material under the caller allowance, without a whole-package sort or repeated full indexing. Equal budgets give equal typed work stops without a semantic depth/size ceiling. | Test |
 | FR-015-AC-12 | Planned until IR-721 lands. Public consumer/API and dependency controls establish one retained RT Program, no source input/callback, no driver seal/mint export or copied plan/expression/value family, and no IR/QSL/driver backedge from RT or RT edge from the cycle-free IR model. | Test |
 | FR-015-AC-13 | The separate clock-admission entry preserves native `WrongClause`, `WrongRole`, `UnknownOccurrence`, `MissingClock` and `WorkLimit` refusal payloads, including exact locus, occurrence, consumed work and attempted work. Semantic clock refusals map to outer `selection`; native work refusal maps to `work`. A missing clock returns no clock-admitted token even when the optional clock expectation is absent. Pre-cancellation returns the original cancellation cause, no clock-admitted token and unchanged inputs. Existing partial selection remains explicitly unclocked. | Test |
-| FR-015-AC-14 | Planned pending authentic timed-profile clock emission and IR admission. A healthy clock-admission entry exposes the native `clock_for_claim` receipt for its independently selected final clause/Claim, charges successful receipt work exactly once to the remaining cumulative allowance, and compares every field of any optional independent clock row. The exposed inner selection retains that work prefix for later projection. This establishes no final PlanRoot subject-occurrence mapping, order/progress association or complete program. | Test |
-| FR-015-AC-15 | A real PlanRoot's original native subject and final emission admit one final-subject token only after strict native emission/package equality, owner declaration lookup, exact root/clause/Claim, full source-map, native name and existing independent selection checks. Two-clause controls select their own final declarations; absent lookup, foreign subject/emission/package, role/node/ordinal and independent request discrepancies give typed refusal. Native read limits preserve exact payloads; cancellation returns the original cause and no token. Driver work is retained across the token's actual native clock path, which currently gives genuine MissingClock rather than a healthy receipt. Native acquisition/equality/linear lookup remain explicitly outside the driver ledger. No AC-14 or complete preparation credit is claimed. | Test |
+| FR-015-AC-14 | A healthy clock-admission entry exposes the native `clock_for_claim` receipt for its independently selected final clause/Claim, charges successful receipt work exactly once to the remaining cumulative allowance, and compares every field of any optional independent clock row. The exposed inner selection retains that work prefix for later projection. Authentic Timed model-time receipt and cumulative work are exercised; optional independent row comparison and complete criterion qualification remain Planned. This establishes no final PlanRoot subject-occurrence mapping, order/progress association or complete program. | Test |
+| FR-015-AC-15 | A real PlanRoot's original native subject and final emission admit one final-subject token only after strict native emission/package equality, owner declaration lookup, exact root/clause/Claim, full source-map, native name and existing independent selection checks. Two-clause controls select their own final declarations; absent lookup, foreign subject/emission/package, role/node/ordinal and independent request discrepancies give typed refusal. Native read limits preserve exact payloads; cancellation returns the original cause and no token. Driver work is retained across the token's actual native model-time clock path. Native acquisition/equality/linear lookup remain explicitly outside the driver ledger. No complete preparation credit is claimed. | Test |
 
 ## Dependencies
 

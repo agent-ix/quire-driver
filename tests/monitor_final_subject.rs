@@ -6,8 +6,7 @@ use std::sync::LazyLock;
 use ix_trace_rs::trace;
 use qsl_semantics::library::LibraryName;
 use quire_contract_model::{
-    read_checked_package, CheckedMonitorClockReadErrorCode, CheckedOccurrence,
-    CheckedOccurrenceRole, CheckedPackageDispatchResult,
+    read_checked_package, CheckedOccurrenceRole, CheckedPackageDispatchResult, CheckedTerm,
 };
 use quire_driver::monitor::{
     admit_monitor_final_subject, MonitorPreparationError, MonitorPreparationErrorCode,
@@ -42,7 +41,7 @@ fn assert_field(error: MonitorPreparationError, expected: MonitorSelectionField)
 
 #[trace("FR-015-AC-15")]
 #[test]
-fn original_subjects_select_their_own_final_claims_and_reach_native_missing_clock() {
+fn original_subjects_select_their_own_final_claims_and_native_model_time() {
     let mut declarations = Vec::new();
     for fixture in [&*FIRST, &*SECOND] {
         with_request(fixture, |request| {
@@ -69,40 +68,35 @@ fn original_subjects_select_their_own_final_claims_and_reach_native_missing_cloc
             assert_eq!(original.node(), fixture.subject.clause_node());
             assert_eq!(request.occurrence.role, CheckedOccurrenceRole::Claim);
             assert_eq!(request.occurrence.ordinal, original.origin().ordinal());
-            let name = request
-                .package
-                .temporal_clause_names()
-                .unwrap()
-                .iter()
-                .find(|row| {
-                    row.declaration == *owner && row.occurrence == original.origin().ordinal()
-                })
-                .unwrap();
-            assert_eq!(name.name.as_ref(), fixture.subject.clause_name());
+            let CheckedTerm::Application { arguments, .. } = request.package.term(owner).unwrap()
+            else {
+                panic!("admitted Timed clause")
+            };
+            let clock_name = match arguments.get(1).unwrap() {
+                CheckedTerm::Binding { value, .. } => value.as_ref(),
+                direct => direct,
+            };
+            let CheckedTerm::Literal { value, .. } = clock_name else {
+                panic!("admitted model-time name")
+            };
+            assert_eq!(value.as_str(), Some("model-time"));
             assert!(token.selection().work() > 0);
             assert_eq!(
                 fixture.emission.temporal_binding_rows().len(),
                 0,
                 "Timed clock row count is not declaration mapping count"
             );
-            let error = token.admit_clock(&Cancel::new()).err().unwrap();
-            let MonitorPreparationError::ClockRead(actual) = error else {
-                panic!("native clock handoff")
-            };
-            let expected = token
-                .selection()
-                .plan()
-                .clock_for_claim(
-                    owner,
-                    &CheckedOccurrence {
-                        role: CheckedOccurrenceRole::Claim,
-                        ordinal: original.origin().ordinal(),
-                    },
-                    u64::MAX,
-                )
-                .unwrap_err();
-            assert_eq!(*actual, expected);
-            assert_eq!(actual.code, CheckedMonitorClockReadErrorCode::MissingClock);
+            let clock = request
+                .package
+                .model_time_for_clause(owner, u64::MAX)
+                .unwrap()
+                .expect("native model-time source");
+            assert_eq!(clock.clause(), owner);
+            assert_eq!(clock.unit(), request.tick_unit);
+            let admitted = token.admit_clock(&Cancel::new()).unwrap();
+            assert_eq!(admitted.clock().clock_name(), "model-time");
+            assert_eq!(admitted.clock().claim_name(), fixture.subject.clause_name());
+            assert!(admitted.selection().work() > token.selection().work());
             declarations.push(owner.clone());
         });
     }

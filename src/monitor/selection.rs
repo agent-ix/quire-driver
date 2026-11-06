@@ -2,8 +2,9 @@
 //! Bind an independent selection to one immutable admitted monitor root.
 
 use quire_contract_model::{
-    CheckedMonitorClockRead, CheckedMonitorPlanRef, CheckedNodeId, CheckedOccurrence,
-    CheckedOccurrenceRole, CheckedPackageV2, CheckedSelectionRole, CheckedTerm, LawRole,
+    CheckedMonitorClock, CheckedMonitorClockRead, CheckedMonitorPlanRef, CheckedNodeId,
+    CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2, CheckedSelectionRole, CheckedTerm,
+    ClockConfiguration, LawRole,
 };
 use quire_exact::Cancel;
 
@@ -48,6 +49,17 @@ fn mismatch(field: Field, node: &CheckedNodeId) -> Error {
     Error::Selection {
         field,
         node: Box::new(node.clone()),
+    }
+}
+
+fn matches_configured_clock(
+    expected: &ClockConfiguration,
+    actual: CheckedMonitorClock<'_>,
+) -> bool {
+    match actual {
+        CheckedMonitorClock::Configured(configured) => expected == configured,
+        CheckedMonitorClock::ModelTime { .. } => false,
+        CheckedMonitorClock::TraceTime => false,
     }
 }
 
@@ -362,7 +374,7 @@ fn clock_with_budget<'a>(
         if expected.declaration != *clock.clause()
             || expected.occurrence != clock.occurrence().ordinal
             || expected.clock_name.as_ref() != clock.clock_name()
-            || &expected.clock != clock.clock()
+            || !matches_configured_clock(&expected.clock, clock.clock())
         {
             return Err(mismatch(Field::Clock, plan.clause()));
         }
@@ -375,4 +387,66 @@ fn clock_with_budget<'a>(
         },
         clock,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::matches_configured_clock;
+    use ix_trace_rs::trace;
+    use quire_contract_model::{
+        CheckedMonitorClock, CheckedNodeId, CheckedNodePathSegment, ClockConfiguration,
+    };
+
+    #[trace("FR-015-AC-13")]
+    #[test]
+    fn configured_clock_expectation_accepts_only_equal_configured_binding() {
+        let expected = ClockConfiguration::TimestampedEvent {
+            timestamp_unit: "ms".into(),
+        };
+        let different = ClockConfiguration::TimestampedEvent {
+            timestamp_unit: "second".into(),
+        };
+        assert!(matches_configured_clock(
+            &expected,
+            CheckedMonitorClock::Configured(&expected)
+        ));
+        assert!(!matches_configured_clock(
+            &expected,
+            CheckedMonitorClock::Configured(&different)
+        ));
+    }
+
+    #[trace("FR-015-AC-13")]
+    #[test]
+    fn configured_clock_expectation_refuses_model_time_binding() {
+        let expected = ClockConfiguration::TimestampedEvent {
+            timestamp_unit: "ms".into(),
+        };
+        let node = CheckedNodeId {
+            package: "clock-test".into(),
+            path: vec![CheckedNodePathSegment::Name("clock".into())],
+            ordinal: 0,
+        };
+        assert!(!matches_configured_clock(
+            &expected,
+            CheckedMonitorClock::ModelTime {
+                timed_root: &node,
+                model: &node,
+                source: &node,
+                unit: &node,
+            }
+        ));
+    }
+
+    #[trace("FR-015-AC-13")]
+    #[test]
+    fn configured_clock_expectation_refuses_trace_time_binding() {
+        let expected = ClockConfiguration::TimestampedEvent {
+            timestamp_unit: "ms".into(),
+        };
+        assert!(!matches_configured_clock(
+            &expected,
+            CheckedMonitorClock::TraceTime
+        ));
+    }
 }

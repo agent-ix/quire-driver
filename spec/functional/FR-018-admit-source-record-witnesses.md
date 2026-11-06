@@ -16,8 +16,9 @@ all original native identity and value fields.
 
 ## Inputs
 
-The component accepts a genuine QSL Emission, native IR reader evidence and package-reader limits,
-and a separate finite native source-record join allowance.
+The component accepts a genuine QSL Emission, native IR reader evidence and
+package-reader limits, and required explicit work and storage limits for the
+separate native source-record join.
 
 ## Outputs
 
@@ -42,15 +43,20 @@ source authority, source identity, qualified declaration segment, structural nod
 opaque record key, ordered original declared member name, admitted binding name,
 presence, type node and Exact value type directly into the native IR row.
 The function SHALL invoke the native finite source-record join from empty selected
-identities. It SHALL NOT mint MemberId, decode opaque Exact values through a wire
+identities with a budget constructed from the caller's work and storage limits.
+It SHALL NOT mint MemberId, decode opaque Exact values through a wire
 schema, reconstruct a plan or runtime environment, or accept caller-created rows
 as producer authority. Projection SHALL use the retained package and identities
 with a separate caller projection allowance and retain native error payload/work.
 
 This component has independent native reader, join and projection allowances.
-It makes no cumulative preparation-work or storage qualification: the native join
-returns no success-work receipt, and producer-row materialization is outside its
-native join allowance. No receipt is guessed or recomputed. Model-owned identity
+The native join charges work and logical storage against the caller's explicit
+limits and reports its own success charge or typed resource refusal. The driver
+preserves either exhausted resource cause and returns no owner after refusal.
+The component makes no cumulative preparation-work or complete storage
+qualification: producer-row materialization is outside the native join allowance,
+and the separate join charge is not composed with the remaining preparation
+allowance. Model-owned identity
 joining, complete generated-source closure, clock admission, four-entry reachability
 and executable Program construction remain outside this component.
 
@@ -62,6 +68,7 @@ and executable Program construction remain outside this component.
 | FR-018-AC-2 | Native structural/source/owner/member-order/presence/type mismatch and duplicate controls return the original native error payload and work; independent join exhaustion returns no admitted owner. Counterfactual native-row controls establish structural checks only and never producer authority. | Test |
 | FR-018-AC-3 | The public API accepts genuine immutable Emission authority and binds its rows to its own strict reader output; caller-created row structs cannot enter production admission. Native reader refusal/incompleteness remain distinct. | Test |
 | FR-018-AC-4 | Projection uses the retained package and native identities with its independent limit, retaining original native type and complete source_record_view without schema reconstruction or invented member identities. | Test |
+| FR-018-AC-5 | An authentic emission joins successfully at its measured native work and storage charge. One unit below either dimension returns no owner and preserves the original native exhausted-work or exhausted-storage payload. The outer preparation classifier maps native exhausted storage to `storage` and incomplete identity to `projection` without losing the native payload. This does not claim cumulative preparation accounting. | Test |
 
 ## Qualification Status
 
@@ -73,8 +80,8 @@ authority separation and the stable error-code catalog. Earlier affected
 monitor preparation and dependency-edge controls were also executed; this
 update's focused evidence is the source-record target.
 
-After adopting merged QSL-1741, all seven production
-`tests/source_record_admission.rs` controls execute successfully. The genuine
+After adopting merged QSL-1741, the original seven production
+`tests/source_record_admission.rs` controls executed successfully. The genuine
 final PlanRoot now joins every immutable final producer row (30 rows in the
 current fixture), including generated records. The test requires a nonempty
 producer set and exact native row-count equality rather than a fixed count or
@@ -90,6 +97,13 @@ the exact native reader refusal. No driver row repair, filtering, fabricated
 witness or emitted-package mutation supplies this success. Historical review
 artifacts retain the earlier compilation and producer-rename blockers as
 historical evidence; they are not current qualification status.
+
+The eighth focused control runs against the merged native join budget. It
+measures positive work and storage charges from authentic rows, succeeds at
+both exact limits, and preserves the original native refusal when either
+allowance is one unit short. The new projection-code arms are exercised with
+typed payload assertions. This still provides no cumulative preparation
+receipt.
 
 This independent record component contributes to the source-record slice
 of [FR-015](FR-015-prepare-an-admitted-monitor-program.md) and IR-721 AC1 only.

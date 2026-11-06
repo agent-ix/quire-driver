@@ -7,13 +7,22 @@ use qsl_package::{emit_checked, Emission};
 use qsl_replay::spine::{check, parse, select, DependencyInput, ParseRequest, SpineLimits};
 use qsl_semantics::model::intake::package_input;
 use quire_contract_model::{
-    CheckedNodeId, CheckedPackageReadLimits, ExactTypeProjectionErrorCode, SelectedExactIdentities,
+    CheckedNodeId, CheckedPackageReadLimits, ExactTypeProjectionError,
+    ExactTypeProjectionErrorCode, NativeJoinBudget, SelectedExactIdentities,
 };
 use quire_driver::monitor::source_record::{
     admit_source_records, AdmittedSourceRecords, SourceRecordAdmissionError,
     SourceRecordAdmissionErrorCode,
 };
+use quire_driver::monitor::{
+    MonitorPreparationError, MonitorPreparationErrorCode, MonitorPreparationLimits,
+};
 use quire_exact::{Cancel, Presence, ValueType};
+
+const JOIN_LIMITS: MonitorPreparationLimits = MonitorPreparationLimits {
+    work: 100_000,
+    storage: 1_000_000,
+};
 
 fn produce(identity: &str) -> (Emission, CheckedNodeId, CheckedNodeId) {
     let source = r#"language "ix:native" edition "1-draft";
@@ -99,7 +108,7 @@ fn authentic_complete_rows_and_parameter_projections_preserve_opaque_types() {
         &emission,
         emission.evidence(),
         CheckedPackageReadLimits::bounded(),
-        100_000,
+        JOIN_LIMITS,
     )
     .unwrap();
     assert_eq!(admitted.rows().count(), 3);
@@ -159,17 +168,21 @@ fn join_exhaustion_preserves_the_exact_native_failure() {
         &emission,
         emission.evidence(),
         CheckedPackageReadLimits::bounded(),
-        100_000,
+        JOIN_LIMITS,
     )
     .unwrap();
+    let mut budget = NativeJoinBudget::new(0, JOIN_LIMITS.storage);
     let native = SelectedExactIdentities::empty()
-        .with_source_record_rows(admitted.package(), admitted.rows().cloned(), 0)
+        .with_source_record_rows(admitted.package(), admitted.rows().cloned(), &mut budget)
         .unwrap_err();
     let error = admit_source_records(
         &emission,
         emission.evidence(),
         CheckedPackageReadLimits::bounded(),
-        0,
+        MonitorPreparationLimits {
+            work: 0,
+            ..JOIN_LIMITS
+        },
     )
     .err()
     .unwrap();
@@ -178,6 +191,92 @@ fn join_exhaustion_preserves_the_exact_native_failure() {
         panic!("native join disposition")
     };
     assert_eq!(actual, native);
+}
+
+#[trace("FR-018-AC-5")]
+#[test]
+fn authentic_join_charges_both_required_allowances_and_preserves_storage_refusal() {
+    let (emission, _, _) = produce("record-native-budget");
+    let admitted = admit_source_records(
+        &emission,
+        emission.evidence(),
+        CheckedPackageReadLimits::bounded(),
+        JOIN_LIMITS,
+    )
+    .unwrap();
+    let mut measured = NativeJoinBudget::new(u64::MAX, u64::MAX);
+    SelectedExactIdentities::empty()
+        .with_source_record_rows(admitted.package(), admitted.rows().cloned(), &mut measured)
+        .unwrap();
+    let charge = measured.last_success_delta().unwrap();
+    assert!(charge.work > 0);
+    assert!(charge.storage > 0);
+    let exact = MonitorPreparationLimits {
+        work: charge.work,
+        storage: charge.storage,
+    };
+    let exact_admitted = admit_source_records(
+        &emission,
+        emission.evidence(),
+        CheckedPackageReadLimits::bounded(),
+        exact,
+    )
+    .unwrap();
+    assert_eq!(exact_admitted.rows().count(), admitted.rows().count());
+    for (limits, refusal, category) in [
+        (
+            MonitorPreparationLimits {
+                work: charge.work - 1,
+                ..exact
+            },
+            ExactTypeProjectionErrorCode::ExhaustedWork,
+            MonitorPreparationErrorCode::Work,
+        ),
+        (
+            MonitorPreparationLimits {
+                storage: charge.storage - 1,
+                ..exact
+            },
+            ExactTypeProjectionErrorCode::ExhaustedStorage,
+            MonitorPreparationErrorCode::Storage,
+        ),
+    ] {
+        let mut native_budget = NativeJoinBudget::new(limits.work, limits.storage);
+        let expected = SelectedExactIdentities::empty()
+            .with_source_record_rows(
+                admitted.package(),
+                admitted.rows().cloned(),
+                &mut native_budget,
+            )
+            .unwrap_err();
+        assert_eq!(expected.code, refusal);
+        let actual = admit_source_records(
+            &emission,
+            emission.evidence(),
+            CheckedPackageReadLimits::bounded(),
+            limits,
+        )
+        .err()
+        .unwrap();
+        let SourceRecordAdmissionError::Join(actual) = actual else {
+            panic!("native resource refusal must retain its payload")
+        };
+        assert_eq!(actual, expected);
+        assert_eq!(MonitorPreparationError::Projection(actual).code(), category);
+    }
+    let incomplete = ExactTypeProjectionError {
+        code: ExactTypeProjectionErrorCode::IncompleteIdentityWitness,
+        requested: Box::new(admitted.rows().next().unwrap().structural_node.clone()),
+        at: None,
+        form: "selected_identity".into(),
+        work: charge.work,
+    };
+    let wrapped = MonitorPreparationError::Projection(incomplete.clone());
+    assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Projection);
+    let MonitorPreparationError::Projection(preserved) = wrapped else {
+        unreachable!()
+    };
+    assert_eq!(preserved, incomplete);
 }
 
 /// These are counterfactual native-row structural controls, never authentic
@@ -190,7 +289,7 @@ fn native_structural_controls_reject_corrupt_claims_without_granting_authority()
         &emission,
         emission.evidence(),
         CheckedPackageReadLimits::bounded(),
-        100_000,
+        JOIN_LIMITS,
     )
     .unwrap();
     let original = admitted.rows().find(|r| r.members.len() == 3).unwrap();
@@ -220,8 +319,9 @@ fn native_structural_controls_reject_corrupt_claims_without_granting_authority()
     row.members[0].admitted_name = "foreign".into();
     controls.push(row);
     for row in controls {
+        let mut budget = NativeJoinBudget::new(JOIN_LIMITS.work, JOIN_LIMITS.storage);
         let error = SelectedExactIdentities::empty()
-            .with_source_record_rows(admitted.package(), [row], 100_000)
+            .with_source_record_rows(admitted.package(), [row], &mut budget)
             .unwrap_err();
         assert_eq!(
             error.code,
@@ -229,11 +329,12 @@ fn native_structural_controls_reject_corrupt_claims_without_granting_authority()
         );
         assert!(error.work > 0);
     }
+    let mut budget = NativeJoinBudget::new(JOIN_LIMITS.work, JOIN_LIMITS.storage);
     let duplicate = SelectedExactIdentities::empty()
         .with_source_record_rows(
             admitted.package(),
             [original.clone(), original.clone()],
-            100_000,
+            &mut budget,
         )
         .unwrap_err();
     assert_eq!(
@@ -245,11 +346,12 @@ fn native_structural_controls_reject_corrupt_claims_without_granting_authority()
         &foreign_emission,
         foreign_emission.evidence(),
         CheckedPackageReadLimits::bounded(),
-        100_000,
+        JOIN_LIMITS,
     )
     .unwrap();
+    let mut budget = NativeJoinBudget::new(JOIN_LIMITS.work, JOIN_LIMITS.storage);
     assert!(SelectedExactIdentities::empty()
-        .with_source_record_rows(admitted.package(), foreign.rows().cloned(), 100_000)
+        .with_source_record_rows(admitted.package(), foreign.rows().cloned(), &mut budget)
         .is_err());
 }
 
@@ -269,7 +371,7 @@ fn reader_incompleteness_retains_its_original_native_payload() {
     let quire_contract_model::CheckedPackageDispatchResult::Incomplete(expected) = native else {
         panic!("zero bytes must stop native reading")
     };
-    let actual = admit_source_records(&emission, emission.evidence(), limits, 100_000)
+    let actual = admit_source_records(&emission, emission.evidence(), limits, JOIN_LIMITS)
         .err()
         .unwrap();
     assert_eq!(
@@ -292,7 +394,7 @@ fn native_opaque_claim_acceptance_does_not_replace_emission_authority() {
         &emission,
         emission.evidence(),
         CheckedPackageReadLimits::bounded(),
-        100_000,
+        JOIN_LIMITS,
     )
     .unwrap();
     let original = admitted
@@ -307,8 +409,9 @@ fn native_opaque_claim_acceptance_does_not_replace_emission_authority() {
     counterfactual.record_key = point.record_key.clone();
     counterfactual.members[0].value_type = ValueType::Boolean;
     counterfactual.members[0].original_member_identity = "producer-owned-original-name".into();
+    let mut budget = NativeJoinBudget::new(JOIN_LIMITS.work, JOIN_LIMITS.storage);
     let structural_only = SelectedExactIdentities::empty()
-        .with_source_record_rows(admitted.package(), [counterfactual.clone()], 100_000)
+        .with_source_record_rows(admitted.package(), [counterfactual.clone()], &mut budget)
         .unwrap();
     assert_eq!(
         structural_only.source_record_rows().next(),
@@ -323,7 +426,7 @@ fn native_opaque_claim_acceptance_does_not_replace_emission_authority() {
         &emission,
         emission.evidence(),
         CheckedPackageReadLimits::bounded(),
-        100_000,
+        JOIN_LIMITS,
     )
     .unwrap();
     assert_eq!(
@@ -435,7 +538,7 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
         &root.emission,
         root.emission.evidence(),
         read_limits,
-        100_000,
+        JOIN_LIMITS,
     )
     .err()
     .unwrap();
@@ -459,7 +562,7 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
             diagnostics: 1_000,
             work: 100_000_000,
         },
-        100_000,
+        JOIN_LIMITS,
     )
     .unwrap_or_else(|error| {
         let quire_contract_model::CheckedPackageDispatchResult::AdmittedV2(package) =
