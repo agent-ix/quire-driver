@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! The actual bounded initializer type read, without an environment substitute.
 
-use quire_contract_model::{CheckedTerm, ExactTypeProjection, SelectedExactIdentities};
+use quire_contract_model::{
+    CheckedTerm, ExactTypeProjection, NativeJoinBudget, SelectedExactIdentities,
+};
 use quire_exact::Cancel;
 
 use super::budget::Budget;
@@ -51,9 +53,10 @@ pub fn project_monitor_initializer(
         return Err(invalid());
     };
     budget.inspect(target)?;
+    let mut native_budget = NativeJoinBudget::new(budget.remaining(), budget.remaining_storage());
     let projected = request
         .package
-        .project_exact_type(target, identities, budget.remaining())?;
+        .project_exact_type(target, identities, &mut native_budget)?;
     budget.charge(projected.work())?;
     Ok(projected)
 }

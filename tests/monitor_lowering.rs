@@ -74,8 +74,9 @@ function combineTwo using v(a: Integer, b: Integer): Integer pure { a + b }
         .iter()
         .chain([&first.body, &originals[0], &originals[1]])
     {
+        let mut budget = NativeJoinBudget::new(10_000, u64::MAX);
         let projected = package
-            .project_exact_type(node, &identities, 10_000)
+            .project_exact_type(node, &identities, &mut budget)
             .expect("native projection of each actual primitive semantic type");
         assert_eq!(projected.node(), node);
         assert_eq!(projected.value_type(), &ValueType::Integer);
@@ -606,9 +607,10 @@ function boundedValue using v(a: Int[0, 9], b: Int[0, 9]): Integer pure { a + b 
         .source_callable(&fixture.originals[0], 100_000)
         .unwrap();
     let parameter = &read.callable().unwrap().parameters[0];
+    let mut budget = NativeJoinBudget::new(100_000, u64::MAX);
     let projection = fixture
         .package
-        .project_exact_type(parameter, &fixture.identities, 100_000)
+        .project_exact_type(parameter, &fixture.identities, &mut budget)
         .unwrap();
     assert!(matches!(projection.value_type(), ValueType::Int(_)));
     let result = lower_scalar_functions(
@@ -704,9 +706,10 @@ function mixedValue using v(unused: Integer, flag: Boolean, retainedNumber: Inte
     let expected = vec![ValueType::Integer, ValueType::Boolean, ValueType::Integer];
     assert_eq!(callable.parameters.len(), expected.len());
     for (parameter, expected) in callable.parameters.iter().zip(&expected) {
+        let mut budget = NativeJoinBudget::new(100_000, u64::MAX);
         let native = fixture
             .package
-            .project_exact_type(parameter, &fixture.identities, 100_000)
+            .project_exact_type(parameter, &fixture.identities, &mut budget)
             .unwrap();
         assert_eq!(native.value_type(), expected);
     }

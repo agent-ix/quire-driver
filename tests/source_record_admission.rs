@@ -130,7 +130,8 @@ fn authentic_complete_rows_and_parameter_projections_preserve_opaque_types() {
             .source_callable(&function, 100_000)
             .unwrap();
         let parameter = &header.callable().unwrap().parameters[0];
-        let projected = admitted.project(parameter, 100_000).unwrap();
+        let mut budget = NativeJoinBudget::new(100_000, JOIN_LIMITS.storage);
+        let projected = admitted.project(parameter, &mut budget).unwrap();
         let row = admitted
             .rows()
             .find(|r| r.qualified_declaration == [Box::from(name)])
@@ -141,15 +142,17 @@ fn authentic_complete_rows_and_parameter_projections_preserve_opaque_types() {
         );
         assert_eq!(projected.source_record_view(), Some(row));
         assert!(projected.work() > 0);
+        let mut budget = NativeJoinBudget::new(100_000, u64::MAX);
         let expected = admitted
             .package()
-            .project_exact_type(parameter, &SelectedExactIdentities::empty(), 100_000)
+            .project_exact_type(parameter, &SelectedExactIdentities::empty(), &mut budget)
             .unwrap_err();
         assert!(matches!(
             expected.code,
             ExactTypeProjectionErrorCode::UnavailableIdentityWitness
         ));
-        let expected = admitted.project(parameter, 0).unwrap_err();
+        let mut budget = NativeJoinBudget::new(0, JOIN_LIMITS.storage);
+        let expected = admitted.project(parameter, &mut budget).unwrap_err();
         assert_eq!(expected.code, ExactTypeProjectionErrorCode::ExhaustedWork);
     }
     drop(emission);
@@ -266,10 +269,13 @@ fn authentic_join_charges_both_required_allowances_and_preserves_storage_refusal
     }
     let incomplete = ExactTypeProjectionError {
         code: ExactTypeProjectionErrorCode::IncompleteIdentityWitness,
-        requested: Box::new(admitted.rows().next().unwrap().structural_node.clone()),
+        requested: Some(Box::new(
+            admitted.rows().next().unwrap().structural_node.clone(),
+        )),
         at: None,
-        form: "selected_identity".into(),
+        form: Some("selected_identity".into()),
         work: charge.work,
+        denied: None,
     };
     let wrapped = MonitorPreparationError::Projection(incomplete.clone());
     assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Projection);
@@ -575,9 +581,9 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
             panic!("authentic final record admission failed: {error:?}")
         };
         let row = root.emission.selected_source_record_rows().iter()
-            .find(|row| &row.structural_node == native.requested.as_ref());
+            .find(|row| Some(&row.structural_node) == native.requested.as_deref());
         panic!("authentic final record join failed: {error:?}; original producer row: {row:?}; original admitted body: {:?}",
-            package.term(native.requested.as_ref()));
+            native.requested.as_deref().and_then(|id| package.term(id)));
     });
     assert_eq!(admitted.package().monitor_plans().count(), 1);
     assert_complete_producer_rows(&admitted, &root.emission);

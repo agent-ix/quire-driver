@@ -9,7 +9,7 @@ mod storage;
 
 use quire_contract_model::{
     CheckedCallable, CheckedCallableIdentity, CheckedNodeId, CheckedPackageV2, CheckedTerm,
-    SelectedExactIdentities,
+    NativeJoinBudget, SelectedExactIdentities,
 };
 use quire_contract_runtime::monitor::{Expression, ExpressionId, Function, FunctionId};
 use quire_exact::{Cancel, ValueType};
@@ -134,7 +134,8 @@ fn scalar_type(
     budget: &mut Budget<'_>,
 ) -> Result<ValueType, Error> {
     budget.inspect(node)?;
-    let projection = package.project_exact_type(node, identities, budget.remaining())?;
+    let mut native_budget = NativeJoinBudget::new(budget.remaining(), budget.remaining_storage());
+    let projection = package.project_exact_type(node, identities, &mut native_budget)?;
     budget.charge(projection.work())?;
     match projection.value_type() {
         ValueType::Integer => Ok(ValueType::Integer),

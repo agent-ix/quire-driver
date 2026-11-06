@@ -39,7 +39,7 @@ fn assert_field(error: MonitorPreparationError, expected: MonitorSelectionField)
     assert_eq!(field, expected);
 }
 
-#[trace("FR-015-AC-15")]
+#[trace("FR-015-AC-14", "FR-015-AC-15")]
 #[test]
 fn original_subjects_select_their_own_final_claims_and_native_model_time() {
     let mut declarations = Vec::new();
