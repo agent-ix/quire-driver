@@ -189,8 +189,9 @@ work-refusal controls execute independently. A real driver `MissingClock`
 control needs an admitted non-Timed monitor plan without a binding row.
 
 FR-015-AC-13's no-token `MissingClock` obligation remains unqualified. The
-healthy model-time receipt and successful cumulative work controls exercise
-part of FR-015-AC-14; optional expectation mismatch remains Planned.
+healthy model-time receipt, extra independent configured-row refusal and
+successful cumulative work controls exercise part of FR-015-AC-14;
+configured-profile row comparison remains Planned.
 
 ### Executed production component checks
 

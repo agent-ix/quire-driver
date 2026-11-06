@@ -10,8 +10,8 @@ use ix_trace_rs::trace;
 use quire_contract_model::{
     CheckedCallableReadErrorCode, CheckedMonitorClock, CheckedMonitorClockReadError,
     CheckedMonitorClockReadErrorCode, CheckedNodeId, CheckedNodePathSegment, CheckedOccurrence,
-    CheckedOccurrenceRole, CheckedRational, CheckedTerm, ExactTypeProjectionErrorCode,
-    NativeJoinBudget, SelectedExactIdentities,
+    CheckedOccurrenceRole, CheckedRational, CheckedTerm, ClockConfiguration,
+    ExactTypeProjectionErrorCode, NativeJoinBudget, SelectedExactIdentities, TemporalBinding,
 };
 use quire_driver::monitor::{
     admit_monitor_clock_selection, admit_monitor_selection, project_monitor_initializer,
@@ -688,7 +688,7 @@ fn native_missing_clock_payload_still_maps_to_selection() {
     });
 }
 
-#[trace("FR-015-AC-13")]
+#[trace("FR-015-AC-13", "FR-015-AC-14")]
 #[test]
 fn clock_admission_reads_native_model_time_without_optional_expectation() {
     with_request(|mut request| {
@@ -714,6 +714,34 @@ fn clock_admission_reads_native_model_time_without_optional_expectation() {
         assert_eq!(unit, request.tick_unit);
         let admitted = admit_monitor_clock_selection(&request, &Cancel::new()).unwrap();
         assert_eq!(admitted.clock(), &native);
+    });
+}
+
+#[trace("FR-015-AC-14")]
+#[test]
+fn timed_model_clock_refuses_an_independent_extra_configured_row() {
+    with_request(|request| {
+        assert!(request.package.temporal_bindings().unwrap_or_default().is_empty());
+        let extra = TemporalBinding {
+            declaration: request.clause.clone(),
+            occurrence: request.occurrence.ordinal,
+            clock_name: "model-time".into(),
+            clock: ClockConfiguration::TimestampedEvent {
+                timestamp_unit: "ms".into(),
+            },
+        };
+        let request = MonitorPreparationRequest {
+            clock_binding: Some(&extra),
+            ..request
+        };
+        let error = admit_monitor_clock_selection(&request, &Cancel::new())
+            .err()
+            .expect("extra Timed clock row cannot mint a capability");
+        assert_eq!(error.code(), MonitorPreparationErrorCode::Selection);
+        let MonitorPreparationError::Selection { field, .. } = error else {
+            panic!("typed independent clock-row refusal")
+        };
+        assert_eq!(field, MonitorSelectionField::Clock);
     });
 }
 
@@ -770,7 +798,7 @@ fn clock_admission_retains_native_wrong_clause_role_and_ordinal_payloads() {
     }
 }
 
-#[trace("FR-015-AC-13")]
+#[trace("FR-015-AC-13", "FR-015-AC-14")]
 #[test]
 fn same_clause_twin_claims_keep_their_exact_native_model_time_occurrences() {
     with_request(|request| {
@@ -822,7 +850,7 @@ fn same_clause_twin_claims_keep_their_exact_native_model_time_occurrences() {
     });
 }
 
-#[trace("FR-015-AC-13")]
+#[trace("FR-015-AC-13", "FR-015-AC-14")]
 #[test]
 fn clock_read_gets_remaining_work_with_exact_and_one_under_native_allowances() {
     with_request(|mut request| {

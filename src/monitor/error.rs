@@ -33,7 +33,7 @@ pub enum MonitorSelectionField {
     Occurrence,
     /// The independent profile is absent from the selected package's lock.
     Profile,
-    /// The original selected clause clock row is missing or differs.
+    /// The optional independently selected configured clock row differs.
     Clock,
     /// Strict admission of the supplied emission differs from the selected package.
     EmissionPackage,

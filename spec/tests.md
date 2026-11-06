@@ -182,9 +182,10 @@ exercise reached FR-015-AC-13 native refusal payloads, exact requested
 occurrences and remaining allowance, plus original pre-cancellation with no
 capability or mutation. This is component evidence, not a final gate or a
 complete preparation result.
-The authentic Timed PlanRoot now provides a native model-time clock receipt and
-successful cumulative work accounting under FR-015-AC-14. Optional independent
-row comparison and full criterion qualification remain Planned.
+The authentic Timed PlanRoot now provides a native model-time clock receipt,
+extra independent configured-row refusal and successful cumulative work
+accounting under FR-015-AC-14. Configured-profile row comparison and full
+criterion qualification remain Planned.
 
 This component does not qualify FR-015-AC-1 through FR-015-AC-12 or whole
 TC-029 execution. QSL PR #2395 supplies the final subject-occurrence owner
