@@ -253,6 +253,9 @@ impl MonitorPreparationError {
             },
             Self::ClockRead(native) => match native.code {
                 CheckedMonitorClockReadErrorCode::WorkLimit => MonitorPreparationErrorCode::Work,
+                CheckedMonitorClockReadErrorCode::StorageLimit => {
+                    MonitorPreparationErrorCode::Storage
+                }
                 CheckedMonitorClockReadErrorCode::WrongClause
                 | CheckedMonitorClockReadErrorCode::WrongRole
                 | CheckedMonitorClockReadErrorCode::UnknownOccurrence

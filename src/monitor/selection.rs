@@ -4,7 +4,7 @@
 use quire_contract_model::{
     CheckedMonitorClock, CheckedMonitorClockRead, CheckedMonitorPlanRef, CheckedNodeId,
     CheckedOccurrence, CheckedOccurrenceRole, CheckedPackageV2, CheckedSelectionRole, CheckedTerm,
-    ClockConfiguration, LawRole,
+    ClockConfiguration, LawRole, NativeJoinBudget,
 };
 use quire_exact::Cancel;
 
@@ -353,6 +353,7 @@ fn clock_with_budget<'a>(
         }
     }
     budget.charge(0)?;
+    let mut native_budget = NativeJoinBudget::new(budget.remaining(), budget.remaining_storage());
     let clock = plan
         .clock_for_claim(
             request.clause,
@@ -360,7 +361,7 @@ fn clock_with_budget<'a>(
                 role: request.occurrence.role.clone(),
                 ordinal: request.occurrence.ordinal,
             },
-            budget.remaining(),
+            &mut native_budget,
         )
         .map_err(|native| Error::ClockRead(Box::new(native)))?;
     // Native failures carry their own consumed/attempted work unchanged. Only

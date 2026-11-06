@@ -289,12 +289,13 @@ fn initializer_projection_preserves_the_actual_native_source_type_stop() {
         let MonitorPreparationError::Projection(native) = error else {
             unreachable!()
         };
+        let mut native_budget = NativeJoinBudget::new(1_000_000, request.limits.storage);
         let original = request
             .package
-            .project_exact_type(target, &identities, 1_000_000)
+            .project_exact_type(target, &identities, &mut native_budget)
             .expect_err("native unavailable source type");
         assert_eq!(native, original);
-        assert_eq!(*native.requested, *target);
+        assert_eq!(native.requested.as_deref(), Some(target));
     });
 }
 
@@ -618,12 +619,13 @@ fn actual_native_read_work_and_projection_causes_remain_distinct() {
             &mut budget,
         )
         .unwrap();
+        let mut native_budget = NativeJoinBudget::new(0, request.limits.storage);
         let native = request
             .package
-            .project_exact_type(target, &identities, 0)
+            .project_exact_type(target, &identities, &mut native_budget)
             .expect_err("the native type allowance fails before its read");
         assert_eq!(native.code, ExactTypeProjectionErrorCode::ExhaustedWork);
-        assert_eq!(*native.requested, *target);
+        assert!(native.requested.is_none());
         assert_eq!(native.work, 0);
         let wrapped = MonitorPreparationError::from(native.clone());
         assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Work);
@@ -671,13 +673,14 @@ fn native_missing_clock_payload_still_maps_to_selection() {
     with_request(|request| {
         let native = CheckedMonitorClockReadError {
             code: CheckedMonitorClockReadErrorCode::MissingClock,
-            at: Box::new(request.clause.clone()),
-            occurrence: CheckedOccurrence {
+            at: Some(Box::new(request.clause.clone())),
+            occurrence: Some(CheckedOccurrence {
                 role: request.occurrence.role.clone(),
                 ordinal: request.occurrence.ordinal,
-            },
+            }),
             work: 8,
             attempted_work: 0,
+            denied: None,
         };
         let wrapped = MonitorPreparationError::ClockRead(Box::new(native.clone()));
         assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Selection);
@@ -695,6 +698,7 @@ fn clock_admission_reads_native_model_time_without_optional_expectation() {
         request.clock_binding = None;
         let partial = admit_monitor_selection(&request, &Cancel::new()).unwrap();
         assert_eq!(partial.plan().clause(), request.clause);
+        let mut native_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
         let native = partial
             .plan()
             .clock_for_claim(
@@ -703,7 +707,7 @@ fn clock_admission_reads_native_model_time_without_optional_expectation() {
                     role: request.occurrence.role.clone(),
                     ordinal: request.occurrence.ordinal,
                 },
-                u64::MAX,
+                &mut native_budget,
             )
             .unwrap();
         assert_eq!(native.clock_name(), "model-time");
@@ -779,6 +783,7 @@ fn clock_admission_retains_native_wrong_clause_role_and_ordinal_payloads() {
                 clock_binding: None,
                 ..request
             };
+            let mut native_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
             let native = plan
                 .clock_for_claim(
                     clause,
@@ -786,7 +791,7 @@ fn clock_admission_retains_native_wrong_clause_role_and_ordinal_payloads() {
                         role: occurrence.role.clone(),
                         ordinal: occurrence.ordinal,
                     },
-                    u64::MAX,
+                    &mut native_budget,
                 )
                 .unwrap_err();
             let error = admit_monitor_clock_selection(&request, &Cancel::new())
@@ -828,6 +833,7 @@ fn same_clause_twin_claims_keep_their_exact_native_model_time_occurrences() {
             clock_binding: None,
             ..request
         };
+        let mut native_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
         let native = request
             .package
             .monitor_plans()
@@ -839,7 +845,7 @@ fn same_clause_twin_claims_keep_their_exact_native_model_time_occurrences() {
                     role: CheckedOccurrenceRole::Claim,
                     ordinal: twin.occurrence,
                 },
-                u64::MAX,
+                &mut native_budget,
             )
             .unwrap();
         let clock = admit_monitor_clock_selection(&request, &Cancel::new()).unwrap();
@@ -867,8 +873,9 @@ fn clock_read_gets_remaining_work_with_exact_and_one_under_native_allowances() {
             role: request.occurrence.role.clone(),
             ordinal: request.occurrence.ordinal,
         };
+        let mut native_budget = NativeJoinBudget::new(u64::MAX, u64::MAX);
         let semantic = plan
-            .clock_for_claim(request.clause, &occurrence, u64::MAX)
+            .clock_for_claim(request.clause, &occurrence, &mut native_budget)
             .unwrap();
         let full = admit_monitor_clock_selection(&request, &Cancel::new()).unwrap();
         let prelude = full.selection().work() - semantic.work();
@@ -882,8 +889,9 @@ fn clock_read_gets_remaining_work_with_exact_and_one_under_native_allowances() {
             let MonitorPreparationError::ClockRead(actual) = error else {
                 panic!("native allowance stop")
             };
+            let mut native_budget = NativeJoinBudget::new(allowance, u64::MAX);
             let expected = plan
-                .clock_for_claim(request.clause, &occurrence, allowance)
+                .clock_for_claim(request.clause, &occurrence, &mut native_budget)
                 .unwrap_err();
             assert_eq!(*actual, expected);
             assert_eq!(actual.work, allowance);

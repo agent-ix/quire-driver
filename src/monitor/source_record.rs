@@ -95,15 +95,16 @@ impl AdmittedSourceRecords {
 
     /// Project an independently selected node using this owner's authentic rows.
     ///
-    /// `work_limit` is a separate native projection allowance. Native success
-    /// work and errors remain unchanged; it is not a preparation-wide receipt.
+    /// `budget` is the caller's shared native work and storage allowance.
+    /// Native success charges and errors remain unchanged; it is not a
+    /// preparation-wide receipt.
     pub fn project(
         &self,
         node: &CheckedNodeId,
-        work_limit: u64,
+        budget: &mut NativeJoinBudget,
     ) -> Result<ExactTypeProjection, ExactTypeProjectionError> {
         self.package
-            .project_exact_type(node, &self.identities, work_limit)
+            .project_exact_type(node, &self.identities, budget)
     }
 }
 
