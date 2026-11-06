@@ -14,7 +14,7 @@ Verify that the driver calls compile, the E5 read, the Linked-backend
 conversion, negotiation, routing and generation in that order, against the
 real QSL and CG functions.
 
-Scope: FR-001-AC-4 and FR-001-AC-24.
+Scope: FR-001-AC-4 and FR-001-AC-25.
 
 ## Test Procedure
 
