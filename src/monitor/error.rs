@@ -224,8 +224,12 @@ impl MonitorPreparationError {
             Self::Unsupported(_) => MonitorPreparationErrorCode::Unsupported,
             Self::Projection(native) => match native.code {
                 ExactTypeProjectionErrorCode::ExhaustedWork => MonitorPreparationErrorCode::Work,
+                ExactTypeProjectionErrorCode::ExhaustedStorage => {
+                    MonitorPreparationErrorCode::Storage
+                }
                 ExactTypeProjectionErrorCode::UnknownNode
                 | ExactTypeProjectionErrorCode::ForeignNode
+                | ExactTypeProjectionErrorCode::IncompleteIdentityWitness
                 | ExactTypeProjectionErrorCode::UnavailableIdentityWitness
                 | ExactTypeProjectionErrorCode::MismatchedIdentityWitness
                 | ExactTypeProjectionErrorCode::ConflictingIdentityWitness

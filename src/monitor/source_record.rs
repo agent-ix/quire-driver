@@ -5,9 +5,11 @@ use qsl_package::Emission;
 use quire_contract_model::{
     read_checked_package, CheckedNodeId, CheckedPackageDispatchResult, CheckedPackageEvidence,
     CheckedPackageIncomplete, CheckedPackageReadLimits, CheckedPackageRefusal, CheckedPackageV2,
-    ExactTypeProjection, ExactTypeProjectionError, SelectedExactIdentities,
+    ExactTypeProjection, ExactTypeProjectionError, NativeJoinBudget, SelectedExactIdentities,
     SelectedSourceRecordMemberRow, SelectedSourceRecordRow,
 };
+
+use super::request::MonitorPreparationLimits;
 
 /// Stable disposition of an independent source-record admission failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,7 +55,7 @@ pub enum SourceRecordAdmissionError {
     /// The strict reader's original incomplete result.
     #[error("source-record package read incomplete: {0:?}")]
     ReadIncomplete(CheckedPackageIncomplete),
-    /// The native join's original error, including work and source locus.
+    /// The native join's original error, including resource cause and source locus.
     #[error("source-record witness join failed: {0}")]
     Join(#[source] ExactTypeProjectionError),
 }
@@ -111,16 +113,16 @@ impl AdmittedSourceRecords {
 /// evidence; model-dependent callers extend it with original domain documents
 /// through the native insertion API. IR validates those inputs.
 ///
-/// IR owns reader limits and the finite `join_work_limit`. Row materialization
-/// and producer acquisition are outside the native join allowance. The native
-/// join returns no success-work receipt, so these independent limits do not
-/// establish cumulative preparation work or complete storage qualification.
+/// IR owns reader limits. The explicit work and storage limits are charged by
+/// the native join; row materialization and producer acquisition are outside
+/// that allowance. This separate join budget does not establish cumulative
+/// preparation accounting or complete storage qualification.
 /// No caller-created row or separately admitted package supplies authority.
 pub fn admit_source_records(
     emission: &Emission,
     evidence: &CheckedPackageEvidence,
     read_limits: CheckedPackageReadLimits,
-    join_work_limit: u64,
+    join_limits: MonitorPreparationLimits,
 ) -> Result<AdmittedSourceRecords, SourceRecordAdmissionError> {
     let package = match read_checked_package(emission.package().bytes(), read_limits, evidence) {
         CheckedPackageDispatchResult::AdmittedV2(package) => package,
@@ -152,8 +154,9 @@ pub fn admit_source_records(
                 })
                 .collect(),
         });
+    let mut budget = NativeJoinBudget::new(join_limits.work, join_limits.storage);
     let identities = SelectedExactIdentities::empty()
-        .with_source_record_rows(&package, rows, join_work_limit)
+        .with_source_record_rows(&package, rows, &mut budget)
         .map_err(SourceRecordAdmissionError::Join)?;
     Ok(AdmittedSourceRecords {
         package,
