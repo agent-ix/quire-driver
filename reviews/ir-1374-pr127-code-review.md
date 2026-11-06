@@ -69,3 +69,28 @@ The Rust call chain carries the caller package limit into E4 and its emit member
   ]
 }
 ```
+
+## Delta review: da1787e
+
+The final-gate repair after the original clean review changes only four QSL
+writer calls in three test fixtures. `monitor_lowering::source_fixture`,
+`monitor_refusal::fixture` (both `emit_checked` and `emit_monitor_plan_over`),
+and `source_record_admission::fixture` each pass
+`limits.package.emit()` from the `SpineLimits` already used to check their
+source. No wrapper, new default, pin, or production behavior was added. The
+original FR-001-AC-25 argument path and its test remain unchanged. The coder
+reports focused Clippy and one exercised fixture test per affected test binary
+passed; this delta review did not rerun them.
+
+Verdict for this delta: PASS; no new findings. The original `## Findings` table
+remains unchanged because it records the original review pass.
+
+```yaml
+{
+  "scope": [
+    {"id": "tests/monitor_lowering.rs", "path": "tests/monitor_lowering.rs", "role": "examined", "excerpt": "emit_checked(checked.package(), limits.package.emit())"},
+    {"id": "tests/monitor_refusal.rs", "path": "tests/monitor_refusal.rs", "role": "examined", "excerpt": "emit_checked(checked.package(), limits.package.emit()); emit_monitor_plan_over(..., limits.package.emit())"},
+    {"id": "tests/source_record_admission.rs", "path": "tests/source_record_admission.rs", "role": "examined", "excerpt": "emit_checked(checked.package(), limits.package.emit())"}
+  ]
+}
+```
