@@ -5,7 +5,7 @@ use std::{path::PathBuf, process::Command, sync::LazyLock};
 
 use ix_trace_rs::trace;
 use qsl_foundation::SourceIdentity;
-use qsl_package::{emit_checked, emit_monitor_plan_over, Emission, MonitorPlanWire};
+use qsl_package::{emit_checked, emit_monitor_plan_over, Emission, MonitorPlanWire, V2ReadLimits};
 use qsl_replay::spine::{check, parse, select, DependencyInput, ParseRequest, SpineLimits};
 use qsl_semantics::{library::LibraryName, model::intake::package_input};
 use quire_contract_model::{
@@ -204,6 +204,7 @@ fn fixture() -> Fixture {
             renamed_records: &["DActivation", "DInstance", "DLimit"],
             renames: &[("origin_tick", "origin"), ("amount", "value")],
         },
+        V2ReadLimits::bounded(1 << 24),
     )
     .expect("the public QSL writer emits the checked diagnostic root");
     let package = admit(&emission, &evidence);
