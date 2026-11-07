@@ -59,3 +59,12 @@ Ticket: IR-721. Reviewed quire-driver#129 at head 3e3077679fe7019066785b98bf5472
 ## Verdict
 
 NOT MERGEABLE. The phase refusal order, the cancellation polling between phases (it matches IR AD-010), cumulative no-refund consumption, the end of the budget at Program::try_new (it matches RT #209 FR-276-AC-13) and exact-limit admit / one-under refuse in AC-2 are sound. Two identity and denial paths are unspecified.
+
+## Dispositions
+
+Round 1, verified against fix commit e12108e8b1d802ade55e28056f8fc3db350e66df.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | - |
+| FND-002 | fixed | - |

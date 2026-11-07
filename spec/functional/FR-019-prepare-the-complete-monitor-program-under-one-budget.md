@@ -23,6 +23,8 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-contract-runtime/interface_002
     type: depends_on
+  - target: ix://agent-ix/quire-observation/FR-004
+    type: depends_on
 ---
 # FR-019: Prepare the complete monitor program from one plan root under one preparation budget
 
@@ -62,7 +64,7 @@ pub fn prepare_monitor(
 | --- | --- | --- |
 | `plan_root` | `qsl_analyze::monitor_root::PlanRoot` | The producer output, owned; consumed by authority admission. |
 | `authority_selection` | `qsl_analyze::monitor_root::PlanAuthoritySelection<'a>` | The independent source, claim, observation subject, clock and source selection. |
-| `progress` | `Option<progress::View>` | The observation owner's admitted progress view. |
+| `progress` | `Option<quire_observation::authority::progress::View>` | The observation owner's admitted progress view (quire-observation FR-004-AC-7). |
 | `package_lock` | `&'a CheckedPackageLockV2` | The independently selected lock. |
 | `root_key`, `entry_keys` | `&'a CheckedNodeId`, `[&'a CheckedNodeId; 4]` | Expected root and `init`, `on_event`, `on_watermark`, `on_gap` content keys. |
 | `clause`, `subject` | `&'a CheckedNodeId` | The independently selected clause and its `over` parameter. |
@@ -83,7 +85,7 @@ The driver SHALL consume exactly these QSL capabilities:
 
 | Capability | Returns | Required behaviour |
 | --- | --- | --- |
-| `PlanRoot::admit_authority(self, PlanAuthoritySelection, Option<progress::View>, &mut NativeJoinBudget)` | `AdmittedPlanAuthority` or `PlanAuthorityRefusal` | QSL's single strict read of the root's own final emission; every selection, read and canonical-value allocation charged to the budget first; a budget denial reported with the budget's first unpaid charge. |
+| `PlanRoot::admit_authority(self, PlanAuthoritySelection, Option<quire_observation::authority::progress::View>, &mut NativeJoinBudget)` | `AdmittedPlanAuthority` or `PlanAuthorityRefusal` | QSL's single strict read of the root's own final emission; every selection, read and canonical-value allocation charged to the budget first; a budget denial reported with the budget's first unpaid charge. |
 | `AdmittedPlanAuthority::{root, admitted_package, admission_binding, admitted_order, progress_context}` | the owned root, the admitted package, its `AdmissionBinding`, borrowed order and association values | Read-only; the time source kind and exact period are readable as IR FR-361 requires. |
 | `PlanRoot::emission()` | `&Emission` | Read-only; the same emission as the plan and obligations. |
 | `Emission::identity_rows(package, &mut budget)` | `ReadIdentityRows` (declarations, fields, source records, source unions) or `IdentityFileRefusal` | Charges the native join and every owned record, member and union clone before it is made. |
@@ -120,7 +122,7 @@ partial parts. `MonitorPreparationErrorCode` SHALL classify every cause:
 | A reached operation without an RT form | `unsupported` |
 | A key, rational or integer conversion refusal in P7 | `projection` |
 | An admitted tick unit whose dimension differs from `time_dimension` | `target_mismatch` |
-| A broken driver lowering invariant, including disagreeing entry result types | `internal` |
+| A broken driver lowering invariant, including disagreeing entry result types and an absent `tick_unit_dimension()` | `internal` |
 | RT `ProgramRefusal` | `program` |
 | Cancellation | `cancelled` |
 
@@ -188,7 +190,7 @@ output storage first.
 | `entries` | the four lowered entry addresses | none |
 | `counter`, `counter_width_bits`, `max_reading_gap` | the plan's admitted premises after FR-015's comparison | Copied. |
 | `tick_unit` | `plan.tick_unit()` | Key converted as above. |
-| `time_dimension` | The admitted dimension of the tick unit in the closure's unit facts | The driver SHALL require structural equality with `request.time_dimension`; inequality is `target_mismatch`. Key converted as above. |
+| `time_dimension` | `SelectedMonitorTypeClosure::tick_unit_dimension()`, the admitted dimension of the plan's `tick_unit` premise that IR's closure seeds | The driver SHALL require structural equality with `request.time_dimension`; inequality is `target_mismatch`. An absent value is `internal`, since IR guarantees it for an admitted plan. Key converted as above. |
 | `max_event_rate`, `uncertainty` | `&CheckedRational` | Canonical numerator and denominator decimal text to `quire_exact::Rational`. |
 | `buffers` | each `CheckedMonitorBufferRef` | `Buffer { owner: subformula key converted, capacity: canonical decimal to quire_exact::Integer }`, in admitted order. |
 | `activation_capacity` | canonical decimal text | To `quire_exact::Integer`, including zero. |
@@ -214,7 +216,7 @@ order above for P7, and RT for construction.
 | FR-019-AC-6 | A reached map collection lowers into the canonical `TypeEnvironment` with its key and value types; changing only QSL's `PlanId` metadata leaves `Layout` unchanged, while changing an entry body changes `Layout.root`. | Test |
 | FR-019-AC-7 | The budget's consumption is unchanged by `Program::try_new`; an RT construction refusal is returned as `program` with its original `ProgramRefusal`. | Test |
 | FR-019-AC-8 | Source and API inspection finds one `&mut NativeJoinBudget` parameter on `prepare_monitor`, `admit_monitor_final_subject`, `lower_monitor`, `lower_scalar_functions` and `copy_monitor_locus`; no `MonitorPreparationLimits`, private ledger, storage refund, driver strict read, driver-side QSL-to-IR row conversion, `PlanId` read, digest, compatibility path or second meter. | Inspection |
-| FR-019-AC-9 | Each Layout conversion succeeds on genuine admitted values; a time dimension unequal to the independent selection returns `target_mismatch`; injected disagreeing entry result types return `internal`; an unconvertible key returns `projection` with the native `InvalidNodeKey`. | Test |
+| FR-019-AC-9 | Each Layout conversion succeeds on genuine admitted values, with `Layout.time_dimension` equal to `tick_unit_dimension()`; a request time dimension unequal to it returns `target_mismatch`; an injected absent `tick_unit_dimension()` and injected disagreeing entry result types each return `internal`; an unconvertible key returns `projection` with the native `InvalidNodeKey`. | Test |
 
 ## Dependencies
 
@@ -224,7 +226,10 @@ order above for P7, and RT for construction.
   on that change and on the seam requirements listed above.
 - The driver takes a normal dependency on `qsl-analyze` for `PlanRoot` and
   `AdmittedPlanAuthority`.
-- IR FR-357, FR-358 and FR-361 own the closure, the budget and the receipt.
+- IR FR-357, FR-358 and FR-361 own the closure, the budget, the receipt and
+  the closure's `tick_unit_dimension()` read.
+- quire-observation [FR-004](ix://agent-ix/quire-observation/FR-004) (AC-7)
+  issues the progress view and its canonical association value.
 - RT FR-276 and interface-002 own `ProgramParts` and `Program::try_new`.
 - [TC-033](../test-cases/TC-033-prepare-monitor-under-one-budget.md) defines
   the evidence; the genuine producer criteria run in `quire-integration`.

@@ -65,3 +65,24 @@ Ticket: IR-721. Reviewed quire-driver#129 at head 3e3077679fe7019066785b98bf5472
 ## Verdict
 
 NOT MERGEABLE. The new FR-019 and TC-033 are structurally valid (quire validate passes; only EARS warnings) and introduce no pins, digests, compatibility path, vendoring or ticket citations. No existing FR-015/016/017 acceptance-criterion row was deleted or reworded, but the rework leaves normative text and two AC rows that contradict the one-budget, no-release model, and one AC (FR-016-AC-10) silently changes meaning.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-009 | low | FR-016:182-183 still says 'The same schedule applies to borrowed descendants reached for storage measurement', and lines 189 and 192 still say 'storage-ledger'. The rewritten line 198 says that sharing an Arc edge 'SHALL NOT copy or measure its subtree'. The leftover sentence implies work charges for a subtree walk that no longer happens. Delete it and say 'budget' instead of 'storage ledger'. | spec/functional/FR-016-retain-monitor-refusal-loci.md:181-183 | wrong-requirement |
+
+## Dispositions
+
+Round 1, verified against fix commit e12108e8b1d802ade55e28056f8fc3db350e66df.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | - |
+| FND-002 | fixed | - |
+| FND-003 | fixed | - |
+| FND-004 | fixed | - |
+| FND-005 | fixed | - |
+| FND-006 | fixed | - |
+| FND-007 | fixed | - |
+| FND-008 | fixed | - |

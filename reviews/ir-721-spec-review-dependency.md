@@ -62,3 +62,21 @@ Ticket: IR-721. Reviewed quire-driver#129 at head 3e3077679fe7019066785b98bf5472
 ## Verdict
 
 NOT MERGEABLE. The IR seams (NativeJoinBudget resume/accounted_charge/first_unpaid on IR main e35b912; AuthorityRow and PreparationOutput loci, key_node and FR-361 in IR #945 cc5034a) and the RT seams (Layout, ProgramParts, Program::try_new on RT main; the budget boundary in RT #209 d82a03d) agree with FR-019. The consumed QSL interface does not match the QSL code that is in flight.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-006 | low | The request field `progress: Option<progress::View>` (also at FR-019:86) names no crate. Every other cross-owner type in the table is fully qualified, and the Dependencies list has no edge to the observation owner that issues the view. Qualify the path and add the dependency. | spec/functional/FR-019-prepare-the-complete-monitor-program-under-one-budget.md:65 | missing-requirement |
+
+## Dispositions
+
+Round 1, verified against fix commit e12108e8b1d802ade55e28056f8fc3db350e66df.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | - |
+| FND-002 | fixed | - |
+| FND-003 | fixed | - |
+| FND-004 | fixed | - |
+| FND-005 | fixed | - |

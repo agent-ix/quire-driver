@@ -179,17 +179,16 @@ its source package have been dropped.
 Before inspecting or copying each represented record, container, segment tag,
 integer scalar or UTF-8 byte, the component SHALL charge work: one unit per
 record/container/tag, eight per integer scalar, and one per UTF-8 byte. Each Arc
-edge SHALL also incur one unit before sharing. The same schedule applies to
-borrowed descendants reached for storage measurement. Traversal SHALL be
+edge SHALL also incur one unit before sharing. Traversal SHALL be
 iterative and interruptible, with no semantic depth limit, whole-package scan
 or uncharged scratch collection. Cancellation SHALL be polled before every
 charge, including an initial zero charge and allocation reservations. The scratch
 frontier SHALL grow geometrically by requesting twice its full current capacity
 (or one slot from empty), using fallible exact reservation. Before any growth
-reservation or storage-ledger mutation it SHALL additionally charge one work
+reservation or budget storage charge it SHALL additionally charge one work
 unit per live reference that the reservation may relocate. This relocation
 charge is separate from represented-material work; denied work SHALL leave
-the frontier allocation, capacity, contents and storage ledger unchanged.
+the frontier allocation, capacity, contents and the budget unchanged.
 
 Before allocating new vector or text capacity, the component SHALL charge its
 storage in IR FR-358 logical units: one container unit plus one unit per

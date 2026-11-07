@@ -63,3 +63,22 @@ Ticket: IR-721. Reviewed quire-driver#129 at head 3e3077679fe7019066785b98bf5472
 ## Verdict
 
 NOT MERGEABLE. I checked the Layout table field by field against RT origin/main `monitor::Layout` (src/monitor/program.rs:59-117) and against IR FR-361's layout context (#945). root, clause, package_lock, subject, occurrence, profile, clock_binding, admitted_order, progress_context, entries, counter, counter_width_bits, max_reading_gap, max_event_rate and uncertainty map to a real source. Two fields have no derivable source, and several required representation conversions are unstated.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-007 | medium | time_dimension's source is now 'the admitted dimension of the tick unit in the closure's unit facts', but no closure accessor is named. The IR closure is reached-only (FR-357-AC-13), and it is seeded from State, Inputs, Scope, Results and the entries (FR-357-AC-1). plan.tick_unit() is a premise, not a reached type, so its unit and dimension fact may be absent from the closure. FR-019 gives no source and no refusal for that case. Name the accessor (e.g. the SelectedTypeDeclarations unit row for tick_unit, or IR's identity dimension read). Either require IR to seed tick_unit, or classify its absence (projection or target_mismatch) and cover it in AC-9. | spec/functional/FR-019-prepare-the-complete-monitor-program-under-one-budget.md:191 | missing-requirement |
+
+## Dispositions
+
+Round 1, verified against fix commit e12108e8b1d802ade55e28056f8fc3db350e66df.
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | - |
+| FND-002 | fixed | - |
+| FND-003 | fixed | - |
+| FND-004 | fixed | - |
+| FND-005 | fixed | - |
+| FND-006 | fixed | - |
