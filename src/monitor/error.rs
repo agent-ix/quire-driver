@@ -5,7 +5,8 @@ use quire_contract_model::{
     CheckedCallableReadError, CheckedCallableReadErrorCode, CheckedMonitorClockReadError,
     CheckedMonitorClockReadErrorCode, CheckedNodeId, CheckedOperationViewError,
     CheckedPackageIncomplete, CheckedPackageRefusal, ExactTypeProjectionError,
-    ExactTypeProjectionErrorCode,
+    ExactTypeProjectionErrorCode, SelectedMonitorTypeClosureError,
+    SelectedMonitorTypeClosureErrorCode,
 };
 use quire_contract_runtime::monitor::ProgramRefusal;
 use quire_exact::{CancelCause, InvalidNodeKey};
@@ -138,6 +139,12 @@ pub enum MonitorPreparationError {
     /// Original bounded IR clock-read refusal, retaining its exact cause and locus.
     #[error(transparent)]
     ClockRead(Box<CheckedMonitorClockReadError>),
+    /// QSL refused its original final-emission identity rows.
+    #[error("monitor emission identity rows refused: {0}")]
+    ClosureRows(Box<qsl_package::IdentityFileRefusal>),
+    /// IR refused the atomic selected closure with its native cause and locus.
+    #[error("monitor selected closure refused: {0}")]
+    ClosureRead(Box<SelectedMonitorTypeClosureError>),
     /// The native declaration lookup has no row for the original subject.
     #[error("no final declaration for monitor subject: {0:?}")]
     MissingFinalSubject(Box<qsl_replay::MonitorSubject>),
@@ -262,6 +269,25 @@ impl MonitorPreparationError {
                 | CheckedMonitorClockReadErrorCode::MissingClock => {
                     MonitorPreparationErrorCode::Selection
                 }
+            },
+            Self::ClosureRows(qsl_package::IdentityFileRefusal::Native(native)) => {
+                match native.code {
+                    ExactTypeProjectionErrorCode::ExhaustedWork => {
+                        MonitorPreparationErrorCode::Work
+                    }
+                    ExactTypeProjectionErrorCode::ExhaustedStorage => {
+                        MonitorPreparationErrorCode::Storage
+                    }
+                    _ => MonitorPreparationErrorCode::Projection,
+                }
+            }
+            Self::ClosureRows(_) => MonitorPreparationErrorCode::Projection,
+            Self::ClosureRead(native) => match native.code {
+                SelectedMonitorTypeClosureErrorCode::WorkLimit => MonitorPreparationErrorCode::Work,
+                SelectedMonitorTypeClosureErrorCode::StorageLimit => {
+                    MonitorPreparationErrorCode::Storage
+                }
+                _ => MonitorPreparationErrorCode::Projection,
             },
             Self::MissingFinalSubject(_) | Self::EmissionRefused(_) => {
                 MonitorPreparationErrorCode::Selection
