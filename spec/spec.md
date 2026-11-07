@@ -43,6 +43,10 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/FR-015
     type: contains
+  - target: ix://agent-ix/quire-driver/FR-019
+    type: contains
+  - target: ix://agent-ix/quire-driver/TC-033
+    type: contains
   - target: ix://agent-ix/quire-driver/TC-001
     type: contains
   - target: ix://agent-ix/quire-driver/TC-002
@@ -211,6 +215,8 @@ implementation; FR-013 specifies the in-repository plugin host; FR-014 specifies
 | [FR-013](functional/FR-013-host-process-plugins.md) | Host process providers through a bounded session |
 | [FR-014](functional/FR-014-separate-the-user-cli-package.md) | Place the user CLI in a separate workspace package |
 | [FR-015](functional/FR-015-prepare-an-admitted-monitor-program.md) | Prepare one admitted monitor program for the runtime (planned until IR-721 lands) |
+| [FR-019](functional/FR-019-prepare-the-complete-monitor-program-under-one-budget.md) | Prepare the complete monitor program from one plan root under one preparation budget |
+| [TC-033](test-cases/TC-033-prepare-monitor-under-one-budget.md) | Prepare a monitor program from a plan root under one budget |
 | [TC-001](test-cases/TC-001-steps-run-in-order.md) | The steps run in ADR-011 T-13 order |
 | [TC-002](test-cases/TC-002-unknown-backend-refusal.md) | An unknown `BackendId` refuses the run before negotiation |
 | [TC-003](test-cases/TC-003-route-after-negotiation.md) | `route` runs after negotiation, for `supported` items only |

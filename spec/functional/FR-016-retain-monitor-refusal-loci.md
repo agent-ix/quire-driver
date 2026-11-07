@@ -136,6 +136,14 @@ policy decision before constructing this diagnostic payload.
 
 ### Bounded copying of an already resolved locus
 
+The component charges the caller's one preparation `NativeJoinBudget` under
+[FR-019](FR-019-prepare-the-complete-monitor-program-under-one-budget.md).
+Work uses the schedule below through `accounted_charge`; storage is charged in
+IR FR-358 logical units before each allocation and is never released. Where
+the text below refers to the storage limit, live ledger, release or peak, it
+means that budget's cumulative storage counter: cleanup frees memory but
+refunds no charge.
+
 The driver SHALL expose this independent component in `monitor_refusal`:
 
 ```rust
@@ -144,7 +152,7 @@ copy_monitor_locus(
     structural_key: &CheckedNodeId,
     body_path: &[usize],
     occurrence: Option<&CheckedOccurrence>,
-    limits: MonitorPreparationLimits,
+    budget: &mut quire_contract_model::NativeJoinBudget,
     cancel: &Cancel,
 ) -> Result<CopiedMonitorLocus, MonitorLocusCopyError>
 ```

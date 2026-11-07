@@ -66,7 +66,7 @@ pub fn lower_scalar_functions(
     package: &CheckedPackageV2,
     roots: &[CheckedNodeId],
     identities: &SelectedExactIdentities,
-    limits: MonitorPreparationLimits,
+    budget: &mut quire_contract_model::NativeJoinBudget,
     cancel: &quire_exact::Cancel,
 ) -> Result<
     (Vec<quire_contract_runtime::monitor::FunctionId>,
@@ -84,7 +84,7 @@ function. Empty roots SHALL return empty native arrays, subject to cancellation
 and operating checks. Failure SHALL return no partial tuple. This helper is
 not a complete Program or a monitor preparation entry.
 
-The public helper SHALL start its explicit independent operating allowance.
+The public helper SHALL charge the caller's `NativeJoinBudget` from its current consumption, under FR-019's charging rules.
 The full by-value `lower_monitor` SHALL reuse the same private worklist under
 admission's inherited budget; it SHALL NOT invoke the public helper with a
 fresh allowance that discards admission work. P8 owns shared module registration,
@@ -213,6 +213,10 @@ Scalar arena tests alone SHALL NOT claim that full temporal association check.
 
 ### Continue one operating allowance
 
+The operating allowance is the caller's one preparation `NativeJoinBudget`
+of [FR-019](FR-019-prepare-the-complete-monitor-program-under-one-budget.md);
+storage is charged in its logical units and never released.
+
 Full lowering SHALL resume admission's consumed work under the same total
 caller limit and original cancellation handle. It SHALL NOT reset a fresh full
 allowance after admission. It SHALL charge actual reached identity/value
@@ -243,8 +247,8 @@ premises, semantic capacities, source types or evaluation meaning.
 
 Source-fixture preflight may obtain genuine native callable/type/node views
 in explicit setup without claiming lowering accounting. The public scalar
-helper SHALL account for its own selective native reads and assembly under
-its independent allowance, using actual owner-reported read work. Pre-acquired
+helper SHALL account for its own selective native reads and assembly on the
+caller's budget, using actual owner-reported read work. Pre-acquired
 setup views SHALL NOT substitute for those production reads or their receipts.
 Neither source preflight nor standalone helper success satisfies the inherited
 whole-preparation budget criterion.

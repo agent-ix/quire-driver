@@ -67,9 +67,12 @@ logically separate inputs:
   from the same checked acquisition and corresponding to final emitted
   identities and occurrences. A caller-created identity row alone SHALL NOT
   establish producer authority.
-- Explicit operating work/storage allowances and caller cancellation under
+- One caller-owned finite `NativeJoinBudget` and caller cancellation under
   [FR-003](FR-003-apply-caller-selected-limits.md) and
-  [FR-011](FR-011-cancel-a-driver-library-operation.md).
+  [FR-011](FR-011-cancel-a-driver-library-operation.md). The budget's phases
+  and charges are fixed by
+  [FR-019](FR-019-prepare-the-complete-monitor-program-under-one-budget.md).
+  Every allowance named in this requirement is that one budget.
 
 A driver request may group borrows to these canonical values. It SHALL NOT
 introduce a copied plan representation, second expression/type vocabulary,
@@ -223,6 +226,7 @@ The public entry's request/result shape SHALL be:
 ```rust
 prepare_monitor(
     request: MonitorPreparationRequest<'_>,
+    budget: &mut quire_contract_model::NativeJoinBudget,
     cancel: &quire_exact::Cancel,
 ) -> Result<Rc<quire_contract_runtime::monitor::Program>, MonitorPreparationError>
 ```
@@ -235,15 +239,11 @@ work/storage allowances. It SHALL NOT accept `ProgramParts`, a caller-built
 The package SHALL resolve its selected root and four entries itself; a foreign
 borrowed view SHALL NOT replace that resolution.
 
-This freezes the entry/result shape and failure distinctions, not a concrete
-request field list or an implemented Rust type. The request's concrete public
-fields SHALL be frozen only after the owning interfaces supply authentic
-final source record/member and union identities and admitted clock/order/
-progress associations. `PlanRoot` currently contains no final `AdmittedContext`;
-its selected model rows cannot establish generated source record authority.
-Raw caller bytes or a new local association wrapper SHALL NOT be treated as
-proof that an order/progress association was independently admitted. No
-speculative carrier for those unavailable inputs is introduced here.
+The request's exact public fields, the consumed QSL plan-root interface and
+the same-emission order and progress authority are fixed by
+[FR-019](FR-019-prepare-the-complete-monitor-program-under-one-budget.md).
+Raw caller bytes or a local association wrapper SHALL NOT be treated as
+proof that an order or progress association was independently admitted.
 
 ## Outputs
 
@@ -391,15 +391,11 @@ a leaf without IR, driver or QSL dependencies. Preparation SHALL perform no
 QSL compile/recompile, source parsing, evaluator call, CG generation or external
 effect.
 
-The implemented independent bounded locus-copy component in
-[FR-016](FR-016-retain-monitor-refusal-loci.md) has an independent allowance and
-qualifies only already-resolved canonical locus retention. The driver owns
-later threading of remaining preparation work/storage into diagnostic
-selection, target-path derivation, failure assembly and outer error boxing;
-these integrations remain Planned. IR/model owns allocation-aware copying of
-opaque operation and native projection/callable failure payloads. Caller-input
-acquisition and complete preparation/Program storage remain Planned; a locus
-copy receipt SHALL NOT reset or certify the complete preparation allowance.
+The bounded locus-copy component of
+[FR-016](FR-016-retain-monitor-refusal-loci.md) and every diagnostic,
+target-path and failure allocation charge the same preparation budget under
+FR-019. IR/model owns allocation-aware copying of opaque operation and native
+projection/callable failure payloads.
 
 ## Acceptance Criteria
 
