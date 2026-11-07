@@ -329,6 +329,7 @@ pub fn drive(
         &checked_unit,
         &emitted_unit,
         input.limits.imports,
+        input.limits.package.emit(),
     )?);
     // E4's source provision is needed through E5 for diagnostics, then the
     // returned CheckedUnit remains the driver's bounded source owner.

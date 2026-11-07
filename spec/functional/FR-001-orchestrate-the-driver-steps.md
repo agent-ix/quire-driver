@@ -47,7 +47,10 @@ into bound and refused (FR-010).
 
 Between steps 2 and 3, the E5 hand-off: IR's checked-package reader
 (`read_checked_package`) reads the emitted v2 bytes, and the driver accepts
-the admitted package that E4 emitted.
+the admitted package that E4 emitted. QSL's admission evidence receives the
+same caller-owned `SpineLimits.package.emit()` ceiling used for E4, alongside
+the caller's import-read limits, so dependency-closure emissions remain under
+the request's selected byte ceiling.
 
 ## Inputs
 
@@ -333,6 +336,7 @@ the admitted package that E4 emitted.
 | FR-001-AC-22 | When CG returns `EnvelopeRefusal::ContractPackageReadRefused`, the driver emits an FR-272 refusal diagnostic at `package_read`, retaining the complete CG projection unchanged as typed source data: `code`, `path`, `cause`, `locus`, `contract_version`, `document_pointer`, `expected` and `actual`. The diagnostic carries the same code and cause, has category `refusal`, maps `path` to the FR-274 `json_path` location, and carries `locus` as a `CheckedNodeId` payload when present; every returned code has an FR-271 row. When CG returns `ContractPackageReadIncomplete`, the driver emits `stage_limit_exceeded` at `package_read` with category `incomplete` (numeric category 22) and retains the complete CG projection unchanged (`limit_kind`, `limit`, `consumed`, `path`). The closed map is `Bytes` → `input-bytes-exceeded` / `CheckedPackageReadLimits.bytes`; `Nodes` → `node-count-exceeded` / `CheckedPackageReadLimits.nodes`; `Edges` → `edge-count-exceeded` / `CheckedPackageReadLimits.edges`; `Occurrences` → `occurrence-count-exceeded` / `CheckedPackageReadLimits.occurrences`; `Work` → `work-budget-exceeded` / `CheckedPackageReadLimits.work`. For each mapped case, `bound` is `limit`, `actual` is `consumed`, `kind` is the cause tag, `setting` is the listed limits-argument member, and `path` supplies the FR-274 `json_path` location when present (absent for `Bytes`). Although `CheckedPackageReadLimits` includes `diagnostics`, the ContractPackage reader reports no diagnostics stop. If CG nevertheless returns `Diagnostics`, the driver returns a `runtime_invariant` fault at `package_read` while retaining the CG projection unchanged, with no FR-272 limit diagnostic. No reader variant is converted to the E5 result, and no other `limit_kind` branch is accepted. Registration of these limits under FR-460/FR-461 entry points/defaults is a deferred follow-up under IR-896. | Test (TC-004) |
 | FR-001-AC-23 | Two generated function items that select the same checked node at different application occurrences retain two distinct contexts keyed by their original request indices. Each context contains the QSL-selected function declaration and exact occurrence, its producing source and dependency lock, the same E5-admitted package identity, and the matching CG `KaniObligationIdentity`; CG `ReplayInputs` use those retained source, lock, accounting, stage, domain and replay inputs; playback intake uses the smaller caller/proving-run byte and value decode limits. No identity or source is reconstructed from caller text or proof output. | Planned (TC-016; IR-610 E9 function producer; IR-1121 CG current-V2 function proof producer) |
 | FR-001-AC-24 | A QSL selection, IR admission or CG generation refusal is preserved as that owner’s typed refusal. After all three succeed, a missing, duplicate or mismatched request-index, occurrence, package, declaration or generated-identity association returns a driver `runtime_invariant` fault before provider execution or replay, without selecting another item or fallback context. | Planned (TC-016; IR-610 E9 function producer; IR-1121 CG current-V2 function proof producer) |
+| FR-001-AC-25 | The driver passes the caller's `SpineLimits.package.emit()` to QSL admission evidence at E5, preserving the exact `emit.output_bytes` value used for E4, including a caller-selected value. | Test and Inspection (TC-001) |
 
 ## Dependencies
 

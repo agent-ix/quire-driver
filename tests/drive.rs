@@ -1510,6 +1510,66 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     );
 }
 
+/// Trace: FR-001-AC-25 (TC-001). The caller's exact E4 ceiling reaches the
+/// E5 hand-off; reducing it by one byte refuses emission before E5.
+#[test]
+fn tc_001_caller_emit_ceiling_bounds_e4_and_admits_at_e5() {
+    let registry = build_registry(&[]).expect("an empty registry builds");
+    let packages = BTreeMap::new();
+    let ordinary = drive(
+        &QslCg,
+        input(&packages),
+        &registry,
+        None,
+        GenerationInput::default(),
+    )
+    .expect("ordinary emission admits");
+    let byte_len = u64::try_from(ordinary.emitted().bytes().len()).expect("byte length fits u64");
+    assert!(byte_len > 0);
+
+    let exact = Recorder::default();
+    let exact_driven = drive(
+        &exact,
+        CompileInput {
+            limits: SpineLimits {
+                package: SpineLimits::default().package.with_output_bytes(byte_len),
+                ..SpineLimits::default()
+            },
+            ..input(&packages)
+        },
+        &registry,
+        None,
+        GenerationInput::default(),
+    )
+    .expect("the exact caller ceiling admits at E5");
+    assert_eq!(
+        u64::try_from(exact_driven.emitted().bytes().len()).expect("byte length fits u64"),
+        byte_len
+    );
+    assert!(exact.calls().contains(&Call::ReadPackage));
+
+    let low = Recorder::default();
+    let refusal = drive(
+        &low,
+        CompileInput {
+            limits: SpineLimits {
+                package: SpineLimits::default()
+                    .package
+                    .with_output_bytes(byte_len - 1),
+                ..SpineLimits::default()
+            },
+            ..input(&packages)
+        },
+        &registry,
+        None,
+        GenerationInput::default(),
+    )
+    .expect_err("one byte below the emitted length refuses");
+    assert_eq!(refusal.stage(), DriverStage::Compile(SpineStage::Emit));
+    assert_eq!(refusal.kind(), OutcomeKind::Limit);
+    assert_eq!(low.calls(), [Call::Compile]);
+}
+
 /// Trace: FR-001-AC-7; TC-006 step 11.
 #[test]
 fn tc_006_handoff_passes_domain_package_evidence_unchanged() {

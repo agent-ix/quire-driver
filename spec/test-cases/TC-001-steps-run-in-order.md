@@ -14,7 +14,7 @@ Verify that the driver calls compile, the E5 read, the Linked-backend
 conversion, negotiation, routing and generation in that order, against the
 real QSL and CG functions.
 
-Scope: FR-001-AC-4.
+Scope: FR-001-AC-4 and FR-001-AC-25.
 
 ## Test Procedure
 
@@ -23,6 +23,11 @@ Scope: FR-001-AC-4.
    which writes one requirement record (see TC-003), with a Kani context
    (see TC-006), through a recorder that logs each upstream call and then
    makes it.
+3. Drive a fixture with a caller-selected `emit.output_bytes` ceiling equal to
+   its actual canonical E4 byte length and confirm E5 admits it. Lower the
+   ceiling by one byte and confirm QSL refuses at E4 before E5. Inspect the
+   E5 call to `admission_evidence` to confirm it receives that same caller
+   `SpineLimits.package.emit()` value.
 
 Test: `tests/drive.rs`, `tc_001_tc_006_steps_run_in_order_through_generation`.
 
@@ -33,3 +38,6 @@ Test: `tests/drive.rs`, `tc_001_tc_006_steps_run_in_order_through_generation`.
   one item. (The candidate step calls no upstream
   function the recorder sees.)
 - The emitted v2 bytes are not empty.
+- The caller-selected exact byte ceiling admits the emitted package at E5;
+  a lower ceiling refuses emission and never reaches E5. The E5 evidence
+  call uses the same caller-owned package limit as E4.

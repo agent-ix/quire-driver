@@ -66,7 +66,11 @@ function tree using v(t: Tree): Boolean pure { true }
     };
     let tagged = id("tagged");
     let tree = id("tree");
-    (emit_checked(checked.package()).unwrap(), tagged, tree)
+    (
+        emit_checked(checked.package(), limits.package.emit()).unwrap(),
+        tagged,
+        tree,
+    )
 }
 
 fn assert_complete_producer_rows(admitted: &AdmittedSourceRecords, emission: &Emission) {

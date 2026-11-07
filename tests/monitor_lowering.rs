@@ -133,7 +133,8 @@ fn source_fixture(source: &str, package_name: &str, names: &[&str]) -> Fixture {
             serde_json::from_value::<CheckedNodeId>(wire).expect("IR reads that original key shape")
         })
         .collect::<Vec<_>>();
-    let emission = emit_checked(checked.package()).expect("the real QSL producer emits");
+    let emission = emit_checked(checked.package(), limits.package.emit())
+        .expect("the real QSL producer emits");
     let package = match read_checked_package(
         emission.package().bytes(),
         CheckedPackageReadLimits::bounded(),

@@ -162,7 +162,7 @@ fn fixture() -> Fixture {
     )
     .unwrap()
     .into_value();
-    let base = emit_checked(checked.package()).unwrap();
+    let base = emit_checked(checked.package(), limits.package.emit()).unwrap();
     let mut evidence = base.evidence().clone();
     evidence
         .insert_domain_package_document(identity, document)
@@ -205,6 +205,7 @@ fn fixture() -> Fixture {
             renames: &[("origin_tick", "origin"), ("amount", "value")],
         },
         V2ReadLimits::bounded(1 << 24),
+        limits.package.emit(),
     )
     .expect("the public QSL writer emits the checked diagnostic root");
     let package = admit(&emission, &evidence);

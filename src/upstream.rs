@@ -12,7 +12,7 @@ use qsl_foundation::SourceIdentity;
 use qsl_package::{BoundItem, CheckedPackage, ExportRefusal};
 use qsl_replay::spine::{
     check, package, parse, refusal_or_fault, select, AdmittedModels, CheckedUnit, DependencyInput,
-    EmittedUnit, FrontEndFailure, PackageLimits, ParseRequest, SpineLimits, SpineStage,
+    EmittedUnit, FrontEndFailure, ParseRequest, SpineLimits, SpineStage,
 };
 use qsl_route::routing::{route, Disposition};
 use qsl_route::Candidate;
@@ -177,7 +177,7 @@ impl Upstream for QslCg {
         )
         .map_err(|failure| driver_refusal(failure, LifecycleOperation::Check))?
         .into_value();
-        let emitted = package(&checked, PackageLimits::default(), cancel)
+        let emitted = package(&checked, limits.package, cancel)
             .map_err(|failure| driver_refusal(failure, LifecycleOperation::Package))?
             .into_value();
         Ok((checked, models, emitted))
