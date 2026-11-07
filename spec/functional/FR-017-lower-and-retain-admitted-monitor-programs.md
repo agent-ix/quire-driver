@@ -33,14 +33,15 @@ The agreed full lowering handoff is:
 ```rust
 pub fn lower_monitor(
     selection: AdmittedMonitorSelection<'_>,
+    budget: &mut quire_contract_model::NativeJoinBudget,
     cancel: &quire_exact::Cancel,
 ) -> Result<std::rc::Rc<quire_contract_runtime::monitor::Program>, MonitorPreparationError>;
 ```
 
 The lowerer SHALL consume the existing opaque selection by value. It SHALL
 obtain the original package, four-entry plan view, independent premises,
-canonical witness borrows and operating limits through the selection's
-read-only interface. It SHALL NOT accept a second request/plan DTO, a caller
+canonical witness borrows through the selection's read-only interface, and
+charge the caller's `budget`, the one preparation budget of FR-019. It SHALL NOT accept a second request/plan DTO, a caller
 `ProgramParts`, a replacement environment or an executable callback.
 
 The selection establishes only the identity/premise matches that admission
@@ -235,13 +236,13 @@ native InvalidNodeKey. Caller-owned input acquisition/allocation and native
 diagnostic payload cloning do not receive complete retained-storage
 qualification from these constructor cells. Exact whole-preparation storage
 controls remain Planned; native constructor coverage SHALL NOT upgrade them.
-The implemented independent locus-copy component in
+The locus-copy component of
 [FR-016](FR-016-retain-monitor-refusal-loci.md) covers only its explicit native
-locus fields. The driver owns later budget threading and outer failure
-assembly; IR/model owns bounded native operation and projection/callable-error
+locus fields and charges the same budget. The driver owns outer failure
+assembly on that budget; IR/model owns bounded native operation and projection/callable-error
 copy APIs. Existing unsupported/selection/projection failure clones and caller
-input acquisition remain outside this component's evidence. Its independent
-receipt SHALL NOT reset lowering's allowance or certify a complete Program.
+input acquisition remain outside this component's evidence. Its receipt
+SHALL NOT reset the budget or certify a complete Program.
 Operating limits SHALL NOT change target
 premises, semantic capacities, source types or evaluation meaning.
 
@@ -276,7 +277,7 @@ complete-program obligations.
 | FR-017-AC-2 | After complete success, dropping all source, package, witness, request and preparation objects leaves the RT-owned program usable. Two actual runtime builds retain independent initialized state without rebinding or a borrowed compiler owner. | Test |
 | FR-017-AC-3 | Full lowering preserves admission's already consumed work under the same total limit, native read success work, charged storage and original cancellation. An exact/one-under operating stop returns its original typed cause and no partial owner; no guessed reader receipt or semantic-capacity change supplies success. | Test |
 | FR-017-AC-4 | Native IR refusal, unsupported source operation, operating stop, cancellation, runtime ProgramRefusal and driver invariant failure remain distinct, with original source node/path and native payload. No failure becomes a temporal outcome or a partial successful program. | Test |
-| FR-017-AC-5 | The public lower_scalar_functions helper accepts the closed initial scalar set and returns owned native RT root addresses/functions/expressions under its independent allowance. Requested order and repeated-root FunctionId sharing, exact supported operation metadata/arity/types, parameter ownership and unsupported/native-reader dispositions match the declared contract. No source parse or evaluator supplies meaning; this is component evidence only. | Test |
+| FR-017-AC-5 | The public lower_scalar_functions helper accepts the closed initial scalar set and returns owned native RT root addresses/functions/expressions charging the caller's one `NativeJoinBudget` from its current consumption. Requested order and repeated-root FunctionId sharing, exact supported operation metadata/arity/types, parameter ownership and unsupported/native-reader dispositions match the declared contract. No source parse or evaluator supplies meaning; this is component evidence only. | Test |
 | FR-017-AC-6 | Within one genuine checked package, two functions sharing actual parameter handles retain distinct native Argument FunctionId owners and positions. Context-qualified memoization retains the identical original source keys without merging the owning invocations or rewriting keys. Native scalar outputs remain inspectable after setup destruction; separately lowered packages also retain their own qualified keys and scoped addresses. This supplies no temporal subformula-association credit. | Test |
 | FR-017-AC-7 | The complete monitor program retains original clause/subject/occurrence/root/buffer ownership. Equal numeric subformula indices under different genuine subjects do not alias in selection or retained Layout; no scalar-only sample substitutes for this control. | Test |
 | FR-017-AC-8 | Lowering consumes native typed owner facts and emits only RT-native executable types, with no copied evaluator, transition implementation, second IR reader/plan vocabulary, hidden identity mint, whole-package index, repeated unrelated callable scan or semantic depth cap. | Inspection |
@@ -287,7 +288,7 @@ Qualification is partial. Executed scalar-component evidence covers the eleven
 plain operations, exact parameter/result types, root order/repetition, native
 source keys, per-function shared-handle ownership, nested sharing, retained
 arenas after setup drop, different package keys, declared unsupported operation
-loci, bounded-type refusal and independent operating stops. Genuine source
+loci, bounded-type refusal and operating stops on the caller's budget. Genuine source
 parameter-only and literal-only ordinary callable bodies now have native
 Value-root reads. Executed refreshed controls now retain parameter-only native
 Argument ownership, scalar type and original body key after setup destruction;

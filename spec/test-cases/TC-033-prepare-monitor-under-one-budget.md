@@ -16,19 +16,22 @@ typed first refusal, with every phase charging the same budget.
 
 ## Test Procedure
 
-1. Produce a plan root for the 20-bit 1 MHz deadline claim with a genuine
-   observation progress association. Strictly read its emission, select the
-   package, root, clause, subject, occurrence, profile and target
-   independently, and prepare with an ample budget. Compare every `Layout`
+1. Produce a plan root for the 20-bit 1 MHz deadline claim and a genuine
+   observation progress view. Select the lock, root, clause, subject,
+   occurrence, profile, target and time dimension independently, and prepare
+   with an ample budget; confirm the driver makes no strict read. Compare every `Layout`
    field with the IR layout context, the receipt and QSL's and the owner's
    values. Drop the plan root, package and request and build twice
    (FR-019-AC-1).
-2. Record the successful consumption and the first charge of each phase.
-   Prepare at the exact limits, then once per phase with a limit one below
-   that phase's first charge (FR-019-AC-2).
-3. Deny a QSL adapter and `identity_rows` charge; remove the order premise and
-   the association; take the handoff from a second emission of the same
-   source (FR-019-AC-3, FR-019-AC-4).
+2. Record the successful totals and, for each phase and resource, the
+   cumulative consumption before the phase plus its first charge. Prepare at
+   the exact totals, then for every phase once with work and once with
+   storage limited to that cumulative value minus one (FR-019-AC-2).
+3. Deny an `admit_authority`, `identity_rows` and adapter charge; omit the
+   progress view; change the claim and observation selection; build the
+   authority row from one authority and read it against the package of a
+   second admission of the same root bytes; make `try_new` refuse
+   (FR-019-AC-3, FR-019-AC-4).
 4. Place defects in two phases at once; set cancellation before each phase
    (FR-019-AC-5).
 5. Prepare a plan whose entry reaches a map; change only `PlanId` metadata,
@@ -36,6 +39,9 @@ typed first refusal, with every phase charging the same budget.
 6. Compare consumption before and after `Program::try_new`; force an RT
    construction refusal (FR-019-AC-7).
 7. Inspect the public API and source (FR-019-AC-8).
+8. Convert every Layout value from a genuine plan; give a time dimension
+   unequal to the admitted one; inject disagreeing entry result types and an
+   unconvertible key (FR-019-AC-9).
 
 Tag the tests `#[trace("TC-033", "<criterion id>")]`. Steps 1 to 6 run in
 `quire-integration` with released QSL, IR, observation and RT; a hand-built
@@ -44,8 +50,9 @@ plan alone receives no credit.
 ## Expected Results
 
 - Step 1: every field is byte-equal; both builds are independent.
-- Step 2: exact limits succeed; each one-below run refuses in its phase with
-  the first unpaid kind, amount and locus and earlier consumption retained.
+- Step 2: exact totals succeed; each work and storage one-below run refuses
+  in its phase with the first unpaid kind, amount and locus and earlier
+  consumption retained.
 - Step 3: each QSL or IR refusal arrives unchanged with its stated category;
   the second emission refuses `ForeignEmission`.
 - Step 4: the earlier phase wins; cancellation returns `cancelled` with no
@@ -54,3 +61,6 @@ plan alone receives no credit.
   alone does not change `Layout`, a body change changes `Layout.root`.
 - Step 6: consumption is unchanged; the refusal is `program`.
 - Step 7: one budget parameter on each entry and none of the excluded items.
+- Step 8: conversions succeed; the mismatched dimension returns
+  `target_mismatch`; disagreeing result types return `internal`; the key
+  failure returns `projection` with the native cause.
