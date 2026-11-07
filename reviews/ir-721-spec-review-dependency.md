@@ -80,3 +80,4 @@ Round 1, verified against fix commit e12108e8b1d802ade55e28056f8fc3db350e66df.
 | FND-003 | fixed | - |
 | FND-004 | fixed | - |
 | FND-005 | fixed | - |
+| FND-006 | fixed | - |

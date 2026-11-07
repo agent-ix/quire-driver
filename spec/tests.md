@@ -128,7 +128,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | FR-016 | FR-016-AC-1..FR-016-AC-12 | TC-030 | 🚧 Planned for the one-budget accounting of FR-016-AC-10/11; locus-retention evidence as recorded in TC-030. |
 | FR-017 | FR-017-AC-1..FR-017-AC-8 | TC-031 | 🚧 Planned: full lowering on the caller budget; scalar helper evidence as recorded in TC-031. |
 | FR-018 | FR-018-AC-1..FR-018-AC-5 | TC-032 | 🚧 Evidence as recorded in TC-032. |
-| FR-019 | FR-019-AC-1..FR-019-AC-9 | TC-033 | 🚧 Planned: one-budget preparation from a genuine plan root; producer criteria run in `quire-integration`. |
+| FR-019 | FR-019-AC-1..FR-019-AC-10 | TC-033 | 🚧 Planned: one-budget preparation from a genuine plan root; producer criteria run in `quire-integration`. |
 
 ## Test Case Summary
 
@@ -166,7 +166,7 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-030 | Derive exact monitor target and unsupported-operation loci | Integration | FR-016-AC-1..FR-016-AC-12 | 🚧 See TC-030. |
 | TC-031 | Retain native monitor lowering ownership and operating boundaries | Integration | FR-017-AC-1..FR-017-AC-8 | 🚧 See TC-031. |
 | TC-032 | Admit immutable source-record producer witnesses | Integration | FR-018-AC-1..FR-018-AC-5 | 🚧 See TC-032. |
-| TC-033 | Prepare a monitor program from a plan root under one budget | Integration | FR-019-AC-1..FR-019-AC-9 | 🚧 Planned |
+| TC-033 | Prepare a monitor program from a plan root under one budget | Integration | FR-019-AC-1..FR-019-AC-10 | 🚧 Planned |
 
 ## Integration Test Matrix
 

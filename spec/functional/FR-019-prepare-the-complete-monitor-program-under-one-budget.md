@@ -217,7 +217,8 @@ order above for P7, and RT for construction.
 | FR-019-AC-6 | A reached map collection lowers into the canonical `TypeEnvironment` with its key and value types; changing only QSL's `PlanId` metadata leaves `Layout` unchanged, while changing an entry body changes `Layout.root`. | Test |
 | FR-019-AC-7 | The budget's consumption is unchanged by `Program::try_new`; an RT construction refusal is returned as `program` with its original `ProgramRefusal`. | Test |
 | FR-019-AC-8 | Source and API inspection finds one `&mut NativeJoinBudget` parameter on `prepare_monitor`, `admit_monitor_final_subject`, `lower_monitor`, `lower_scalar_functions` and `copy_monitor_locus`; no `MonitorPreparationLimits`, private ledger, storage refund, driver strict read, driver-side QSL-to-IR row conversion, `PlanId` read, digest, compatibility path or second meter. | Inspection |
-| FR-019-AC-9 | Each Layout conversion succeeds on genuine admitted values, with `Layout.time_dimension` equal to `tick_unit_dimension()`; a request time dimension unequal to it returns `target_mismatch`; an injected absent `tick_unit_dimension()` and injected disagreeing entry result types each return `internal`; an unconvertible key returns `projection` with the native `InvalidNodeKey`. | Test |
+| FR-019-AC-9 | Each Layout conversion succeeds on genuine admitted values, with `Layout.time_dimension` equal to `tick_unit_dimension()`; a request time dimension unequal to it returns `target_mismatch`; an unconvertible key returns `projection` with the native `InvalidNodeKey`. | Test |
+| FR-019-AC-10 | Source inspection shows that an absent `tick_unit_dimension()` and disagreeing `on_event`, `on_watermark` and `on_gap` result types each map to `internal`, with no fault-injection seam or public closure constructor added to produce them. | Inspection |
 
 ## Dependencies
 

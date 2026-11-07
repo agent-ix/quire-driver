@@ -70,6 +70,12 @@ NOT MERGEABLE. I checked the Layout table field by field against RT origin/main 
 | --- | --- | --- | --- | --- |
 | FND-007 | medium | time_dimension's source is now 'the admitted dimension of the tick unit in the closure's unit facts', but no closure accessor is named. The IR closure is reached-only (FR-357-AC-13), and it is seeded from State, Inputs, Scope, Results and the entries (FR-357-AC-1). plan.tick_unit() is a premise, not a reached type, so its unit and dimension fact may be absent from the closure. FR-019 gives no source and no refusal for that case. Name the accessor (e.g. the SelectedTypeDeclarations unit row for tick_unit, or IR's identity dimension read). Either require IR to seed tick_unit, or classify its absence (projection or target_mismatch) and cover it in AC-9. | spec/functional/FR-019-prepare-the-complete-monitor-program-under-one-budget.md:191 | missing-requirement |
 
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-008 | medium | FR-019-AC-9 is verified by Test and requires 'an injected absent tick_unit_dimension() and injected disagreeing entry result types each return internal', but nothing can inject either one. SelectedMonitorTypeClosure has no public constructor, and IR guarantees both values for an admitted plan; IR FR-361-AC-5 and strict admission fix one tuple result type. No genuine or fixture plan can produce these states without a driver test seam, and none is specified. TC-033 step 8 (lines 42-44 and 64-66) omits the absent-dimension control. Either specify the seam, for example a private fault-injection hook in the driver's Layout assembly, or verify these two internal mappings by Inspection and keep the Test clauses for target_mismatch and InvalidNodeKey. Then align TC-033 step 8. | spec/functional/FR-019-prepare-the-complete-monitor-program-under-one-budget.md:219 | wrong-requirement |
+
 ## Dispositions
 
 Round 1, verified against fix commit e12108e8b1d802ade55e28056f8fc3db350e66df.
@@ -82,3 +88,4 @@ Round 1, verified against fix commit e12108e8b1d802ade55e28056f8fc3db350e66df.
 | FND-004 | fixed | - |
 | FND-005 | fixed | - |
 | FND-006 | fixed | - |
+| FND-007 | fixed | - |
