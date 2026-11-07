@@ -246,3 +246,7 @@ harness identities. Full frame settlement remains outside this check.
   driver surfaces that refusal unchanged, with no local mapping. Until that
   API exists, this case remains planned and the driver has no refusal path to
   claim.
+
+- A provider `ToolFailed` value retains its exact typed tool failure, including
+  configured and observed byte counts, request index, and backend identity in
+  QSL's terminal record (FR-009-AC-25).

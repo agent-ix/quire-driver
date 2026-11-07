@@ -109,6 +109,9 @@ impl ProviderItemResult<KaniExecutionEvidence, KaniProviderFailure> {
                 Ok(TerminalRecord::inconclusive(request_index, backend, cause))
             }
             TerminalValue::Failed => Ok(TerminalRecord::failed(request_index, backend)),
+            TerminalValue::ToolFailed(failure) => {
+                Ok(TerminalRecord::tool_failed(request_index, backend, failure))
+            }
             TerminalValue::Tested => Ok(TerminalRecord::tested(request_index, backend)),
             TerminalValue::Declined { cause, code } => Ok(TerminalRecord::declined(
                 request_index,
@@ -1022,6 +1025,35 @@ mod tests {
             timed_out.value(),
             &TerminalValue::Incomplete(IncompleteCause::TimedOut)
         );
+    }
+
+    #[ix_trace_rs::trace("TC-016", "FR-009-AC-25")]
+    #[test]
+    fn provider_tool_failure_retains_cause_and_item_identity() {
+        for failure in [
+            qsl_replay::ToolFailure::Crash,
+            qsl_replay::ToolFailure::FrameLength {
+                limit: 1024,
+                value: 1025,
+            },
+            qsl_replay::ToolFailure::TotalBytes {
+                limit: 4096,
+                value: 5000,
+            },
+        ] {
+            let request_index = qsl_replay::RequestIndex::new(7);
+            let backend = qsl_foundation::BackendId::new("kani".to_owned());
+            let record = ProviderItemResult::<KaniExecutionEvidence, KaniProviderFailure>::terminal_record_for_value(
+                TerminalValue::ToolFailed(failure),
+                request_index,
+                backend.clone(),
+            )
+            .expect("tool failure has an owner-defined terminal constructor");
+
+            assert_eq!(record.value(), &TerminalValue::ToolFailed(failure));
+            assert_eq!(record.request_index(), request_index);
+            assert_eq!(record.backend(), Some(&backend));
+        }
     }
 
     /// Trace: FR-009-AC-4, TC-016; serialize CG's terminal through QSL's outcome API.

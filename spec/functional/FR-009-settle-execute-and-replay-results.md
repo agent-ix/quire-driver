@@ -247,6 +247,9 @@ replay context through QSL evaluation and report handling.
 - CG's FR-331 terminal mapping SHALL combine the Kani outcome and replay
   result.
 - The driver SHALL NOT define a second terminal mapping.
+- When the authoritative terminal value is `ToolFailed`, the driver SHALL
+  construct QSL's tool-failed terminal record, preserving the typed failure
+  (including byte-limit counts), request index, and backend identity.
 - When a proof request reaches per-item settlement, the driver SHALL write
   one terminal record per item in the CG request, including unsupported and incomplete
   items.
@@ -281,6 +284,8 @@ replay context through QSL evaluation and report handling.
 | FR-009-AC-22 | A typed upstream refusal before playback intake is preserved before any parse, settlement, or terminal creation. A parser refusal is preserved without replay settlement or terminal creation and is not recast as replay parity or a driver join fault. After a successful parse, a CG typed identity, decode, or replay refusal or evidence failure follows CG's `ReplaySettlement` conversion and `run_terminal_value` mapping with the original execution evidence; the driver preserves the resulting typed terminal and never settles that result as `refuted`. | Planned (TC-016; CG #621 typed function replay API merged; IR-610 E9 integration) |
 | FR-009-AC-23 | For two function proof items sharing a checked node but naming distinct exact application occurrences, the driver invokes the selected provider once per matching generated item, retains each typed result with its own request index and CG `KaniObligationIdentity`, and supplies the corresponding retained source, dependency lock, admitted package, accounting/stage/domain/replay inputs and smaller caller/proving-run decode limits to function playback and replay. Neither result or context is selected by node alone. | Planned (TC-016; IR-610 E9 function producer; IR-1121 CG current-V2 function proof producer) |
 | FR-009-AC-24 | The driver invokes the selected provider with exactly one generated function item and privately retains that invocation’s request index, backend, occurrence, admitted package and full CG proving-run identity. A typed provider refusal is preserved before playback intake. A returned item count other than one, a returned request index or backend different from the invocation, or successful `KaniExecutionEvidence` whose harness path, proof ceilings, contract kind, symbolic argument bounds, solver or unwind differ from the selected generated harness and identity returns a driver `runtime_invariant` fault before playback intake, replay, settlement or terminal creation. The provider result is not assumed to carry occurrence, package or full identity; those are read from the retained invocation context, never another item’s context. | Planned (TC-016; IR-610 E9 function producer; IR-1121 CG current-V2 function proof producer) |
+
+| FR-009-AC-25 | A `ToolFailed` terminal value becomes QSL's tool-failed terminal record with the same typed failure, byte-limit counts when present, request index, and backend identity. | Test (TC-016) |
 
 ## Dependencies
 
