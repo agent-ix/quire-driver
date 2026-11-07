@@ -11,7 +11,7 @@ This authored verification inventory integrates FR-001 and SP-D1 through
 SP-D9 (FR-002 through FR-010) from IR-527, FR-011 from IR-616, FR-012 for
 the downstream cache component, FR-013 for the process plugin host, and FR-014
 for the CLI package boundary, and planned FR-015 for admitted monitor program
-preparation. It covers FR-001 through FR-015 and TC-001 through TC-029.
+preparation. It covers FR-001 through FR-019 and TC-001 through TC-033.
 Discrete FR and TC artifacts remain authoritative;
 this matrix is their index, not a computed implementation-coverage report.
 
@@ -125,6 +125,10 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | FR-014 | FR-014-AC-5 | TC-028 | ✅ `quire-cli/tests/package_boundary.rs::parser_and_cli_tests_live_in_the_cli_package` asserts parser and binary entry point locations. |
 | FR-014 | FR-014-AC-6 | TC-028 | 🚧 Partial: `quire-cli/src/cli.rs` parses one explicit `--provider-config <path>` and rejects missing or repeated options; the binary test covers a valid empty `providers` list, and production binary tests exercise configured dispatch, duplicate refusal and active-request SIGTERM cleanup. Strict invalid-file and deadline outcomes are covered under FR-006-AC-24. Omitted configuration bypasses the provider composition. |
 | FR-015 | FR-015-AC-1..FR-015-AC-12 | TC-029 | 🚧 Planned: producer/read/lower/RT evidence in TC-029 has not executed. QSL-1631 source-owned witnesses, complete IR FR-357 projection and driver preparation remain open; the first witnessed IR subset does not complete a `TypeEnvironment` or RT `ProgramParts`. No criterion is accepted by this inventory row. |
+| FR-016 | FR-016-AC-1..FR-016-AC-12 | TC-030 | 🚧 Planned for the one-budget accounting of FR-016-AC-10/11; locus-retention evidence as recorded in TC-030. |
+| FR-017 | FR-017-AC-1..FR-017-AC-8 | TC-031 | 🚧 Planned: full lowering on the caller budget; scalar helper evidence as recorded in TC-031. |
+| FR-018 | FR-018-AC-1..FR-018-AC-5 | TC-032 | 🚧 Evidence as recorded in TC-032. |
+| FR-019 | FR-019-AC-1..FR-019-AC-10 | TC-033 | 🚧 Planned: one-budget preparation from a genuine plan root; producer criteria run in `quire-integration`. |
 
 ## Test Case Summary
 
@@ -159,6 +163,10 @@ verification; they do not substitute for IR-528 acceptance evidence.
 | TC-027 | Run plugin-host tests and dependency checks from a clean cache | Integration | FR-013-AC-12, FR-013-AC-13 | 🚧 Python prerequisite message is tested; clean-cache fetch, offline metadata, and full gate evidence remain planned. |
 | TC-028 | Keep the CLI package separate from the driver and compose cache and process host | Integration | FR-002-AC-3, FR-002-AC-7, FR-006-AC-1, FR-006-AC-3..FR-006-AC-4, FR-006-AC-24..FR-006-AC-27, FR-013-AC-11, FR-013-AC-14..FR-013-AC-15, FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6 | 🚧 Partial: `quire-cli` tests cover explicit-option parsing, the empty configuration, strict invalid-file/deadline outcomes, selected-provider composition with typed-result retention, production duplicate-identity refusal, and active-request SIGTERM cleanup. Later-start/hello failure cleanup remains untested. Package-boundary tests cover target ownership, layout and the direct CLI-to-host edge. Adapter lifecycle/signal tests are partial; Windows forced cleanup requires native Windows evidence and automatic kill-on-close remains planned under IR-674. |
 | TC-029 | Prepare and execute actual admitted monitor programs | Integration | FR-015-AC-1..FR-015-AC-12 | 🚧 Planned: procedure covers real QSL producer, strict IR read, complete generated-source projection, driver lowering and RT execution with positive and adverse controls. No implementation or execution credit is claimed. |
+| TC-030 | Derive exact monitor target and unsupported-operation loci | Integration | FR-016-AC-1..FR-016-AC-12 | 🚧 See TC-030. |
+| TC-031 | Retain native monitor lowering ownership and operating boundaries | Integration | FR-017-AC-1..FR-017-AC-8 | 🚧 See TC-031. |
+| TC-032 | Admit immutable source-record producer witnesses | Integration | FR-018-AC-1..FR-018-AC-5 | 🚧 See TC-032. |
+| TC-033 | Prepare a monitor program from a plan root under one budget | Integration | FR-019-AC-1..FR-019-AC-10 | 🚧 Planned |
 
 ## Integration Test Matrix
 

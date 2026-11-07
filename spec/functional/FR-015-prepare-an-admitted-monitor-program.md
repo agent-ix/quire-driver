@@ -67,9 +67,12 @@ logically separate inputs:
   from the same checked acquisition and corresponding to final emitted
   identities and occurrences. A caller-created identity row alone SHALL NOT
   establish producer authority.
-- Explicit operating work/storage allowances and caller cancellation under
+- One caller-owned finite `NativeJoinBudget` and caller cancellation under
   [FR-003](FR-003-apply-caller-selected-limits.md) and
-  [FR-011](FR-011-cancel-a-driver-library-operation.md).
+  [FR-011](FR-011-cancel-a-driver-library-operation.md). The budget's phases
+  and charges are fixed by
+  [FR-019](FR-019-prepare-the-complete-monitor-program-under-one-budget.md).
+  Every allowance named in this requirement is that one budget.
 
 A driver request may group borrows to these canonical values. It SHALL NOT
 introduce a copied plan representation, second expression/type vocabulary,
@@ -133,72 +136,65 @@ the lookup does not supply a Timed clock configuration.
 
 ### Native final-subject admission
 
-The driver SHALL expose this partial native-subject entry without a production
-`qsl-analyze` dependency or a copied plan representation:
+The driver SHALL expose this partial native-subject entry, consuming QSL's
+admitted plan authority rather than reading the emission itself:
 
 ```rust
-admit_monitor_final_subject(
-    request: &MonitorPreparationRequest<'_>,
-    subject: &qsl_replay::MonitorSubject,
-    emission: &qsl_package::Emission,
-    evidence: &quire_contract_model::CheckedPackageEvidence,
-    read_limits: quire_contract_model::CheckedPackageReadLimits,
+admit_monitor_final_subject<'a>(
+    request: &MonitorPreparationRequest<'a>,
+    authority: &'a qsl_analyze::monitor_root::AdmittedPlanAuthority,
+    budget: &mut quire_contract_model::NativeJoinBudget,
     cancel: &quire_exact::Cancel,
-) -> Result<AdmittedMonitorFinalSubject<'_>, MonitorPreparationError>
+) -> Result<AdmittedMonitorFinalSubject<'a>, MonitorPreparationError>
 ```
 
-The caller SHALL retain the genuine plan's native `subject()` and its final
-`Emission`. The driver SHALL strictly read that emission with native evidence
-and explicit native read limits, then compare the complete native admitted
-package with the independently selected request package using IR's complete
-package equality. Equal package names, display labels or partial tables SHALL
-NOT establish this association. Native read refusals and incomplete outcomes
-SHALL retain their unchanged typed payloads; the outer codes SHALL be
-`selection` and `work`, respectively.
+The entry SHALL use `authority.admitted_package()` as the only admitted
+package; the driver SHALL make no strict read of its own. It SHALL compare
+that package's lock with the independently selected `package_lock` by value,
+and its single monitor plan's resolved root and four entry keys with the
+request's `root_key` and `entry_keys`. Equal package names, display labels or
+partial tables SHALL NOT establish this association.
 
-The entry SHALL require the subject's occurrence node to equal its clause
-node, its package to match the emission's native package name, and its full
-origin to denote a Claim. It SHALL execute
-`emission.temporal_binding_rows().declaration(subject.clause_node(),
+With `subject = authority.root().plan().subject()` and
+`emission = authority.root().emission()`, the entry SHALL require the
+subject's occurrence node to equal its clause node, its package to match the
+admitted package's name, and its full origin to denote a Claim. It SHALL
+execute `emission.temporal_binding_rows().declaration(subject.clause_node(),
 subject.occurrence().origin().ordinal())`; `None` SHALL return a typed mapping
 absence retaining the original native subject. A declaration elsewhere in the
 emission SHALL NOT substitute for the selected root's clause. The mapped
 final declaration and native Claim role/ordinal SHALL match the independent
 request's clause and full authentic source-map row. The admitted name row at
 that exact declaration/ordinal SHALL match the subject's retained name; a
-name SHALL never select a row. Existing package-instance/root/keys, subject,
-profile, target and full source-map validations SHALL remain required.
+name SHALL never select a row. Existing root/keys, subject, profile, target
+and full source-map validations SHALL remain required.
 
-The successful private-field token SHALL retain native subject/emission
-borrows and the verified partial selection. Its `admit_clock(cancel)` method
-SHALL resume the same driver work prefix through the existing native clock
-admission path; it SHALL NOT reset the allowance or derive a clock config.
-Mapping success alone SHALL establish no complete plan identity, formula or
-target provenance beyond the independent request checks, no clock receipt,
-no source-record closure, and no executable Program.
+The successful private-field token SHALL retain the authority borrow and the
+verified partial selection. Its `admit_clock(budget, cancel)` method SHALL
+continue on the same budget through the existing native clock admission path;
+it SHALL NOT reset the budget or derive a clock config. Mapping success alone
+SHALL establish no complete plan identity, formula or target provenance beyond
+the independent request checks, no clock receipt, no source-record closure,
+and no executable Program.
 
-Native strict acquisition, complete native package equality and the owner's
-linear declaration lookup are explicitly outside the driver's material-work
-ledger. The owner lookup has no bounded-read receipt: `TemporalBindingRows`
-`len()` counts clock rows, including zero for a mapped Timed subject, and
-SHALL NOT be used as a declaration-work count. Native read limits govern the
-acquisition; cancellation SHALL be checked before acquisition and before continuing
-after successful synchronous native steps. Native failure payloads SHALL
-return unchanged. Driver identity/name comparisons, partial selection and resumed
-clock admission SHALL consume their actual existing ledger prefix. This
-component SHALL NOT claim full preparation work/storage qualification.
+The owner's linear declaration lookup has no bounded-read receipt:
+`TemporalBindingRows` `len()` counts clock rows, including zero for a mapped
+Timed subject, and SHALL NOT be used as a declaration-work count; that lookup
+is outside the budget. Cancellation SHALL be checked before the entry and
+before continuing after each synchronous native step. Native failure payloads
+SHALL return unchanged.
 
 Before direct producer comparisons or origin conversion, the driver SHALL
 inspect both package-name byte strings, the complete occurrence and clause
-native NodeKeys, and the origin role/ordinal under its material ledger.
-Native NodeKeys SHALL be walked iteratively through the owner's borrowed
-`view()`/path-segment views, without owned path extraction, Serde or identity
-copies. Work SHALL charge each native key/container/tag, eight units per
-ordinal and each UTF-8 byte under the existing material schedule. Traversal
-scratch SHALL share the existing storage ledger and be released on work or
-cancellation failure. These direct comparisons are not part of the native
-acquisition/equality/owner-lookup exclusions. With a valid same emission,
-zero driver work SHALL refuse before comparing an edited producer identity.
+native NodeKeys, and the origin role/ordinal, charging the budget through
+`accounted_charge` with locus `NativeJoinLocusSource::PreparationSelection(k)`,
+where `k` is the comparison's position in this order. Native NodeKeys SHALL be
+walked iteratively through the owner's borrowed `view()`/path-segment views,
+without owned path extraction, Serde or identity copies. Work SHALL charge
+each native key/container/tag, eight units per ordinal and each UTF-8 byte.
+Traversal scratch SHALL be charged as storage in IR FR-358 logical units
+before reservation and is never refunded. With a valid authority, zero
+available work SHALL refuse before comparing an edited producer identity.
 
 ### Executed narrow clock refusal evidence
 
@@ -223,27 +219,25 @@ The public entry's request/result shape SHALL be:
 ```rust
 prepare_monitor(
     request: MonitorPreparationRequest<'_>,
+    budget: &mut quire_contract_model::NativeJoinBudget,
     cancel: &quire_exact::Cancel,
 ) -> Result<Rc<quire_contract_runtime::monitor::Program>, MonitorPreparationError>
 ```
 
-`MonitorPreparationRequest` SHALL group borrows of the selected admitted
-package/root, the independent canonical selection and original admitted
-associations, same-final-emission witness rows, and finite operating
-work/storage allowances. It SHALL NOT accept `ProgramParts`, a caller-built
+`MonitorPreparationRequest` SHALL carry the plan root, the authority
+selection and progress view, and the independent canonical selection, with
+the exact fields of
+[FR-019](FR-019-prepare-the-complete-monitor-program-under-one-budget.md). It
+SHALL carry no operating limits. It SHALL NOT accept `ProgramParts`, a caller-built
 `TypeEnvironment`, replacement bodies or a callback supplying semantics.
 The package SHALL resolve its selected root and four entries itself; a foreign
 borrowed view SHALL NOT replace that resolution.
 
-This freezes the entry/result shape and failure distinctions, not a concrete
-request field list or an implemented Rust type. The request's concrete public
-fields SHALL be frozen only after the owning interfaces supply authentic
-final source record/member and union identities and admitted clock/order/
-progress associations. `PlanRoot` currently contains no final `AdmittedContext`;
-its selected model rows cannot establish generated source record authority.
-Raw caller bytes or a new local association wrapper SHALL NOT be treated as
-proof that an order/progress association was independently admitted. No
-speculative carrier for those unavailable inputs is introduced here.
+The request's exact public fields, the consumed QSL plan-root interface and
+the same-emission order and progress authority are fixed by
+[FR-019](FR-019-prepare-the-complete-monitor-program-under-one-budget.md).
+Raw caller bytes or a local association wrapper SHALL NOT be treated as
+proof that an order or progress association was independently admitted.
 
 ## Outputs
 
@@ -391,15 +385,11 @@ a leaf without IR, driver or QSL dependencies. Preparation SHALL perform no
 QSL compile/recompile, source parsing, evaluator call, CG generation or external
 effect.
 
-The implemented independent bounded locus-copy component in
-[FR-016](FR-016-retain-monitor-refusal-loci.md) has an independent allowance and
-qualifies only already-resolved canonical locus retention. The driver owns
-later threading of remaining preparation work/storage into diagnostic
-selection, target-path derivation, failure assembly and outer error boxing;
-these integrations remain Planned. IR/model owns allocation-aware copying of
-opaque operation and native projection/callable failure payloads. Caller-input
-acquisition and complete preparation/Program storage remain Planned; a locus
-copy receipt SHALL NOT reset or certify the complete preparation allowance.
+The bounded locus-copy component of
+[FR-016](FR-016-retain-monitor-refusal-loci.md) and every diagnostic,
+target-path and failure allocation charge the same preparation budget under
+FR-019. IR/model owns allocation-aware copying of opaque operation and native
+projection/callable failure payloads.
 
 ## Acceptance Criteria
 
@@ -412,14 +402,14 @@ copy receipt SHALL NOT reset or certify the complete preparation allowance.
 | FR-015-AC-5 | Planned until IR-721 lands. Reachable equalities join same-acquisition producer witnesses against final admitted identities and adopt CheckedEquality without rechecking. Missing, conflicting, foreign and stale-after-rewrite rows refuse with exact native cause/locus; no seal/mint or fallback schedule path exists in the driver. | Test |
 | FR-015-AC-6 | Planned until IR-721 lands. A seventeen-binding plan retains the ordered State fields, buffers, exact event_position and admitted opaque activation-status type. Zero and above-host-width capacities retain their values without a local cap, bound interval table or status-schema restriction. | Test |
 | FR-015-AC-7 | Planned until IR-721 lands. A reachable admitted operation absent from RT gives typed unsupported lowering at that operation before init; an unrelated unsupported node outside the closure does not block the plan. Neither invokes a callback, evaluator, parser, compiler or replacement temporal algorithm. | Test |
-| FR-015-AC-8 | Planned until IR-721 lands. Work/storage exhaustion, cancellation, upstream nominal/equality refusal and RT ProgramRefusal preserve distinct typed causes/loci, return no partial program and leave inputs unchanged. A broken lowering invariant is a driver fault rather than input refusal; expected operating failure is not a fault. No preparation failure becomes a temporal verdict, StepResourceStop or ExecutorInvariantFailure. | Test |
+| FR-015-AC-8 | Planned until IR-721 lands. Work/storage exhaustion, cancellation, upstream nominal/equality refusal and RT ProgramRefusal preserve distinct typed causes/loci, return no partial program and leave every input unchanged except the caller budget, whose cumulative consumption retains every charge admitted before the stop. A broken lowering invariant is a driver fault rather than input refusal; expected operating failure is not a fault. No preparation failure becomes a temporal verdict, StepResourceStop or ExecutorInvariantFailure. | Test |
 | FR-015-AC-9 | Planned until IR-721 lands. After producer/reader preparation is dropped, two builds of one prepared owner have independent fresh state. Actual admitted entries execute with explicit StepBudget; baseline event, watermark, poll and gap controls preserve RT's event-position/baseline rules and exact outcomes. Preparation itself invokes no entry or build. | Test |
 | FR-015-AC-10 | Planned until IR-721 lands. Real producer/read/lower/RT execution is compared with QSL's independent tick reference for RT FR-276's boundary, uncertainty, buffer21/22, wrap/gap, changed identity/order, activation and typed-stop controls. QSpec vectors are read by reference. Construction diagnostics and a single pilot plan receive no complete FR-276 execution credit. | Test |
 | FR-015-AC-11 | Planned until IR-721 lands. A large selected closure amid an unrelated long graph visits only relevant reachable nodes/edges and identity/value material under the caller allowance, without a whole-package sort or repeated full indexing. Equal budgets give equal typed work stops without a semantic depth/size ceiling. | Test |
 | FR-015-AC-12 | Planned until IR-721 lands. Public consumer/API and dependency controls establish one retained RT Program, no source input/callback, no driver seal/mint export or copied plan/expression/value family, and no IR/QSL/driver backedge from RT or RT edge from the cycle-free IR model. | Test |
 | FR-015-AC-13 | The separate clock-admission entry preserves native `WrongClause`, `WrongRole`, `UnknownOccurrence`, `MissingClock` and `WorkLimit` refusal payloads, including exact locus, occurrence, consumed work and attempted work. Semantic clock refusals map to outer `selection`; native work refusal maps to `work`. A missing clock returns no clock-admitted token even when the optional clock expectation is absent. Pre-cancellation returns the original cancellation cause, no clock-admitted token and unchanged inputs. Existing partial selection remains explicitly unclocked. | Test |
 | FR-015-AC-14 | A healthy clock-admission entry exposes the native `clock_for_claim` receipt for its independently selected final clause/Claim, charges successful receipt work exactly once to the remaining cumulative allowance, and compares every field of any optional independent clock row. A Timed model-subject receipt identifies the admitted timed-model root, model, source and exact unit with clock name `model-time` and no temporal clock row; an extra independent configured row refuses. The exposed inner selection retains that work prefix for later projection. Authentic Timed model-time receipt, extra-row refusal and cumulative work are exercised; configured-profile row comparison and complete criterion qualification remain Planned. This establishes no order/progress association or complete program. | Test |
-| FR-015-AC-15 | A real PlanRoot's original native subject and final emission admit one final-subject token only after strict native emission/package equality, owner declaration lookup, exact root/clause/Claim, full source-map, native name and existing independent selection checks. Two-clause controls select their own final declarations; absent lookup, foreign subject/emission/package, role/node/ordinal and independent request discrepancies give typed refusal. Native read limits preserve exact payloads; cancellation returns the original cause and no token. Driver work is retained across the token's actual native model-time clock path. Native acquisition/equality/linear lookup remain explicitly outside the driver ledger. No complete preparation credit is claimed. | Test |
+| FR-015-AC-15 | A genuine `AdmittedPlanAuthority` admits one final-subject token over its own `admitted_package()`, with no driver strict read, only after lock and root/entry key equality with the independent request, owner declaration lookup, exact root/clause/Claim, full source-map, native name and existing independent selection checks. Two-clause controls select their own final declarations; absent lookup, foreign subject/package, role/node/ordinal and independent request discrepancies give typed refusal. Cancellation returns the original cause and no token. Budget consumption is retained across the token's native model-time clock path, and the owner's linear lookup stays outside the budget. No complete preparation credit is claimed. | Test |
 
 ## Dependencies
 
@@ -443,8 +433,7 @@ copy receipt SHALL NOT reset or certify the complete preparation allowance.
   separate work. Selected model rows and source enum rows do not substitute
   for either source-owned witness channel. Final admitted clock/order/progress associations must also
   come from their owning admitted interfaces. No new QSL carrier is defined
-  here, and the concrete preparation request field list remains unfrozen until
-  those inputs exist.
+  here; FR-019 fixes the request field list and the consumed QSL interface.
 - [IR FR-353](ix://agent-ix/quire-contract-ir/FR-353) owns the no-recheck equality
   read; [IR FR-354](ix://agent-ix/quire-contract-ir/FR-354) owns nominal reads.
   [IR FR-357](ix://agent-ix/quire-contract-ir/FR-357) owns the complete selected

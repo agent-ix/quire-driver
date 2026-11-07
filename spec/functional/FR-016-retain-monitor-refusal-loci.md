@@ -136,6 +136,12 @@ policy decision before constructing this diagnostic payload.
 
 ### Bounded copying of an already resolved locus
 
+The component charges the caller's one preparation `NativeJoinBudget` under
+[FR-019](FR-019-prepare-the-complete-monitor-program-under-one-budget.md),
+through `accounted_charge` with locus `NativeJoinLocusSource::PreparationOutput(k)`
+and form `"monitor_locus"`, where `k` is the caller's index of this diagnostic
+in its output. Work and storage charges are cumulative and are never refunded.
+
 The driver SHALL expose this independent component in `monitor_refusal`:
 
 ```rust
@@ -144,13 +150,14 @@ copy_monitor_locus(
     structural_key: &CheckedNodeId,
     body_path: &[usize],
     occurrence: Option<&CheckedOccurrence>,
-    limits: MonitorPreparationLimits,
+    budget: &mut quire_contract_model::NativeJoinBudget,
     cancel: &Cancel,
 ) -> Result<CopiedMonitorLocus, MonitorLocusCopyError>
 ```
 
 `CopiedMonitorLocus` SHALL contain the existing `MonitorRefusalLocus` as
-`locus`, cumulative `work: u64` and retained `storage: u64`. It is an accounting
+`locus`, `work: u64` and `storage: u64`: the work and storage units this call
+admitted to the budget, scratch included. It is an accounting
 receipt for this component, not a second location or semantic representation.
 The caller supplies the two original axes after resolving their meaning;
 this entry SHALL copy them without a package lookup, equality test, structural
@@ -172,33 +179,26 @@ its source package have been dropped.
 Before inspecting or copying each represented record, container, segment tag,
 integer scalar or UTF-8 byte, the component SHALL charge work: one unit per
 record/container/tag, eight per integer scalar, and one per UTF-8 byte. Each Arc
-edge SHALL also incur one unit before sharing. The same schedule applies to
-borrowed descendants reached for storage measurement. Traversal SHALL be
+edge SHALL also incur one unit before sharing. Traversal SHALL be
 iterative and interruptible, with no semantic depth limit, whole-package scan
 or uncharged scratch collection. Cancellation SHALL be polled before every
 charge, including an initial zero charge and allocation reservations. The scratch
 frontier SHALL grow geometrically by requesting twice its full current capacity
 (or one slot from empty), using fallible exact reservation. Before any growth
-reservation or storage-ledger mutation it SHALL additionally charge one work
+reservation or budget storage charge it SHALL additionally charge one work
 unit per live reference that the reservation may relocate. This relocation
 charge is separate from represented-material work; denied work SHALL leave
-the frontier allocation, capacity, contents and storage ledger unchanged.
+the frontier allocation, capacity, contents and the budget unchanged.
 
-Before allocating new vector or text capacity, the component SHALL reserve
-its logical bytes against the storage limit. Scratch and retained allocations
-SHALL share one live ledger. Vector charge SHALL include capacity times native
-element size; boxed text charge SHALL include its UTF-8 length. Before retaining
-an existing Arc edge, the component SHALL charge its reachable native backing
-storage: each descendant node allocation, package text, path capacity and Name
-text. Shared descendants SHALL be counted per incoming edge, conservatively,
-without a deduplication index; the two root copies are accounted independently.
-The Arc control-block allocator overhead, like allocator bookkeeping for other
-allocations, is outside logical storage. Counting shared backing storage SHALL
-not trigger any copy of that storage. Cleanup SHALL release scratch and failed
-partial output without allocating or polling cancellation. The success receipt
-SHALL exclude released scratch; the peak live ledger SHALL never exceed the
-allowance for published output. An allocator's excess reported capacity SHALL
-be charged before that capacity is retained or used.
+Before allocating new vector or text capacity, the component SHALL charge its
+storage in IR FR-358 logical units: one container unit plus one unit per
+element slot of the requested vector capacity, and one container unit plus one
+unit per UTF-8 byte of boxed text. Sharing an existing Arc edge SHALL charge
+one handle unit and SHALL NOT copy or measure its subtree. Scratch and retained
+allocations charge the same cumulative counter. Cleanup SHALL drop scratch and
+failed partial output without allocating or polling cancellation; dropping
+memory refunds no charge. An allocator's excess reported capacity SHALL be
+charged before that capacity is retained or used.
 
 Text copying SHALL use fallible reservation and a conversion to native
 `Box<str>` that performs no further allocation. An implementation using
@@ -214,11 +214,14 @@ post-clone charge SHALL substitute for the bounded construction path.
 SHALL expose its category through a nonallocating `code` accessor without
 formatting or copying the native cause. Unknown spellings SHALL return None.
 
-`MonitorLocusCopyError` SHALL distinguish `Work { limit, consumed, next }`,
-`Storage { limit, consumed, next }`, `Allocation(TryReserveError)`,
-`Capacity { requested, actual }` and `Cancelled(CancelCause)`. Arithmetic
-capacity/charge overflow SHALL return Storage before allocation, using
-`next: u64::MAX`; it SHALL NOT wrap or truncate. Allocation and cancellation
+`MonitorLocusCopyError` SHALL distinguish `Work(NativeJoinDeniedCharge,
+NativeJoinLocus)`, `Storage(NativeJoinDeniedCharge, NativeJoinLocus)`,
+`Allocation(TryReserveError)`, `Capacity { requested, actual }` and
+`Cancelled(CancelCause)`. The `Work` and `Storage` payloads SHALL equal the
+budget's `first_unpaid()` and `first_unpaid_locus()` after the denial.
+Arithmetic capacity/charge overflow SHALL be presented to the budget as a
+storage charge of `u128::MAX` and returned as `Storage` before allocation; it
+SHALL NOT wrap or truncate. Allocation and cancellation
 SHALL retain their original native causes. These errors SHALL contain no owned
 node/key/path/operation or formatted error text whose construction would itself
 require copying a diagnostic. Every failure SHALL return no partial locus and
@@ -272,8 +275,8 @@ second graph, or recompute content identities to construct a diagnostic.
 | FR-016-AC-7 | Construction retains typed error distinctions and returns no partial diagnostic on failure. Neither constructor changes the admitted package, target values, operation records or source correspondence. | Test |
 | FR-016-AC-8 | The diagnostic module uses native IR identities/terms and native Vec child paths, introduces no plan/target/expression DTO or evaluator, and performs no parse, initialization, runtime build, support-policy decision, whole-graph index collection or identity recomputation. | Inspection |
 | FR-016-AC-9 | The bounded copy entry returns the existing canonical locus with both original node axes, native path and exact optional occurrence; after source destruction, shared nested Arc keys and copied text/path fields remain usable. It performs no resolution or validity claim. | Test |
-| FR-016-AC-10 | Independently measured work and peak logical storage permit exact-limit success; one-under work/storage and pre-cancellation return their distinct original typed operating causes with no locus. Nested/shared keys, UTF-8 text and long native paths are included; arithmetic overflow refuses before allocation. | Test |
-| FR-016-AC-11 | Every allocating copy/scratch reservation is fallible and precharged; reservation failure preserves TryReserveError, excess text capacity returns Capacity before conversion, and cleanup releases partial output without allocating. No allocating native clone or infallible boxed-text shrink hides behind a successful receipt. | Test |
+| FR-016-AC-10 | A budget whose work and storage limits equal the consumption before the call plus the call's measured cumulative work and storage (scratch included) succeeds, and the receipt's `work` and `storage` equal those measured amounts; one unit below either returns `Work` or `Storage` whose payload equals the budget's first unpaid kind, amount and `PreparationOutput` locus, with no locus copied; pre-cancellation returns the original cancellation cause. Nested/shared keys, UTF-8 text and long native paths are included; arithmetic overflow refuses before allocation. | Test |
+| FR-016-AC-11 | Every allocating copy/scratch reservation is fallible and precharged; reservation failure preserves TryReserveError, excess text capacity returns Capacity before conversion, and cleanup drops partial output without allocating or refunding a charge. No allocating native clone or infallible boxed-text shrink hides behind a successful receipt. | Test |
 | FR-016-AC-12 | Source inspection confirms opaque operation/native failure clones, existing diagnostic derivation and error boxing are outside bounded-copy coverage; no bounded whole-preparation claim or replacement native operation representation is introduced. | Inspection |
 
 ## Qualification Status
