@@ -15,7 +15,7 @@ relationships:
     type: depends_on
   - target: ix://agent-ix/quire-contract-ir/FR-361
     type: depends_on
-  - target: ix://agent-ix/quire-contract-ir/AD-009
+  - target: ix://agent-ix/quire-contract-ir/AD-010
     type: references
   - target: ix://agent-ix/quire-spec-language/FR-251
     type: depends_on
@@ -40,7 +40,7 @@ and failure-category contract; [FR-017](FR-017-lower-and-retain-admitted-monitor
 owns arena lowering. This requirement fixes the request, the budget phases,
 the `Layout` derivation, the refusal order and the consumed QSL interface.
 The pipeline architecture is
-[IR AD-009](ix://agent-ix/quire-contract-ir/AD-009).
+[IR AD-010](ix://agent-ix/quire-contract-ir/AD-010).
 
 ## Inputs
 
