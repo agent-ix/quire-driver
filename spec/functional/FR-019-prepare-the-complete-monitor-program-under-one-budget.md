@@ -65,6 +65,7 @@ pub fn prepare_monitor(
 | `plan_root` | `qsl_analyze::monitor_root::PlanRoot` | The producer output, owned; consumed by authority admission. |
 | `authority_selection` | `qsl_analyze::monitor_root::PlanAuthoritySelection<'a>` | The independent source, claim, observation subject, clock and source selection. |
 | `progress` | `Option<quire_observation::authority::progress::View>` | The observation owner's admitted progress view (quire-observation FR-004-AC-7). |
+| `authority_caps` | `qsl_analyze::monitor_root::PlanAuthorityValidationCaps` | QSL's validation caps for `admit_authority`. |
 | `package_lock` | `&'a CheckedPackageLockV2` | The independently selected lock. |
 | `root_key`, `entry_keys` | `&'a CheckedNodeId`, `[&'a CheckedNodeId; 4]` | Expected root and `init`, `on_event`, `on_watermark`, `on_gap` content keys. |
 | `clause`, `subject` | `&'a CheckedNodeId` | The independently selected clause and its `over` parameter. |
@@ -85,7 +86,7 @@ The driver SHALL consume exactly these QSL capabilities:
 
 | Capability | Returns | Required behaviour |
 | --- | --- | --- |
-| `PlanRoot::admit_authority(self, PlanAuthoritySelection, Option<quire_observation::authority::progress::View>, &mut NativeJoinBudget)` | `AdmittedPlanAuthority` or `PlanAuthorityRefusal` | QSL's single strict read of the root's own final emission; every selection, read and canonical-value allocation charged to the budget first; a budget denial reported with the budget's first unpaid charge. |
+| `PlanRoot::admit_authority(self, PlanAuthoritySelection, Option<quire_observation::authority::progress::View>, &mut NativeJoinBudget, PlanAuthorityValidationCaps, NativeJoinLocus)` (signature owned by QSL) | `AdmittedPlanAuthority` or `PlanAuthorityRefusal` | QSL's single strict read of the root's own final emission; every selection, read and canonical-value allocation charged to the budget first; a budget denial reported with the budget's first unpaid charge. |
 | `AdmittedPlanAuthority::{root, admitted_package, admission_binding, admitted_order, progress_context}` | the owned root, the admitted package, its `AdmissionBinding`, borrowed order and association values | Read-only; the time source kind and exact period are readable as IR FR-361 requires. |
 | `PlanRoot::emission()` | `&Emission` | Read-only; the same emission as the plan and obligations. |
 | `Emission::identity_rows(package, &mut budget)` | `ReadIdentityRows` (declarations, fields, source records, source unions) or `IdentityFileRefusal` | Charges the native join and every owned record, member and union clone before it is made. |
@@ -135,11 +136,11 @@ start of each and polling `cancel` before each:
 
 | Phase | Work | Charged by, before the step |
 | --- | --- | --- |
-| P1 Authority admission | `request.plan_root.admit_authority(request.authority_selection, request.progress, budget)` | QSL. |
+| P1 Authority admission | `request.plan_root.admit_authority(request.authority_selection, request.progress, budget, request.authority_caps, NativeJoinLocus { source: PreparationSelection(0), form: "plan_authority" })` | QSL. |
 | P2 Selection | FR-015 final-subject admission and clock admission over `authority.admitted_package()` | Driver, through `accounted_charge` with `PreparationSelection(k)`; the owner's linear declaration lookup is outside the budget. |
 | P3 Identity rows | `identity_rows` | QSL. |
 | P4 Row adapters | `equality_witness`, `selected_source_enum_rows`, `selected_ir_model_enum_shape_rows`, `to_ir` per collection row | QSL. |
-| P5 Authority row | `SelectedMonitorAuthorityRow::try_new` from the authority | Driver: work for each component inspected, locus `AuthorityRow`; the row borrows the order and association bytes, so no storage is charged. |
+| P5 Authority row | `SelectedMonitorAuthorityRow::try_new` from the authority | Driver, locus `AuthorityRow`: work for each component inspected, and one handle storage unit for the cloned `admission_binding()` handle before cloning it; the row borrows the order and association bytes, so no storage is charged for them. |
 | P6 Closure | `project_selected_type_closure` on the plan of `authority.admitted_package()` whose node ID is the selected root | Contract IR. |
 | P7 Lowering | `lower_monitor`, canonical `TypeEnvironment`, `Layout`, `ProgramParts` | Driver: every inspection as work and every owned container, element, key and copied byte as storage, locus `PreparationOutput(k)`. |
 
