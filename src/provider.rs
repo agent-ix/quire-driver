@@ -436,6 +436,7 @@ mod tests {
     use std::sync::LazyLock;
     use std::time::Duration;
 
+    use ix_trace_rs::trace;
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::SpineLimits;
     use qsl_replay::statistical::{
@@ -1027,7 +1028,7 @@ mod tests {
         );
     }
 
-    #[ix_trace_rs::trace("TC-016", "FR-009-AC-25")]
+    #[trace("TC-016", "FR-009-AC-25")]
     #[test]
     fn provider_tool_failure_retains_cause_and_item_identity() {
         for failure in [
