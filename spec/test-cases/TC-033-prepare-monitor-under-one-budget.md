@@ -41,8 +41,8 @@ typed first refusal, with every phase charging the same budget.
 7. Inspect the public API and source (FR-019-AC-8).
 8. Convert every Layout value from a genuine plan; give a time dimension
    unequal to the admitted one; give an unconvertible key (FR-019-AC-9).
-9. Inspect the source mapping of an absent `tick_unit_dimension()` and of
-   disagreeing entry result types (FR-019-AC-10).
+9. Inspect the source mapping of disagreeing entry result types
+   (FR-019-AC-10).
 
 Tag the tests `#[trace("TC-033", "<criterion id>")]`. Steps 1 to 6 run in
 `quire-integration` with released QSL, IR, observation and RT; a hand-built
@@ -65,5 +65,5 @@ plan alone receives no credit.
 - Step 8: conversions succeed; the mismatched dimension returns
   `target_mismatch`; the key failure returns `projection` with the native
   cause.
-- Step 9: both conditions map to `internal`, with no fault-injection seam or
+- Step 9: disagreeing result types map to `internal`, with no fault-injection seam or
   public closure constructor.

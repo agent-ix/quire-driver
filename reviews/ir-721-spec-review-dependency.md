@@ -69,6 +69,12 @@ NOT MERGEABLE. The IR seams (NativeJoinBudget resume/accounted_charge/first_unpa
 | --- | --- | --- | --- | --- |
 | FND-006 | low | The request field `progress: Option<progress::View>` (also at FR-019:86) names no crate. Every other cross-owner type in the table is fully qualified, and the Dependencies list has no edge to the observation owner that issues the view. Qualify the path and add the dependency. | spec/functional/FR-019-prepare-the-complete-monitor-program-under-one-budget.md:65 | missing-requirement |
 
+## New findings (disposition pass 3)
+
+| ID | Severity | Summary | Refs | Escape Cause |
+| --- | --- | --- | --- | --- |
+| FND-007 | low | FR-019:89 and the P1 call at :139 give QSL's admit_authority as (self, selection, progress, &mut NativeJoinBudget, PlanAuthorityValidationCaps, NativeJoinLocus). QSL #2489 at head 01145fe declares (self, selection, progress, validation: PlanAuthorityValidationCaps, budget: &mut NativeJoinBudget, locus): the caps come before the budget. Swap the fourth and fifth arguments in both places. | spec/functional/FR-019-prepare-the-complete-monitor-program-under-one-budget.md:89 | wrong-requirement |
+
 ## Dispositions
 
 Round 1, verified against fix commit e12108e8b1d802ade55e28056f8fc3db350e66df.

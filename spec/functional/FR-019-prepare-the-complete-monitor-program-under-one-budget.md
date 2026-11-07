@@ -86,7 +86,7 @@ The driver SHALL consume exactly these QSL capabilities:
 
 | Capability | Returns | Required behaviour |
 | --- | --- | --- |
-| `PlanRoot::admit_authority(self, PlanAuthoritySelection, Option<quire_observation::authority::progress::View>, &mut NativeJoinBudget, PlanAuthorityValidationCaps, NativeJoinLocus)` (signature owned by QSL) | `AdmittedPlanAuthority` or `PlanAuthorityRefusal` | QSL's single strict read of the root's own final emission; every selection, read and canonical-value allocation charged to the budget first; a budget denial reported with the budget's first unpaid charge. |
+| `PlanRoot::admit_authority`, whose signature QSL owns. By role, it consumes the `PlanRoot` and takes the `PlanAuthoritySelection`, the optional `quire_observation::authority::progress::View`, QSL's `PlanAuthorityValidationCaps`, the caller's `&mut NativeJoinBudget` and the caller's `NativeJoinLocus` | `AdmittedPlanAuthority` or `PlanAuthorityRefusal` | QSL's single strict read of the root's own final emission; every selection, read and canonical-value allocation charged to the budget first; a budget denial reported with the budget's first unpaid charge. |
 | `AdmittedPlanAuthority::{root, admitted_package, admission_binding, admitted_order, progress_context}` | the owned root, the admitted package, its `AdmissionBinding`, borrowed order and association values | Read-only; the time source kind and exact period are readable as IR FR-361 requires. |
 | `PlanRoot::emission()` | `&Emission` | Read-only; the same emission as the plan and obligations. |
 | `Emission::identity_rows(package, &mut budget)` | `ReadIdentityRows` (declarations, fields, source records, source unions) or `IdentityFileRefusal` | Charges the native join and every owned record, member and union clone before it is made. |
@@ -123,7 +123,7 @@ partial parts. `MonitorPreparationErrorCode` SHALL classify every cause:
 | A reached operation without an RT form | `unsupported` |
 | A key, rational or integer conversion refusal in P7 | `projection` |
 | An admitted tick unit whose dimension differs from `time_dimension` | `target_mismatch` |
-| A broken driver lowering invariant, including disagreeing entry result types and an absent `tick_unit_dimension()` | `internal` |
+| A broken driver lowering invariant, including disagreeing entry result types | `internal` |
 | RT `ProgramRefusal` | `program` |
 | Cancellation | `cancelled` |
 
@@ -136,7 +136,7 @@ start of each and polling `cancel` before each:
 
 | Phase | Work | Charged by, before the step |
 | --- | --- | --- |
-| P1 Authority admission | `request.plan_root.admit_authority(request.authority_selection, request.progress, budget, request.authority_caps, NativeJoinLocus { source: PreparationSelection(0), form: "plan_authority" })` | QSL. |
+| P1 Authority admission | `request.plan_root.admit_authority`, given by role `request.authority_selection`, `request.progress`, `request.authority_caps`, the caller's budget and the locus `NativeJoinLocus { source: PreparationSelection(0), form: "plan_authority" }`, in QSL's argument order | QSL. |
 | P2 Selection | FR-015 final-subject admission and clock admission over `authority.admitted_package()` | Driver, through `accounted_charge` with `PreparationSelection(k)`; the owner's linear declaration lookup is outside the budget. |
 | P3 Identity rows | `identity_rows` | QSL. |
 | P4 Row adapters | `equality_witness`, `selected_source_enum_rows`, `selected_ir_model_enum_shape_rows`, `to_ir` per collection row | QSL. |
@@ -191,7 +191,7 @@ output storage first.
 | `entries` | the four lowered entry addresses | none |
 | `counter`, `counter_width_bits`, `max_reading_gap` | the plan's admitted premises after FR-015's comparison | Copied. |
 | `tick_unit` | `plan.tick_unit()` | Key converted as above. |
-| `time_dimension` | `SelectedMonitorTypeClosure::tick_unit_dimension()`, the admitted dimension of the plan's `tick_unit` premise that IR's closure seeds | The driver SHALL require structural equality with `request.time_dimension`; inequality is `target_mismatch`. An absent value is `internal`, since IR guarantees it for an admitted plan. Key converted as above. |
+| `time_dimension` | `SelectedMonitorTypeClosure::tick_unit_dimension()`, the admitted dimension of the plan's `tick_unit` premise that IR's closure seeds | The driver SHALL require structural equality with `request.time_dimension`; inequality is `target_mismatch`. Key converted as above. |
 | `max_event_rate`, `uncertainty` | `&CheckedRational` | Canonical numerator and denominator decimal text to `quire_exact::Rational`. |
 | `buffers` | each `CheckedMonitorBufferRef` | `Buffer { owner: subformula key converted, capacity: canonical decimal to quire_exact::Integer }`, in admitted order. |
 | `activation_capacity` | canonical decimal text | To `quire_exact::Integer`, including zero. |
@@ -218,7 +218,7 @@ order above for P7, and RT for construction.
 | FR-019-AC-7 | The budget's consumption is unchanged by `Program::try_new`; an RT construction refusal is returned as `program` with its original `ProgramRefusal`. | Test |
 | FR-019-AC-8 | Source and API inspection finds one `&mut NativeJoinBudget` parameter on `prepare_monitor`, `admit_monitor_final_subject`, `lower_monitor`, `lower_scalar_functions` and `copy_monitor_locus`; no `MonitorPreparationLimits`, private ledger, storage refund, driver strict read, driver-side QSL-to-IR row conversion, `PlanId` read, digest, compatibility path or second meter. | Inspection |
 | FR-019-AC-9 | Each Layout conversion succeeds on genuine admitted values, with `Layout.time_dimension` equal to `tick_unit_dimension()`; a request time dimension unequal to it returns `target_mismatch`; an unconvertible key returns `projection` with the native `InvalidNodeKey`. | Test |
-| FR-019-AC-10 | Source inspection shows that an absent `tick_unit_dimension()` and disagreeing `on_event`, `on_watermark` and `on_gap` result types each map to `internal`, with no fault-injection seam or public closure constructor added to produce them. | Inspection |
+| FR-019-AC-10 | Source inspection shows that disagreeing `on_event`, `on_watermark` and `on_gap` result types map to `internal`, with no fault-injection seam or public closure constructor added to produce them. | Inspection |
 
 ## Dependencies
 
