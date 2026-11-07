@@ -145,6 +145,9 @@ pub enum MonitorPreparationError {
     /// IR refused the atomic selected closure with its native cause and locus.
     #[error("monitor selected closure refused: {0}")]
     ClosureRead(Box<SelectedMonitorTypeClosureError>),
+    /// A reached QSL map row has no corresponding native IR collection-key field.
+    #[error("monitor collection key has no native IR projection at {0:?}")]
+    ClosureMapKey(Box<CheckedNodeId>),
     /// The native declaration lookup has no row for the original subject.
     #[error("no final declaration for monitor subject: {0:?}")]
     MissingFinalSubject(Box<qsl_replay::MonitorSubject>),
@@ -270,8 +273,8 @@ impl MonitorPreparationError {
                     MonitorPreparationErrorCode::Selection
                 }
             },
-            Self::ClosureRows(qsl_package::IdentityFileRefusal::Native(native)) => {
-                match native.code {
+            Self::ClosureRows(native) => match native.as_ref() {
+                qsl_package::IdentityFileRefusal::Native(native) => match native.code {
                     ExactTypeProjectionErrorCode::ExhaustedWork => {
                         MonitorPreparationErrorCode::Work
                     }
@@ -279,9 +282,10 @@ impl MonitorPreparationError {
                         MonitorPreparationErrorCode::Storage
                     }
                     _ => MonitorPreparationErrorCode::Projection,
-                }
-            }
-            Self::ClosureRows(_) => MonitorPreparationErrorCode::Projection,
+                },
+                _ => MonitorPreparationErrorCode::Projection,
+            },
+            Self::ClosureMapKey(_) => MonitorPreparationErrorCode::Projection,
             Self::ClosureRead(native) => match native.code {
                 SelectedMonitorTypeClosureErrorCode::WorkLimit => MonitorPreparationErrorCode::Work,
                 SelectedMonitorTypeClosureErrorCode::StorageLimit => {
