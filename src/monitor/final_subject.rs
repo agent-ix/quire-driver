@@ -81,6 +81,9 @@ pub fn admit_monitor_final_subject<'a>(
         CheckedPackageDispatchResult::Refused(native) => {
             return Err(Error::EmissionRefused(Box::new(native)))
         }
+        CheckedPackageDispatchResult::CatalogUnavailable(native) => {
+            return Err(Error::CatalogUnavailable(native));
+        }
         CheckedPackageDispatchResult::Incomplete(native) => {
             return Err(Error::EmissionIncomplete(Box::new(native)))
         }

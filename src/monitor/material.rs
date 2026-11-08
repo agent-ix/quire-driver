@@ -49,7 +49,9 @@ impl Material for CheckedNodeId {
                     budget.charge(1)?;
                     match segment {
                         CheckedNodePathSegment::Name(name) => name.inspect_material(budget)?,
-                        CheckedNodePathSegment::Index(_) => budget.charge(8)?,
+                        CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
+                            budget.charge(8)?
+                        }
                         CheckedNodePathSegment::Node(child) => {
                             budget.push_key(&mut pending, child)?;
                         }

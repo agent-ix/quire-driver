@@ -58,7 +58,7 @@ pub(super) fn own_key(source: &CheckedNodeId, budget: &mut Budget<'_>) -> Result
                         &mut frame_storage,
                     )?;
                 }
-                CheckedNodePathSegment::Index(_) => {
+                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
                     return Err(Error::InvalidAdmittedScalar {
                         node: Box::new(source.clone()),
                     })

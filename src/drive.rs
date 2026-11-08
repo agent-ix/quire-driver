@@ -697,10 +697,8 @@ fn generate(
             .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?
             .node();
         let node_id = resolve_checked_node(
-            checked.graph().nodes.iter().filter_map(|node| {
-                checked
-                    .structural_key(&node.node_id)
-                    .map(|key| (&node.node_id, key))
+            checked.resolved_graph().nodes.iter().enumerate().filter_map(|(index, node)| {
+                checked.structural_key_at(index).map(|key| (&node.node_id, key))
             }),
             node,
             request_index,
@@ -762,10 +760,8 @@ fn lower_driver_request(
     let mut result_selections = Vec::with_capacity(items.len());
     for (request_index, item) in items.iter().enumerate() {
         let application = resolve_checked_node(
-            checked.graph().nodes.iter().filter_map(|node| {
-                checked
-                    .structural_key(&node.node_id)
-                    .map(|key| (&node.node_id, key))
+            checked.resolved_graph().nodes.iter().enumerate().filter_map(|(index, node)| {
+                checked.structural_key_at(index).map(|key| (&node.node_id, key))
             }),
             item.node(),
             request_index,
@@ -838,10 +834,8 @@ fn contract_occurrence(
     request_index: usize,
 ) -> Result<quire_contract_model::ContractOccurrenceKeyV1, DriverRefusal> {
     let node_id = resolve_checked_node(
-        checked.graph().nodes.iter().filter_map(|node| {
-            checked
-                .structural_key(&node.node_id)
-                .map(|key| (&node.node_id, key))
+        checked.resolved_graph().nodes.iter().enumerate().filter_map(|(index, node)| {
+            checked.structural_key_at(index).map(|key| (&node.node_id, key))
         }),
         occurrence.node(),
         request_index,
@@ -1247,10 +1241,8 @@ fn project_kani_form(
     lowered: &LoweredDriverRequest,
 ) -> Result<cg::KaniForm, DriverRefusal> {
     let selected = resolve_checked_node(
-        checked.graph().nodes.iter().filter_map(|node| {
-            checked
-                .structural_key(&node.node_id)
-                .map(|key| (&node.node_id, key))
+        checked.resolved_graph().nodes.iter().enumerate().filter_map(|(index, node)| {
+            checked.structural_key_at(index).map(|key| (&node.node_id, key))
         }),
         node,
         request_index,
@@ -1315,7 +1307,9 @@ fn structural_key_matches(id: &CheckedNodeId, key: &quire_exact::NodeKey) -> boo
                     };
                     pending.push((node.as_ref(), child));
                 }
-                CheckedNodePathSegment::Index(_) => return false,
+                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
+                    return false
+                }
             }
         }
         if path.next().is_some() {

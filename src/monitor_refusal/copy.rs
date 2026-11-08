@@ -234,7 +234,9 @@ impl Ledger<'_> {
                         self.text_work(name)?;
                         self.bytes(name.len(), 1)?;
                     }
-                    CheckedNodePathSegment::Index(_) => self.charge(8)?,
+                    CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
+                        self.charge(8)?
+                    }
                     CheckedNodePathSegment::Node(child) => {
                         self.charge(1)?;
                         if pending.len() == pending.capacity() {
@@ -269,6 +271,10 @@ impl Ledger<'_> {
                 CheckedNodePathSegment::Index(index) => {
                     self.charge(8)?;
                     CheckedNodePathSegment::Index(*index)
+                }
+                CheckedNodePathSegment::Operand(slot) => {
+                    self.charge(8)?;
+                    CheckedNodePathSegment::Operand(*slot)
                 }
                 CheckedNodePathSegment::Node(child) => {
                     self.charge(1)?;

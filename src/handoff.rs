@@ -30,6 +30,9 @@ pub(crate) fn handoff(
                     refusal,
                 ))))
             }
+            CheckedPackageDispatchResult::CatalogUnavailable(native) => {
+                return Err(DriverRefusal::HandoffCatalogUnavailable(native));
+            }
             CheckedPackageDispatchResult::Incomplete(incomplete) => {
                 return Err(DriverRefusal::HandoffLimit(incomplete))
             }
