@@ -284,8 +284,7 @@ here, with no separate dependency revision ledger or policy artifact.
 - [QSL ADR-029](https://github.com/agent-ix/quire-spec-language/blob/main/spec/decisions/ADR-029-lifecycle-cli-provider-plugin-cache-codegen-boundaries.md), with ADR-011, ADR-012 and ADR-013.
 - CG FR-005 CLI conformance and IR-337 parity scope; the one CLI is specified
   here, while CG retains codegen-specific atomic publication requirements.
-- [IR-527](https://linear.app/agent-ix/issue/IR-527) owns this reconciliation;
-  [IR-528](https://linear.app/agent-ix/issue/IR-528) owns G5b gate evidence in
-  `quire-integration`.
+- The `quire-integration` repository owns the gate evidence for this
+  reconciliation.
 - [Driver architecture](assurance/AD-001-driver-architecture.md).
 - [Driver test matrix](tests.md).
