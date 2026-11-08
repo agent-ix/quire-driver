@@ -257,3 +257,27 @@ scope:
 
     //! routing after negotiation, the E5 hand-off and CG generation. Every call goes '
 ```
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | high | Monitor fixtures still access private PlanRoot fields and call equality_witness without its required NativeJoinBudget or Result handling, so the current-owner all-targets check cannot compile the test targets. | tests/common/monitor.rs:122 |
+
+The lead's first final-gate step exposed nine compiler errors (E0616, E0061 and E0599) in the shared fixture; /tmp/IR-1400-driver-final-4eb6ac104.log records the failures. No later gate stage ran. This was missed by the original library/drive-target review evidence.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-002 | fixed | The fixture retains the genuine PlanRoot, borrows its plan subject and original emission through owner getters, and handles equality_witness with a finite NativeJoinBudget and native Result. Final-subject callers retain pointer-identity assertions. |
+
+## Disposition pass 1 evidence and current verdict
+
+**PASS — no open findings.** Inspected only tests/common/monitor.rs and tests/monitor_final_subject.rs changes between the pre-fix candidate and the fixture-fix candidate. The other five review artifacts remain unchanged. The original Findings table is preserved. FND-001 is solely the original clean placeholder and has no disposition.
+
+Fixture::subject borrows root.plan().subject(); Fixture::emission borrows root.emission(). No cloned or reconstructed authoritative subject/emission replaces the genuine producer pair. Tests retain std::ptr::eq checks against those same borrowed originals. Other final-subject edits mechanically replace field access with getters; intentional malformed-subject tests retain their prior construction and assertions.
+
+Equality witness acquisition receives its own finite 100,000,000 work allowance, 8 MiB storage allowance and 8 MiB read-storage allowance before the driver's independent preparation request. These are explicit fixture acquisition ceilings, not expected driver consumption or production defaults. Native failure panics the fixture with context; it is not suppressed or replaced by empty rows. Existing driver budget/cancellation assertions are unchanged. No source, dependency, specification or review artifact changed in the inspected fix diff.
+
+Inspected supplied /tmp/IR-1400-driver-fixture-control.log: exact monitor-preparation selection control passed (one test); /tmp/IR-1400-driver-fixture-clippy.log: two-target scoped Clippy passed; /tmp/IR-1400-driver-fixture-fmt-check.log: formatting completed with existing nightly-format-option warnings. No Cargo or aggregate gate rerun by reviewer. Full final-subject behavioral suite and the remaining aggregate stages are not claimed executed by these controls; lead retains the final gate.
