@@ -516,10 +516,12 @@ mod tests {
                 std::slice::from_ref(&node_id),
                 &routed_contract_lowering_profile(),
             );
-            let package = lowered
-                .package
-                .wire()
-                .expect("IR emits admitted contract package");
+            let package = lowered.package.wire().unwrap_or_else(|| {
+                panic!(
+                    "native provider fixture lowering did not admit a contract package: {:?}",
+                    lowered.records
+                )
+            });
             let record = package
                 .wire()
                 .feature_accounting
