@@ -84,6 +84,9 @@ pub enum DriverRefusal {
     /// negotiation, not a caller request refusal.
     #[error("CG package negotiation refused: {0:?}")]
     PackageNegotiation(PackageRequestError),
+    /// E5: the owner catalog could not be acquired; the package is not malformed.
+    #[error(transparent)]
+    HandoffCatalogUnavailable(quire_contract_model::CatalogReadError),
     /// E5: IR's reader stopped at one of its limits.
     #[error("IR's checked-package reader reached its {:?} limit", .0.limit_kind)]
     HandoffLimit(CheckedPackageIncomplete),
@@ -472,8 +475,12 @@ impl DriverRefusal {
             Self::ScalarCall(refusal) => Some(refusal.category()),
             Self::QslAdmissionEvidence(refusal) => Some(refusal.category()),
             Self::ScalarBinding(refusal) => Some(refusal.code().category()),
+            Self::HandoffCatalogUnavailable(_) => Some(Category::InternalFailure),
             Self::PackageRead(failure) => Some(failure.diagnostic().category()),
             Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::ContractPackageCatalogUnavailable { .. } => {
+                    Some(Category::InternalFailure)
+                }
                 EnvelopeRefusal::ContractPackageReadRefused { .. } => Some(Category::Refusal),
                 EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } => Some(
                     if incomplete.limit_kind == CheckedPackageLimit::Diagnostics {
@@ -525,6 +532,9 @@ impl DriverRefusal {
             Self::UnknownBackend { .. } => "invalid_capability/unknown-backend".to_owned(),
             Self::PackageRead(failure) => failure.diagnostic().code().to_owned(),
             Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::ContractPackageCatalogUnavailable { .. } => {
+                    Code::RuntimeInvariant.as_str().to_owned()
+                }
                 EnvelopeRefusal::InvalidCapability { cause, .. } => {
                     format!("invalid_capability/{cause}")
                 }
@@ -547,6 +557,7 @@ impl DriverRefusal {
                 Code::RuntimeInvariant.as_str().to_owned()
             }
             Self::PackageNegotiation(_) => Code::RuntimeInvariant.as_str().to_owned(),
+            Self::HandoffCatalogUnavailable(_) => Code::RuntimeInvariant.as_str().to_owned(),
             Self::HandoffLimit(_) => Code::StageLimitExceeded.as_str().to_owned(),
             Self::LoweringLimit { .. } => Code::ResourceExhausted.as_str().to_owned(),
             Self::Generation(error) => generation_code(error).as_str().to_owned(),
@@ -587,7 +598,8 @@ impl DriverRefusal {
                 | EnvelopeRefusal::ManifestRepeatsBackendIdentity { .. } => {
                     DriverStage::Negotiation
                 }
-                EnvelopeRefusal::ContractPackageReadRefused { .. }
+                EnvelopeRefusal::ContractPackageCatalogUnavailable { .. }
+                | EnvelopeRefusal::ContractPackageReadRefused { .. }
                 | EnvelopeRefusal::ContractPackageReadIncomplete { .. } => DriverStage::PackageRead,
             },
             Self::Fault(DriverFault::PackageReadDiagnostics(_)) => DriverStage::PackageRead,
@@ -599,9 +611,9 @@ impl DriverRefusal {
                 | DriverFault::FrameReplayAssociation,
             ) => DriverStage::Replay,
             Self::Fault(DriverFault::Spine { stage, .. }) => DriverStage::Compile(*stage),
-            Self::HandoffLimit(_) | Self::Fault(DriverFault::HandoffRefused(_)) => {
-                DriverStage::Handoff
-            }
+            Self::HandoffCatalogUnavailable(_)
+            | Self::HandoffLimit(_)
+            | Self::Fault(DriverFault::HandoffRefused(_)) => DriverStage::Handoff,
             Self::Generation(_)
             | Self::LoweringLimit { .. }
             | Self::Fault(DriverFault::UnknownNode { .. } | DriverFault::AmbiguousNode { .. }) => {
@@ -631,6 +643,7 @@ impl DriverRefusal {
             Self::ScalarBinding(refusal) => outcome_kind_for_qsl(refusal.code().category()),
             Self::PackageRead(failure) => failure.diagnostic().kind(),
             Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::ContractPackageCatalogUnavailable { .. } => OutcomeKind::Fault,
                 EnvelopeRefusal::ContractPackageReadRefused { .. } => OutcomeKind::Refused,
                 EnvelopeRefusal::ContractPackageReadIncomplete { incomplete }
                     if incomplete.limit_kind == CheckedPackageLimit::Diagnostics =>
@@ -651,6 +664,7 @@ impl DriverRefusal {
             Self::Compile(refusal) if refusal.code() == Code::StageLimitExceeded => {
                 OutcomeKind::Limit
             }
+            Self::HandoffCatalogUnavailable(_) => OutcomeKind::Fault,
             Self::HandoffLimit(_) => OutcomeKind::Limit,
             Self::LoweringLimit { .. } => OutcomeKind::Limit,
             Self::Generation(error) => match generation_code(error) {
@@ -968,6 +982,7 @@ fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
         CompileRefusal::Import { refusal, .. } => refusal.cause(),
         CompileRefusal::Dependency { refusal, .. } => compile_cause(refusal),
         CompileRefusal::Link(refusal) => refusal.cause(),
+        CompileRefusal::Extension(refusal) => Some(refusal.cause().as_str()),
     }
 }
 
@@ -1120,6 +1135,7 @@ fn kani_message(error: &KaniObligationError) -> String {
 
 fn envelope_message(refusal: &EnvelopeRefusal) -> String {
     match refusal {
+        EnvelopeRefusal::ContractPackageCatalogUnavailable { path, message } => format!("CG owner catalog unavailable at `{path}`: {message}"),
         EnvelopeRefusal::InvalidCapability {
             cause,
             member,
@@ -1160,6 +1176,38 @@ mod tests {
     use quire_semantic_value::catalog::Category;
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    #[trace("FR-001-AC-5", "FR-001-AC-22")]
+    #[test]
+    fn current_owner_boundary_catalog_failure_retains_operational_payload() {
+        let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageCatalogUnavailable {
+            path: "operations[3].constraints[1].kind".to_owned(),
+            message: "unknown catalog member".to_owned(),
+        });
+        assert_eq!(refusal.code(), "runtime_invariant");
+        assert_eq!(refusal.stage(), DriverStage::PackageRead);
+        assert_eq!(refusal.kind(), OutcomeKind::Fault);
+        assert!(refusal.package_read_diagnostic().is_none());
+        assert!(
+            matches!(refusal.envelope_refusal(), Some(EnvelopeRefusal::ContractPackageCatalogUnavailable { path, message })
+            if path == "operations[3].constraints[1].kind" && message == "unknown catalog member")
+        );
+        assert!(refusal.to_string().contains("unknown catalog member"));
+    }
+
+    #[trace("FR-001-AC-5")]
+    #[test]
+    fn current_owner_boundary_extension_keeps_native_code_and_cause() {
+        use qsl_replay::spine::CompileRefusal;
+        let native =
+            qsl_semantics::library::extension::ExtensionRefusal::DefinitionCycle(Vec::new());
+        let refusal = DriverRefusal::Compile(Box::new(CompileRefusal::Extension(native.clone())));
+        assert_eq!(refusal.code(), "invalid_package/definition-cycle");
+        assert_eq!(
+            refusal.to_string(),
+            CompileRefusal::Extension(native).to_string()
+        );
+    }
 
     fn node_id(name: &str) -> CheckedNodeId {
         serde_json::from_value(serde_json::json!({

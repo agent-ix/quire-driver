@@ -234,7 +234,9 @@ impl Ledger<'_> {
                         self.text_work(name)?;
                         self.bytes(name.len(), 1)?;
                     }
-                    CheckedNodePathSegment::Index(_) => self.charge(8)?,
+                    CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
+                        self.charge(8)?
+                    }
                     CheckedNodePathSegment::Node(child) => {
                         self.charge(1)?;
                         if pending.len() == pending.capacity() {
@@ -269,6 +271,10 @@ impl Ledger<'_> {
                 CheckedNodePathSegment::Index(index) => {
                     self.charge(8)?;
                     CheckedNodePathSegment::Index(*index)
+                }
+                CheckedNodePathSegment::Operand(slot) => {
+                    self.charge(8)?;
+                    CheckedNodePathSegment::Operand(*slot)
                 }
                 CheckedNodePathSegment::Node(child) => {
                     self.charge(1)?;
@@ -349,8 +355,58 @@ mod tests {
     use super::*;
     use ix_trace_rs::trace;
 
+    #[trace("FR-016-AC-10", "FR-016-AC-11")]
     #[test]
+    fn current_owner_boundary_operand_copy_preserves_axis_and_charge_prefix() {
+        let cancel = Cancel::new();
+        let limits = MonitorPreparationLimits {
+            work: u64::MAX,
+            storage: u64::MAX,
+        };
+        let node = CheckedNodeId {
+            package: "pkg".into(),
+            path: vec![
+                CheckedNodePathSegment::Operand(7),
+                CheckedNodePathSegment::Node(Arc::new(CheckedNodeId {
+                    package: "pkg".into(),
+                    path: vec![CheckedNodePathSegment::Operand(9)],
+                    ordinal: 0,
+                })),
+            ],
+            ordinal: 0,
+        };
+        let copied = copy_monitor_locus(&node, &node, &[], None, limits, &cancel)
+            .expect("copy original slot axes");
+        assert_eq!(copied.locus.node, node);
+        assert_eq!(copied.locus.structural_key, node);
+        let limited = MonitorPreparationLimits {
+            work: copied.work - 1,
+            storage: u64::MAX,
+        };
+        assert!(matches!(
+            copy_monitor_locus(&node, &node, &[], None, limited, &cancel),
+            Err(MonitorLocusCopyError::Work { .. })
+        ));
+        let indexed = CheckedNodeId {
+            path: vec![
+                CheckedNodePathSegment::Index(7),
+                CheckedNodePathSegment::Node(Arc::new(CheckedNodeId {
+                    package: "pkg".into(),
+                    path: vec![CheckedNodePathSegment::Index(9)],
+                    ordinal: 0,
+                })),
+            ],
+            package: node.package.clone(),
+            ordinal: node.ordinal,
+        };
+        let comparison = copy_monitor_locus(&indexed, &indexed, &[], None, limits, &cancel)
+            .expect("copy original indices");
+        assert_eq!(copied.work, comparison.work);
+        assert_eq!(copied.storage, comparison.storage);
+    }
+
     #[trace("FR-016-AC-11")]
+    #[test]
     fn capacity_refusal_precedes_box_conversion() {
         assert!(matches!(
             exact_text_capacity(3, 4),

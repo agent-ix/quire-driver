@@ -58,7 +58,7 @@ pub(super) fn own_key(source: &CheckedNodeId, budget: &mut Budget<'_>) -> Result
                         &mut frame_storage,
                     )?;
                 }
-                CheckedNodePathSegment::Index(_) => {
+                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
                     return Err(Error::InvalidAdmittedScalar {
                         node: Box::new(source.clone()),
                     })
@@ -100,4 +100,37 @@ pub(super) fn own_key(source: &CheckedNodeId, budget: &mut Budget<'_>) -> Result
     Err(Error::InvalidAdmittedScalar {
         node: Box::new(source.clone()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::monitor::MonitorPreparationLimits;
+    use quire_exact::Cancel;
+
+    #[ix_trace_rs::trace("FR-016-AC-10", "FR-016-AC-11")]
+    #[test]
+    fn current_owner_boundary_raw_axes_cannot_become_structural_keys() {
+        let cancel = Cancel::new();
+        for segment in [
+            CheckedNodePathSegment::Operand(0),
+            CheckedNodePathSegment::Index(0),
+        ] {
+            let original = CheckedNodeId {
+                package: "pkg".into(),
+                path: vec![segment],
+                ordinal: 0,
+            };
+            let mut budget = Budget::new(
+                MonitorPreparationLimits {
+                    work: u64::MAX,
+                    storage: u64::MAX,
+                },
+                &cancel,
+            );
+            assert!(
+                matches!(own_key(&original, &mut budget), Err(Error::InvalidAdmittedScalar { node }) if node.as_ref() == &original)
+            );
+        }
+    }
 }

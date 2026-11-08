@@ -280,6 +280,8 @@ fn authentic_join_charges_both_required_allowances_and_preserves_storage_refusal
         form: Some("selected_identity".into()),
         work: charge.work,
         denied: None,
+        // An incomplete identity is not an exhausted configured resource.
+        configured_bound: None,
     };
     let wrapped = MonitorPreparationError::Projection(incomplete.clone());
     assert_eq!(wrapped.code(), MonitorPreparationErrorCode::Projection);
@@ -536,33 +538,31 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
         diagnostics: 1_000,
         work: 100_000_000,
     };
+    // The current producer retains complete admission evidence. Deliberately
+    // omit it only for this negative reader control.
+    let missing_evidence = quire_contract_model::CheckedPackageEvidence::new();
     let native = quire_contract_model::read_checked_package(
-        root.emission.package().bytes(),
+        root.emission().package().bytes(),
         read_limits,
-        root.emission.evidence(),
+        &missing_evidence,
     );
     let quire_contract_model::CheckedPackageDispatchResult::Refused(expected) = native else {
         panic!("original model documents are required by the strict owner reader")
     };
-    let error = admit_source_records(
-        &root.emission,
-        root.emission.evidence(),
-        read_limits,
-        JOIN_LIMITS,
-    )
-    .err()
-    .unwrap();
+    let error = admit_source_records(root.emission(), &missing_evidence, read_limits, JOIN_LIMITS)
+        .err()
+        .unwrap();
     assert_eq!(error.code(), SourceRecordAdmissionErrorCode::ReadRefused);
     let SourceRecordAdmissionError::ReadRefused(actual) = error else {
         panic!("native reader refusal remains distinct")
     };
     assert_eq!(*actual, expected);
-    let mut evidence = root.emission.evidence().clone();
+    let mut evidence = root.emission().evidence().clone();
     evidence
         .insert_domain_package_document(identity, document)
         .unwrap();
     let admitted = admit_source_records(
-        &root.emission,
+        root.emission(),
         &evidence,
         CheckedPackageReadLimits {
             bytes: 8 * 1024 * 1024,
@@ -577,20 +577,20 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
     .unwrap_or_else(|error| {
         let quire_contract_model::CheckedPackageDispatchResult::AdmittedV2(package) =
             quire_contract_model::read_checked_package(
-                root.emission.package().bytes(), read_limits, &evidence)
+                root.emission().package().bytes(), read_limits, &evidence)
         else {
             panic!("the original final emission must first strictly admit")
         };
         let SourceRecordAdmissionError::Join(native) = &error else {
             panic!("authentic final record admission failed: {error:?}")
         };
-        let row = root.emission.selected_source_record_rows().iter()
+        let row = root.emission().selected_source_record_rows().iter()
             .find(|row| Some(&row.structural_node) == native.requested.as_deref());
         panic!("authentic final record join failed: {error:?}; original producer row: {row:?}; original admitted body: {:?}",
             native.requested.as_deref().and_then(|id| package.term(id)));
     });
     assert_eq!(admitted.package().monitor_plans().count(), 1);
-    assert_complete_producer_rows(&admitted, &root.emission);
+    assert_complete_producer_rows(&admitted, root.emission());
     for row in admitted.rows() {
         assert!(admitted.package().node_kind(&row.structural_node).is_some());
         for member in &row.members {
@@ -599,7 +599,7 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
     }
     for (original_name, admitted_name) in [("origin_tick", "origin"), ("amount", "value")] {
         let (producer, index) = root
-            .emission
+            .emission()
             .selected_source_record_rows()
             .iter()
             .find_map(|row| {
@@ -635,16 +635,17 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
 #[trace("FR-018-AC-3")]
 #[test]
 fn source_record_error_catalog_has_exact_distinct_round_trip_spellings() {
-    use SourceRecordAdmissionErrorCode::{Join, ReadIncomplete, ReadRefused};
+    use SourceRecordAdmissionErrorCode::{CatalogUnavailable, Join, ReadIncomplete, ReadRefused};
 
     let expected = [
         (ReadRefused, "read_refused"),
         (ReadIncomplete, "read_incomplete"),
+        (CatalogUnavailable, "catalog_unavailable"),
         (Join, "join"),
     ];
     assert_eq!(
         SourceRecordAdmissionErrorCode::all(),
-        &[ReadRefused, ReadIncomplete, Join]
+        &[ReadRefused, ReadIncomplete, CatalogUnavailable, Join]
     );
     let mut spellings = std::collections::BTreeSet::new();
     for (code, spelling) in expected {

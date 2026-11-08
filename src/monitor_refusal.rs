@@ -149,7 +149,7 @@ fn locus(
         // Only occurrence membership needs this original node record. No
         // graph index, support classifier or replacement source location is built.
         let belongs =
-            package.graph().nodes.iter().any(|original| {
+            package.resolved_graph().nodes.iter().any(|original| {
                 &original.node_id == node && original.occurrences.contains(occurrence)
             });
         if !belongs {

@@ -144,6 +144,9 @@ pub enum MonitorPreparationError {
     /// Original strict native emission-admission refusal.
     #[error("monitor emission admission refused: {0:?}")]
     EmissionRefused(Box<CheckedPackageRefusal>),
+    /// The native catalog acquisition failure, separate from malformed input.
+    #[error(transparent)]
+    CatalogUnavailable(quire_contract_model::CatalogReadError),
     /// Original strict native acquisition limit, outside the driver ledger.
     #[error("monitor emission acquisition incomplete: {0:?}")]
     EmissionIncomplete(Box<CheckedPackageIncomplete>),
@@ -266,6 +269,7 @@ impl MonitorPreparationError {
             Self::MissingFinalSubject(_) | Self::EmissionRefused(_) => {
                 MonitorPreparationErrorCode::Selection
             }
+            Self::CatalogUnavailable(_) => MonitorPreparationErrorCode::Internal,
             Self::EmissionIncomplete(_) => MonitorPreparationErrorCode::Work,
             Self::Program(_) => MonitorPreparationErrorCode::Program,
             Self::OperationRead(_) => MonitorPreparationErrorCode::Internal,

@@ -217,7 +217,7 @@ fn operation<'a>(
     package: &'a CheckedPackageV2,
     identity: &str,
 ) -> (&'a CheckedNodeId, CheckedNodeKind) {
-    let matches = package.graph().nodes.iter().zip(package.node_kinds()).filter(|(node, _)| matches!(package.term(&node.node_id), Some(CheckedTerm::Application { operation, .. }) if operation.identity() == Some(identity))).collect::<Vec<_>>();
+    let matches = package.resolved_graph().nodes.iter().zip(package.node_kinds()).filter(|(node, _)| matches!(package.term(&node.node_id), Some(CheckedTerm::Application { operation, .. }) if operation.identity() == Some(identity))).collect::<Vec<_>>();
     let [(node, kind)] = matches.as_slice() else {
         panic!("one exact operation {identity}");
     };
@@ -251,7 +251,7 @@ fn every_target_premise_names_its_actual_admitted_value() {
     let plan = package.monitor_plans().next().unwrap();
     let root = plan.node_id();
     let generated = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| &node.node_id == root)
@@ -373,7 +373,7 @@ fn operations_and_native_child_paths_retain_the_original_terms() {
                 MonitorLocusErrorCode::InvalidBodyPath
             );
             let target_kind = package
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .zip(package.node_kinds())
@@ -394,7 +394,7 @@ fn operations_and_native_child_paths_retain_the_original_terms() {
     }
     let plan = package.monitor_plans().next().unwrap();
     let kind = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .zip(package.node_kinds())
@@ -456,12 +456,29 @@ fn invalid_indices_occurrences_and_selectors_keep_distinct_typed_failures() {
             .code,
         MonitorLocusErrorCode::NotMonitorRoot
     );
-    let occurrence = package
-        .graph()
+    let position = package
+        .resolved_graph()
         .nodes
         .iter()
-        .find(|original| &original.node_id == node)
-        .unwrap()
+        .position(|original| &original.node_id == node)
+        .unwrap();
+    let raw = &package.graph().nodes[position].node_id;
+    assert_ne!(
+        raw, node,
+        "the occurrence request uses a document-held identity"
+    );
+    assert!(
+        raw.path.iter().any(|segment| matches!(
+            segment,
+            quire_contract_model::CheckedNodePathSegment::Operand(_)
+        )),
+        "the authentic node-held identity contains operand slots"
+    );
+    assert_eq!(
+        package.resolve_node_held(position, raw).as_ref(),
+        package.structural_key_at(position)
+    );
+    let occurrence = package.resolved_graph().nodes[position]
         .occurrences
         .first()
         .expect("a real source operation occurrence");
@@ -524,7 +541,7 @@ fn owned_diagnostics_outlive_the_package_and_occurrence_buffers() {
         let (node, kind) = operation(&owned.package, "quire.op.integer.mod");
         let source_node = owned
             .package
-            .graph()
+            .resolved_graph()
             .nodes
             .iter()
             .find(|original| &original.node_id == node)

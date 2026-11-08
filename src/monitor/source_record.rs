@@ -18,6 +18,8 @@ pub enum SourceRecordAdmissionErrorCode {
     ReadRefused,
     /// Strict IR reading stopped at a reader limit.
     ReadIncomplete,
+    /// The owner operation catalog could not be acquired.
+    CatalogUnavailable,
     /// Native source-record joining failed or exhausted its allowance.
     Join,
 }
@@ -29,12 +31,18 @@ impl SourceRecordAdmissionErrorCode {
             Self::ReadRefused => "read_refused",
             Self::ReadIncomplete => "read_incomplete",
             Self::Join => "join",
+            Self::CatalogUnavailable => "catalog_unavailable",
         }
     }
 
     /// Every top-level category exposed by source-record admission.
     pub const fn all() -> &'static [Self] {
-        &[Self::ReadRefused, Self::ReadIncomplete, Self::Join]
+        &[
+            Self::ReadRefused,
+            Self::ReadIncomplete,
+            Self::CatalogUnavailable,
+            Self::Join,
+        ]
     }
 
     /// Decode an exact stable spelling; unknown or differently cased text is absent.
@@ -55,6 +63,9 @@ pub enum SourceRecordAdmissionError {
     /// The strict reader's original incomplete result.
     #[error("source-record package read incomplete: {0:?}")]
     ReadIncomplete(CheckedPackageIncomplete),
+    /// The original operational catalog failure.
+    #[error(transparent)]
+    CatalogUnavailable(quire_contract_model::CatalogReadError),
     /// The native join's original error, including resource cause and source locus.
     #[error("source-record witness join failed: {0}")]
     Join(#[source] ExactTypeProjectionError),
@@ -67,6 +78,7 @@ impl SourceRecordAdmissionError {
             Self::ReadRefused(_) => SourceRecordAdmissionErrorCode::ReadRefused,
             Self::ReadIncomplete(_) => SourceRecordAdmissionErrorCode::ReadIncomplete,
             Self::Join(_) => SourceRecordAdmissionErrorCode::Join,
+            Self::CatalogUnavailable(_) => SourceRecordAdmissionErrorCode::CatalogUnavailable,
         }
     }
 }
@@ -129,6 +141,9 @@ pub fn admit_source_records(
         CheckedPackageDispatchResult::AdmittedV2(package) => package,
         CheckedPackageDispatchResult::Refused(error) => {
             return Err(SourceRecordAdmissionError::ReadRefused(Box::new(error)));
+        }
+        CheckedPackageDispatchResult::CatalogUnavailable(error) => {
+            return Err(SourceRecordAdmissionError::CatalogUnavailable(error));
         }
         CheckedPackageDispatchResult::Incomplete(error) => {
             return Err(SourceRecordAdmissionError::ReadIncomplete(error));

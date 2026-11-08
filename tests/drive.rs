@@ -868,7 +868,7 @@ fn negate_package() -> Driven {
 /// The one expression node of `form` in `package`: IR's id.
 fn expression(package: &CheckedPackageV2, form: &str) -> CheckedNodeId {
     let node = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.node_tag.as_ref() == "expression" && node.semantic_form.as_ref() == form)
@@ -879,7 +879,7 @@ fn expression(package: &CheckedPackageV2, form: &str) -> CheckedNodeId {
 /// The one expression node whose `operation.identity` is `identity`: IR's id.
 fn expression_by_identity(package: &CheckedPackageV2, identity: &str) -> CheckedNodeId {
     let node = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| {
@@ -897,7 +897,7 @@ fn expression_by_identity(package: &CheckedPackageV2, identity: &str) -> Checked
 /// operand's, or a comparison's, declared bound (`DerivedDomain::IntegerRange`).
 fn integer_range_bound(package: &CheckedPackageV2, lower: &str, upper: &str) -> CheckedNodeId {
     let node = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| {
@@ -3193,4 +3193,68 @@ fn provider_trait_run_processes_a_selected_item() {
         results.items[0].result,
         Err(ProviderItemFailure::MissingExecutionLimits)
     ));
+}
+
+#[trace("FR-001-AC-12", "FR-001-AC-16", "TC-006")]
+#[test]
+fn current_owner_boundary_raw_slots_resolve_in_each_holding_row() {
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
+        .expect("the native backend registers");
+    let packages = BTreeMap::new();
+    let recorder = Recorder::default();
+    let driven = drive(
+        &recorder,
+        partition_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("each native operation resolves in its own admitted frame");
+    let package = driven.checked();
+    let raw = &package.graph().nodes;
+    let collision = raw.iter().enumerate().find_map(|(left, first)| {
+        raw.iter()
+            .enumerate()
+            .skip(left + 1)
+            .find_map(|(right, second)| {
+                (first.node_id == second.node_id
+                    && first.node_id.path.iter().any(|segment| {
+                        matches!(
+                            segment,
+                            quire_contract_model::CheckedNodePathSegment::Operand(_)
+                        )
+                    })
+                    && package.structural_key_at(left) != package.structural_key_at(right))
+                .then_some((left, right))
+            })
+    });
+    let (left, right) =
+        collision.expect("authentic repeated operations have equal raw slots in distinct rows");
+    assert!(
+        package.structural_key(&raw[left].node_id).is_none(),
+        "raw bytes alone cannot select a holder"
+    );
+    assert_ne!(
+        package.document_held_id(left),
+        package.document_held_id(right)
+    );
+    assert_eq!(
+        package.resolve_node_held(left, &raw[left].node_id).as_ref(),
+        package.structural_key_at(left)
+    );
+    assert_eq!(
+        package
+            .resolve_node_held(right, &raw[right].node_id)
+            .as_ref(),
+        package.structural_key_at(right)
+    );
+    let (_, positions) = recorder.generation_input();
+    assert_eq!(
+        positions
+            .iter()
+            .filter(|position| matches!(position, ContractRequestPosition::DriverItem { .. }))
+            .count(),
+        3,
+        "all three operations reach generation"
+    );
 }
