@@ -271,6 +271,8 @@ The lead's first final-gate step exposed nine compiler errors (E0616, E0061 and 
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-002 | fixed | The fixture retains the genuine PlanRoot, borrows its plan subject and original emission through owner getters, and handles equality_witness with a finite NativeJoinBudget and native Result. Final-subject callers retain pointer-identity assertions. |
+| FND-003 | fixed | Source-record fixtures borrow original PlanRoot emission through its getter; the non-resource IncompleteIdentityWitness has configured_bound None. The current error-code catalog expectation includes CatalogUnavailable. Missing-evidence refusal is explicit; positive admission retains original producer evidence. |
+| FND-004 | fixed | Occurrence membership now checks the resolved graph in the same document-held identity domain as the already validated term and structural key; exact role/ordinal membership remains required. |
 
 ## Disposition pass 1 evidence and current verdict
 
@@ -281,3 +283,24 @@ Fixture::subject borrows root.plan().subject(); Fixture::emission borrows root.e
 Equality witness acquisition receives its own finite 100,000,000 work allowance, 8 MiB storage allowance and 8 MiB read-storage allowance before the driver's independent preparation request. These are explicit fixture acquisition ceilings, not expected driver consumption or production defaults. Native failure panics the fixture with context; it is not suppressed or replaced by empty rows. Existing driver budget/cancellation assertions are unchanged. No source, dependency, specification or review artifact changed in the inspected fix diff.
 
 Inspected supplied /tmp/IR-1400-driver-fixture-control.log: exact monitor-preparation selection control passed (one test); /tmp/IR-1400-driver-fixture-clippy.log: two-target scoped Clippy passed; /tmp/IR-1400-driver-fixture-fmt-check.log: formatting completed with existing nightly-format-option warnings. No Cargo or aggregate gate rerun by reviewer. Full final-subject behavioral suite and the remaining aggregate stages are not claimed executed by these controls; lead retains the final gate.
+
+## New findings (disposition pass 2)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | high | Source-record fixtures access private PlanRoot emission fields and omit ExactTypeProjectionError.configured_bound, producing eleven compiler errors against current owner APIs. | tests/source_record_admission.rs:274 |
+| FND-004 | high | Monitor occurrence membership compares raw node-held IDs with validated document-held IDs, rejecting a genuine member occurrence as OccurrenceMismatch when the native node contains Operand slots. | src/monitor_refusal.rs:152 |
+
+FND-003 is demonstrated by /tmp/IR-1400-driver-continuation-3cb6e0a40.log (E0063 and E0616). The missing field belongs to ExactTypeProjectionError, not Dependency. FND-004 follows the native ID-domain mismatch: term and structural_key accept the document-held ID, while graph() returns raw Operand slots for the same node; raw equality therefore rejects its actual occurrence.
+
+## Disposition pass 2 evidence and current verdict
+
+**PASS — no open findings.** FND-002 remains fixed from round 1; FND-003 and FND-004 are fixed in this round. FND-001 remains the original clean placeholder. Original finding text and previous dispositions are preserved.
+
+Inspected only the two requested batches between the pre-fix candidate and fixture/occurrence-fix candidate: tests/source_record_admission.rs, src/monitor_refusal.rs and tests/monitor_refusal.rs. Production diff is a single switch from graph() to resolved_graph(). No new identity minting, raw-slot reconstruction, foreign package selection, owner authority clone, fallback, cause conversion or work/storage accounting change is present.
+
+Source-record fixture negative control supplies an explicit empty CheckedPackageEvidence both to the native owner reader and to the driver, asserting equality of the retained refusal. Its positive control uses the genuine PlanRoot emission/evidence with the original domain document. Getter changes retain the original root and borrowed emission. The manually constructed IncompleteIdentityWitness remains a semantic failure with no configured resource bound; existing native resource-refusal assertions and first-denial payload comparisons are retained. Error-catalog exact cardinality and spelling checks remain strict, now including the operational catalog condition added by this PR.
+
+Monitor occurrence tests find document-held IDs in resolved_graph and assert that the authentic corresponding raw ID differs and contains Operand slots. They verify owner contextual resolution equals the structural key, then exercise genuine occurrence success. Wrong-role/root and foreign-ordinal controls still require OccurrenceMismatch. Neither occurrence membership nor term/structural-key validation is bypassed. This directly checks FR-016-AC-6/7; the existing trace binding remains correct, so no separate gap-artifact change is needed.
+
+Supplied evidence inspected: /tmp/IR-1400-driver-fixture-all-compile-green.log (driver package test-target check passed); /tmp/IR-1400-driver-fixture2-control.log (exact native source-record positive/negative control passed); /tmp/IR-1400-driver-occurrence-control.log (exact native membership/negative control passed); /tmp/IR-1400-driver-fixture2-clippy.log and /tmp/IR-1400-driver-occurrence-clippy.log (scoped checks passed); corresponding fmt-check logs (existing nightly-option warnings only). Reviewer did not rerun Cargo or aggregate checks. CLI/workspace compilation and remaining lead gate stages are pending; no aggregate acceptance is claimed. Other five SR artifacts remain unchanged.
