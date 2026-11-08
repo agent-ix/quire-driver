@@ -554,7 +554,7 @@ impl RunOptions {
             index += 1;
         }
         if positionals.len() < 2 {
-            return Err("usage: quire run <source-path> <function> [parameter=value ...] [--limit name=value] [--engine interpreter] [--format json|text]".to_owned());
+            return Err("usage: quire run <source-path> <function> [parameter=value ...] [--limit name=value] [--engine interpreter|aot|jit] [--provider-config <path>] [--format json|text]".to_owned());
         }
         let mut call_arguments = Vec::new();
         for argument in &positionals[2..] {

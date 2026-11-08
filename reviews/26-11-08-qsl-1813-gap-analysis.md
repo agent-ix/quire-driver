@@ -50,3 +50,14 @@ Every unmet clause follows from the driver's current surface. Its `run` and
 `compile` take a source and a function rather than a FR-026/027 request file,
 and it writes no usage text and has no labels. Those are driver behaviour
 gaps against FR-287 and belong on a follow-up ticket, not in this test PR.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | ae57cdb: arity refusals now print `usage: quire <verb> ...` and the AC-3 test asserts stderr starts with it; the run bare-word exception is stated in the PR body |
+| FND-002 | fixed | PR body no longer refers to a ticket report; it lists covered and uncovered clauses itself |
+| FND-003 | fixed | ae57cdb adds a refused parse document to the /dev/full test; the PR body states the driver has no stderr refusal envelope |
+| FND-004 | fixed | PR body states the AC-8 refused-case stderr divergence and its conflict with FR-002 |
+| FND-005 | fixed | PR body states the Windows unpaired-surrogate half is uncovered |
+| FND-006 | fixed | ae57cdb adds a refused run (unknown function) to the relative/absolute comparison; the PR body states that comparison against `command` output is not possible |

@@ -58,3 +58,19 @@ Changes requested. FND-001 and FND-002 must be fixed before merge.
   non-UTF-8 path clause is unmet.
 
 AC-3, AC-5, AC-7 and the AC-9 path check are real tests that can fail.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | low | New run usage line advertises `[--engine interpreter]` although ExecutionEngine::parse also accepts aot and jit, and omits the accepted `--provider-config <path>` option, so the usage text misstates run's options | quire-cli/src/cli.rs:557 |
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | ae57cdb: std::io::pipe() reader dropped before the child is spawned; the first write always meets a closed pipe (frontend_cli.rs:213-221) |
+| FND-002 | fixed | ae57cdb: the three non-UTF-8 path-operand cases were removed from the AC-6 test; PR body states the path clause as unmet |
+| FND-003 | fixed | ae57cdb: refusal_code() and tool_failure_code() derive from Category::Refusal and Category::InternalFailure |
+| FND-004 | fixed | ae57cdb: local TestDirectory Drop guard removes the directory after a failed assertion |
+| FND-005 | still-open | new in this round; the run usage line must list `--engine interpreter|aot|jit` and `--provider-config <path>` |
