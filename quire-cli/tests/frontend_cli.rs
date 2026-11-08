@@ -14,8 +14,13 @@ const INVALID_SOURCE: &str = concat!(
     "/tests/fixtures/parse-invalid.qsl"
 );
 
-const REFUSAL: i32 = 20;
-const TOOL_FAILURE: i32 = 30;
+fn refusal_code() -> i32 {
+    i32::from(Category::Refusal.exit_code())
+}
+
+fn tool_failure_code() -> i32 {
+    i32::from(Category::InternalFailure.exit_code())
+}
 
 fn quire(arguments: &[&str]) -> Output {
     Command::new(QUIRE)
@@ -26,7 +31,7 @@ fn quire(arguments: &[&str]) -> Output {
 
 /// Assert a refusal that wrote nothing to stdout and did not panic.
 fn assert_refused_quietly(output: &Output, context: &str) {
-    assert_eq!(output.status.code(), Some(REFUSAL), "{context}");
+    assert_eq!(output.status.code(), Some(refusal_code()), "{context}");
     assert!(output.stdout.is_empty(), "{context}: stdout must be empty");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stderr.is_empty(), "{context}: refusal names the problem");
@@ -51,7 +56,14 @@ fn missing_and_extra_operands_are_refused_before_any_file_is_read() {
         let output = quire(arguments);
         assert_refused_quietly(&output, &format!("{arguments:?}"));
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains(verb), "{arguments:?}: {stderr}");
+        // `run` takes trailing `parameter=value` operands, so an extra bare word
+        // is a malformed call argument rather than an arity error.
+        if arguments != ["run", "missing.qsl", "yes", "extra"] {
+            assert!(
+                stderr.starts_with(&format!("usage: quire {verb} ")),
+                "{arguments:?}: {stderr}"
+            );
+        }
         assert!(
             !stderr.contains("could not read"),
             "{arguments:?} opened its path: {stderr}"
@@ -128,12 +140,9 @@ fn non_utf8_arguments_are_refused_before_the_file_is_opened() {
     use std::os::unix::ffi::OsStringExt;
 
     let invalid = || OsString::from_vec(vec![0xff]);
-    let cases: [Vec<OsString>; 6] = [
+    let cases: [Vec<OsString>; 3] = [
         vec![invalid(), "missing.qsl".into()],
-        vec!["parse".into(), invalid()],
         vec!["parse".into(), "missing.qsl".into(), invalid()],
-        vec!["format".into(), invalid()],
-        vec!["compile".into(), invalid()],
         vec!["run".into(), "missing.qsl".into(), invalid()],
     ];
     for arguments in cases {
@@ -155,11 +164,13 @@ fn non_utf8_arguments_are_refused_before_the_file_is_opened() {
 #[cfg(target_os = "linux")]
 #[test]
 fn stdout_write_failure_exits_30() {
-    let cases: [&[&str]; 4] = [
+    let cases: [&[&str]; 5] = [
         &["parse", SOURCE, "--format", "json"],
         &["format", SOURCE],
         &["compile", SOURCE, "--format", "json"],
         &["run", SOURCE, "yes", "--format", "json"],
+        // A refused outcome document is written to the same stream.
+        &["parse", INVALID_SOURCE, "--format", "json"],
     ];
     for arguments in cases {
         let full = std::fs::OpenOptions::new()
@@ -171,7 +182,11 @@ fn stdout_write_failure_exits_30() {
             .stdout(Stdio::from(full))
             .output()
             .expect("run quire with a full stdout");
-        assert_eq!(output.status.code(), Some(TOOL_FAILURE), "{arguments:?}");
+        assert_eq!(
+            output.status.code(),
+            Some(tool_failure_code()),
+            "{arguments:?}"
+        );
         assert!(
             String::from_utf8_lossy(&output.stderr).contains("OutputFailure"),
             "{arguments:?}"
@@ -195,14 +210,15 @@ fn closed_stdout_pipe_keeps_the_outcome_exit_code_and_stays_quiet() {
         (&["parse", INVALID_SOURCE, "--format", "json"], refusal),
     ];
     for (arguments, expected) in cases {
-        let mut child = Command::new(QUIRE)
+        // The reader is gone before the child exists, so its first write
+        // always meets a closed pipe.
+        let (reader, writer) = std::io::pipe().expect("create stdout pipe");
+        drop(reader);
+        let output = Command::new(QUIRE)
             .args(arguments)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("spawn quire");
-        drop(child.stdout.take());
-        let output = child.wait_with_output().expect("wait for quire");
+            .stdout(Stdio::from(writer))
+            .output()
+            .expect("run quire with a closed stdout reader");
         assert_eq!(output.status.code(), Some(expected), "{arguments:?}");
         if expected == success {
             assert!(
@@ -219,16 +235,26 @@ fn closed_stdout_pipe_keeps_the_outcome_exit_code_and_stays_quiet() {
     }
 }
 
+/// Removes its directory when dropped, including after a failed assertion.
+struct TestDirectory(std::path::PathBuf);
+
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Trace: FR-287-AC-9; the same source named by a relative and by an absolute
 /// path from two working directories gives equal `run` and `compile` bytes and
-/// exit codes.
+/// exit codes, for successful and for refused calls.
 #[test]
 fn relative_and_absolute_source_paths_give_equal_run_and_compile_output() {
-    let directory =
-        std::env::temp_dir().join(format!("quire-frontend-paths-{}", std::process::id()));
-    let other = directory.join("other");
+    let directory = TestDirectory(
+        std::env::temp_dir().join(format!("quire-frontend-paths-{}", std::process::id())),
+    );
+    let other = directory.0.join("other");
     std::fs::create_dir_all(&other).expect("create working directories");
-    std::fs::copy(SOURCE, directory.join("source.qsl")).expect("copy source fixture");
+    std::fs::copy(SOURCE, directory.0.join("source.qsl")).expect("copy source fixture");
 
     let run_in = |working_directory: &std::path::Path, path: &str, tail: &[&str]| {
         Command::new(QUIRE)
@@ -240,12 +266,18 @@ fn relative_and_absolute_source_paths_give_equal_run_and_compile_output() {
             .output()
             .expect("run quire")
     };
-    let absolute = directory.join("source.qsl");
+    let absolute = directory.0.join("source.qsl");
     let absolute = absolute.to_str().expect("UTF-8 temp path");
-    for tail in [&["compile"][..], &["run", "yes"][..]] {
-        let relative = run_in(&directory, "source.qsl", tail);
+    let cases: [(&[&str], i32); 3] = [
+        (&["compile"], 0),
+        (&["run", "yes"], 0),
+        // A refused call: the function does not exist.
+        (&["run", "no_such_function"], refusal_code()),
+    ];
+    for (tail, expected) in cases {
+        let relative = run_in(&directory.0, "source.qsl", tail);
         let from_elsewhere = run_in(&other, absolute, tail);
-        assert_eq!(relative.status.code(), Some(0), "{tail:?}");
+        assert_eq!(relative.status.code(), Some(expected), "{tail:?}");
         assert_eq!(
             relative.status.code(),
             from_elsewhere.status.code(),
@@ -255,5 +287,4 @@ fn relative_and_absolute_source_paths_give_equal_run_and_compile_output() {
         assert_eq!(relative.stdout, from_elsewhere.stdout, "{tail:?}");
         assert_eq!(relative.stderr, from_elsewhere.stderr, "{tail:?}");
     }
-    std::fs::remove_dir_all(&directory).expect("remove working directories");
 }

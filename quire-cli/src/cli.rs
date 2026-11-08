@@ -401,7 +401,7 @@ impl FormatOptions {
             index += 1;
         }
         if positionals.len() != 1 {
-            return Err("format requires exactly one source path".to_owned());
+            return Err("usage: quire format <source-path> [--format json|text]".to_owned());
         }
         Ok(Self {
             path: positionals.remove(0),
@@ -428,7 +428,7 @@ impl ParseOptions {
             index += 1;
         }
         if positionals.len() != 1 {
-            return Err("parse requires exactly one source path".to_owned());
+            return Err("usage: quire parse <source-path> [--format json|text]".to_owned());
         }
         Ok(Self {
             path: positionals.remove(0),
@@ -455,7 +455,7 @@ impl CompileOptions {
             index += 1;
         }
         if positionals.len() != 1 {
-            return Err("compile requires exactly one source path".to_owned());
+            return Err("usage: quire compile <source-path> [--format json|text]".to_owned());
         }
         Ok(Self {
             path: positionals.remove(0),
@@ -482,7 +482,7 @@ impl CheckOptions {
             index += 1;
         }
         if positionals.len() != 1 {
-            return Err("check requires exactly one source path".to_owned());
+            return Err("usage: quire check <source-path> [--format json|text]".to_owned());
         }
         Ok(Self {
             path: positionals.remove(0),
@@ -554,7 +554,7 @@ impl RunOptions {
             index += 1;
         }
         if positionals.len() < 2 {
-            return Err("run requires a source path and function name".to_owned());
+            return Err("usage: quire run <source-path> <function> [parameter=value ...] [--limit name=value] [--engine interpreter] [--format json|text]".to_owned());
         }
         let mut call_arguments = Vec::new();
         for argument in &positionals[2..] {
