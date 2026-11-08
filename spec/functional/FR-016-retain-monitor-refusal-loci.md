@@ -168,7 +168,7 @@ asserts copying only, not that a node/key/path/occurrence combination is valid.
 
 The component SHALL construct the canonical `CheckedNodeId` fields directly:
 fallibly copy each root's package text, path vector and `Name` text, retain
-`Index` and ordinal unchanged, and share each existing `Node(Arc<CheckedNodeId>)`
+`Index`, `Operand` and ordinal unchanged, and share each existing `Node(Arc<CheckedNodeId>)`
 by cloning that Arc. It SHALL NOT invoke the native allocating node/path Clone,
 serialize a key, allocate a replacement Arc, or duplicate an Arc's subtree.
 The occurrence SHALL retain its native role and ordinal without allocation.
@@ -178,7 +178,7 @@ its source package have been dropped.
 
 Before inspecting or copying each represented record, container, segment tag,
 integer scalar or UTF-8 byte, the component SHALL charge work: one unit per
-record/container/tag, eight per integer scalar, and one per UTF-8 byte. Each Arc
+record/container/tag, eight per integer scalar (including each `Operand` slot), and one per UTF-8 byte. Each Arc
 edge SHALL also incur one unit before sharing. Traversal SHALL be
 iterative and interruptible, with no semantic depth limit, whole-package scan
 or uncharged scratch collection. Cancellation SHALL be polled before every

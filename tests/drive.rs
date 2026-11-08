@@ -3249,5 +3249,12 @@ fn current_owner_boundary_raw_slots_resolve_in_each_holding_row() {
         package.structural_key_at(right)
     );
     let (_, positions) = recorder.generation_input();
-    assert_eq!(positions.len(), 3, "all three operations reach generation");
+    assert_eq!(
+        positions
+            .iter()
+            .filter(|position| matches!(position, ContractRequestPosition::DriverItem { .. }))
+            .count(),
+        3,
+        "all three operations reach generation"
+    );
 }
