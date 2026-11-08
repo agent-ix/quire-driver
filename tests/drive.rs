@@ -868,7 +868,7 @@ fn negate_package() -> Driven {
 /// The one expression node of `form` in `package`: IR's id.
 fn expression(package: &CheckedPackageV2, form: &str) -> CheckedNodeId {
     let node = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| node.node_tag.as_ref() == "expression" && node.semantic_form.as_ref() == form)
@@ -879,7 +879,7 @@ fn expression(package: &CheckedPackageV2, form: &str) -> CheckedNodeId {
 /// The one expression node whose `operation.identity` is `identity`: IR's id.
 fn expression_by_identity(package: &CheckedPackageV2, identity: &str) -> CheckedNodeId {
     let node = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| {
@@ -897,7 +897,7 @@ fn expression_by_identity(package: &CheckedPackageV2, identity: &str) -> Checked
 /// operand's, or a comparison's, declared bound (`DerivedDomain::IntegerRange`).
 fn integer_range_bound(package: &CheckedPackageV2, lower: &str, upper: &str) -> CheckedNodeId {
     let node = package
-        .graph()
+        .resolved_graph()
         .nodes
         .iter()
         .find(|node| {

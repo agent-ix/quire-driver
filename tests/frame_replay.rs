@@ -126,23 +126,21 @@ impl Fixture {
             &ClauseName(Identifier::new("Holds").unwrap()),
         )
         .unwrap();
-        let graph = qsl_replay::WireGraph::new(
-            driven
-                .checked()
-                .graph()
-                .nodes
-                .iter()
-                .map(|node| &node.node_id),
-        )
-        .unwrap();
-        let clause_node = driven
-            .checked()
-            .graph()
+        let package = driven.checked();
+        let mut keys = qsl_semantics::check::wire_id::StructuralKeys::default();
+        let clause_node = package
+            .resolved_graph()
             .nodes
             .iter()
-            .map(|node| &node.node_id)
-            .find(|id| graph.key(id).ok().as_ref() == Some(&clause.site.node))
-            .unwrap();
+            .enumerate()
+            .find(|(index, _)| {
+                let original = package
+                    .structural_key_at(*index)
+                    .expect("each admitted row retains its structural key");
+                keys.key(original).expect("native structural key converts") == clause.site.node
+            })
+            .map(|(_, node)| &node.node_id)
+            .expect("the original QSL clause selects its admitted document-held node");
         let harness = cg::generate_state_frame_obligations(&cg::StateFrameRequest {
             ceilings: cg::ProofCeilings {
                 memory_bytes: NonZeroU64::new(1024 * 1024).unwrap(),
