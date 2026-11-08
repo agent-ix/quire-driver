@@ -355,7 +355,6 @@ mod tests {
     use super::*;
     use ix_trace_rs::trace;
 
-    #[test]
     #[trace("FR-016-AC-10", "FR-016-AC-11")]
     #[test]
     fn current_owner_boundary_operand_copy_preserves_axis_and_charge_prefix() {
@@ -397,7 +396,8 @@ mod tests {
                     ordinal: 0,
                 })),
             ],
-            ..node
+            package: node.package.clone(),
+            ordinal: node.ordinal,
         };
         let comparison = copy_monitor_locus(&indexed, &indexed, &[], None, limits, &cancel)
             .expect("copy original indices");
@@ -406,6 +406,7 @@ mod tests {
     }
 
     #[trace("FR-016-AC-11")]
+    #[test]
     fn capacity_refusal_precedes_box_conversion() {
         assert!(matches!(
             exact_text_capacity(3, 4),

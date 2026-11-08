@@ -233,3 +233,44 @@ fn native_key_borrowed_material_charges_nested_utf8_and_releases_all_scratch() {
     ));
     assert_eq!(denied.storage(), 0);
 }
+
+#[ix_trace_rs::trace("FR-016-AC-10", "FR-016-AC-11")]
+#[test]
+fn current_owner_boundary_operand_inspection_keeps_numeric_charge_prefix() {
+    let cancel = Cancel::new();
+    let node = CheckedNodeId {
+        package: "pkg".into(),
+        path: vec![CheckedNodePathSegment::Operand(7)],
+        ordinal: 0,
+    };
+    let index = CheckedNodeId {
+        package: "pkg".into(),
+        path: vec![CheckedNodePathSegment::Index(7)],
+        ordinal: 0,
+    };
+    let limits = MonitorPreparationLimits {
+        work: u64::MAX,
+        storage: u64::MAX,
+    };
+    let mut slot_budget = Budget::new(limits, &cancel);
+    let mut index_budget = Budget::new(limits, &cancel);
+    slot_budget
+        .inspect(&node)
+        .expect("inspect native operand slot");
+    index_budget
+        .inspect(&index)
+        .expect("inspect native document index");
+    assert_eq!(slot_budget.work(), index_budget.work());
+    assert_eq!(slot_budget.storage(), 0);
+    let mut limited = Budget::new(
+        MonitorPreparationLimits {
+            work: slot_budget.work() - 1,
+            ..limits
+        },
+        &cancel,
+    );
+    assert!(matches!(
+        limited.inspect(&node),
+        Err(MonitorPreparationError::Work { next: 8, .. })
+    ));
+}

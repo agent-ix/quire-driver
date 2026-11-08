@@ -1198,6 +1198,7 @@ mod tests {
     #[trace("FR-001-AC-5")]
     #[test]
     fn current_owner_boundary_extension_keeps_native_code_and_cause() {
+        use qsl_replay::spine::CompileRefusal;
         let native =
             qsl_semantics::library::extension::ExtensionRefusal::DefinitionCycle(Vec::new());
         let refusal = DriverRefusal::Compile(Box::new(CompileRefusal::Extension(native.clone())));
