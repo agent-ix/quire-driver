@@ -135,7 +135,7 @@ the request's selected byte ceiling.
   NOT accept a caller-computed lowerability result or refusal, classify the
   form, or infer it from display or debug text.
 - Each routed item's node is the admitted package's `CheckedNodeId` whose
-  structural identity (package, path, ordinal) equals the item's `NodeKey`, found by lookup. Node-held operand slots SHALL resolve through their actual holding rows in the admitted package; equal raw slot bytes SHALL NOT select a graph node without that context. Driver requests SHALL carry the selected document-held ID unchanged. Every item's node
+  structural identity (package, path, ordinal) equals the item's `NodeKey`, found by lookup. Lookup resolves node-held operand slots through their actual holding rows in the admitted package; equal raw slot bytes alone do not select a graph node. Driver requests carry the selected document-held ID unchanged. Every item's node
   comes from the same compiled package's own
   `CheckedGraph::requirements()`, and `checked` is IR's own admission of
   the bytes that same package emitted, so this
