@@ -475,8 +475,12 @@ impl DriverRefusal {
             Self::ScalarCall(refusal) => Some(refusal.category()),
             Self::QslAdmissionEvidence(refusal) => Some(refusal.category()),
             Self::ScalarBinding(refusal) => Some(refusal.code().category()),
+            Self::HandoffCatalogUnavailable(_) => Some(Category::InternalFailure),
             Self::PackageRead(failure) => Some(failure.diagnostic().category()),
             Self::Envelope(refusal) => match refusal.as_ref() {
+                EnvelopeRefusal::ContractPackageCatalogUnavailable { .. } => {
+                    Some(Category::InternalFailure)
+                }
                 EnvelopeRefusal::ContractPackageReadRefused { .. } => Some(Category::Refusal),
                 EnvelopeRefusal::ContractPackageReadIncomplete { incomplete } => Some(
                     if incomplete.limit_kind == CheckedPackageLimit::Diagnostics {
@@ -1172,6 +1176,37 @@ mod tests {
     use quire_semantic_value::catalog::Category;
 
     use super::{DriverFault, DriverRefusal, DriverStage, OutcomeKind};
+
+    #[trace("FR-001-AC-5", "FR-001-AC-22")]
+    #[test]
+    fn current_owner_boundary_catalog_failure_retains_operational_payload() {
+        let refusal = DriverRefusal::from(EnvelopeRefusal::ContractPackageCatalogUnavailable {
+            path: "operations[3].constraints[1].kind".to_owned(),
+            message: "unknown catalog member".to_owned(),
+        });
+        assert_eq!(refusal.code(), "runtime_invariant");
+        assert_eq!(refusal.stage(), DriverStage::PackageRead);
+        assert_eq!(refusal.kind(), OutcomeKind::Fault);
+        assert!(refusal.package_read_diagnostic().is_none());
+        assert!(
+            matches!(refusal.envelope_refusal(), Some(EnvelopeRefusal::ContractPackageCatalogUnavailable { path, message })
+            if path == "operations[3].constraints[1].kind" && message == "unknown catalog member")
+        );
+        assert!(refusal.to_string().contains("unknown catalog member"));
+    }
+
+    #[trace("FR-001-AC-5")]
+    #[test]
+    fn current_owner_boundary_extension_keeps_native_code_and_cause() {
+        let native =
+            qsl_semantics::library::extension::ExtensionRefusal::DefinitionCycle(Vec::new());
+        let refusal = DriverRefusal::Compile(Box::new(CompileRefusal::Extension(native.clone())));
+        assert_eq!(refusal.code(), "invalid_package/definition-cycle");
+        assert_eq!(
+            refusal.to_string(),
+            CompileRefusal::Extension(native).to_string()
+        );
+    }
 
     fn node_id(name: &str) -> CheckedNodeId {
         serde_json::from_value(serde_json::json!({
