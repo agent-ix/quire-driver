@@ -273,6 +273,7 @@ The lead's first final-gate step exposed nine compiler errors (E0616, E0061 and 
 | FND-002 | fixed | The fixture retains the genuine PlanRoot, borrows its plan subject and original emission through owner getters, and handles equality_witness with a finite NativeJoinBudget and native Result. Final-subject callers retain pointer-identity assertions. |
 | FND-003 | fixed | Source-record fixtures borrow original PlanRoot emission through its getter; the non-resource IncompleteIdentityWitness has configured_bound None. The current error-code catalog expectation includes CatalogUnavailable. Missing-evidence refusal is explicit; positive admission retains original producer evidence. |
 | FND-004 | fixed | Occurrence membership now checks the resolved graph in the same document-held identity domain as the already validated term and structural key; exact role/ordinal membership remains required. |
+| FND-005 | fixed | Select the same declaration-less graph node through resolved_graph(), retaining its document-held ID for native lowering and retaining native failure records in setup diagnostics. |
 
 ## Disposition pass 1 evidence and current verdict
 
@@ -304,3 +305,21 @@ Source-record fixture negative control supplies an explicit empty CheckedPackage
 Monitor occurrence tests find document-held IDs in resolved_graph and assert that the authentic corresponding raw ID differs and contains Operand slots. They verify owner contextual resolution equals the structural key, then exercise genuine occurrence success. Wrong-role/root and foreign-ordinal controls still require OccurrenceMismatch. Neither occurrence membership nor term/structural-key validation is bypassed. This directly checks FR-016-AC-6/7; the existing trace binding remains correct, so no separate gap-artifact change is needed.
 
 Supplied evidence inspected: /tmp/IR-1400-driver-fixture-all-compile-green.log (driver package test-target check passed); /tmp/IR-1400-driver-fixture2-control.log (exact native source-record positive/negative control passed); /tmp/IR-1400-driver-occurrence-control.log (exact native membership/negative control passed); /tmp/IR-1400-driver-fixture2-clippy.log and /tmp/IR-1400-driver-occurrence-clippy.log (scoped checks passed); corresponding fmt-check logs (existing nightly-option warnings only). Reviewer did not rerun Cargo or aggregate checks. CLI/workspace compilation and remaining lead gate stages are pending; no aggregate acceptance is claimed. Other five SR artifacts remain unchanged.
+
+## New findings (disposition pass 3)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | high | Provider REAL_ADMISSION fixture passes a raw Operand-slot node ID to document-held lowering, so native admission succeeds but lowering returns no wire package and poisons the shared fixture, failing two provider preflight controls. | src/provider.rs:505 |
+
+## Disposition pass 3 evidence and current verdict
+
+**PASS — no open findings.** FND-002 through FND-004 retain their fixed dispositions; FND-005 is fixed. FND-001 remains the original clean placeholder.
+
+Inspected only src/provider.rs changes between the requested pre-fix and fixed candidates. Both changed expressions are under cfg(test) mod tests. The original compile_package source, E5 reader, evidence, bounded limits, declaration-less-node predicate and node order are unchanged. IR resolved_graph returns the same positional nodes with document-held IDs; the fixture selects the same original node rather than inventing or cloning authority from another package. checked.lower receives that document-held ID and its unchanged routed_contract_lowering_profile. Native feature_accounting and source-map occurrences are still read from the real admitted lower output. No lowered receipt, accounting value, resource ceiling or first-denial result is fabricated or changed.
+
+The native red log shows successful E5 admission followed by Failed lowering records containing Operand(0), rather than an admission refusal. The first provider test panics on absent wire output and the second fails due to the poisoned LazyLock. Switching only the identity view restores native lowering. Enhanced setup diagnostics expose lowered.records on failure; they do not recover from the failure or bypass any assertion. Existing cancellation/backend-mismatch and missing-limits/missing-harness negative assertions are unchanged.
+
+Evidence inspected: /tmp/IR-1400-driver-continuation2-db5cc1809.log (driver library 98 passed, two failed, one ignored); /tmp/IR-1400-driver-provider-native-red.log (native lowering failure with raw Operand ID); /tmp/IR-1400-driver-provider-cancel-control.log and /tmp/IR-1400-driver-provider-limits-control.log (each affected exact control passes independently); /tmp/IR-1400-driver-provider-clippy.log (passed); /tmp/IR-1400-driver-provider-fmt-check.log (existing nightly-option warnings). No actual Kani engine was run or claimed. Reviewer reran no Cargo or aggregate gate. Remaining integration/plugin-host/doc/control stages belong to the lead; this verdict does not imply those stages passed.
+
+Other five review artifacts remain unchanged. Existing FR-005-AC-2 provider preflight evidence bindings remain applicable; no new behavior or criterion was introduced by this fixture correction.
