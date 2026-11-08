@@ -274,6 +274,8 @@ The lead's first final-gate step exposed nine compiler errors (E0616, E0061 and 
 | FND-003 | fixed | Source-record fixtures borrow original PlanRoot emission through its getter; the non-resource IncompleteIdentityWitness has configured_bound None. The current error-code catalog expectation includes CatalogUnavailable. Missing-evidence refusal is explicit; positive admission retains original producer evidence. |
 | FND-004 | fixed | Occurrence membership now checks the resolved graph in the same document-held identity domain as the already validated term and structural key; exact role/ordinal membership remains required. |
 | FND-005 | fixed | Select the same declaration-less graph node through resolved_graph(), retaining its document-held ID for native lowering and retaining native failure records in setup diagnostics. |
+| FND-006 | fixed | The three driver helper selectors use resolved_graph document-held IDs for the same selected expression/operation/bound nodes, leaving all assertions unchanged. |
+| FND-007 | fixed | The frame fixture matches the original QSL clause to IR structural_key_at(index) through the owner StructuralKeys adapter, then retains that row's resolved document-held ID. |
 
 ## Disposition pass 1 evidence and current verdict
 
@@ -323,3 +325,22 @@ The native red log shows successful E5 admission followed by Failed lowering rec
 Evidence inspected: /tmp/IR-1400-driver-continuation2-db5cc1809.log (driver library 98 passed, two failed, one ignored); /tmp/IR-1400-driver-provider-native-red.log (native lowering failure with raw Operand ID); /tmp/IR-1400-driver-provider-cancel-control.log and /tmp/IR-1400-driver-provider-limits-control.log (each affected exact control passes independently); /tmp/IR-1400-driver-provider-clippy.log (passed); /tmp/IR-1400-driver-provider-fmt-check.log (existing nightly-option warnings). No actual Kani engine was run or claimed. Reviewer reran no Cargo or aggregate gate. Remaining integration/plugin-host/doc/control stages belong to the lead; this verdict does not imply those stages passed.
 
 Other five review artifacts remain unchanged. Existing FR-005-AC-2 provider preflight evidence bindings remain applicable; no new behavior or criterion was introduced by this fixture correction.
+
+## New findings (disposition pass 4)
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-006 | high | Driver acceptance helpers use raw node-held Operand IDs as expected CG document-held selections and native forms, causing nine assertion failures after the production identity correction. | tests/drive.rs:868 |
+| FND-007 | high | Frame-replay fixture decodes raw node-held IDs through WireGraph without holding-row resolution, failing with OperandSlot(0) before all five native frame tests can reach their assertions. | tests/frame_replay.rs:129 |
+
+## Disposition pass 4 evidence and current verdict
+
+**PASS — no open findings.** FND-002 through FND-005 retain fixed dispositions; FND-006 and FND-007 are fixed. FND-001 remains the original clean placeholder.
+
+Inspected only tests/drive.rs and tests/frame_replay.rs between the supplied frozen candidates. Driver helper predicates for expression semantic form, operation identity and integer-range bounds remain identical; only the owner's graph view changes to document-held IDs. No expected positive generation output, native-form equality assertion, request ordering, unsupported-sibling outcome or bound assertion was weakened.
+
+The frame fixture retains the original QSL call_site clause. For each admitted positional row it reads structural_key_at(index), converts that complete structural key using the QSL owner's StructuralKeys adapter and compares it with clause.site.node. It retains the matching resolved row's exact document-held ID for CG StateFrameRequest. The old raw-slot WireGraph conversion is removed. It does not pick by raw slot equality, infer a new semantic identity, replace the clause with another item, or reconstruct an authority from text. The original request occurrence/index join, generated harness identity, inheritance/declaring-owner expectations and admitted-package comparisons remain unchanged. Diff inspection confirms no edits to the tests asserting QSL refusal precedence, missing/changed/caller-populated associations or public-inventory rebinding rejection.
+
+Reviewed all fourteen /tmp/IR-1400-driver-round4-receipts.json entries against their actual logs /tmp/IR-1400-driver-r4-01.log through /tmp/IR-1400-driver-r4-14.log. Every entry has exit 0, its named exact test reports ok, and each log reports one passed and zero failed. These are nine driver controls plus five frame-replay controls, covering positive generation/native forms and unchanged refusal/association/rebinding negatives. /tmp/IR-1400-driver-unrun-tail-6da5bfe2e.log records the earlier nine drive assertion failures and five OperandSlot setup failures, plus the successful remaining integration/plugin-host/doc/adapter runs. /tmp/IR-1400-driver-fixture4-clippy.log passes; /tmp/IR-1400-driver-fixture4-fmt-check.log carries only existing nightly-option warnings.
+
+No production, dependency, specification or original review artifact is changed by this fix diff. No actual Kani execution, new budget assumption, exception or test seam is introduced. Reviewer ran no Cargo, aggregate or broad test repeat. All fourteen reported failures now have inspected exact green controls; lead owns the complete gate checklist and merge decision. Other five SRs remain unchanged: this fixture-only correction changes no acceptance contract or trace binding.
