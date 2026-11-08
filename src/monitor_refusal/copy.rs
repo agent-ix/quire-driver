@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(copied.locus.structural_key, node);
         let limited = MonitorPreparationLimits {
             work: copied.work - 1,
-            storage: copied.storage,
+            storage: u64::MAX,
         };
         assert!(matches!(
             copy_monitor_locus(&node, &node, &[], None, limited, &cancel),
