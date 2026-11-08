@@ -538,22 +538,20 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
         diagnostics: 1_000,
         work: 100_000_000,
     };
+    // The current producer retains complete admission evidence. Deliberately
+    // omit it only for this negative reader control.
+    let missing_evidence = quire_contract_model::CheckedPackageEvidence::new();
     let native = quire_contract_model::read_checked_package(
         root.emission().package().bytes(),
         read_limits,
-        root.emission().evidence(),
+        &missing_evidence,
     );
     let quire_contract_model::CheckedPackageDispatchResult::Refused(expected) = native else {
         panic!("original model documents are required by the strict owner reader")
     };
-    let error = admit_source_records(
-        root.emission(),
-        root.emission().evidence(),
-        read_limits,
-        JOIN_LIMITS,
-    )
-    .err()
-    .unwrap();
+    let error = admit_source_records(root.emission(), &missing_evidence, read_limits, JOIN_LIMITS)
+        .err()
+        .unwrap();
     assert_eq!(error.code(), SourceRecordAdmissionErrorCode::ReadRefused);
     let SourceRecordAdmissionError::ReadRefused(actual) = error else {
         panic!("native reader refusal remains distinct")
