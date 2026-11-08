@@ -3,7 +3,7 @@
 
 use std::{path::PathBuf, process::Command};
 
-use qsl_analyze::monitor_root::{emit_plan_root, PlanRootRequest};
+use qsl_analyze::monitor_root::{emit_plan_root, PlanRoot, PlanRootRequest};
 use qsl_foundation::SourceIdentity;
 use qsl_package::Emission;
 use qsl_replay::{spine::SpineLimits, MonitorTarget, TimingObligationSettings};
@@ -11,7 +11,7 @@ use qsl_semantics::{library::LibraryName, model::intake::package_input};
 use quire_contract_model::{
     read_checked_package, CheckedNodeId, CheckedOccurrenceRole, CheckedPackageDispatchResult,
     CheckedPackageReadLimits, CheckedPackageV2, CheckedRational, CheckedSelectionRole, CheckedTerm,
-    SelectedFactRows,
+    NativeJoinBudget, SelectedFactRows,
 };
 use quire_driver::monitor::{
     MonitorPreparationLimits, MonitorPreparationRequest, MonitorSelection,
@@ -32,16 +32,26 @@ pub const DISTINCT_CLAUSE: &str = r#"temporal OtherMonitor using timed over (can
 pub struct Fixture {
     /// Strictly admitted native package.
     pub package: Box<CheckedPackageV2>,
-    /// Original pre-writer native subject.
-    pub subject: qsl_replay::MonitorSubject,
     /// Native evidence extended with the selected domain document.
     pub evidence: quire_contract_model::CheckedPackageEvidence,
     /// Independently supplied hardware counter expectation.
     pub counter: &'static str,
-    /// Original final native emission.
-    pub emission: Emission,
+    /// Original paired producer plan and final emission.
+    root: PlanRoot,
     /// Exact producer capacities joined to final admitted subformula IDs.
     pub buffers: Vec<(CheckedNodeId, Box<str>)>,
+}
+
+impl Fixture {
+    /// Borrow the original producer subject from its retained plan.
+    pub fn subject(&self) -> &qsl_replay::MonitorSubject {
+        self.root.plan().subject()
+    }
+
+    /// Borrow the original final emission paired with the retained plan.
+    pub fn emission(&self) -> &Emission {
+        self.root.emission()
+    }
 }
 
 /// Produce and strictly admit a selected clause with the requested companion source.
@@ -119,12 +129,12 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
         &Cancel::new(),
     )
     .expect("actual final PlanRoot producer");
-    let mut evidence = root.emission.evidence().clone();
+    let mut evidence = root.emission().evidence().clone();
     evidence
         .insert_domain_package_document(identity, document)
         .unwrap();
     let package =
-        match read_checked_package(root.emission.package().bytes(), read_limits(), &evidence) {
+        match read_checked_package(root.emission().package().bytes(), read_limits(), &evidence) {
             CheckedPackageDispatchResult::AdmittedV2(package) => package,
             other => panic!("strict final package admission: {other:?}"),
         };
@@ -132,10 +142,10 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
     // recomputed by the driver. Retain its independently produced values and
     // use the final emission's exact subformula identities.
     let plan = package.monitor_plans().next().unwrap();
-    assert_eq!(plan.buffers().len(), root.plan.buffers().len());
+    assert_eq!(plan.buffers().len(), root.plan().buffers().len());
     let buffers = plan
         .buffers()
-        .zip(root.plan.buffers())
+        .zip(root.plan().buffers())
         .map(|(buffer, (_, capacity))| {
             (
                 buffer.subformula().clone(),
@@ -145,10 +155,9 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
         .collect();
     Fixture {
         package,
-        subject: root.plan.subject().clone(),
         evidence,
         counter,
-        emission: root.emission,
+        root,
         buffers,
     }
 }
@@ -192,7 +201,7 @@ pub fn with_request(
         .iter()
         .find(|row| row.declaration == *plan.clause() && row.occurrence == source.ordinal);
     let tick = fixture
-        .emission
+        .emission()
         .selected_source_unit_rows()
         .iter()
         .find(|row| {
@@ -201,7 +210,14 @@ pub fn with_request(
                 .is_some_and(|name| name.as_ref() == "ms")
         })
         .unwrap();
-    let equality = fixture.emission.equality_witness(package);
+    // Producer witness materialization has its own finite owner allowance;
+    // its charges precede the independent driver preparation request.
+    let mut equality_budget = NativeJoinBudget::new(100_000_000, 8 * 1024 * 1024)
+        .with_read_storage_limit(8 * 1024 * 1024);
+    let equality = fixture
+        .emission()
+        .equality_witness(package, &mut equality_budget)
+        .expect("native equality witness materialization within the fixture allowance");
     let rate = CheckedRational {
         numerator: "2".into(),
         denominator: "1".into(),
@@ -235,9 +251,9 @@ pub fn with_request(
         buffers: &fixture.buffers,
         activation_capacity: "8",
         witnesses: SelectedFactRows {
-            declarations: fixture.emission.selected_exact_declaration_rows(),
-            fields: fixture.emission.selected_exact_field_rows(),
-            source_units: fixture.emission.selected_source_unit_rows(),
+            declarations: fixture.emission().selected_exact_declaration_rows(),
+            fields: fixture.emission().selected_exact_field_rows(),
+            source_units: fixture.emission().selected_source_unit_rows(),
             equality_applications: equality.applications(),
             equality_facts: equality.facts(),
         },
