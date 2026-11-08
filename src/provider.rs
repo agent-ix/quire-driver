@@ -505,7 +505,7 @@ mod tests {
                 other => panic!("IR admits QSL provider fixture: {other:?}"),
             };
             let node_id = checked
-                .graph()
+                .resolved_graph()
                 .nodes
                 .iter()
                 .find(|node| node.declaration.is_none())
