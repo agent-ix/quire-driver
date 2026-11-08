@@ -74,3 +74,20 @@ AC-3, AC-5, AC-7 and the AC-9 path check are real tests that can fail.
 | FND-003 | fixed | ae57cdb: refusal_code() and tool_failure_code() derive from Category::Refusal and Category::InternalFailure |
 | FND-004 | fixed | ae57cdb: local TestDirectory Drop guard removes the directory after a failed assertion |
 | FND-005 | still-open | new in this round; the run usage line must list `--engine interpreter|aot|jit` and `--provider-config <path>` |
+| FND-005 | fixed | 0b37690: the run usage line lists `--engine interpreter\|aot\|jit` and `[--provider-config <path>]` |
+
+## Disposition pass 2 scope
+
+Round 2 adds `quire-cli/tests/library_parity.rs`, the driver half of FR-299 and
+TC-784. The review covered code and Rust idioms. It found no defect, so there
+are no new findings.
+
+- The binary's `--format json` stdout is compared to the kit's canonical
+  encoding of the library document, and the exit code is compared too.
+- The library side runs parse, select, check and package, and calls
+  `quire_driver::execute` on the interpreter.
+- The success source and the malformed source both cover `check`, `compile`
+  and `run`.
+- The temporary directories have distinct labels, so the two tests do not
+  collide when they run in parallel.
+- A drop guard cleans up each directory.

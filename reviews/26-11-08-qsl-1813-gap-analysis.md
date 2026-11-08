@@ -61,3 +61,18 @@ gaps against FR-287 and belong on a follow-up ticket, not in this test PR.
 | FND-004 | fixed | PR body states the AC-8 refused-case stderr divergence and its conflict with FR-002 |
 | FND-005 | fixed | PR body states the Windows unpaired-surrogate half is uncovered |
 | FND-006 | fixed | ae57cdb adds a refused run (unknown function) to the relative/absolute comparison; the PR body states that comparison against `command` output is not possible |
+
+## Disposition pass 2 scope
+
+Round 2 adds `quire-cli/tests/library_parity.rs`. It was checked against
+FR-299-AC-1 to AC-4 and the FR-299 Overlap on QSL origin/main. AC-1 and AC-2
+are covered at document level.
+
+The PR body lists each uncovered part with its size:
+
+- the AC-1 claims and the FR-278 package bytes;
+- the AC-3 supplied library;
+- the AC-4 cancelled check;
+- the Overlap's `prove` claim.
+
+There are no new findings.
