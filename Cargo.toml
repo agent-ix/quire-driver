@@ -38,6 +38,7 @@ path = "src/lib.rs"
 [dependencies]
 # Shared diagnostic types are owned by QSV, not re-exported by QSL.
 quire-semantic-value = { git = "https://github.com/agent-ix/quire-semantic-value", branch = "main" }
+qsl-analyze = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
@@ -46,6 +47,8 @@ qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", branc
 quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", branch = "main" }
 quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", branch = "main" }
 quire-contract-runtime = { git = "https://github.com/agent-ix/quire-contract-runtime", branch = "main", default-features = false, features = ["exact"] }
+# The observation owner issues the progress view in the preparation request.
+quire-observation = { git = "https://github.com/agent-ix/quire-observation", branch = "main" }
 # QSpec FR-331's linked manifest snapshot is canonicalized at registry admission.
 quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main" }
 # QSL's caller-owned cancellation handle is a public driver API type.
@@ -55,7 +58,6 @@ serde_json = "1.0.151"
 thiserror = "2.0.20"
 
 [dev-dependencies]
-qsl-analyze = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 # Existing DeclarationKey fixture follows its extracted plain-value owner.
 quire-checked = { git = "https://github.com/agent-ix/quire-eval", branch = "main" }
 ix-trace-rs = { git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }

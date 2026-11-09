@@ -228,6 +228,9 @@ order above for P7, and RT for construction.
   on that change and on the seam requirements listed above.
 - The driver takes a normal dependency on `qsl-analyze` for `PlanRoot` and
   `AdmittedPlanAuthority`.
+- The driver takes a normal dependency on `quire-observation` for the
+  `quire_observation::authority::progress::View` type of the request's
+  `progress` field.
 - IR FR-357, FR-358 and FR-361 own the closure, the budget, the receipt and
   the closure's `tick_unit_dimension()` read.
 - quire-observation [FR-004](ix://agent-ix/quire-observation/FR-004) (AC-7)

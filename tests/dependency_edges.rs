@@ -174,6 +174,7 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         .map(|p| p.name.as_str())
         .collect();
     let expected: BTreeSet<&str> = [
+        "qsl-analyze",
         "qsl-foundation",
         "qsl-package",
         "qsl-replay",
@@ -184,6 +185,7 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         "quire-contract-model",
         "quire-contract-runtime",
         "quire-canonical",
+        "quire-observation",
         "quire-semantic-value",
         "serde",
         "serde_json",
@@ -194,13 +196,9 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     assert_eq!(direct, expected);
     assert_eq!(
         graph.driver_dev_dependencies,
-        [
-            "ix-trace-rs".to_owned(),
-            "quire-checked".to_owned(),
-            "qsl-analyze".to_owned()
-        ]
-        .into_iter()
-        .collect()
+        ["ix-trace-rs".to_owned(), "quire-checked".to_owned()]
+            .into_iter()
+            .collect()
     );
     assert!(
         graph.reachable_from(&graph.root).iter().all(|id| !matches!(
@@ -210,7 +208,7 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
         "the quire-driver transitive dependency closure reaches a downstream implementation crate"
     );
     let driver_qsl: Vec<&Package> = graph.deps_of(&graph.root).filter(|p| p.is_qsl()).collect();
-    assert_eq!(driver_qsl.len(), 5, "five QSL edges, by source");
+    assert_eq!(driver_qsl.len(), 6, "six QSL edges, by source");
     assert!(driver_qsl.iter().all(|p| p.name != QSL_ROOT));
 
     let runtime = graph.ids_named("quire-contract-runtime");
