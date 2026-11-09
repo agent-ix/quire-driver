@@ -460,3 +460,64 @@ fn environment_ceilings_and_denials_map_to_work_and_storage_codes() {
         MonitorPreparationErrorCode::Storage
     );
 }
+
+/// Lowering relies on QSL declaring every source-record member required.
+#[trace("TC-033", "FR-017-AC-1")]
+#[test]
+fn the_producers_source_records_declare_every_member_required() {
+    let cancel = Cancel::new();
+    let mut rows = collect_clause("C", STEP_ONE, LIMITS, &cancel).expect("genuine root admits");
+    rows.read_closure(&cancel, |_, _, facts| {
+        assert!(!facts.source_records.is_empty());
+        for record in facts.source_records {
+            for member in &record.members {
+                assert_eq!(
+                    member.presence,
+                    quire_exact::Presence::Required,
+                    "{} declares {} optional",
+                    record.qualified_declaration.join("."),
+                    member.admitted_name
+                );
+            }
+        }
+    })
+    .expect("closure reads");
+}
+
+/// A clause whose atom sums `terms` literals, so the lowered body nests
+/// `terms` additions deep.
+fn deep_chain_clause(terms: usize) -> String {
+    let sum = vec!["1"; terms].join(" + ");
+    format!(
+        r#"temporal C using timed over (candidate: Selected::ConfigVersion) clock "model-time" on origin {{
+    always (holds(candidate.versionNumber + {sum} = 2) implies eventually[0 ms, 3 ms] holds(candidate.versionNumber = 3))
+}}"#
+    )
+}
+
+#[trace("TC-033", "FR-017-AC-3")]
+#[test]
+fn a_deep_addition_chain_stops_at_the_storage_allowance_not_the_stack() {
+    let cancel = Cancel::new();
+    let clause = deep_chain_clause(500);
+    let mut rows = collect_clause("C", &clause, LIMITS, &cancel).expect("genuine root admits");
+    let mut lowered = |storage: u64| {
+        rows.read_closure(&cancel, |authority, closure, facts| {
+            quire_driver::monitor::lowering::lower_entries(
+                authority.admitted_package(),
+                closure,
+                facts,
+                MonitorPreparationLimits {
+                    work: LIMITS.work,
+                    storage,
+                },
+                &cancel,
+            )
+            .map(|bodies| bodies.expressions.len())
+        })
+        .expect("closure reads")
+    };
+    let error = lowered(64 * 1024).err().expect("the chain exceeds 64 KiB");
+    assert_eq!(error.code(), MonitorPreparationErrorCode::Storage);
+    assert!(lowered(LIMITS.storage).expect("an ample allowance lowers") > 500);
+}

@@ -22,6 +22,10 @@ use super::{key, operation, Budget, Error, MonitorPreparationLimits};
 use crate::monitor::ClosureFacts;
 use crate::monitor_refusal::unsupported_at;
 
+/// A conservative upper bound on the native stack one lowering level
+/// (`lower`, `application` or `value`, `operands`) occupies.
+const LOWER_FRAME_BYTES: usize = 4096;
+
 /// The lowered arenas and the resolved entry addresses.
 pub struct LoweredBodies {
     /// The four entries, as function addresses.
@@ -635,6 +639,10 @@ impl<'a, 'b> Lowerer<'a, 'b> {
             .iter()
             .find(|row| &row.structural_node == semantic)
         {
+            // QSL's generated records declare every member required and emit
+            // every member (checked against the genuine plan in
+            // `monitor_closure.rs`), so a missing binding is an invariant
+            // fault, never an absent optional member.
             let mut fields = Vec::with_capacity(row.members.len());
             for declared in &row.members {
                 let value = members
