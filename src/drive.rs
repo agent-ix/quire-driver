@@ -1335,9 +1335,9 @@ fn structural_key_matches(id: &CheckedNodeId, key: &quire_exact::NodeKey) -> boo
                     };
                     pending.push((node.as_ref(), child));
                 }
-                CheckedNodePathSegment::Index(_) | CheckedNodePathSegment::Operand(_) => {
-                    return false
-                }
+                CheckedNodePathSegment::Index(_)
+                | CheckedNodePathSegment::Operand(_)
+                | CheckedNodePathSegment::Dependency { .. } => return false,
             }
         }
         if path.next().is_some() {
