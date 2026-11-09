@@ -6,7 +6,7 @@ use qsl_analyze::monitor_root::{PlanAuthoritySelection, PlanAuthorityValidationC
 use quire_driver::monitor::{
     collect_monitor_closure_rows, MonitorPreparationErrorCode, MonitorPreparationLimits,
 };
-use quire_exact::Cancel;
+use quire_exact::{Cancel, Integer, Rational};
 
 /// Native PlanRoot support shared by monitor integration suites.
 #[path = "common/monitor.rs"]
@@ -123,7 +123,7 @@ fn cancellation_before_admission_returns_cancelled() {
     assert_eq!(error.code(), MonitorPreparationErrorCode::Cancelled);
 }
 
-#[trace("TC-033", "FR-017-AC-1")]
+#[trace("TC-033", "FR-019-AC-6")]
 #[test]
 fn the_step_one_monitor_declarations_admit_into_a_type_environment() {
     let cancel = Cancel::new();
@@ -174,7 +174,7 @@ fn derive(
     })?
 }
 
-#[trace("TC-033", "FR-019-AC-1")]
+#[trace("TC-033", "FR-019-AC-9")]
 #[test]
 fn the_step_one_plan_derives_its_layout_from_the_closure() {
     let cancel = Cancel::new();
@@ -183,11 +183,21 @@ fn the_step_one_plan_derives_its_layout_from_the_closure() {
     assert!(!layout.package_lock.is_empty());
     assert!(!layout.clock_binding.is_empty());
     assert!(!layout.admitted_order.is_empty());
-    assert!(layout.max_reading_gap > 0);
+    // The fixture's independently authored target premises.
+    assert_eq!(layout.counter, "counter");
+    assert_eq!(layout.counter_width_bits, 16);
+    assert_eq!(layout.max_reading_gap, 100);
+    assert_eq!(layout.activation_capacity, Integer::from(8_u64));
+    assert_eq!(
+        layout.max_event_rate,
+        Rational::from_integer(Integer::from(2_u64))
+    );
+    assert_eq!(layout.uncertainty, Rational::from_integer(Integer::zero()));
     assert_eq!(layout.buffers.len(), 1);
+    assert!(layout.buffers[0].capacity > Integer::zero());
 }
 
-#[trace("TC-033", "FR-019-AC-4")]
+#[trace("TC-033", "FR-019-AC-9")]
 #[test]
 fn a_tick_unit_of_another_dimension_is_a_target_mismatch() {
     let cancel = Cancel::new();
@@ -204,15 +214,18 @@ fn prepare(
     std::rc::Rc<quire_contract_runtime::monitor::Program>,
     quire_driver::monitor::MonitorPreparationError,
 > {
-    let time = collect_clause(selected, additional, LIMITS, cancel)
-        .expect("genuine root admits")
-        .read_closure(cancel, |_, closure, _| {
-            closure.model_types().dimensions()[0]
-                .structural_node
-                .clone()
-        })
-        .expect("closure reads");
     let fixture = monitor_fixture::fixture(selected, "counter", additional);
+    // Independent of the closure under test: the strictly admitted package's
+    // own declared Time dimension.
+    let time = fixture
+        .package
+        .resolved_graph()
+        .nodes
+        .iter()
+        .find(|node| &*node.semantic_form == "dimension")
+        .expect("the declared Time dimension")
+        .node_id
+        .clone();
     let root = fixture.into_root();
     let (progress, subject) = observation::admitted(Some(vec![observation::row(&root)]));
     let source = root.checked_unit().source().identity().clone();
@@ -236,16 +249,55 @@ fn prepare(
     )
 }
 
-#[trace("TC-033", "FR-019-AC-1")]
+#[trace("TC-033", "FR-017-AC-1")]
 #[test]
-fn the_step_one_plan_prepares_a_checked_program() {
+fn the_step_one_plan_prepares_a_program_with_four_typed_entries() {
+    use quire_exact::ValueType;
     let cancel = Cancel::new();
-    let program = prepare("C", STEP_ONE, &cancel);
-    if let Err(error) = &program {
-        panic!("prepare failed: {error:?} / {error}");
+    let program = prepare("C", STEP_ONE, &cancel)
+        .unwrap_or_else(|error| panic!("prepare failed: {error:?} / {error}"));
+    let layout = program.layout();
+    let entry = |id| program.function(id).expect("a retained entry function");
+    let (init, event, watermark, gap) = (
+        entry(layout.entries.init),
+        entry(layout.entries.on_event),
+        entry(layout.entries.on_watermark),
+        entry(layout.entries.on_gap),
+    );
+    assert!(init.parameters.is_empty());
+    assert_eq!(init.result, layout.state.value_type);
+    assert_eq!(
+        event.parameters,
+        vec![
+            layout.state.value_type.clone(),
+            ValueType::Integer,
+            layout.inputs.value_type.clone()
+        ]
+    );
+    assert_eq!(
+        watermark.parameters,
+        vec![
+            layout.state.value_type.clone(),
+            ValueType::Integer,
+            layout.scope.value_type.clone()
+        ]
+    );
+    assert_eq!(
+        gap.parameters,
+        vec![layout.state.value_type.clone(), ValueType::Integer]
+    );
+    for step in [event, watermark, gap] {
+        assert_eq!(step.result, layout.step_result.value_type);
     }
+    // The four entries are distinct functions with distinct source keys.
+    let mut keys = vec![&init.key, &event.key, &watermark.key, &gap.key];
+    keys.sort();
+    keys.dedup();
+    assert_eq!(keys.len(), 4);
 }
 
+/// Smoke test only: the complete TC-200 step-1 oracle is `monitor_tick.rs`.
+///
 /// The first result's outcome name after one request event at tick 0 and a
 /// progress assertion covering ticks through `boundary`.
 fn outcome_after(
@@ -335,7 +387,19 @@ fn outcome_after(
     let Value::Composite(first) = &results.elements()[0] else {
         panic!("a result record");
     };
-    let quire_exact::FieldValue::Present(Value::Union(outcome)) = &first.slots()[1] else {
+    let quire_semantic_value::declaration::CompositeShape::Record(fields) = program
+        .types()
+        .composite(first.declaration().clone())
+        .expect("the declared result record")
+        .shape()
+    else {
+        panic!("a record");
+    };
+    let position = fields
+        .iter()
+        .position(|field| field.name() == "outcome")
+        .expect("an outcome field");
+    let quire_exact::FieldValue::Present(Value::Union(outcome)) = &first.slots()[position] else {
         panic!("an outcome union");
     };
     outcome.member().identifier().to_owned()
@@ -343,9 +407,9 @@ fn outcome_after(
 
 /// The request at tick 0 with no acknowledgement: the `[0, 3]` window is open
 /// through tick 2 and closed, unanswered, once tick 3 is covered.
-#[trace("TC-033", "FR-019-AC-1")]
+#[trace("TC-033", "FR-017-AC-1")]
 #[test]
-fn the_prepared_step_one_program_runs_in_the_runtime() {
+fn smoke_the_prepared_step_one_program_runs_in_the_runtime() {
     let cancel = Cancel::new();
     let program = prepare("C", STEP_ONE, &cancel).expect("prepares");
     assert_eq!(outcome_after(&program, 2), "Pending");
@@ -353,21 +417,27 @@ fn the_prepared_step_one_program_runs_in_the_runtime() {
     assert_eq!(outcome_after(&program, 4), "False");
 }
 
-#[trace("TC-033", "FR-017-AC-1")]
+#[trace("TC-033", "FR-019-AC-1")]
 #[test]
 fn the_prepared_program_declares_its_tick_unit_in_the_unit_table() {
     let cancel = Cancel::new();
     let program = prepare("C", STEP_ONE, &cancel).expect("prepares");
-    assert!(program
+    use quire_semantic_value::unit::NominalUnitForm;
+    let layout = program.layout();
+    let node = program
         .types()
         .units()
-        .nominal_node(&program.layout().tick_unit)
-        .is_some());
+        .nominal_node(&layout.tick_unit)
+        .expect("the tick unit is declared in the unit table");
+    let NominalUnitForm::Unit { dimension, .. } = &node.form else {
+        panic!("the tick unit is a unit node");
+    };
+    assert_eq!(dimension, &layout.time_dimension);
 }
 
 /// The environment's own ceilings and reservation denials are work and
 /// storage failures; only a declaration refusal is a projection fault.
-#[trace("TC-033", "FR-019-AC-3")]
+#[trace("TC-033", "FR-017-AC-4")]
 #[test]
 fn environment_ceilings_and_denials_map_to_work_and_storage_codes() {
     use quire_driver::monitor::MonitorPreparationError as Error;

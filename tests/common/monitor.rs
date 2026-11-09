@@ -61,6 +61,28 @@ impl Fixture {
 
 /// Produce and strictly admit a selected clause with the requested companion source.
 pub fn fixture(selected: &str, counter: &'static str, additional_clause: &str) -> Fixture {
+    let target = MonitorTarget {
+        counter: counter.to_owned(),
+        unit: "ms".to_owned(),
+        width_bits: 16,
+        uncertainty: Rational::from_integer(Integer::zero()),
+        max_event_rate: Some(Rational::from_integer(Integer::from(2_u64))),
+        max_reading_gap: 100,
+        max_activations: 8,
+    };
+    fixture_for(selected, counter, additional_clause, "", "ms", &target)
+}
+
+/// As [`fixture`], with extra unit declarations, the declared time unit of
+/// the model's time source, and an explicit hardware target.
+pub fn fixture_for(
+    selected: &str,
+    counter: &'static str,
+    additional_clause: &str,
+    extra_units: &str,
+    time_unit: &str,
+    target: &MonitorTarget,
+) -> Fixture {
     let output = Command::new(env!("CARGO"))
         .args(["metadata", "--locked", "--format-version", "1", "--offline"])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -101,7 +123,8 @@ model Selected = "{identity}";
 dimension Time;
 unit second : Time = rational(1, 1);
 unit ms : Time = rational(1, 1000) * second;
-time Selected dense unit ms;
+time Selected dense unit {time_unit};
+{extra_units}
 temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) clock "model-time" on origin {{
     eventually[0 ms, 4 ms] holds(candidate.versionNumber >= 0)
 }}
@@ -110,15 +133,6 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
     );
     let source = SourceIdentity::new("agent-ix", "monitor-preparation");
     let name = LibraryName::new("agent-ix/monitor-preparation").unwrap();
-    let target = MonitorTarget {
-        counter: counter.to_owned(),
-        unit: "ms".to_owned(),
-        width_bits: 16,
-        uncertainty: Rational::from_integer(Integer::zero()),
-        max_event_rate: Some(Rational::from_integer(Integer::from(2_u64))),
-        max_reading_gap: 100,
-        max_activations: 8,
-    };
     let root = emit_plan_root(
         &PlanRootRequest {
             source: &source,
@@ -128,7 +142,7 @@ temporal SelectedMonitor using timed over (candidate: Selected::ConfigVersion) c
             package_name: &name,
             limits: SpineLimits::default(),
             clause: selected,
-            target: &target,
+            target,
             settings: &TimingObligationSettings::default(),
         },
         &Cancel::new(),
