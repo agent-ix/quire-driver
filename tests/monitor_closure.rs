@@ -532,8 +532,7 @@ fn a_deeper_clause_stops_at_the_storage_allowance_not_the_stack() {
     let allowance = 8 << 20;
     lower_under(&deep_chain_clause(1), allowance).expect("a shallow clause lowers");
     let error = lower_under(&deep_chain_clause(40), allowance)
-        .err()
-        .expect("the deeper clause needs more than the allowance");
+        .expect_err("the deeper clause needs more than the allowance");
     assert_eq!(error.code(), MonitorPreparationErrorCode::Storage);
     lower_under(&deep_chain_clause(40), 64 << 20).expect("an ample allowance lowers");
 }
