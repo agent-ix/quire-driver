@@ -28,8 +28,8 @@ FR-014-AC-2 and FR-014-AC-3.
    packages by their source,
    `git+https://github.com/agent-ix/quire-spec-language`. Compare the driver's
    complete direct normal/build inventory and its separate direct development
-   inventory with exact-set equality. Retain exactly five normal QSL layer
-   edges; `qsl-analyze` belongs only to the direct development set.
+   inventory with exact-set equality. Retain exactly six normal QSL layer
+   edges; `qsl-analyze` is a normal edge ([FR-019](../functional/FR-019-prepare-the-complete-monitor-program-under-one-budget.md) Dependencies).
 2. Traverse the complete normal/build dependency closure from `quire-driver`.
    Identify `quire-cache` and inspect its direct dependency edges. Existing
    `tests/dependency_edges.rs` coverage verifies the driver/cache boundary and
@@ -47,10 +47,10 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
 
 ## Expected Results
 
-- The driver's normal and build dependencies are exactly `qsl-foundation`,
-  `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`,
+- The driver's normal and build dependencies are exactly `qsl-analyze`,
+  `qsl-foundation`, `qsl-package`, `qsl-replay`, `qsl-route`, `qsl-semantics`,
   `quire-exact`, `quire-contract-codegen`, `quire-contract-model`, `quire-contract-runtime`,
-  `quire-canonical`, `quire-semantic-value`, `serde`, `serde_json` and `thiserror`. `serde_json` is a
+  `quire-canonical`, `quire-observation`, `quire-semantic-value`, `serde`, `serde_json` and `thiserror`. `serde_json` is a
   normal edge for production projection of FR-331's retained optional
   `bounds` member. The direct `quire-semantic-value` normal edge supplies
   existing shared catalog owner types after their ownership moved out of
@@ -63,9 +63,11 @@ Test: `tests/dependency_edges.rs`, `tc_005_driver_edges_match_the_adr_011_allow_
   closure. No package in the driver's transitive normal/build dependency
   closure is `quire-cache`.
 - The driver's direct development dependencies are exactly `ix-trace-rs`,
-  `quire-checked` and `qsl-analyze`. The last obtains genuine final PlanRoot
-  emissions for test controls, without becoming a normal/build QSL edge.
-  `quire-checked` is test-only and supplies the existing
+  and `quire-checked`. `qsl-analyze` is not a development edge: FR-019 takes
+  it as a normal dependency for `PlanRoot` and `AdmittedPlanAuthority`.
+  `quire-observation` is a normal edge because FR-019's request field
+  `progress` has type `quire_observation::authority::progress::View`, issued
+  under quire-observation FR-004 (AC-7). `quire-checked` is test-only and supplies the existing
   `DeclarationKey` owner type relocated from QSL; it adds no normal/build
   edge or driver API. `serde_json` remains a normal dependency used by tests.
 - The driver's `quire-contract-model` is the package CG's
