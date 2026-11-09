@@ -198,7 +198,7 @@ available work SHALL refuse before comparing an edited producer identity.
 
 ### Executed narrow clock refusal evidence
 
-The production `tests/monitor_preparation.rs` controls exercise FR-015-AC-13:
+The production quire-integration `monitor_preparation` controls exercise FR-015-AC-13:
 wrong clause, role and ordinal preserve the original native payload; the
 native `MissingClock` payload retains its outer `selection` classification;
 same-clause twin claims retain their exact requested occurrences; one-under

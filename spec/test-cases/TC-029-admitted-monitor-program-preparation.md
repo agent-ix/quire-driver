@@ -198,7 +198,7 @@ configured-profile row comparison remains Planned.
 ### Executed production component checks
 
 After adopting Contract CG PR #749, the production driver runs the
-`monitor_preparation` and `monitor_lowering` suites successfully.
+quire-integration `monitor_preparation` and the driver `monitor_lowering` suites successfully.
 The clock-admission tests establish the reached FR-015-AC-13 native semantic/work
 refusals, `MissingClock` payload classification, twin occurrence retention and original
 pre-cancellation cause with no capability or input mutation. Existing partial
