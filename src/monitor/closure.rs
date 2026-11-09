@@ -14,7 +14,8 @@ use quire_contract_model::{
     CheckedOccurrence, CheckedOccurrenceRole, NativeJoinBudget, NativeJoinLocus,
     NativeJoinLocusSource, SelectedModelEnumShapeRow, SelectedMonitorAuthorityRow,
     SelectedMonitorClosureRows, SelectedMonitorTimeSource, SelectedMonitorTypeClosure,
-    SelectedSourceCollectionRow, SelectedSourceEnumRow,
+    SelectedSourceCollectionRow, SelectedSourceEnumRow, SelectedSourceRecordRow,
+    SelectedSourceTupleRow, SelectedSourceUnionRow,
 };
 use quire_exact::Cancel;
 use quire_observation::authority::progress;
@@ -33,6 +34,16 @@ pub struct MonitorClosureRows {
     source_enums: Vec<SelectedSourceEnumRow>,
     model_enum_shapes: Vec<SelectedModelEnumShapeRow>,
     source_collections: Vec<SelectedSourceCollectionRow>,
+}
+
+/// The producer rows the closure was read from, for lowering the declarations.
+pub struct ClosureFacts<'a> {
+    /// Complete selected source records.
+    pub source_records: &'a [SelectedSourceRecordRow],
+    /// Complete selected source tuples.
+    pub source_tuples: &'a [SelectedSourceTupleRow],
+    /// Complete selected source sealed unions.
+    pub source_unions: &'a [SelectedSourceUnionRow],
 }
 
 fn poll(cancel: &Cancel) -> Result<(), Error> {
@@ -124,7 +135,11 @@ impl MonitorClosureRows {
     pub fn read_closure<R>(
         &mut self,
         cancel: &Cancel,
-        consume: impl FnOnce(&AdmittedPlanAuthority, &SelectedMonitorTypeClosure<'_>) -> R,
+        consume: impl FnOnce(
+            &AdmittedPlanAuthority,
+            &SelectedMonitorTypeClosure<'_>,
+            &ClosureFacts<'_>,
+        ) -> R,
     ) -> Result<R, Error> {
         poll(cancel)?;
         let authority = &self.authority;
@@ -181,6 +196,11 @@ impl MonitorClosureRows {
                 &mut self.budget,
             )
             .map_err(|error| Error::Closure(Box::new(error)))?;
-        Ok(consume(authority, &closure))
+        let facts = ClosureFacts {
+            source_records: self.identities.source_records(),
+            source_tuples: emission.selected_source_tuple_rows(),
+            source_unions: self.identities.source_unions(),
+        };
+        Ok(consume(authority, &closure, &facts))
     }
 }

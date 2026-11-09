@@ -22,12 +22,27 @@ fn caps() -> PlanAuthorityValidationCaps {
     }
 }
 
+/// The TC-200 step-1 clause, selected by name over the shared fixture unit.
+const STEP_ONE: &str = r#"temporal C using timed over (candidate: Selected::ConfigVersion) clock "model-time" on origin {
+    always (holds(candidate.versionNumber = 2) implies eventually[0 ms, 3 ms] holds(candidate.versionNumber = 3))
+}"#;
+
 fn collect(
     limits: MonitorPreparationLimits,
     cancel: &Cancel,
 ) -> Result<quire_driver::monitor::MonitorClosureRows, quire_driver::monitor::MonitorPreparationError>
 {
-    let fixture = monitor_fixture::fixture("SelectedMonitor", "counter", "");
+    collect_clause("SelectedMonitor", "", limits, cancel)
+}
+
+fn collect_clause(
+    selected: &str,
+    additional: &str,
+    limits: MonitorPreparationLimits,
+    cancel: &Cancel,
+) -> Result<quire_driver::monitor::MonitorClosureRows, quire_driver::monitor::MonitorPreparationError>
+{
+    let fixture = monitor_fixture::fixture(selected, "counter", additional);
     let root = fixture.into_root();
     let (progress, subject) = observation::admitted(Some(vec![observation::row(&root)]));
     let source = root.checked_unit().source().identity().clone();
@@ -63,7 +78,7 @@ fn genuine_plan_root_admits_authority_and_reads_the_selected_closure() {
     let before = rows.budget().consumed();
     assert!(before.work > 0);
     let work = rows
-        .read_closure(&cancel, |authority, closure| {
+        .read_closure(&cancel, |authority, closure, _facts| {
             assert_eq!(
                 closure.authority().order_value(),
                 authority.admitted_order()
@@ -106,4 +121,23 @@ fn cancellation_before_admission_returns_cancelled() {
     cancel.cancel(quire_exact::CancelCause::Requested);
     let error = collect(LIMITS, &cancel).err().expect("cancelled");
     assert_eq!(error.code(), MonitorPreparationErrorCode::Cancelled);
+}
+
+#[trace("TC-033", "FR-017-AC-1")]
+#[test]
+fn the_step_one_monitor_declarations_admit_into_a_type_environment() {
+    let cancel = Cancel::new();
+    let mut rows = collect_clause("C", STEP_ONE, LIMITS, &cancel).expect("genuine root admits");
+    let (environment, expected) = rows
+        .read_closure(&cancel, |_, closure, facts| {
+            let environment =
+                quire_driver::monitor::build_type_environment(closure, facts, LIMITS, &cancel);
+            let expected =
+                facts.source_records.len() + facts.source_tuples.len() + facts.source_unions.len();
+            (environment, expected)
+        })
+        .expect("closure reads");
+    let environment = environment.expect("QSL's declarations admit as the retained environment");
+    assert!(expected > 0);
+    assert_eq!(environment.composites().count(), expected);
 }

@@ -176,6 +176,15 @@ pub enum MonitorPreparationError {
     /// IR refused the selected type closure; its payload is retained unchanged.
     #[error(transparent)]
     Closure(Box<quire_contract_model::SelectedMonitorTypeClosureError>),
+    /// An admitted rational or integer text did not convert.
+    #[error("monitor preparation rational or integer conversion refused")]
+    Rational,
+    /// The owner refused the unit graph built from admitted unit rows.
+    #[error("monitor unit graph refused: {0}")]
+    UnitGraph(Box<String>),
+    /// The owner refused the type environment built from admitted rows.
+    #[error("monitor type environment refused: {0:?}")]
+    TypeEnvironment(Box<quire_semantic_value::declaration::EnvironmentFailure>),
     /// The admitted package does not hold exactly one monitor plan.
     #[error("admitted package holds {0} monitor plans, expected one")]
     MonitorRootCount(usize),
@@ -322,6 +331,9 @@ impl MonitorPreparationError {
                 _ => MonitorPreparationErrorCode::Projection,
             },
             Self::Rows(native) => row_code(*native),
+            Self::Rational | Self::UnitGraph(_) | Self::TypeEnvironment(_) => {
+                MonitorPreparationErrorCode::Projection
+            }
             Self::AuthorityRow(_) | Self::MonitorRootCount(_) => {
                 MonitorPreparationErrorCode::Selection
             }
