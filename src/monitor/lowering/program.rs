@@ -22,6 +22,20 @@ use super::{key, operation, Budget, Error, MonitorPreparationLimits};
 use crate::monitor::ClosureFacts;
 use crate::monitor_refusal::unsupported_at;
 
+/// Leads the `body_path` of an expression that reads binder slots, followed by
+/// those slots in ascending order.
+///
+/// Invariants: an inline operand's path is `[position]` and never starts with
+/// this marker, so the two kinds cannot collide; expressions that read no
+/// binder slot keep an empty path, and structurally equal ones are shared
+/// within a function (and across functions when they read no argument either).
+/// Two binders in one function never share a slot, so equal structural keys
+/// under different binders stay distinct `(key, body_path)` pairs.
+///
+/// IR note: binder identity belongs in the IR structural key; this path is the
+/// driver's stopgap for the runtime's per-function `(key, body_path)` uniqueness.
+const BINDER_SCOPED: usize = usize::MAX;
+
 /// A conservative upper bound on the native stack one lowering level
 /// (`lower`, `application` or `value`, `operands`) occupies.
 const LOWER_FRAME_BYTES: usize = 4096;
@@ -427,11 +441,8 @@ impl<'a, 'b> Lowerer<'a, 'b> {
         let key = key::own_key(original, &mut self.budget)?;
         let id = ExpressionId(self.expressions.len());
         let info = self.analyze(&operation);
-        // The structural key does not carry binder identity, so an expression
-        // reading binder slots is located by those slots after a marker that
-        // no inline operand position can equal.
         let body_path = if body_path.is_empty() && !info.free.is_empty() {
-            std::iter::once(usize::MAX)
+            std::iter::once(BINDER_SCOPED)
                 .chain(info.free.iter().copied())
                 .collect()
         } else {
@@ -518,7 +529,22 @@ impl<'a, 'b> Lowerer<'a, 'b> {
         })
     }
 
+    /// Lower one node. Every recursive path passes through here, so the
+    /// recursion depth is bounded by the storage allowance: each level
+    /// reserves [`LOWER_FRAME_BYTES`] and a deeper body is a typed storage
+    /// stop rather than a stack overflow.
     fn lower(
+        &mut self,
+        frame: &mut Frame<'a>,
+        node: &'a CheckedNodeId,
+    ) -> Result<ExpressionId, Error> {
+        self.budget.reserve_storage(LOWER_FRAME_BYTES)?;
+        let lowered = self.lower_node(frame, node);
+        self.budget.release_storage(LOWER_FRAME_BYTES)?;
+        lowered
+    }
+
+    fn lower_node(
         &mut self,
         frame: &mut Frame<'a>,
         node: &'a CheckedNodeId,

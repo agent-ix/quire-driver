@@ -484,40 +484,99 @@ fn the_producers_source_records_declare_every_member_required() {
     .expect("closure reads");
 }
 
-/// A clause whose atom sums `terms` literals, so the lowered body nests
-/// `terms` additions deep.
+/// A clause conjoining `terms` atoms, so the generated step functions nest
+/// one level per subformula.
 fn deep_chain_clause(terms: usize) -> String {
-    let sum = vec!["1"; terms].join(" + ");
+    let atoms = vec!["holds(candidate.versionNumber = 2)"; terms].join(" and ");
     format!(
         r#"temporal C using timed over (candidate: Selected::ConfigVersion) clock "model-time" on origin {{
-    always (holds(candidate.versionNumber + {sum} = 2) implies eventually[0 ms, 3 ms] holds(candidate.versionNumber = 3))
+    always ({atoms} implies eventually[0 ms, 3 ms] holds(candidate.versionNumber = 3))
 }}"#
     )
 }
 
+/// Lower the clause's entries under `storage` bytes and report the outcome.
+fn lower_under(
+    clause: &str,
+    storage: u64,
+) -> Result<usize, quire_driver::monitor::MonitorPreparationError> {
+    let cancel = Cancel::new();
+    // The package read needs more than the lowering allowance under test.
+    let ample = MonitorPreparationLimits {
+        work: 1 << 40,
+        storage: 1 << 34,
+    };
+    let mut rows = collect_clause("C", clause, ample, &cancel).expect("genuine root admits");
+    rows.read_closure(&cancel, |authority, closure, facts| {
+        quire_driver::monitor::lowering::lower_entries(
+            authority.admitted_package(),
+            closure,
+            facts,
+            MonitorPreparationLimits {
+                work: 1 << 40,
+                storage,
+            },
+            &cancel,
+        )
+        .map(|bodies| bodies.expressions.len())
+    })
+    .expect("closure reads")
+}
+
+/// Under one allowance a one-atom clause lowers and a forty-atom clause stops
+/// with a typed storage code; a larger allowance lowers it. Recursion depth
+/// reserves storage per level, so growth ends in this stop, not a stack overflow.
 #[trace("TC-033", "FR-017-AC-3")]
 #[test]
-fn a_deep_addition_chain_stops_at_the_storage_allowance_not_the_stack() {
-    let cancel = Cancel::new();
-    let clause = deep_chain_clause(500);
-    let mut rows = collect_clause("C", &clause, LIMITS, &cancel).expect("genuine root admits");
-    let mut lowered = |storage: u64| {
-        rows.read_closure(&cancel, |authority, closure, facts| {
-            quire_driver::monitor::lowering::lower_entries(
-                authority.admitted_package(),
-                closure,
-                facts,
-                MonitorPreparationLimits {
-                    work: LIMITS.work,
-                    storage,
-                },
-                &cancel,
-            )
-            .map(|bodies| bodies.expressions.len())
-        })
-        .expect("closure reads")
-    };
-    let error = lowered(64 * 1024).err().expect("the chain exceeds 64 KiB");
+fn a_deeper_clause_stops_at_the_storage_allowance_not_the_stack() {
+    let allowance = 8 << 20;
+    lower_under(&deep_chain_clause(1), allowance).expect("a shallow clause lowers");
+    let error = lower_under(&deep_chain_clause(40), allowance)
+        .err()
+        .expect("the deeper clause needs more than the allowance");
     assert_eq!(error.code(), MonitorPreparationErrorCode::Storage);
-    assert!(lowered(LIMITS.storage).expect("an ample allowance lowers") > 500);
+    lower_under(&deep_chain_clause(40), 64 << 20).expect("an ample allowance lowers");
+}
+
+/// The binder-bearing constructs of the real plan pass `Program::try_new`:
+/// sibling and nested lets, folds, maps and filters, each binder in its own slot.
+#[trace("TC-033", "FR-017-AC-1")]
+#[test]
+fn binders_lower_to_distinct_slots_and_validate() {
+    use quire_contract_runtime::monitor::{ExpressionId, Operation};
+    let cancel = Cancel::new();
+    let program = prepare("C", STEP_ONE, &cancel).expect("prepares and validates");
+    let mut lets = Vec::new();
+    let (mut folds, mut maps, mut filters, mut nested) = (0, 0, 0, 0);
+    let mut index = 0;
+    while let Some(expression) = program.expression(ExpressionId(index)) {
+        match &expression.operation {
+            Operation::Let { binding, body, .. } => {
+                lets.push(*binding);
+                if matches!(
+                    program.expression(*body).map(|inner| &inner.operation),
+                    Some(Operation::Let { .. })
+                ) {
+                    nested += 1;
+                }
+            }
+            Operation::SequenceFold { .. } => folds += 1,
+            Operation::SequenceMap { .. } => maps += 1,
+            Operation::SequenceFilter { .. } => filters += 1,
+            _ => {}
+        }
+        index += 1;
+    }
+    assert!(nested > 0, "a let directly nested in a let");
+    assert!(folds > 0 && maps > 0 && filters > 0);
+    // Sibling lets of one function bind different slots.
+    let mut slots: Vec<_> = lets.iter().map(|l| (l.function.0, l.position)).collect();
+    let total = slots.len();
+    slots.sort_unstable();
+    slots.dedup();
+    assert_eq!(slots.len(), total, "no binder slot is declared twice");
+    assert!(
+        slots.windows(2).any(|pair| pair[0].0 == pair[1].0),
+        "some function has sibling or nested lets"
+    );
 }
