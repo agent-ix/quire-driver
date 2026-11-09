@@ -5,7 +5,10 @@
 
 mod key;
 mod operation;
+mod program;
 mod storage;
+
+pub use program::{lower_entries, LoweredBodies, LOWER_FRAME_BYTES};
 
 use quire_contract_model::{
     CheckedCallable, CheckedCallableIdentity, CheckedNodeId, CheckedPackageV2, CheckedTerm,
@@ -16,6 +19,16 @@ use quire_exact::{Cancel, ValueType};
 
 use super::{budget::Budget, MonitorPreparationError as Error, MonitorPreparationLimits};
 use crate::monitor_refusal::unsupported_at;
+
+/// Convert one admitted structural identity to its native key under the
+/// preparation limits, through the owner's key constructor.
+pub(super) fn node_key(
+    source: &CheckedNodeId,
+    limits: MonitorPreparationLimits,
+    cancel: &Cancel,
+) -> Result<quire_exact::NodeKey, Error> {
+    key::own_key(source, &mut Budget::new(limits, cancel))
+}
 
 type NativeArenas = (Vec<FunctionId>, Vec<Function>, Vec<Expression>);
 

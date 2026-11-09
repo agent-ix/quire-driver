@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Typed monitor preparation stops, separate from runtime outcomes.
 
+use qsl_analyze::monitor_root::PlanAuthorityRefusal;
+use qsl_package::{IdentityFileRefusal, NativeRowError, NativeRowErrorCode};
 use quire_contract_model::{
     CheckedCallableReadError, CheckedCallableReadErrorCode, CheckedMonitorClockReadError,
     CheckedMonitorClockReadErrorCode, CheckedNodeId, CheckedOperationViewError,
     CheckedPackageIncomplete, CheckedPackageRefusal, ExactTypeProjectionError,
-    ExactTypeProjectionErrorCode,
+    ExactTypeProjectionErrorCode, NativeJoinChargeKind, SelectedMonitorTypeClosureErrorCode,
 };
 use quire_contract_runtime::monitor::ProgramRefusal;
 use quire_exact::{CancelCause, InvalidNodeKey};
+
+use quire_semantic_value::declaration::EnvironmentFailure;
 
 use crate::monitor_refusal::{MonitorLocusError, TargetMismatch, UnsupportedOperation};
 
@@ -159,6 +163,33 @@ pub enum MonitorPreparationError {
     /// Native structural-key copy/allocation failure, without replacing its payload.
     #[error(transparent)]
     Key(#[from] InvalidNodeKey),
+    /// QSL refused plan-authority admission; its payload is retained unchanged.
+    #[error(transparent)]
+    Authority(Box<qsl_analyze::monitor_root::PlanAuthorityRefusal>),
+    /// QSL refused the identity rows of the final emission.
+    #[error(transparent)]
+    IdentityRows(Box<qsl_package::IdentityFileRefusal>),
+    /// A QSL row adapter refused or was denied a charge.
+    #[error(transparent)]
+    Rows(#[from] qsl_package::NativeRowError),
+    /// IR refused the same-emission authority row.
+    #[error(transparent)]
+    AuthorityRow(quire_contract_model::SelectedMonitorAuthorityRowError),
+    /// IR refused the selected type closure; its payload is retained unchanged.
+    #[error(transparent)]
+    Closure(Box<quire_contract_model::SelectedMonitorTypeClosureError>),
+    /// An admitted rational or integer text did not convert.
+    #[error("monitor preparation rational or integer conversion refused")]
+    Rational,
+    /// The owner refused the unit graph built from admitted unit rows.
+    #[error("monitor unit graph refused: {0}")]
+    UnitGraph(Box<String>),
+    /// The owner refused the type environment built from admitted rows.
+    #[error("monitor type environment refused: {0:?}")]
+    TypeEnvironment(Box<EnvironmentFailure>),
+    /// The admitted package does not hold exactly one monitor plan.
+    #[error("admitted package holds {0} monitor plans, expected one")]
+    MonitorRootCount(usize),
     /// Work stopped before inspecting the named input.
     #[error("monitor preparation work limit {limit} after {consumed}, next {next}")]
     Work {
@@ -216,6 +247,14 @@ pub enum MonitorPreparationError {
         /// Original admitted scalar node at the invariant failure.
         node: Box<CheckedNodeId>,
     },
+}
+
+fn row_code(native: NativeRowError) -> MonitorPreparationErrorCode {
+    match native.code() {
+        NativeRowErrorCode::WorkLimit => MonitorPreparationErrorCode::Work,
+        NativeRowErrorCode::StorageLimit => MonitorPreparationErrorCode::Storage,
+        NativeRowErrorCode::IncompleteEnum => MonitorPreparationErrorCode::Projection,
+    }
 }
 
 impl MonitorPreparationError {
@@ -278,6 +317,42 @@ impl MonitorPreparationError {
                 InvalidNodeKey::EmptyPackage
                 | InvalidNodeKey::EmptyPath
                 | InvalidNodeKey::OrdinalOutOfRange => MonitorPreparationErrorCode::Internal,
+            },
+            Self::Authority(native) => match native.as_ref() {
+                PlanAuthorityRefusal::Budget { denied, .. } => match denied.kind {
+                    NativeJoinChargeKind::Work => MonitorPreparationErrorCode::Work,
+                    NativeJoinChargeKind::Storage => MonitorPreparationErrorCode::Storage,
+                },
+                PlanAuthorityRefusal::ReadBudgetIncomplete(_)
+                | PlanAuthorityRefusal::ReadExhausted(_) => MonitorPreparationErrorCode::Work,
+                PlanAuthorityRefusal::Allocation(_) => MonitorPreparationErrorCode::Storage,
+                _ => MonitorPreparationErrorCode::Selection,
+            },
+            Self::IdentityRows(native) => match native.as_ref() {
+                IdentityFileRefusal::Rows(rows) => row_code(*rows),
+                _ => MonitorPreparationErrorCode::Projection,
+            },
+            Self::Rows(native) => row_code(*native),
+            Self::Rational | Self::UnitGraph(_) => MonitorPreparationErrorCode::Projection,
+            Self::TypeEnvironment(native) => match native.as_ref() {
+                EnvironmentFailure::Refused(_) => MonitorPreparationErrorCode::Projection,
+                EnvironmentFailure::Limit(_) => MonitorPreparationErrorCode::Work,
+                EnvironmentFailure::Allocation(_) | EnvironmentFailure::Capacity(_) => {
+                    MonitorPreparationErrorCode::Storage
+                }
+            },
+            Self::AuthorityRow(_) | Self::MonitorRootCount(_) => {
+                MonitorPreparationErrorCode::Selection
+            }
+            Self::Closure(native) => match native.code {
+                SelectedMonitorTypeClosureErrorCode::Authority(_) => {
+                    MonitorPreparationErrorCode::Selection
+                }
+                SelectedMonitorTypeClosureErrorCode::WorkLimit => MonitorPreparationErrorCode::Work,
+                SelectedMonitorTypeClosureErrorCode::StorageLimit => {
+                    MonitorPreparationErrorCode::Storage
+                }
+                _ => MonitorPreparationErrorCode::Projection,
             },
             Self::Work { .. } => MonitorPreparationErrorCode::Work,
             Self::Storage { .. } => MonitorPreparationErrorCode::Storage,

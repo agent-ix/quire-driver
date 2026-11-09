@@ -817,7 +817,7 @@ dependencies = [
 [[package]]
 name = "ix-trace-rs"
 version = "0.1.2"
-source = "git+https://github.com/agent-ix/ix-trace-rs?branch=main#d3a17527d1210657940940b5e65a64bae7428391"
+source = "git+https://github.com/agent-ix/ix-trace-rs?branch=main#4465891724dfdc83053f983770bebfd73423b1f9"
 
 [[package]]
 name = "js-sys"
@@ -1542,7 +1542,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-ir"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#c8dca8c635b5d919196578f02b165edabc7553c0"
+source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#d33da65435e9bba8f987a046c6db8f315bab46a9"
 dependencies = [
  "ix-trace-rs",
  "quire-contract-model",
@@ -1554,7 +1554,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-model"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#c8dca8c635b5d919196578f02b165edabc7553c0"
+source = "git+https://github.com/agent-ix/quire-contract-ir?branch=main#d33da65435e9bba8f987a046c6db8f315bab46a9"
 dependencies = [
  "ix-trace-rs",
  "jsonschema 0.17.1",
@@ -1580,7 +1580,7 @@ dependencies = [
 [[package]]
 name = "quire-contract-runtime"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-contract-runtime?branch=main#786433c7bdbb6cbf718a5f3c2c65fcfcaf6e58e4"
+source = "git+https://github.com/agent-ix/quire-contract-runtime?branch=main#bc9e258af98c0f00493488efbf18319bf9f74732"
 dependencies = [
  "quire-exact",
  "quire-semantic-value",
