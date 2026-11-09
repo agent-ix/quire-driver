@@ -48,6 +48,11 @@ impl Fixture {
         self.root.plan().subject()
     }
 
+    /// Take the original producer root, consuming the fixture.
+    pub fn into_root(self) -> PlanRoot {
+        self.root
+    }
+
     /// Borrow the original final emission paired with the retained plan.
     pub fn emission(&self) -> &Emission {
         self.root.emission()

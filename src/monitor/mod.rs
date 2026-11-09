@@ -5,6 +5,7 @@
 //! a selected-fact projection for a complete executable declaration closure.
 
 mod budget;
+mod closure;
 mod error;
 mod final_subject;
 pub mod lowering;
@@ -14,6 +15,7 @@ mod request;
 mod selection;
 pub mod source_record;
 
+pub use closure::{collect_monitor_closure_rows, MonitorClosureRows};
 pub use error::{MonitorPreparationError, MonitorPreparationErrorCode, MonitorSelectionField};
 pub use projection::project_monitor_initializer;
 pub use request::{MonitorPreparationLimits, MonitorPreparationRequest, MonitorSelection};
