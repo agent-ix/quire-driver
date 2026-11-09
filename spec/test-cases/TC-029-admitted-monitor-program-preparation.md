@@ -230,7 +230,7 @@ no driver work receipt and receive no cumulative-work credit. These controls
 trace only FR-015-AC-15; optional clock comparison AC-14, source-record closure and
 full Program remain Planned.
 
-The eight `tests/monitor_final_subject.rs` production tests execute this narrow
+The eight quire-integration `monitor_final_subject` production tests execute this narrow
 procedure, including successful final-subject tokens for each distinct clause
 and the token's genuine native model-time source read. Full native
 acquisition refusal/incomplete payloads, foreign associations, absent mappings,
