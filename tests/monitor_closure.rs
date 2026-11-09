@@ -195,3 +195,53 @@ fn a_tick_unit_of_another_dimension_is_a_target_mismatch() {
     let error = derive(&mut rows, &cancel, true).err().expect("mismatch");
     assert_eq!(error.code(), MonitorPreparationErrorCode::TargetMismatch);
 }
+
+fn prepare(
+    selected: &str,
+    additional: &str,
+    cancel: &Cancel,
+) -> Result<
+    std::rc::Rc<quire_contract_runtime::monitor::Program>,
+    quire_driver::monitor::MonitorPreparationError,
+> {
+    let time = collect_clause(selected, additional, LIMITS, cancel)
+        .expect("genuine root admits")
+        .read_closure(cancel, |_, closure, _| {
+            closure.model_types().dimensions()[0]
+                .structural_node
+                .clone()
+        })
+        .expect("closure reads");
+    let fixture = monitor_fixture::fixture(selected, "counter", additional);
+    let root = fixture.into_root();
+    let (progress, subject) = observation::admitted(Some(vec![observation::row(&root)]));
+    let source = root.checked_unit().source().identity().clone();
+    let claim = root.plan().subject().clone();
+    let clock = observation::clock();
+    let observation_source = observation::source();
+    quire_driver::monitor::prepare_monitor(
+        root,
+        PlanAuthoritySelection {
+            source: &source,
+            claim: &claim,
+            observation_subject: &subject,
+            observation_clock: &clock,
+            observation_source: &observation_source,
+        },
+        Some(progress),
+        caps(),
+        &time,
+        LIMITS,
+        cancel,
+    )
+}
+
+#[trace("TC-033", "FR-019-AC-1")]
+#[test]
+fn the_step_one_plan_prepares_a_checked_program() {
+    let cancel = Cancel::new();
+    let program = prepare("C", STEP_ONE, &cancel);
+    if let Err(error) = &program {
+        panic!("prepare failed: {error:?} / {error}");
+    }
+}

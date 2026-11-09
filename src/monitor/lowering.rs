@@ -5,7 +5,10 @@
 
 mod key;
 mod operation;
+mod program;
 mod storage;
+
+pub use program::{lower_entries, LoweredBodies};
 
 use quire_contract_model::{
     CheckedCallable, CheckedCallableIdentity, CheckedNodeId, CheckedPackageV2, CheckedTerm,

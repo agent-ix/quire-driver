@@ -11,6 +11,7 @@ mod final_subject;
 mod layout;
 pub mod lowering;
 mod material;
+mod prepare;
 mod projection;
 mod request;
 mod selection;
@@ -20,6 +21,7 @@ mod types;
 pub use closure::{collect_monitor_closure_rows, ClosureFacts, MonitorClosureRows};
 pub use error::{MonitorPreparationError, MonitorPreparationErrorCode, MonitorSelectionField};
 pub use layout::derive_layout;
+pub use prepare::prepare_monitor;
 pub use projection::project_monitor_initializer;
 pub use request::{MonitorPreparationLimits, MonitorPreparationRequest, MonitorSelection};
 pub use selection::{
