@@ -43,6 +43,7 @@ serde_path_to_error = "=0.1.20"
 signal-hook = "=0.3.18"
 
 [dev-dependencies]
+ix-trace-rs = { git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }
 libc = "=0.2.190"
 quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", branch = "main" }
 quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", branch = "main" }
