@@ -364,3 +364,29 @@ fn the_prepared_program_declares_its_tick_unit_in_the_unit_table() {
         .nominal_node(&program.layout().tick_unit)
         .is_some());
 }
+
+/// The environment's own ceilings and reservation denials are work and
+/// storage failures; only a declaration refusal is a projection fault.
+#[trace("TC-033", "FR-019-AC-3")]
+#[test]
+fn environment_ceilings_and_denials_map_to_work_and_storage_codes() {
+    use quire_driver::monitor::MonitorPreparationError as Error;
+    use quire_semantic_value::declaration::{
+        EnvironmentFailure, EnvironmentLimit, EnvironmentLimitKind, StorageRequest, StorageUnit,
+    };
+    let code = |failure| Error::TypeEnvironment(Box::new(failure)).code();
+    let limit = EnvironmentLimit::new(EnvironmentLimitKind::WorkUnits, 1, 2);
+    let request = StorageRequest::new(8, StorageUnit::Bytes);
+    assert_eq!(
+        code(EnvironmentFailure::Limit(limit)),
+        MonitorPreparationErrorCode::Work
+    );
+    assert_eq!(
+        code(EnvironmentFailure::Allocation(request)),
+        MonitorPreparationErrorCode::Storage
+    );
+    assert_eq!(
+        code(EnvironmentFailure::Capacity(request)),
+        MonitorPreparationErrorCode::Storage
+    );
+}

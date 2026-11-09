@@ -12,6 +12,8 @@ use quire_contract_model::{
 use quire_contract_runtime::monitor::ProgramRefusal;
 use quire_exact::{CancelCause, InvalidNodeKey};
 
+use quire_semantic_value::declaration::EnvironmentFailure;
+
 use crate::monitor_refusal::{MonitorLocusError, TargetMismatch, UnsupportedOperation};
 
 /// The independently selected value that failed to match admission.
@@ -184,7 +186,7 @@ pub enum MonitorPreparationError {
     UnitGraph(Box<String>),
     /// The owner refused the type environment built from admitted rows.
     #[error("monitor type environment refused: {0:?}")]
-    TypeEnvironment(Box<quire_semantic_value::declaration::EnvironmentFailure>),
+    TypeEnvironment(Box<EnvironmentFailure>),
     /// The admitted package does not hold exactly one monitor plan.
     #[error("admitted package holds {0} monitor plans, expected one")]
     MonitorRootCount(usize),
@@ -331,9 +333,14 @@ impl MonitorPreparationError {
                 _ => MonitorPreparationErrorCode::Projection,
             },
             Self::Rows(native) => row_code(*native),
-            Self::Rational | Self::UnitGraph(_) | Self::TypeEnvironment(_) => {
-                MonitorPreparationErrorCode::Projection
-            }
+            Self::Rational | Self::UnitGraph(_) => MonitorPreparationErrorCode::Projection,
+            Self::TypeEnvironment(native) => match native.as_ref() {
+                EnvironmentFailure::Refused(_) => MonitorPreparationErrorCode::Projection,
+                EnvironmentFailure::Limit(_) => MonitorPreparationErrorCode::Work,
+                EnvironmentFailure::Allocation(_) | EnvironmentFailure::Capacity(_) => {
+                    MonitorPreparationErrorCode::Storage
+                }
+            },
             Self::AuthorityRow(_) | Self::MonitorRootCount(_) => {
                 MonitorPreparationErrorCode::Selection
             }

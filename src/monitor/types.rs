@@ -9,7 +9,7 @@ use quire_exact::{Cancel, Integer, NodeKey, Rational};
 use quire_semantic_value::{
     declaration::{
         CompositeDeclaration, CompositeShape, FieldDeclaration, TypeEnvironment,
-        UnionMemberDeclaration,
+        TypeEnvironmentLimits, UnionMemberDeclaration,
     },
     quantity::UnitTable,
     unit::{DimensionNode, NominalDeclaration, UnitGraph, UnitNode},
@@ -147,7 +147,12 @@ pub fn build_type_environment(
     let environment = TypeEnvironment::bounded_with_cancel(
         composites,
         [],
-        quire_semantic_value::declaration::TypeEnvironmentLimits::default(),
+        // The driver's work allowance bounds the environment's admission work;
+        // the ancestor-walk ceiling keeps the owner's default.
+        TypeEnvironmentLimits {
+            work_units: limits.work,
+            ..TypeEnvironmentLimits::default()
+        },
         cancel,
     )
     .map_err(|failure| Error::TypeEnvironment(Box::new(failure)))?;
