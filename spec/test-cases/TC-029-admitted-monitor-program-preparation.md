@@ -113,7 +113,9 @@ missing evidence.
 
 ## Current Partial Source Evidence
 
-`tests/monitor_preparation.rs` exercises the real final QSL producer and strict
+The real final QSL producer and strict IR admission are exercised by the quire-integration
+tests `monitor_preparation`, `monitor_closure` and `monitor_final_subject` (that repository
+owns the real-producer fixture); they exercise the producer and strict
 IR admission before the driver's package-instance/root/four-entry/clause/full
 occurrence/subject/profile and independent target binding. All eight target
 premises retain the diagnostic helper's exact value endpoint, including the
@@ -196,7 +198,7 @@ configured-profile row comparison remains Planned.
 ### Executed production component checks
 
 After adopting Contract CG PR #749, the production driver runs the
-`monitor_preparation` and `monitor_lowering` suites successfully.
+quire-integration `monitor_preparation` and the driver `monitor_lowering` suites successfully.
 The clock-admission tests establish the reached FR-015-AC-13 native semantic/work
 refusals, `MissingClock` payload classification, twin occurrence retention and original
 pre-cancellation cause with no capability or input mutation. Existing partial
@@ -228,7 +230,7 @@ no driver work receipt and receive no cumulative-work credit. These controls
 trace only FR-015-AC-15; optional clock comparison AC-14, source-record closure and
 full Program remain Planned.
 
-The eight `tests/monitor_final_subject.rs` production tests execute this narrow
+The eight quire-integration `monitor_final_subject` production tests execute this narrow
 procedure, including successful final-subject tokens for each distinct clause
 and the token's genuine native model-time source read. Full native
 acquisition refusal/incomplete payloads, foreign associations, absent mappings,

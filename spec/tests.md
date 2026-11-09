@@ -184,7 +184,7 @@ traces for native clause/role/ordinal and work-refusal payloads, plus
 entry is still needed for the no-token `MissingClock` obligation.
 The original partial selection controls retain their unclocked meaning.
 Contract CG PR #749 removes the previous production compilation blocker.
-Actual production component execution passes the `monitor_preparation` and
+Actual production component execution passes the quire-integration `monitor_preparation` and the driver
 `monitor_lowering` suites. The clock-admission controls
 exercise reached FR-015-AC-13 native refusal payloads, exact requested
 occurrences and remaining allowance, plus original pre-cancellation with no
@@ -217,7 +217,7 @@ This component reads the healthy native Timed model-time source but supplies no
 complete preparation qualification. Source-record driver joining and full
 closure remain separate.
 
-Production `tests/monitor_final_subject.rs` executes eight FR-015-AC-15
+Production quire-integration `monitor_final_subject` executes eight FR-015-AC-15
 controls: two-clause owner mapping and native model-time source reading;
 another declaration that maps in the same emission; absent lookup and edited
 node/role/name/package; full native package and instance mismatches; independent
