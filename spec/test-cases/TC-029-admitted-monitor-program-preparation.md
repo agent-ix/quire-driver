@@ -113,7 +113,9 @@ missing evidence.
 
 ## Current Partial Source Evidence
 
-`tests/monitor_preparation.rs` exercises the real final QSL producer and strict
+The real final QSL producer and strict IR admission are exercised by the quire-integration
+tests `monitor_preparation`, `monitor_closure` and `monitor_final_subject` (that repository
+owns the real-producer fixture); they exercise the producer and strict
 IR admission before the driver's package-instance/root/four-entry/clause/full
 occurrence/subject/profile and independent target binding. All eight target
 premises retain the diagnostic helper's exact value endpoint, including the
