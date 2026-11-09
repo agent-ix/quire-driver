@@ -141,3 +141,57 @@ fn the_step_one_monitor_declarations_admit_into_a_type_environment() {
     assert!(expected > 0);
     assert_eq!(environment.composites().count(), expected);
 }
+
+fn derive(
+    rows: &mut quire_driver::monitor::MonitorClosureRows,
+    cancel: &Cancel,
+    wrong_dimension: bool,
+) -> Result<quire_contract_runtime::monitor::Layout, quire_driver::monitor::MonitorPreparationError>
+{
+    use quire_contract_runtime::monitor::{Entries, FunctionId};
+    rows.read_closure(cancel, |authority, closure, _| {
+        let package = authority.admitted_package();
+        let dimensions = closure.model_types().dimensions();
+        assert_eq!(
+            dimensions.len(),
+            1,
+            "the fixture declares one Time dimension"
+        );
+        let expected = if wrong_dimension {
+            closure.plan().state()
+        } else {
+            &dimensions[0].structural_node
+        };
+        let entries = Entries {
+            init: FunctionId(0),
+            on_event: FunctionId(1),
+            on_watermark: FunctionId(2),
+            on_gap: FunctionId(3),
+        };
+        quire_driver::monitor::derive_layout(
+            package, authority, closure, entries, expected, LIMITS, cancel,
+        )
+    })?
+}
+
+#[trace("TC-033", "FR-019-AC-1")]
+#[test]
+fn the_step_one_plan_derives_its_layout_from_the_closure() {
+    let cancel = Cancel::new();
+    let mut rows = collect_clause("C", STEP_ONE, LIMITS, &cancel).expect("genuine root admits");
+    let layout = derive(&mut rows, &cancel, false).expect("layout derives");
+    assert!(!layout.package_lock.is_empty());
+    assert!(!layout.clock_binding.is_empty());
+    assert!(!layout.admitted_order.is_empty());
+    assert!(layout.max_reading_gap > 0);
+    assert_eq!(layout.buffers.len(), 1);
+}
+
+#[trace("TC-033", "FR-019-AC-4")]
+#[test]
+fn a_tick_unit_of_another_dimension_is_a_target_mismatch() {
+    let cancel = Cancel::new();
+    let mut rows = collect_clause("C", STEP_ONE, LIMITS, &cancel).expect("genuine root admits");
+    let error = derive(&mut rows, &cancel, true).err().expect("mismatch");
+    assert_eq!(error.code(), MonitorPreparationErrorCode::TargetMismatch);
+}

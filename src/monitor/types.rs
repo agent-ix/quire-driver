@@ -20,7 +20,7 @@ use super::{
     MonitorPreparationLimits,
 };
 
-fn rational(value: &CheckedRational) -> Result<Rational, Error> {
+pub(super) fn rational(value: &CheckedRational) -> Result<Rational, Error> {
     let part = |text: &str| text.parse::<Integer>().map_err(|_| Error::Rational);
     Rational::new(part(&value.numerator)?, part(&value.denominator)?).map_err(|_| Error::Rational)
 }
