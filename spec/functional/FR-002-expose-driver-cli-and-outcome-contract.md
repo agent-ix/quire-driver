@@ -54,6 +54,8 @@ the fallback when that function returns reserved value `5`.
   document or text result. Until QSL supplies typed outcome text rendering,
   parse, check, compile and run text requests return the typed unsupported
   refusal specified in AC-13 and write no stdout.
+- Root help text for a help invocation, as specified by AC-17; help does not
+  produce a lifecycle outcome document.
 - The exit status returned by QSL's category exit function, except that a
   reserved-code mapping invariant failure returns code `30`, and a
   signal-terminated active plugin invocation re-raises the signal after
@@ -107,6 +109,17 @@ the fallback when that function returns reserved value `5`.
   continues to use QSL's formatter text.
 - When the CLI resolves configuration values, it SHALL use ix-cli-kit's
   `config` module.
+- When invoked with no arguments or with `--help`, `-h` or `help` as its sole
+  argument, the CLI SHALL write root help to stdout without starting a
+  lifecycle operation.
+- The root help SHALL include the `quire` invocation syntax, the recognized
+  lifecycle verb names, the `--format text|json|dot` option with the `inspect`
+  restriction on `dot`, and the `--version`/`-V` version options.
+- The root help SHALL distinguish lifecycle verbs that execute operations
+  from verbs that currently return an unsupported-capability result, and
+  identify any default text-output restriction for executable verbs.
+- When root help is written successfully, the CLI SHALL return QSL's success
+  exit result and write no stderr output.
 - When the user invokes `quire --version`, the CLI SHALL report the semantic
   version declared by the `quire-cli` Cargo package.
 - When `quire-cli` runs its built-binary version-agreement check, it SHALL
@@ -137,6 +150,7 @@ the fallback when that function returns reserved value `5`.
 | FR-002-AC-14 | For a `BrokenPipe` while writing or flushing primary stdout, the process status equals the completed operation's QSL category exit result; no output-failure category is selected and no `OutputFailure` diagnostic appears on stderr. | Test (TC-018) |
 | FR-002-AC-15 | If writing or flushing primary stdout returns an I/O error other than `BrokenPipe`, the process exits with QSL's `Category::InternalFailure` exit result. The criterion makes no assertion that stdout is empty or complete. | Test (TC-018) |
 | FR-002-AC-16 | If a non-`BrokenPipe` primary stdout write or flush fails and stderr is writable, stderr contains an `OutputFailure` diagnostic that identifies the failed output. | Test (TC-018) |
+| FR-002-AC-17 | With no arguments or with each of `--help`, `-h` and `help` as the sole argument, the built `quire` binary writes root help to stdout containing invocation syntax, recognized lifecycle verb names, `--format text|json|dot` with `dot` limited to `inspect`, and `--version`/`-V`. The help distinguishes executable verbs from verbs that currently return unsupported-capability results and identifies executable verbs whose default text output is unavailable. Successful help exits with QSL's success result, writes no stderr, and starts no lifecycle operation. | Test |
 
 ## Dependencies
 

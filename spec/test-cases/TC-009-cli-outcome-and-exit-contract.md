@@ -16,7 +16,7 @@ Verify that the driver CLI exposes the specified verbs, preserves typed
 outcomes in `quire-outcome/1` documents and uses QSL's single exit function.
 
 Scope: FR-002-AC-1 through FR-002-AC-6 and FR-002-AC-8 through FR-002-AC-13,
-plus FR-014-AC-4.
+FR-002-AC-17, plus FR-014-AC-4.
 
 ## Test Procedure
 
@@ -57,6 +57,15 @@ plus FR-014-AC-4.
     that machine mode still runs and serializes the QSL outcome, and that
     format text still returns QSL-formatted source.
 
+11. From an empty working directory, invoke the built `quire` binary with no
+    arguments and separately with each of `--help`, `-h` and `help` as its
+    sole argument. Capture stdout, stderr and process status. Verify the help
+    content specified by FR-002-AC-17, including the distinction between
+    executable verbs and recognized verbs that return unsupported-capability
+    results. Compare the advertised commands and format restrictions with the
+    parser and dispatch surface; verify that these invocations do not read
+    source input or dispatch a lifecycle operation.
+
 Test location: `quire-cli/tests/cli_contract.rs`; CLI-specific test fixtures
 reside under `quire-cli/tests/fixtures/`. The parser and command construction
 under test are owned by `quire-cli/src/cli.rs`.
@@ -89,3 +98,7 @@ under test are owned by `quire-cli/src/cli.rs`.
 - The version output reports the `quire-cli` package semver; the kit's
   built-binary agreement check compares it with `CARGO_PKG_VERSION` and
   passes.
+- Every root help invocation writes informative help to stdout, exits with
+  QSL's success result and writes no stderr. Its command and output guidance
+  agrees with the parser and dispatch behavior; no source input is required
+  and no lifecycle operation starts.
