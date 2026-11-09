@@ -150,5 +150,4 @@ Contributions are welcome under the contributor license agreement. See
 
 ## License
 
-AGPL-3.0-or-later. See [LICENSE](LICENSE) and
-[CONTENT_RIGHTS.md](CONTENT_RIGHTS.md).
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
