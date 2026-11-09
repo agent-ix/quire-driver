@@ -8,7 +8,7 @@ mod operation;
 mod program;
 mod storage;
 
-pub use program::{lower_entries, LoweredBodies};
+pub use program::{lower_entries, LoweredBodies, LOWER_FRAME_BYTES};
 
 use quire_contract_model::{
     CheckedCallable, CheckedCallableIdentity, CheckedNodeId, CheckedPackageV2, CheckedTerm,

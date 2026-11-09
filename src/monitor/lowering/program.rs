@@ -38,7 +38,11 @@ const BINDER_SCOPED: usize = usize::MAX;
 
 /// A conservative upper bound on the native stack one lowering level
 /// (`lower`, `application` or `value`, `operands`) occupies.
-const LOWER_FRAME_BYTES: usize = 4096;
+///
+/// One level spans several native frames and the storage allowance is the
+/// caller's, so this bounds recursion depth only for callers whose storage
+/// limit is small; a generous limit permits depth the native stack may not.
+pub const LOWER_FRAME_BYTES: usize = 4096;
 
 /// The lowered arenas and the resolved entry addresses.
 pub struct LoweredBodies {

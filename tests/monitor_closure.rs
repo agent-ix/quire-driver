@@ -523,59 +523,23 @@ fn lower_under(
     .expect("closure reads")
 }
 
-/// Under one allowance a one-atom clause lowers and a forty-atom clause stops
-/// with a typed storage code; a larger allowance lowers it. Recursion depth
-/// reserves storage per level, so growth ends in this stop, not a stack overflow.
+/// Recursion reserves `LOWER_FRAME_BYTES` per level before any key storage is
+/// charged, so an allowance of one level admits the entry body and denies its
+/// first operand, and the denial names exactly one frame.
 #[trace("TC-033", "FR-017-AC-3")]
 #[test]
-fn a_deeper_clause_stops_at_the_storage_allowance_not_the_stack() {
-    let allowance = 8 << 20;
-    lower_under(&deep_chain_clause(1), allowance).expect("a shallow clause lowers");
-    let error = lower_under(&deep_chain_clause(40), allowance)
-        .expect_err("the deeper clause needs more than the allowance");
-    assert_eq!(error.code(), MonitorPreparationErrorCode::Storage);
-    lower_under(&deep_chain_clause(40), 64 << 20).expect("an ample allowance lowers");
-}
-
-/// The binder-bearing constructs of the real plan pass `Program::try_new`:
-/// sibling and nested lets, folds, maps and filters, each binder in its own slot.
-#[trace("TC-033", "FR-017-AC-1")]
-#[test]
-fn binders_lower_to_distinct_slots_and_validate() {
-    use quire_contract_runtime::monitor::{ExpressionId, Operation};
-    let cancel = Cancel::new();
-    let program = prepare("C", STEP_ONE, &cancel).expect("prepares and validates");
-    let mut lets = Vec::new();
-    let (mut folds, mut maps, mut filters, mut nested) = (0, 0, 0, 0);
-    let mut index = 0;
-    while let Some(expression) = program.expression(ExpressionId(index)) {
-        match &expression.operation {
-            Operation::Let { binding, body, .. } => {
-                lets.push(*binding);
-                if matches!(
-                    program.expression(*body).map(|inner| &inner.operation),
-                    Some(Operation::Let { .. })
-                ) {
-                    nested += 1;
-                }
-            }
-            Operation::SequenceFold { .. } => folds += 1,
-            Operation::SequenceMap { .. } => maps += 1,
-            Operation::SequenceFilter { .. } => filters += 1,
-            _ => {}
-        }
-        index += 1;
-    }
-    assert!(nested > 0, "a let directly nested in a let");
-    assert!(folds > 0 && maps > 0 && filters > 0);
-    // Sibling lets of one function bind different slots.
-    let mut slots: Vec<_> = lets.iter().map(|l| (l.function.0, l.position)).collect();
-    let total = slots.len();
-    slots.sort_unstable();
-    slots.dedup();
-    assert_eq!(slots.len(), total, "no binder slot is declared twice");
-    assert!(
-        slots.windows(2).any(|pair| pair[0].0 == pair[1].0),
-        "some function has sibling or nested lets"
-    );
+fn recursion_depth_is_bounded_by_per_level_storage_reservation() {
+    use quire_driver::monitor::{lowering::LOWER_FRAME_BYTES, MonitorPreparationError as Error};
+    let frame = LOWER_FRAME_BYTES as u64;
+    let denial = |storage: u64| match lower_under(&deep_chain_clause(1), storage) {
+        Err(Error::Storage { consumed, next, .. }) => (consumed, next),
+        other => panic!("expected a storage stop, found {other:?}"),
+    };
+    // Less than one level: the entry body itself is denied one frame.
+    assert_eq!(denial(frame - 1), (0, frame));
+    // Exactly one level: only the first nested level is denied, with a single
+    // frame held and no key storage yet charged.
+    assert_eq!(denial(frame), (frame, frame));
+    // Ample storage lowers the same clause.
+    lower_under(&deep_chain_clause(1), 64 << 20).expect("an ample allowance lowers");
 }

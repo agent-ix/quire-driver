@@ -41,7 +41,15 @@ fn ratio(numerator: u64) -> Rational {
 
 /// Prepare the TC-200 clause for a 20-bit, 1 MHz counter with the given
 /// clock uncertainty in microseconds.
-fn prepare(uncertainty: u64) -> Rc<Program> {
+/// The producer plan's own ids of the `always` root and the `eventually`
+/// interval, read from the plan rather than assumed.
+#[derive(Clone, Copy)]
+struct Subformulas {
+    root: u64,
+    eventually: u64,
+}
+
+fn prepare(uncertainty: u64) -> (Rc<Program>, Subformulas) {
     let target = MonitorTarget {
         counter: "counter".to_owned(),
         unit: "us".to_owned(),
@@ -67,12 +75,20 @@ fn prepare(uncertainty: u64) -> Rc<Program> {
         node.node_id.clone()
     };
     let root = fixture.into_root();
+    let ids = Subformulas {
+        root: root.plan().program().root().index() as u64,
+        eventually: {
+            let intervals = root.plan().intervals();
+            assert_eq!(intervals.len(), 1, "one eventually interval");
+            intervals[0].0.index() as u64
+        },
+    };
     let (progress, subject) = observation::admitted(Some(vec![observation::row(&root)]));
     let source = root.checked_unit().source().identity().clone();
     let claim = root.plan().subject().clone();
     let clock = observation::clock();
     let observation_source = observation::source();
-    prepare_monitor(
+    let program = prepare_monitor(
         root,
         PlanAuthoritySelection {
             source: &source,
@@ -90,7 +106,8 @@ fn prepare(uncertainty: u64) -> Rc<Program> {
         LIMITS,
         &Cancel::new(),
     )
-    .expect("the clause prepares")
+    .expect("the clause prepares");
+    (program, ids)
 }
 
 fn budget() -> StepBudget {
@@ -271,9 +288,7 @@ impl Run {
     }
 }
 
-/// A settled obligation as TC-200 names them: the root `always` instance is
-/// subformula 0 and the `eventually` interval is subformula 3, both from the
-/// request at tick 0.
+/// A settled obligation from the request at tick 0.
 fn settled_at_zero(subformula: u64, outcome: &str) -> Settled {
     Settled {
         subformula: Integer::from(subformula),
@@ -283,8 +298,8 @@ fn settled_at_zero(subformula: u64, outcome: &str) -> Settled {
 }
 
 /// Request at tick 0, first acknowledgement at `ack` ticks.
-fn after_ack(uncertainty: u64, ack: u64) -> Vec<Settled> {
-    let program = prepare(uncertainty);
+fn after_ack(uncertainty: u64, ack: u64) -> (Vec<Settled>, Subformulas) {
+    let (program, ids) = prepare(uncertainty);
     let mut run = Run::new(&program);
     assert!(
         run.event(0, true, false).is_empty(),
@@ -294,23 +309,25 @@ fn after_ack(uncertainty: u64, ack: u64) -> Vec<Settled> {
     // event starts its own, unrelated instances.
     let mut results = run.event(ack, false, true);
     results.retain(|result| result.origin_tick == Integer::zero());
-    results
+    (results, ids)
 }
 
 #[trace("TC-200", "FR-276")]
 #[test]
 fn ack_at_2998_is_definitely_true() {
-    assert_eq!(after_ack(0, 2998), vec![settled_at_zero(3, "True")]);
+    let (results, ids) = after_ack(0, 2998);
+    assert_eq!(results, vec![settled_at_zero(ids.eventually, "True")]);
 }
 
 #[trace("TC-200", "FR-276")]
 #[test]
 fn ack_at_3000_is_indeterminate() {
+    let (results, ids) = after_ack(0, 3000);
     assert_eq!(
-        after_ack(0, 3000),
+        results,
         vec![
-            settled_at_zero(0, "Indeterminate"),
-            settled_at_zero(3, "Indeterminate")
+            settled_at_zero(ids.root, "Indeterminate"),
+            settled_at_zero(ids.eventually, "Indeterminate")
         ]
     );
 }
@@ -318,20 +335,25 @@ fn ack_at_3000_is_indeterminate() {
 #[trace("TC-200", "FR-276")]
 #[test]
 fn ack_at_3001_is_definitely_false() {
+    let (results, ids) = after_ack(0, 3001);
     assert_eq!(
-        after_ack(0, 3001),
-        vec![settled_at_zero(0, "False"), settled_at_zero(3, "False")]
+        results,
+        vec![
+            settled_at_zero(ids.root, "False"),
+            settled_at_zero(ids.eventually, "False")
+        ]
     );
 }
 
 #[trace("TC-200", "FR-276")]
 #[test]
 fn ack_at_2998_with_two_microseconds_of_uncertainty_is_indeterminate() {
+    let (results, ids) = after_ack(2, 2998);
     assert_eq!(
-        after_ack(2, 2998),
+        results,
         vec![
-            settled_at_zero(0, "Indeterminate"),
-            settled_at_zero(3, "Indeterminate")
+            settled_at_zero(ids.root, "Indeterminate"),
+            settled_at_zero(ids.eventually, "Indeterminate")
         ]
     );
 }
@@ -339,13 +361,16 @@ fn ack_at_2998_with_two_microseconds_of_uncertainty_is_indeterminate() {
 #[trace("TC-200", "FR-276")]
 #[test]
 fn pending_stays_distinct_from_indeterminate_while_the_window_is_open() {
-    let program = prepare(0);
+    let (program, ids) = prepare(0);
     let mut run = Run::new(&program);
     run.event(0, true, false);
     let pending = run.watermark(2998);
     assert_eq!(
         pending,
-        vec![settled_at_zero(0, "Pending"), settled_at_zero(3, "Pending")]
+        vec![
+            settled_at_zero(ids.root, "Pending"),
+            settled_at_zero(ids.eventually, "Pending")
+        ]
     );
     assert!(pending
         .iter()
