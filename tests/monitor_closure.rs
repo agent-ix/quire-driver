@@ -245,3 +245,122 @@ fn the_step_one_plan_prepares_a_checked_program() {
         panic!("prepare failed: {error:?} / {error}");
     }
 }
+
+/// The first result's outcome name after one request event at tick 0 and a
+/// progress assertion covering ticks through `boundary`.
+fn outcome_after(
+    program: &std::rc::Rc<quire_contract_runtime::monitor::Program>,
+    boundary: u64,
+) -> String {
+    use quire_contract_runtime::monitor::{
+        build, BuildPlan, Event, InputContext, Reading, StepBudget, Watermark,
+    };
+    use quire_exact::{FieldValue, Integer, ScalarLimits, Value};
+    let layout = program.layout();
+    let context = InputContext {
+        package_lock: &layout.package_lock,
+        clause: &layout.clause,
+        subject: &layout.subject,
+        occurrence: &layout.occurrence,
+        clock_binding: &layout.clock_binding,
+        counter: &layout.counter,
+        tick_unit: &layout.tick_unit,
+        counter_width_bits: layout.counter_width_bits,
+        profile: &layout.profile,
+        admitted_order: &layout.admitted_order,
+    };
+    let big = 1_000_000;
+    let budget = StepBudget {
+        work: 100_000_000,
+        scalar: ScalarLimits {
+            integer_bits: big,
+            decimal_digits: big,
+            scale_expansion: big,
+            text_input_bytes: big,
+            text_scalars: big,
+            normalized_scalars: big,
+            unit_edges: big,
+            value_occurrences: big,
+            work_units: big,
+            result_units: big,
+        },
+        stack_frames: 100_000,
+        scratch_elements: 1_000_000,
+        scratch_bytes: 100_000_000,
+    };
+    let mut monitor = build(BuildPlan {
+        program: std::rc::Rc::clone(program),
+        budget,
+    })
+    .expect("init runs");
+    let request = program
+        .types()
+        .record(
+            layout.inputs.key.clone(),
+            vec![
+                ("a2", FieldValue::Present(Value::Boolean(true))),
+                ("a4", FieldValue::Present(Value::Boolean(false))),
+            ],
+        )
+        .expect("captures");
+    let scope = program
+        .types()
+        .record(
+            layout.scope.key.clone(),
+            vec![(
+                "subject",
+                FieldValue::Present(Value::Integer(Integer::zero())),
+            )],
+        )
+        .expect("scope");
+    monitor
+        .event(Event {
+            reading: Reading { context, value: 0 },
+            inputs: &request,
+        })
+        .expect("request event");
+    let boundary = Integer::from(boundary);
+    let step = monitor
+        .watermark(Watermark {
+            context,
+            progress_context: &layout.progress_context,
+            assertion: b"admitted assertion",
+            inclusive_boundary: &boundary,
+            scope: &scope,
+        })
+        .expect("watermark");
+    let Value::Collection(results) = step.results() else {
+        panic!("results are a sequence");
+    };
+    let Value::Composite(first) = &results.elements()[0] else {
+        panic!("a result record");
+    };
+    let quire_exact::FieldValue::Present(Value::Union(outcome)) = &first.slots()[1] else {
+        panic!("an outcome union");
+    };
+    outcome.member().identifier().to_owned()
+}
+
+/// The request at tick 0 with no acknowledgement: the `[0, 3]` window is open
+/// through tick 2 and closed, unanswered, once tick 3 is covered.
+#[trace("TC-033", "FR-019-AC-1")]
+#[test]
+fn the_prepared_step_one_program_runs_in_the_runtime() {
+    let cancel = Cancel::new();
+    let program = prepare("C", STEP_ONE, &cancel).expect("prepares");
+    assert_eq!(outcome_after(&program, 2), "Pending");
+    assert_eq!(outcome_after(&program, 3), "False");
+    assert_eq!(outcome_after(&program, 4), "False");
+}
+
+#[trace("TC-033", "FR-017-AC-1")]
+#[test]
+fn the_prepared_program_declares_its_tick_unit_in_the_unit_table() {
+    let cancel = Cancel::new();
+    let program = prepare("C", STEP_ONE, &cancel).expect("prepares");
+    assert!(program
+        .types()
+        .units()
+        .nominal_node(&program.layout().tick_unit)
+        .is_some());
+}

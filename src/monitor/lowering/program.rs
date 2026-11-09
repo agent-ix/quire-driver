@@ -39,6 +39,12 @@ struct Pending<'a> {
     entry_body: Option<&'a CheckedTerm>,
 }
 
+/// What a lowered expression reads, for sharing and binder context.
+struct Info {
+    closed: bool,
+    free: Vec<usize>,
+}
+
 struct Scope {
     name: String,
     level: u64,
@@ -61,7 +67,7 @@ struct Lowerer<'a, 'b> {
     callees: Vec<&'a CheckedNodeId>,
     queue: Vec<Pending<'a>>,
     expressions: Vec<Expression>,
-    closed: Vec<bool>,
+    info: Vec<Info>,
     shared: BTreeMap<&'a CheckedNodeId, ExpressionId>,
     shared_inline: BTreeMap<(&'a CheckedNodeId, usize), ExpressionId>,
 }
@@ -83,7 +89,7 @@ pub fn lower_entries<'a>(
         callees: Vec::new(),
         queue: Vec::new(),
         expressions: Vec::new(),
-        closed: Vec::new(),
+        info: Vec::new(),
         shared: BTreeMap::new(),
         shared_inline: BTreeMap::new(),
     };
@@ -287,34 +293,111 @@ impl<'a, 'b> Lowerer<'a, 'b> {
 
     /// A closed expression reads no argument or local, so any function may
     /// share it; the runtime requires such an expression to exist once.
-    fn is_closed(&self, operation: &Operation) -> bool {
-        let all = |ids: &[ExpressionId]| ids.iter().all(|id| self.closed[id.0]);
+    /// `free` lists the binder slots it reads that it does not itself bind.
+    fn analyze(&self, operation: &Operation) -> Info {
+        let mut closed = true;
+        let mut free: Vec<usize> = Vec::new();
+        let read =
+            |id: &ExpressionId, bound: &[usize], free: &mut Vec<usize>, closed: &mut bool| {
+                let info = &self.info[id.0];
+                *closed &= info.closed;
+                free.extend(
+                    info.free
+                        .iter()
+                        .copied()
+                        .filter(|slot| !bound.contains(slot)),
+                );
+            };
         match operation {
-            Operation::Literal(_) => true,
-            Operation::Call { arguments, .. } => all(arguments),
-            Operation::Record { fields } => fields.iter().all(|(_, id)| self.closed[id.0]),
-            Operation::Tuple { positions } | Operation::Union { positions, .. } => all(positions),
-            Operation::Sequence { elements } => all(elements),
+            Operation::Literal(_) => {}
+            Operation::Argument { .. } => closed = false,
+            Operation::Local(local) => {
+                closed = false;
+                free.push(local.position);
+            }
+            Operation::Call { arguments: ids, .. }
+            | Operation::Tuple { positions: ids }
+            | Operation::Union { positions: ids, .. }
+            | Operation::Sequence { elements: ids } => {
+                ids.iter()
+                    .for_each(|id| read(id, &[], &mut free, &mut closed));
+            }
+            Operation::Record { fields } => {
+                fields
+                    .iter()
+                    .for_each(|(_, id)| read(id, &[], &mut free, &mut closed));
+            }
             Operation::SequenceSize { value }
             | Operation::SequenceFlatten { value }
             | Operation::IntegerNegate { value }
             | Operation::BooleanNot { value }
             | Operation::TupleElement { value, .. }
-            | Operation::RecordField { value, .. } => all(&[*value]),
+            | Operation::UnionIs { value, .. }
+            | Operation::UnionPayload { value, .. }
+            | Operation::RecordField { value, .. } => read(value, &[], &mut free, &mut closed),
             Operation::IntegerAdd { left, right }
             | Operation::IntegerSubtract { left, right }
             | Operation::IntegerMultiply { left, right }
             | Operation::IntegerOrder { left, right, .. }
             | Operation::BooleanAnd { left, right }
             | Operation::BooleanOr { left, right }
-            | Operation::Equality { left, right, .. } => all(&[*left, *right]),
+            | Operation::Equality { left, right, .. } => {
+                read(left, &[], &mut free, &mut closed);
+                read(right, &[], &mut free, &mut closed);
+            }
             Operation::If {
                 condition,
                 when_true,
                 when_false,
-            } => all(&[*condition, *when_true, *when_false]),
-            _ => false,
+            } => {
+                for id in [condition, when_true, when_false] {
+                    read(id, &[], &mut free, &mut closed);
+                }
+            }
+            Operation::Let {
+                binding,
+                value,
+                body,
+            } => {
+                closed = false;
+                read(value, &[], &mut free, &mut closed);
+                read(body, &[binding.position], &mut free, &mut closed);
+            }
+            Operation::SequenceFold {
+                sequence,
+                initial,
+                accumulator,
+                item,
+                body,
+            } => {
+                closed = false;
+                read(sequence, &[], &mut free, &mut closed);
+                read(initial, &[], &mut free, &mut closed);
+                read(
+                    body,
+                    &[accumulator.position, item.position],
+                    &mut free,
+                    &mut closed,
+                );
+            }
+            Operation::SequenceMap {
+                sequence,
+                item,
+                body,
+            }
+            | Operation::SequenceFilter {
+                sequence,
+                item,
+                predicate: body,
+            } => {
+                closed = false;
+                read(sequence, &[], &mut free, &mut closed);
+                read(body, &[item.position], &mut free, &mut closed);
+            }
         }
+        free.sort_unstable();
+        free.dedup();
+        Info { closed, free }
     }
 
     fn push(
@@ -339,8 +422,18 @@ impl<'a, 'b> Lowerer<'a, 'b> {
             .ok_or_else(|| self.invalid(node))?;
         let key = key::own_key(original, &mut self.budget)?;
         let id = ExpressionId(self.expressions.len());
-        let closed = self.is_closed(&operation);
-        self.closed.push(closed);
+        let info = self.analyze(&operation);
+        // The structural key does not carry binder identity, so an expression
+        // reading binder slots is located by those slots after a marker that
+        // no inline operand position can equal.
+        let body_path = if body_path.is_empty() && !info.free.is_empty() {
+            std::iter::once(usize::MAX)
+                .chain(info.free.iter().copied())
+                .collect()
+        } else {
+            body_path
+        };
+        self.info.push(info);
         self.expressions.push(Expression {
             key,
             body_path,
@@ -465,7 +558,7 @@ impl<'a, 'b> Lowerer<'a, 'b> {
             _ => return Err(self.unsupported(node)),
         };
         frame.memo.insert(structural, id);
-        if self.closed[id.0] {
+        if self.info[id.0].closed {
             self.shared.insert(structural, id);
         }
         Ok(id)
@@ -498,6 +591,19 @@ impl<'a, 'b> Lowerer<'a, 'b> {
             .map(|scope| scope.local)
             .ok_or_else(|| self.invalid(node))?;
         self.push(node, value_type, Operation::Local(local))
+    }
+
+    /// Close the binders above `depth`; expressions that read their slots are
+    /// valid only inside, so they leave the function's sharing table.
+    fn leave(&self, frame: &mut Frame<'a>, depth: usize) {
+        let gone: Vec<usize> = frame.scope[depth..]
+            .iter()
+            .map(|scope| scope.local.position)
+            .collect();
+        frame.scope.truncate(depth);
+        frame
+            .memo
+            .retain(|_, id| !self.info[id.0].free.iter().any(|slot| gone.contains(slot)));
     }
 
     fn bind(&mut self, frame: &mut Frame<'a>, name: &str) -> LocalId {
@@ -647,7 +753,7 @@ impl<'a, 'b> Lowerer<'a, 'b> {
                 let depth = frame.scope.len();
                 let binding = self.bind(frame, name);
                 let body = self.lower(frame, body)?;
-                frame.scope.truncate(depth);
+                self.leave(frame, depth);
                 Operation::Let {
                     binding,
                     value,
@@ -697,7 +803,7 @@ impl<'a, 'b> Lowerer<'a, 'b> {
                 let accumulator = self.bind(frame, accumulator);
                 let item = self.bind(frame, item);
                 let body = self.lower(frame, body)?;
-                frame.scope.truncate(depth);
+                self.leave(frame, depth);
                 Operation::SequenceFold {
                     sequence,
                     initial,
@@ -721,7 +827,7 @@ impl<'a, 'b> Lowerer<'a, 'b> {
                 let depth = frame.scope.len();
                 let item = self.bind(frame, item);
                 let body = self.lower(frame, body)?;
-                frame.scope.truncate(depth);
+                self.leave(frame, depth);
                 if read.identity.ends_with("map") {
                     Operation::SequenceMap {
                         sequence,
