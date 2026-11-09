@@ -196,12 +196,9 @@ fn tc_005_driver_edges_match_the_adr_011_allow_list() {
     assert_eq!(direct, expected);
     assert_eq!(
         graph.driver_dev_dependencies,
-        [
-            "ix-trace-rs".to_owned(),
-            "quire-checked".to_owned()
-        ]
-        .into_iter()
-        .collect()
+        ["ix-trace-rs".to_owned(), "quire-checked".to_owned()]
+            .into_iter()
+            .collect()
     );
     assert!(
         graph.reachable_from(&graph.root).iter().all(|id| !matches!(
