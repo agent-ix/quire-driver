@@ -16,7 +16,7 @@ Scoped traceability, reverse-gap and oracle review of informative root help at f
 
 ## Verdict
 
-CONDITIONAL until FND-001 is corrected and the computed row is read back. Runtime code and meaningful tagged tests implement the intended complete help obligation, but the current computed criterion is truncated by the requirement's unescaped table delimiters. This is a scoped review, not a repository-wide assurance or QSL-1815 completion claim.
+PASS for the scoped change after disposition pass 1 at 8d39c6c8b3599d4b0d429a2839cdaa3cd4394a55. FND-001 is fixed: the escaped table delimiters preserve the complete intended help obligation and its Test method in computed read-back. The original conditional review and finding are retained below. This is a scoped review, not a repository-wide assurance or QSL-1815 completion claim; the lead's final package gate remains pending.
 
 ## Findings
 
@@ -39,3 +39,15 @@ Computed evidence: quire matrix --scope /home/peter/dev/worktrees/QSL1815-help-c
 The three FR-002-AC-17 bindings are semantically correct against the complete intended criterion: root_help_selectors_print_the_same_informative_help_without_an_operation; root_help_identifies_current_command_availability_and_text_restrictions; informative_help_does_not_replace_invalid_command_or_format_refusals. No tag is removed and no ignored or fabricated test supplies this evidence. Their code uses real child processes, full stdout comparisons, content checks and real unsupported/refusal controls. Direct source inspection confirms the help branch cannot reach lifecycle dispatch. Existing version and parser checks remain successful.
 
 No copied upstream semantics, compatibility layer, stub, gate weakening or coverage suppression was introduced. The lead's full package gate remains pending; package_boundary must use the documented quiet-window exception because it shells Cargo metadata. No full repository semantic audit or plan-completeness assessment was performed.
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | The AC-17 output selector's two table pipes are escaped without changing requirement meaning. Independently computed read-back now retains the full criterion through its final lifecycle-operation clause, method Test and all three tagged process tests. |
+
+## Disposition pass 1 evidence
+
+At 8d39c6c8b3599d4b0d429a2839cdaa3cd4394a55, diff inspection confirms the spec change is exactly two pipe escapes; the only other added files are the byte-identical original review artifacts. The current FR-002 file compares byte-for-byte with the scoped matrix snapshot, and its cli_contract.rs symlink resolves to the actual live test source in this reviewed worktree.
+
+This reviewer independently reran quire matrix over that verified scope, exit 0. /tmp/qsl1815-help-code-review-disposition1/matrix.json gives FR-002-AC-17 method Test, status tagged, the complete statement ending "starts no lifecycle operation.", the intact output selector and exactly the three intended process-test binders. This is scoped computed evidence, not a repository-wide matrix claim. Catalog warnings remain unchanged. No new findings; no requirement semantics or runtime code changed, and no Cargo or runtime test was run during this disposition.
