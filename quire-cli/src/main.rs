@@ -3,13 +3,13 @@
 
 #[allow(
     dead_code,
-    reason = "FR-331 request construction awaits routed Process items"
+    reason = "FR-331 request members await the remaining QSL projection support"
 )]
 mod backend_provider;
 mod cli;
 #[allow(
     dead_code,
-    reason = "process routing awaits the CG IR-629 process BackendKind mapping"
+    reason = "typed process results remain unmapped pending QSL settlement APIs"
 )]
 mod process_provider;
 mod provider_config;

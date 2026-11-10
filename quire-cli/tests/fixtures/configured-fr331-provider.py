@@ -70,7 +70,7 @@ while True:
     items = request["request"]["items"]
     with open(marker, "wb") as dispatched:
         dispatched.write(json.dumps(request, sort_keys=True).encode())
-    if mode == "signal":
+    if mode in ("signal", "signal-int"):
         subprocess.Popen(
             [
                 sys.executable,
@@ -89,7 +89,8 @@ while True:
             time.sleep(0.002)
         if not os.path.exists(ready_path):
             raise SystemExit(4)
-        os.kill(os.getppid(), signal.SIGTERM)
+        selected_signal = signal.SIGINT if mode == "signal-int" else signal.SIGTERM
+        os.kill(os.getppid(), selected_signal)
         readable, _, _ = select.select([sys.stdin.buffer], [], [], 2)
         if readable:
             control = read_frame()

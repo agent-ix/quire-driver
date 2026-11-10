@@ -542,6 +542,92 @@ fn empty_provider_config_executes_without_starting_a_provider() {
     assert!(serde_json::from_slice::<serde_json::Value>(&output.stdout).is_ok());
 }
 
+/// Trace: FR-006-AC-3; normal CLI completion sends shutdown and reaps its configured provider.
+#[test]
+fn configured_process_normal_exit_shuts_down_active_session() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock is after the Unix epoch")
+        .as_nanos();
+    let directory = std::env::temp_dir().join(format!(
+        "quire-cli-configured-normal-exit-{}-{unique}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&directory).expect("create isolated normal-exit test directory");
+    let request_marker = directory.join("request.json");
+    let shutdown_marker = directory.join("shutdown.json");
+    let config_path = directory.join("providers.json");
+    let source_path = directory.join("normal-exit.native");
+    let source = format!(
+        "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
+         function eq using v(x: Int[0, 9], y: Int[0, 9]): Boolean pure {{ x = y }}\n\
+         function negate using v(z: Int[0, 9]): Int[-9, 0] pure {{ -z }}\n",
+        "quire.value.complete/v1"
+    );
+    std::fs::write(&source_path, source).expect("write source fixture");
+    let executable = std::env::split_paths(&std::env::var_os("PATH").expect("PATH is set"))
+        .map(|directory| directory.join("python3"))
+        .find(|candidate| candidate.is_file())
+        .expect("the process fixture requires Python 3");
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/configured-fr331-provider.py"
+    );
+    let config = serde_json::json!({
+        "providers": [{
+            "executable": executable,
+            "argv": [
+                fixture,
+                "agent-ix/provider/configured-normal-exit",
+                request_marker,
+                "value-validity",
+                "normal",
+                shutdown_marker,
+            ],
+            "deadline_ms": 10_000,
+            "limits": {
+                "max_frame_bytes": 262_144,
+                "max_total_bytes": 1_048_576,
+                "max_stderr_bytes": 4096,
+                "cancellation_grace_ms": 250,
+            }
+        }]
+    });
+    std::fs::write(
+        &config_path,
+        serde_json::to_vec(&config).expect("serialize provider config"),
+    )
+    .expect("write provider config");
+    let request = requests::request(
+        source_path.to_str().expect("UTF-8 source path"),
+        Some((
+            "eq",
+            serde_json::json!([
+                {"parameter":"x","value":2},
+                {"parameter":"y","value":3}
+            ]),
+        )),
+    );
+    let output = Command::new(QUIRE)
+        .arg("run")
+        .arg(request.as_str())
+        .arg("--provider-config")
+        .arg(&config_path)
+        .args(["--format", "json"])
+        .output()
+        .expect("run production quire binary");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        request_marker.is_file(),
+        "fixture received the routed request"
+    );
+    assert!(
+        shutdown_marker.is_file(),
+        "the CLI sent shutdown and waited for the provider to exit"
+    );
+    std::fs::remove_dir_all(directory).expect("remove normal-exit test directory");
+}
+
 /// Trace: FR-006-AC-26; duplicate admitted identities refuse before requests and close both sessions.
 #[test]
 fn duplicate_provider_identities_refuse_before_negotiation_and_close_sessions() {
@@ -640,6 +726,24 @@ fn duplicate_provider_identities_refuse_before_negotiation_and_close_sessions() 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn configured_process_sigterm_cleans_active_session_before_reraise() {
+    assert_configured_process_signal_cleans_active_session(
+        signal_hook::consts::signal::SIGTERM,
+        "signal",
+    );
+}
+
+/// Trace: FR-006-AC-4; the production binary cancels and reaps a selected provider before re-raising SIGINT.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn configured_process_sigint_cleans_active_session_before_reraise() {
+    assert_configured_process_signal_cleans_active_session(
+        signal_hook::consts::signal::SIGINT,
+        "signal-int",
+    );
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn assert_configured_process_signal_cleans_active_session(signal_number: i32, mode: &str) {
     use std::os::unix::process::ExitStatusExt;
     use std::process::Stdio;
     use std::time::{Duration, Instant};
@@ -683,7 +787,7 @@ fn configured_process_sigterm_cleans_active_session_before_reraise() {
                 "agent-ix/provider/configured-signal",
                 request_marker,
                 "value-validity",
-                "signal",
+                mode,
                 ready_marker,
                 release_marker,
                 descendant_marker,
@@ -759,8 +863,8 @@ fn configured_process_sigterm_cleans_active_session_before_reraise() {
     );
     assert_eq!(
         output.status.signal(),
-        Some(signal_hook::consts::signal::SIGTERM),
-        "the production CLI restores the default action and re-raises SIGTERM"
+        Some(signal_number),
+        "the production CLI restores the default action and re-raises the signal"
     );
     assert!(
         output.stdout.is_empty(),
