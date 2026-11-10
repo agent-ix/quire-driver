@@ -116,10 +116,11 @@ review renames them.
   after any conversion root and in outermost-first order, inside that item's
   contiguous context span, as CG FR-022 "Path conditions in the scalar
   harness" requires. Context roots SHALL NOT advance driver indices
-  (FR-001). When two items share a guard node (the then and else
+  (FR-001). Where two items share a guard node (the then and else
   occurrences of `if p then x + 1 else x + 1` are both guarded by `p`), the
-  driver SHALL add that root in each item's own span and SHALL NOT emit it
-  once for both, because CG checks a guard against its own item's span.
+  driver SHALL add that root in each item's own span.
+- The driver SHALL NOT emit a shared guard root once for several items,
+  because CG checks a guard against its own item's span.
 - If the package's requirement records hold no `value-validity` record for
   a routed item's occurrence, then the driver SHALL refuse the run with the
   `RequirementRecordAbsent` fault, naming the request index and the item's
