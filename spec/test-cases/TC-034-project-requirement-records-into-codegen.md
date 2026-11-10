@@ -29,8 +29,8 @@ for FR-020-AC-6 only.
    IR-304 guarded package including `if p then x + 1 else x + 1`. Capture
    what the driver passes to a recording CG seam (AC-1 to AC-3, AC-5 to
    AC-7, AC-12, AC-15).
-2. Call the projection function with the package's `RequirementMap` with the
-   item's `value-validity` record removed (AC-4), and with a record whose
+2. Run the driver through `lower_driver_request`, negotiation and generation with the package's `RequirementMap` missing the routed
+   item's `value-validity` record (AC-4), and with a record whose
    guard node the admitted package does not hold, and with a record whose
    key has an unmapped role (AC-14). Assert the fault
    fields, code, stage, kind and that the recording seam saw no generation
@@ -57,7 +57,8 @@ correct driver.
 | Project every capability's record, so a later one overwrites at a shared occurrence | AC-2 (no other-capability entry); AC-5 (entry fields equal the `value-validity` record) |
 | Look the item's record up by occurrence alone | AC-5 (the ambiguous key returns no record, so the run faults) |
 | Attach a requirement to every bound item, whatever its capability | AC-15 (`None` expected at the `operation-contract` index) |
-| Fault when a non-`value-validity` item has no record | AC-15 (the run must complete with `InvalidRequest` settled) |
+| Fault at projection time for any bound item without a record | AC-15 (the run must complete with `InvalidRequest` settled); AC-4 (the fault must come only after negotiation, for the routed item) |
+| Skip the absent-record check for a routed item, or check items that are not routed | AC-4 (fault expected, no CG call); AC-15 (no fault expected) |
 | Fill an absent record from the item's own fields | AC-4 fault and no-generation-call assertions |
 | Skip a record that fails to resolve and continue | AC-14 fault and no-generation-call assertions |
 | Attach a requirement at B's index, or fault on B's missing record | AC-6 `None` at index 1; completion with B's record removed |

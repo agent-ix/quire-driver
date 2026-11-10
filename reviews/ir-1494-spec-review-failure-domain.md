@@ -158,6 +158,34 @@ Re-review of head ab47adb (commits 5e98dc5, ab47adb) against the review-pass fin
 ]
 ```
 
+## New findings (disposition pass 3)
+
+Re-review of head e5bb946 (commit e5bb946 on ddf8761).
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | low | Projection runs before negotiation (guard roots are lowering inputs) but its selection and the Absent fault are worded on 'routed Kani item' | spec/functional/FR-020-project-requirement-records-into-codegen-input.md |
+
+```json
+[
+  {
+    "fnd": "FND-005",
+    "severity": "low",
+    "confidence": "medium",
+    "check": "ambiguous",
+    "artifact_id": "FR-020",
+    "related_ids": [
+      "FR-020-AC-4",
+      "FR-020-AC-15"
+    ],
+    "path": "spec/functional/FR-020-project-requirement-records-into-codegen-input.md",
+    "lines": "Outputs projection function; Behavior 'attach a RoutedRequirement to every item negotiation routes to Kani'; RequirementRecordAbsent bullet",
+    "excerpt": "- If the package's requirement records hold no `value-validity` record for a routed Kani item's occurrence, then the driver SHALL refuse the run with the `RequirementRecordAbsent` fault, naming the request index and the item's occurrence, before calling CG generation.",
+    "finding": "The projection must run in lower_driver_request, before negotiation, because guard ContextRoots are lowering roots and the same positions bind CG's negotiation preflight; its stated inputs (items, RequirementMap, admitted package) carry no routing. Yet the attach rule and the RequirementRecordAbsent bullet and AC-4 key on 'every item negotiation routes to Kani' / 'a routed Kani item'. Two implementers can differ: check every bound value-validity item before negotiation, or only routed ones after. State the projection's key as the bound value-validity items (capability plus FR-010 partition), with requirements attached at generation to the subset routed to Kani; a bound value-validity item later routed elsewhere then still faults on an absent record. The Inputs sentence 'Negotiation routes only those items to Kani' is also stronger than shown: it rests on non-value-validity records sitting at Claim-role occurrences, verified here only for operation-contract and temporal-satisfaction."
+  }
+]
+```
+
 ## Dispositions
 
 | FND | outcome | reason |
@@ -166,3 +194,4 @@ Re-review of head ab47adb (commits 5e98dc5, ab47adb) against the review-pass fin
 | FND-002 | fixed | Round 1, head ab47adb: - If a `value-validity` record of the package fails to project (a node of its result bound, conversion occurrence or a guard occurrence is unknown or ambiguous in the admitted package, or a role is unknown), then the driver SHALL refuse the run with the `RequirementRecordUnresolved` fault, naming the record's QSL occurrence key (a package record has no request index) and carrying the unknown-node, ambiguous-node or unknown-role cause unchanged. It SHALL NOT omit the record and continue, whether or not an item routes to it. |
 | FND-003 | fixed | Round 1, head ab47adb: For `if p then x + 1 else x + 1`, whose then and else items are both guarded by the node of `p`, the positions hold a `ContextRoot` for `p` in the then item's span and another in the else item's span, and the root is not emitted once for both. |
 | FND-004 | fixed | Round 2, head ddf8761: - Or a `DriverRefusal::Fault` of one of two new `DriverFault` variants: `RequirementRecordAbsent { request_index, occurrence }` and `RequirementRecordUnresolved { occurrence, cause }`, where `cause` is a new `RequirementRecordUnresolvedCause` with the variants `UnknownNode { node }`, `AmbiguousNode { node }` and `UnknownOccurrenceRole { role }`. The existing `DriverFault` node and role variants carry a request index that a package record lacks, so the new cause type carries the same payload without it. Each has stage Generation, wire code `runtime_invariant` and outcome kind internal fault.... / When a `value-validity` record of the package has a guard occurrence whose node the admitted package does not hold, the run refuses with `DriverFault::RequirementRecordUnresolved` naming the record's QSL occurrence key with cause `UnknownNode`; when a record's key has a role outside IR's occurrence vocabulary, the cause is `UnknownOccurrenceRole`. Each has stage Generation, wire code `runtime_invariant` and outcome kind internal fault, is raised even when no item routes to that record, and CG generation is not called. The `AmbiguousNode` cause is produced by the same node lookup FR-001 uses... |
+

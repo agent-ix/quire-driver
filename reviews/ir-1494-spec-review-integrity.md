@@ -133,3 +133,4 @@ Re-review of head ddf8761 (commit ddf8761 on ab47adb).
 | --- | --- | --- |
 | FND-001 | fixed | Round 1, head ab47adb: [TM-001](tests.md) integrates FR-001 through FR-020, and TC-001 through TC-034. |
 | FND-002 | fixed | Round 2, head ddf8761: reviews/ now holds only the six SR files (ir-1494-spec-review-{base,criterion-strength,dependency,ears-conformance,failure-domain,integrity}.md), byte-identical to the round-1 reviewer versions; the *.comment.md payloads are removed. |
+| FND-003 | fixed | Round 3, head e5bb946: - [FR-020](FR-020-project-requirement-records-into-codegen-input.md) attaches a requirement record to each bound item routed to Kani and none to a refused item. |
