@@ -122,6 +122,31 @@ Re-review of head ddf8761 (commit ddf8761 on ab47adb).
 ]
 ```
 
+## New findings (disposition pass 4)
+
+Re-review of head 2674ff5 (commit 2674ff5 on e5bb946).
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | low | Outputs still says every bound value-validity item's requirement is 'attached with with_requirement'; Behavior attaches only to the Kani-routed subset | spec/functional/FR-020-project-requirement-records-into-codegen-input.md |
+
+```json
+[
+  {
+    "fnd": "FND-004",
+    "severity": "low",
+    "confidence": "high",
+    "check": "ambiguous",
+    "artifact_id": "FR-020",
+    "related_ids": [],
+    "path": "spec/functional/FR-020-project-requirement-records-into-codegen-input.md",
+    "lines": "Outputs first bullet vs Behavior 'attach the projected RoutedRequirement ... for the subset negotiation routes to Kani'",
+    "excerpt": "- For each export-bound `value-validity` item that has a record, selected with `OwnResult`, a CG `RoutedRequirement { occurrence, result_bound, conversion_context, path_condition }`, attached with `RoutedGenerationItem::with_requirement`.",
+    "finding": "The Outputs bullet says a RoutedRequirement is produced for each export-bound value-validity item with a record and 'attached with RoutedGenerationItem::with_requirement'. Behavior now builds it for every such item at lowering but attaches it only to generation items negotiation routes to Kani (none for an item routed to a process backend or not routed). Reword Outputs to 'projected for each ... and attached to the generation item of each one negotiation routes to Kani'."
+  }
+]
+```
+
 ## Dispositions and new findings: copy the updated SR files over them in the next fix commit."
   }
 ]
@@ -134,3 +159,4 @@ Re-review of head ddf8761 (commit ddf8761 on ab47adb).
 | FND-001 | fixed | Round 1, head ab47adb: [TM-001](tests.md) integrates FR-001 through FR-020, and TC-001 through TC-034. |
 | FND-002 | fixed | Round 2, head ddf8761: reviews/ now holds only the six SR files (ir-1494-spec-review-{base,criterion-strength,dependency,ears-conformance,failure-domain,integrity}.md), byte-identical to the round-1 reviewer versions; the *.comment.md payloads are removed. |
 | FND-003 | fixed | Round 3, head e5bb946: - [FR-020](FR-020-project-requirement-records-into-codegen-input.md) attaches a requirement record to each bound item routed to Kani and none to a refused item. |
+

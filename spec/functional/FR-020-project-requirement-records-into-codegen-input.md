@@ -63,7 +63,9 @@ review renames them.
 - For each export-bound `value-validity` item that has a record, selected
   with `OwnResult`, a CG
   `RoutedRequirement { occurrence, result_bound, conversion_context,
-  path_condition }`, attached with `RoutedGenerationItem::with_requirement`.
+  path_condition }` is projected, and attached with
+  `RoutedGenerationItem::with_requirement` to the generation item of each
+  such item that negotiation routes to Kani.
 - On `KaniGenerationContext.requirement_records`, one CG `RequirementRecords`
   holding one `RequirementRecordInput { result_bound, conversion_context,
   path_condition }` for every `value-validity` record of the package, keyed

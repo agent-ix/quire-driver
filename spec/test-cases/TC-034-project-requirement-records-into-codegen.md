@@ -29,7 +29,9 @@ for FR-020-AC-6 only.
    IR-304 guarded package including `if p then x + 1 else x + 1`. Capture
    what the driver passes to a recording CG seam (AC-1 to AC-3, AC-5 to
    AC-7, AC-12, AC-15).
-2. Run the driver through `lower_driver_request`, negotiation and generation with the package's `RequirementMap` missing the routed
+2. In an in-module test in `src/drive.rs` (`drive()` takes no
+   `RequirementMap`), call the private `lower_driver_request`, negotiation
+   and `generate` with a `RequirementMap` argument missing the routed
    item's `value-validity` record (AC-4), and with a record whose
    guard node the admitted package does not hold, and with a record whose
    key has an unmapped role (AC-14). Assert the fault
