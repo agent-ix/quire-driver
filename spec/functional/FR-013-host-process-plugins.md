@@ -90,8 +90,8 @@ specifies the driver-owned process-provider seam and settlement composition.
 - The merged host's Windows forced-cleanup path terminates the process tree
   through `terminate_tree`/`terminate_job`. It does not configure
   `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` through its standard-library Job Object
-  path; kill-on-close remains planned under IR-674, and this specification
-  makes no claim that automatic handle-close cleanup is implemented.
+  path. Automatic kill-on-close is deferred to the IR-674 follow-up; this
+  specification makes no claim that handle-close cleanup is implemented.
 - When the child exits non-zero, the host SHALL return a process failure.
   EOF before the expected frame SHALL preserve an available
   process exit status in preference to a generic missing-frame error.
@@ -128,7 +128,7 @@ specifies the driver-owned process-provider seam and settlement composition.
 | FR-013-AC-11 | The host uses QSL ADR-029 PL-1 through PL-7 without defining a local wire or manifest-digest format; `quire-driver` excludes the host crate, and `quire-cli` has a direct host dependency and composes it with the driver's seam. | Test (TC-005, TC-028) and analysis |
 | FR-013-AC-12 | On a clean Cargo cache, the repository `make test` target fetches every locked platform dependency before running the offline TC-005 dependency metadata check, and the check passes. | Test (TC-027) |
 | FR-013-AC-13 | The host test suite reports an actionable prerequisite failure naming the missing fixture runtime and its installation instructions. | Test (TC-027) |
-| FR-013-AC-14 | When a supported Windows process-tree cleanup mechanism is selected under IR-674, the host assigns the plugin process tree to a kill-on-close Job Object before plugin code executes; closing the owning job handle terminates remaining job members. | Planned under IR-674; native Windows evidence required |
+| FR-013-AC-14 | When the IR-674 follow-up selects and implements a supported Windows process-tree cleanup mechanism, the host assigns the plugin process tree to a kill-on-close Job Object before plugin code executes; closing the owning job handle terminates remaining job members. | Deferred to IR-674; not implemented or verified by this PR; native Windows evidence required |
 | FR-013-AC-15 | When Windows process-tree setup fails before plugin execution, the host returns a typed host-start failure, dispatches no provider request, and terminates any child already created. | Analysis/Inspection (review Windows host startup/error path in `quire-plugin-host`; runtime evidence requires a native Windows runner and an injectable or distinguishable setup-failure seam) |
 
 ## Dependencies

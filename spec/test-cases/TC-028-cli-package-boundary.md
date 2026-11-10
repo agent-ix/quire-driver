@@ -35,6 +35,8 @@ FR-006-AC-8,
 FR-006-AC-24..FR-006-AC-27, FR-013-AC-11,
 FR-013-AC-14..FR-013-AC-15,
 FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
+FR-013-AC-14 is listed to record deferral to IR-674; TC-028 does not verify
+kill-on-close in this PR.
 
 ## Test Procedure
 
@@ -119,7 +121,7 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    before the CLI exits; if `RunLimits.cancellation_grace` expires first,
    confirm forced cleanup completes within one second. Windows forced cleanup
    uses the existing `terminate_tree`/`terminate_job` path and is verified in
-   step 14; only automatic kill-on-close remains planned under IR-674.
+   step 14; AC-14 kill-on-close is deferred to IR-674 and is not verified by this PR.
 13. On Linux and macOS only, for each plugin-session state, run one invocation
    that receives SIGINT and one that receives SIGTERM: wait for a `started`
    marker before hello is written, wait for a request-running marker, and wait
@@ -207,7 +209,6 @@ Linux/macOS runners provide the signal evidence in step 13.
 - Normal CLI termination requests graceful shutdown on all supported adapter
   platforms; Linux/macOS handled SIGINT/SIGTERM close active plugin trees
   within the defined bound.
-- Windows forced cleanup uses the merged host's explicit termination path;
-  verify it on a native Windows runner. Automatic kill-on-close remains
-  planned under IR-674, and setup-failure runtime evidence requires a native
-  Windows runner and a usable failure seam.
+- Windows AC-14 kill-on-close is deferred to IR-674 and is neither implemented
+  nor verified by this PR. Setup-failure runtime evidence also requires a
+  native Windows runner and a usable failure seam.
