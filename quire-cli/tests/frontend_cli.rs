@@ -86,44 +86,95 @@ fn invalid_invocations_exit_20_and_the_next_valid_call_runs() {
         (
             &["parse", SOURCE, "--format", "json"],
             &[
-                (&["parse", "--bogus", MISSING_SOURCE], "unknown parse option `--bogus`"),
+                (
+                    &["parse", "--bogus", MISSING_SOURCE],
+                    "unknown parse option `--bogus`",
+                ),
                 (&["parse"], "usage: quire parse "),
                 (&["parse", MISSING_SOURCE, "extra"], "usage: quire parse "),
-                (&["parse", MISSING_SOURCE, "--format"], "--format requires text, json, or dot"),
-                (&["parse", MISSING_SOURCE, "--format", "bogus"], "unknown output format `bogus`"),
+                (
+                    &["parse", MISSING_SOURCE, "--format"],
+                    "--format requires text, json, or dot",
+                ),
+                (
+                    &["parse", MISSING_SOURCE, "--format", "bogus"],
+                    "unknown output format `bogus`",
+                ),
             ],
         ),
         (
             &["format", SOURCE],
             &[
-                (&["format", "--bogus", MISSING_SOURCE], "unknown format option `--bogus`"),
+                (
+                    &["format", "--bogus", MISSING_SOURCE],
+                    "unknown format option `--bogus`",
+                ),
                 (&["format"], "usage: quire format "),
                 (&["format", MISSING_SOURCE, "extra"], "usage: quire format "),
-                (&["format", MISSING_SOURCE, "--format"], "--format requires text, json, or dot"),
-                (&["format", MISSING_SOURCE, "--format", "bogus"], "unknown output format `bogus`"),
+                (
+                    &["format", MISSING_SOURCE, "--format"],
+                    "--format requires text, json, or dot",
+                ),
+                (
+                    &["format", MISSING_SOURCE, "--format", "bogus"],
+                    "unknown output format `bogus`",
+                ),
             ],
         ),
         (
             &["compile", SOURCE, "--format", "json"],
             &[
-                (&["compile", "--bogus", MISSING_SOURCE], "unknown compile option `--bogus`"),
+                (
+                    &["compile", "--bogus", MISSING_SOURCE],
+                    "unknown compile option `--bogus`",
+                ),
                 (&["compile"], "usage: quire compile "),
-                (&["compile", MISSING_SOURCE, "extra"], "usage: quire compile "),
-                (&["compile", MISSING_SOURCE, "--format"], "--format requires text, json, or dot"),
-                (&["compile", MISSING_SOURCE, "--format", "bogus"], "unknown output format `bogus`"),
+                (
+                    &["compile", MISSING_SOURCE, "extra"],
+                    "usage: quire compile ",
+                ),
+                (
+                    &["compile", MISSING_SOURCE, "--format"],
+                    "--format requires text, json, or dot",
+                ),
+                (
+                    &["compile", MISSING_SOURCE, "--format", "bogus"],
+                    "unknown output format `bogus`",
+                ),
             ],
         ),
         (
             &["run", SOURCE, "yes", "--format", "json"],
             &[
-                (&["run", "--bogus", MISSING_SOURCE, "yes"], "unknown run option `--bogus`"),
+                (
+                    &["run", "--bogus", MISSING_SOURCE, "yes"],
+                    "unknown run option `--bogus`",
+                ),
                 (&["run", MISSING_SOURCE], "usage: quire run "),
-                (&["run", MISSING_SOURCE, "yes", "extra"], "run argument `extra` must be parameter=value"),
-                (&["run", MISSING_SOURCE, "yes", "--format"], "--format requires text, json, or dot"),
-                (&["run", MISSING_SOURCE, "yes", "--format", "bogus"], "unknown output format `bogus`"),
-                (&["run", MISSING_SOURCE, "yes", "--limit"], "--limit requires name=value"),
-                (&["run", MISSING_SOURCE, "yes", "--limit", "no-equals-sign"], "NotAnAssignment"),
-                (&["run", MISSING_SOURCE, "yes", "--engine", "bogus"], "unknown engine `bogus`"),
+                (
+                    &["run", MISSING_SOURCE, "yes", "extra"],
+                    "run argument `extra` must be parameter=value",
+                ),
+                (
+                    &["run", MISSING_SOURCE, "yes", "--format"],
+                    "--format requires text, json, or dot",
+                ),
+                (
+                    &["run", MISSING_SOURCE, "yes", "--format", "bogus"],
+                    "unknown output format `bogus`",
+                ),
+                (
+                    &["run", MISSING_SOURCE, "yes", "--limit"],
+                    "--limit requires name=value",
+                ),
+                (
+                    &["run", MISSING_SOURCE, "yes", "--limit", "no-equals-sign"],
+                    "NotAnAssignment",
+                ),
+                (
+                    &["run", MISSING_SOURCE, "yes", "--engine", "bogus"],
+                    "unknown engine `bogus`",
+                ),
             ],
         ),
     ];

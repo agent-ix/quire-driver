@@ -619,14 +619,12 @@ impl RunOptions {
         }
         let mut call_arguments = Vec::new();
         for argument in &positionals[2..] {
-            let (parameter, value) = argument
-                .split_once('=')
-                .ok_or_else(|| {
-                    format!(
-                        "{}\nrun argument `{argument}` must be parameter=value",
-                        Self::USAGE
-                    )
-                })?;
+            let (parameter, value) = argument.split_once('=').ok_or_else(|| {
+                format!(
+                    "{}\nrun argument `{argument}` must be parameter=value",
+                    Self::USAGE
+                )
+            })?;
             if parameter.is_empty() {
                 return Err(format!(
                     "run argument `{argument}` has an empty parameter name"
