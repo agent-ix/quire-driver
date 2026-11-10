@@ -20,7 +20,7 @@ tc018-test-adapter = []
 
 [dependencies]
 quire-semantic-value = { git = "https://github.com/agent-ix/quire-semantic-value", branch = "main" }
-base64 = "=0.22.1"
+base64 = "=0.23.1"
 qsl-command = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-cst = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
@@ -35,13 +35,13 @@ quire-driver = { path = ".." }
 quire-exact = { git = "https://github.com/agent-ix/quire-exact", branch = "main" }
 quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main", features = ["serde_json"] }
 quire-plugin-host = { path = "../quire-plugin-host" }
-serde = { version = "=1.0.228", features = ["derive", "rc"] }
+serde = { version = "=1.0.229", features = ["derive", "rc"] }
 serde_json = "=1.0.151"
 thiserror = "=2.0.20"
 serde_path_to_error = "=0.1.20"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
-signal-hook = "=0.3.18"
+signal-hook = "=0.4.6"
 
 [dev-dependencies]
 ix-trace-rs = { git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }
