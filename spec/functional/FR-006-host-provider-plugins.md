@@ -72,11 +72,8 @@ settlement path used for first-party providers.
   FR-331 request, not a host resource limit. The `limits` object SHALL contain
   exactly the required unsigned integer fields in the `u64` range:
   `max_frame_bytes`,
-  `max_total_bytes`, `max_stderr_bytes`, and `cancellation_grace_ms`; it MAY
-  contain `max_process_memory_bytes` and `max_process_cpu_time_ms` with the same
-  unsigned-integer representation. Byte fields are byte counts; duration fields
-  are milliseconds. An omitted optional process budget means no budget of that
-  kind is requested; `null` or any other non-unsigned-integer value is invalid.
+  `max_total_bytes`, `max_stderr_bytes`, and `cancellation_grace_ms`. Byte
+  fields are byte counts; duration fields are milliseconds.
 - The `quire-cli` composition SHALL reject an unreadable or missing file,
   malformed JSON, missing or wrongly typed required fields, and unknown fields
   at every object level before starting any provider. It SHALL also reject a
@@ -213,7 +210,7 @@ settlement path used for first-party providers.
 | FR-006-AC-21 | For a preserved non-canonical-package response, the driver's shared settlement path maps each failed routed item to QSL `TerminalValue::Failed`. | Planned (TC-013; IR-677 and QSL settlement API) |
 | FR-006-AC-22 | For package-mismatch and non-canonical-package responses, the driver's shared settlement path carries each typed FR-272 diagnostic separately in QSL `OutcomeDiagnostic`. | Planned (TC-013; IR-677 and QSL settlement API) |
 | FR-006-AC-23 | Settling a failed process-provider response leaves unrelated provider results unchanged. | Planned (TC-013; IR-677 and QSL settlement API) |
-| FR-006-AC-24 | The `--provider-config` file accepts only the documented strict JSON shape; missing/unreadable files, malformed JSON, missing or wrongly typed fields, a `deadline_ms` that is missing, non-integer, outside 1..=9,007,199,254,740,991, `null` or wrongly typed optional process budgets, and unknown fields at any object level are rejected before any provider starts. In machine mode, these failures use the existing `Operation::Execute` `Code::InvalidRequest` input-refusal result and serialize that typed outcome once. | Test (TC-028) |
+| FR-006-AC-24 | The `--provider-config` file accepts only the documented strict JSON shape; missing/unreadable files, malformed JSON, missing or wrongly typed fields, a `deadline_ms` that is missing, non-integer, outside 1..=9,007,199,254,740,991, and unknown fields at any object level are rejected before any provider starts. In machine mode, these failures use the existing `Operation::Execute` `Code::InvalidRequest` input-refusal result and serialize that typed outcome once. | Test (TC-028) |
 | FR-006-AC-25 | The `quire-cli` composition starts and admits every configured provider before negotiation, and uses each admitted hello descriptor as the sole provider identity for subsequent selection and dispatch. | Partial (TC-028; selected-provider production dispatch is tested; later-start/hello failure cleanup remains untested) |
 | FR-006-AC-26 | If distinct configured sessions return the same admitted identity, the composition begins no negotiation and closes all sessions; it preserves a QSL registration refusal, or returns the existing CLI `InvalidRequest` input refusal when QSL treats repeated identical admission as idempotent. | Test (TC-028; idempotent duplicate admission path) |
 | FR-006-AC-27 | If a configured provider fails to start or admit its hello, the composition begins no negotiation, closes all earlier active sessions, and preserves the original typed host failure. | Planned (TC-028) |

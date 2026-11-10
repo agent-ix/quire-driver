@@ -59,13 +59,12 @@ kill-on-close in this PR.
    executables. Each fixture SHALL record its executable identity, exact argv,
    its `deadline_ms`, and hello-ready marker. Give each entry a distinct valid
    `deadline_ms` and distinct, non-default frame, total, stderr-retention, and
-   cancellation-grace values, plus explicit optional
-   process-memory and CPU-time values. Hold the fixture hellos at a test barrier
+   cancellation-grace values. Hold the fixture hellos at a test barrier
    and verify both hellos are admitted before the run begins backend
    negotiation. Use the real QSL/CG route to select the second configured
    provider. Verify only that provider receives the routed request, and verify
    the process-provider dispatch receives that entry's exact executable path,
-   argv, `ProcessProviderLimits`, and `deadline_ms`; the first provider
+   argv, framing/stderr/cleanup limits, and `deadline_ms`; the first provider
    receives no request. Verify the selected provider's FR-331 request contains
    that entry's exact `deadline_ms`, unchanged.
    Include a separate entry with `argv: []` and verify the executable receives
@@ -85,8 +84,8 @@ kill-on-close in this PR.
    missing or unreadable file; malformed JSON; missing or wrongly typed
    required fields; missing, zero, negative, fractional, null, wrongly typed,
    or greater-than-9,007,199,254,740,991 `deadline_ms`; unknown fields at the
-   top-level, provider-entry and `limits` objects; and `null` or another wrongly
-   typed value for either optional process budget. Add parser-level boundary
+   top-level, provider-entry and `limits` objects, including removed CPU and RSS
+   budget fields. Add parser-level boundary
    cases that accept `deadline_ms` values 1 and 9,007,199,254,740,991; keep
    end-to-end dispatch fixtures' deadlines large enough for the fixture run.
    Verify each process exits with the existing QSL
@@ -189,9 +188,8 @@ Linux/macOS runners provide the signal evidence in step 13.
   regressions cover duplicate refusal and active-request signal cleanup. Invalid config in machine mode uses
   the existing
   `Operation::Execute` `Code::InvalidRequest` input-refusal document and
-  refusal exit category, with no new code or cause. Optional CPU/RSS fields
-  omitted from `limits` mean no such budget; explicit `null` and wrongly typed
-  values are rejected before spawn.
+  refusal exit category, with no new code or cause. Removed CPU/RSS budget
+  fields are unknown and rejected before spawn.
 - With two configured providers, both hellos are admitted before negotiation;
   the second provider can be selected and receives only its routed request,
   with its exact executable, argv, limits and `deadline_ms`. The hello

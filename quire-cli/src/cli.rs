@@ -974,11 +974,6 @@ fn run_configured_providers(
             cancellation_grace: std::time::Duration::from_millis(
                 configured.limits.cancellation_grace_ms,
             ),
-            max_process_memory_bytes: configured.limits.max_process_memory_bytes,
-            max_process_cpu_time: configured
-                .limits
-                .max_process_cpu_time_ms
-                .map(std::time::Duration::from_millis),
         };
         match provider.start(&configured.executable, &arguments, process_limits, &cancel) {
             Ok(session) => active.push(ActiveConfiguredProvider {
@@ -1859,8 +1854,6 @@ mod configured_run_tests {
                         max_total_bytes: 1_048_576,
                         max_stderr_bytes: 4096,
                         cancellation_grace_ms: 500,
-                        max_process_memory_bytes: None,
-                        max_process_cpu_time_ms: None,
                     },
                 },
             )
@@ -2030,8 +2023,6 @@ mod configured_run_tests {
                         max_total_bytes: 1_048_576,
                         max_stderr_bytes: 4096,
                         cancellation_grace_ms: 500,
-                        max_process_memory_bytes: None,
-                        max_process_cpu_time_ms: None,
                     },
                 },
             )
