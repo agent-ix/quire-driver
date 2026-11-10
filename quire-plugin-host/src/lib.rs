@@ -1467,25 +1467,6 @@ mod tests {
         items: Vec<String>,
     }
 
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    struct TestFiles(Vec<PathBuf>);
-
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    impl TestFiles {
-        fn new(paths: impl IntoIterator<Item = PathBuf>) -> Self {
-            Self(paths.into_iter().collect())
-        }
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    impl Drop for TestFiles {
-        fn drop(&mut self) {
-            for path in &self.0 {
-                let _ = std::fs::remove_file(path);
-            }
-        }
-    }
-
     const LIMITS: FrameLimits = FrameLimits {
         max_frame_bytes: 1024,
         max_total_bytes: 4096,
@@ -1860,11 +1841,6 @@ mod tests {
         TestRequest {
             items: vec!["item-1".to_owned()],
         }
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    fn marker_path(base: &Path, suffix: &str) -> PathBuf {
-        PathBuf::from(format!("{}.{}", base.display(), suffix))
     }
 
     #[cfg(unix)]
