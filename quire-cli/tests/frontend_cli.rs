@@ -88,7 +88,7 @@ fn missing_and_extra_operands_are_refused_before_any_file_is_read() {
             "{arguments:?}: {stderr}"
         );
         assert!(
-            !stderr.contains("could not read"),
+            !stderr.contains("could not read") && !stderr.contains("cannot read"),
             "{arguments:?} opened its path: {stderr}"
         );
     }
@@ -228,6 +228,14 @@ fn invalid_invocations_exit_20_and_the_next_valid_call_runs() {
                     &["run", MISSING_SOURCE, "--engine", "bogus"],
                     "unknown engine `bogus`",
                 ),
+                (
+                    &["run", MISSING_SOURCE, "--request-bytes", "-1"],
+                    "--request-bytes requires a non-negative byte count",
+                ),
+                (
+                    &["run", MISSING_SOURCE, "--dependent-bytes", "not-a-count"],
+                    "--dependent-bytes requires a non-negative byte count",
+                ),
             ],
         ),
     ];
@@ -238,7 +246,7 @@ fn invalid_invocations_exit_20_and_the_next_valid_call_runs() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             assert!(stderr.contains(expected_error), "{arguments:?}: {stderr}");
             assert!(
-                !stderr.contains("could not read"),
+                !stderr.contains("could not read") && !stderr.contains("cannot read"),
                 "{arguments:?} opened its path: {stderr}"
             );
             let output = quire(valid);
@@ -295,7 +303,7 @@ fn non_utf8_commands_and_labels_refuse_but_raw_file_paths_parse() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("UTF-8"), "{arguments:?}: {stderr}");
         assert!(
-            !stderr.contains("could not read"),
+            !stderr.contains("could not read") && !stderr.contains("cannot read"),
             "{arguments:?}: {stderr}"
         );
     }

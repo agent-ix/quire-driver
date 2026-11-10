@@ -1148,7 +1148,7 @@ fn run_configured_providers(
     })
 }
 
-/// Compile one source through QSL's typed spine and serialize its package outcome.
+/// Compile a request through its owner and retain the actual package outcome.
 fn compile(options: CompileOptions) -> CommandResult {
     match command::compile_outcome(&options.path) {
         Ok(outcome) => CommandResult::document(outcome.document().clone()),
@@ -1497,10 +1497,9 @@ pub(super) fn entrypoint() -> ExitCode {
 )]
 mod outcome_tests {
     use std::io;
-    use std::path::{Path, PathBuf};
     use std::process::ExitCode;
 
-    use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument, OutcomeStage};
+    use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
     use quire_semantic_value::catalog::Category;
 
     use super::{process_exit_code, write_diagnostic, write_result_diagnostics, CommandResult};
@@ -1750,7 +1749,6 @@ mod tests {
 mod configured_run_tests {
     use std::path::{Path, PathBuf};
 
-    use qsl_foundation::source::{SourceReadCause, SourceReadError, SourceReadRefusal};
     use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::{
         default_accounting, Call, CallArgument, SpineLimits, DEFAULT_WORK_UNITS,
