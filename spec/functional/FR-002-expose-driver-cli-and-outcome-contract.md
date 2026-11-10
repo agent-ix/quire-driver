@@ -5,6 +5,8 @@ type: FR
 relationships:
   - target: ix://agent-ix/quire-driver/US-001
     type: implements
+  - target: ix://agent-ix/quire-driver/FR-020
+    type: references
   - target: ix://agent-ix/quire-spec-language/ADR-029
     type: depends_on
   - target: ix://agent-ix/quire-spec-language/FR-285
@@ -158,7 +160,8 @@ the fallback when that function returns reserved value `5`.
 | FR-002-AC-14 | For a `BrokenPipe` while writing or flushing primary stdout, the process status equals the completed operation's QSL category exit result and stderr is empty, including for a refused operation with nonempty diagnostics when stdout is writable. No output-failure category is selected and no `OutputFailure` diagnostic is emitted. | Test |
 | FR-002-AC-15 | If writing or flushing primary stdout returns an I/O error other than `BrokenPipe`, the process exits with QSL's `Category::InternalFailure` exit result. The criterion makes no assertion that stdout is empty or complete. | Test (TC-018) |
 | FR-002-AC-16 | If a non-`BrokenPipe` primary stdout write or flush fails and stderr is writable, stderr contains an `OutputFailure` diagnostic that identifies the failed output. | Test (TC-018) |
-| FR-002-AC-17 | With no arguments or with each of `--help`, `-h` and `help` as the sole argument, the built `quire` binary writes root help to stdout containing invocation syntax, recognized lifecycle verb names, `--format text\|json\|dot` with `dot` limited to `inspect`, and `--version`/`-V`. The help distinguishes executable verbs from verbs that currently return unsupported-capability results and identifies executable verbs whose default text output is unavailable. Successful help exits with QSL's success result, writes no stderr, and starts no lifecycle operation. | Test |
+| FR-002-AC-17 | With no arguments or with each of `--help`, `-h` and `help` as the sole argument, the built `quire` binary writes root help to stdout containing invocation syntax, recognized lifecycle verb names, `--format text\|json\|dot` with `dot` limited to `inspect`, and `--version`/`-V`. The help identifies `generate` as executable and shows its `--events <path|->` input; it distinguishes the remaining unsupported-capability verbs and identifies executable verbs whose default text output is unavailable. Successful help exits with QSL's success result, writes no stderr, and starts no lifecycle operation. | Test |
+| FR-002-AC-18 | When invoked as `quire generate <request-file> --events <path|-> --format json`, the CLI reads the named request and event path, or standard input for `-`, and writes exactly one final QSL `quire-outcome/1` document after EOF or the first typed failure; it emits no outcome document per event record. | Test |
 
 ## Dependencies
 
@@ -175,6 +178,9 @@ the fallback when that function returns reserved value `5`.
   version agreement used by AC-12.
 - [TC-009](../test-cases/TC-009-cli-outcome-and-exit-contract.md).
 - [TC-018](../test-cases/TC-018-binary-process-boundary.md), adding verification for AC-2 through AC-4 and AC-6.
+- [FR-020](./FR-020-generate-and-run-a-runtime-monitor-from-qsl-source.md) and
+  [TC-034](../test-cases/TC-034-generate-and-run-a-runtime-monitor.md) define
+  and verify runtime-monitor generation and event-stream execution.
 
 AC-14 adopts QSL FR-287-AC-8's quiet behavior only when a primary stdout write
 or flush actually reports `BrokenPipe`. AC-13's outputless text refusals do not
