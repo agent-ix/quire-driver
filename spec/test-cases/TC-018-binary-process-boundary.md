@@ -77,8 +77,8 @@ binary preserves them while using ix-cli-kit's exit, streams and JSON modules.
    as expected content. Render that
    diagnostic with QSL's renderer and the same source provision to obtain the
    nonempty `path:line:column: code: message` diagnostic line (ADR-029 IN-3).
-   Assert that stderr contains that complete rendered line and stdout does
-   not. The diagnostic's structured fields remain in stdout's outcome JSON,
+   With stdout writable, assert that stderr contains that complete rendered
+   line and stdout does not. The diagnostic's structured fields remain in stdout's outcome JSON,
    equal to the parent's value; the absent stdout content is the rendered
    diagnostic line, not those required fields.
 
@@ -104,8 +104,9 @@ binary preserves them while using ix-cli-kit's exit, streams and JSON modules.
       parent's stdout reader before writing the fixture bytes to the source
       FIFO. Require the child to exit within that deadline and compare its
       status with the independently obtained QSL refusal category
-      exit result (`20`). Require stderr not to contain an `OutputFailure`
-      diagnostic, as specified by FR-002-AC-14. Do not assert stdout contents
+      exit result (`20`). Require stderr to be empty, including the nonempty
+      operation diagnostic established by the writable-stdout control in
+      step 3, as specified by FR-002-AC-14. Do not assert stdout contents
       after closing its reader. On any timeout, premature child exit or other
       setup/write failure, kill the child if it is still running and wait for
       it before failing the test.
@@ -114,6 +115,23 @@ binary preserves them while using ix-cli-kit's exit, streams and JSON modules.
       to contain an `OutputFailure` diagnostic identifying the outcome document
       write. Do not compare device contents or require stdout to be empty or
       complete.
+
+   c. Repeat the closed-reader control with the production binary for valid
+      and refused JSON requests to `parse`, `format`, `compile` and `run`, and
+      for successful formatted-text output. First run each request with
+      writable stdout to obtain its ordinary category and diagnostics; each
+      refused JSON control must establish nonempty stderr. Then close the
+      stdout reader before the child can write, using the source handshake
+      above or by closing the reader before spawning the child. Require the
+      same category exit result and empty stderr, with the same bounded
+      cleanup on failure. A setup error, zero selected cases or missing refusal
+      diagnostic in the writable control fails the test.
+
+   d. Keep a no-primary-output text refusal as a separate control for AC-13:
+      its existing diagnostic and category remain unchanged. That case
+      cannot establish `BrokenPipe` and supplies no evidence that the whole
+      QSL FR-287-AC-8 criterion is met across output modes. Do not add an
+      empty-write/file-descriptor probe or a new refusal output artifact.
 
 Test location: `quire-cli/tests/binary_process.rs` with its test-only
 operation adapter and fixtures under `quire-cli/tests/fixtures/`; entry-point
@@ -129,14 +147,18 @@ review covers `quire-cli/src/main.rs` and `quire-cli/src/cli.rs`.
   QSL's exit function, including 20, 21, 22 and 30. The test-only code-5 case
   instead uses status `30` and has no stdout result. There is one pass-through
   to `std::process::ExitCode` and no ix-cli-kit `Outcome` conversion.
-- Machine stdout contains exactly the unchanged QSL `quire-outcome/1` value
-  for each typed-result run. The code-5 fallback case writes no stdout result
+- With writable stdout, machine output contains exactly the unchanged QSL
+  `quire-outcome/1` value for each typed-result run. The code-5 fallback case
+  writes no stdout result
   and emits its specified plain-text diagnostic only on stderr. The known
   `undefined_expression/unproved-range` diagnostic
   retains its structured fields in that value, and its complete nonempty
   rendered line appears on stderr and is absent from stdout.
 - With the source FIFO handshake, a closed stdout reader produces the original
-  QSL refusal status `20` and does not produce an `OutputFailure` diagnostic.
+  QSL refusal status `20` and empty stderr, suppressing both the operation's
+  pending diagnostic and any `OutputFailure` diagnostic. The production-binary
+  controls retain their ordinary categories with empty stderr after an actual
+  primary-output `BrokenPipe`; outputless text refusals retain AC-13 behavior.
   With Linux `/dev/full`, a non-broken stdout write failure produces status
   `30` and an `OutputFailure` diagnostic on stderr. The failed stdout write may
   have emitted a prefix, so the test makes no empty-or-complete stdout claim.
