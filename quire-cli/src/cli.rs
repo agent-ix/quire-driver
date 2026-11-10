@@ -927,10 +927,10 @@ fn run_configured_providers(
             }));
         }
     };
-    let package_name = call_run.package_name().as_str().to_owned();
+    let selected_package_name = call_run.package_name().as_str().to_owned();
     let (outcome, requirements) = call_run.into_parts();
     let call = ConfiguredCall {
-        package_name,
+        package_name: selected_package_name,
         outcome,
         requirements,
     };
@@ -1039,7 +1039,7 @@ fn run_configured_providers(
         &QslCg,
         CompileInput {
             source,
-            package_name: &package_name,
+            package_name,
             path,
             bytes,
             packages: &packages,
