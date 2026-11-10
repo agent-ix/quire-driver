@@ -130,3 +130,38 @@ Needs changes. Frames, the no-substitution rule and CG passthrough are covered. 
   ]
 }
 ```
+
+## New findings (disposition pass 1)
+
+Re-review of head ab47adb (commits 5e98dc5, ab47adb) against the review-pass findings.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-004 | medium | RequirementRecordUnresolved cannot carry the existing causes 'unchanged'; unknown role has two faults; cause type unnamed | spec/functional/FR-020-project-requirement-records-into-codegen-input.md |
+
+```json
+[
+  {
+    "fnd": "FND-004",
+    "severity": "medium",
+    "confidence": "high",
+    "check": "soundness",
+    "artifact_id": "FR-020-AC-14",
+    "related_ids": [
+      "FR-020"
+    ],
+    "path": "spec/functional/FR-020-project-requirement-records-into-codegen-input.md",
+    "lines": "Behavior first bullet and 'fails to project' bullet; Outputs; AC-14",
+    "excerpt": "When a `value-validity` record of the package has a result-bound node, conversion occurrence or guard occurrence the admitted package does not resolve (or ambiguously resolves), the run refuses with `DriverFault::RequirementRecordUnresolved`, naming the record's QSL occurrence key and carrying the unknown-node or ambiguous-node cause unchanged, with stage Generation, wire code `runtime_invariant` and outcome kind internal fault, even when no item routes to that record; CG generation is not called.",
+    "finding": "'carrying the unknown-node, ambiguous-node or unknown-role cause unchanged' cannot hold: DriverFault::UnknownNode and AmbiguousNode carry request_index (src/refusal.rs:205-221), which FR-020 itself says a package record lacks, so the cause must be a new type that the spec does not name or shape. The first Behavior bullet still sends an unknown QSL role to the existing UnknownOccurrenceRole fault while the unresolved bullet sends a record's unknown role to RequirementRecordUnresolved, so one condition has two faults; AC-14 covers only the node causes. Name the cause enum and its variants, say which fault an unknown role in a record's guard or conversion takes, and note that the ambiguous-node case is not test-constructible through IR admission (or say how it is)."
+  }
+]
+```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head ab47adb: - Both come from one driver projection function that takes the items, the package's `RequirementMap` and the admitted package as arguments and returns the requirement for each request index (`None` at an excluded position) with the `RequirementRecords`, or a fault. Taking the map as an argument is what lets a test supply a map with a record removed. |
+| FND-002 | fixed | Round 1, head ab47adb: - If a `value-validity` record of the package fails to project (a node of its result bound, conversion occurrence or a guard occurrence is unknown or ambiguous in the admitted package, or a role is unknown), then the driver SHALL refuse the run with the `RequirementRecordUnresolved` fault, naming the record's QSL occurrence key (a package record has no request index) and carrying the unknown-node, ambiguous-node or unknown-role cause unchanged. It SHALL NOT omit the record and continue, whether or not an item routes to it. |
+| FND-003 | fixed | Round 1, head ab47adb: For `if p then x + 1 else x + 1`, whose then and else items are both guarded by the node of `p`, the positions hold a `ContextRoot` for `p` in the then item's span and another in the else item's span, and the root is not emitted once for both. |

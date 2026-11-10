@@ -73,3 +73,34 @@ Integrity is otherwise sound: ids are unique, FR-020/TC-034 are added to spec.md
   ]
 }
 ```
+
+## New findings (disposition pass 1)
+
+Re-review of head ab47adb (commits 5e98dc5, ab47adb) against the review-pass findings.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-002 | low | Linear comment payloads (*.comment.md) committed under reviews/; committed SR copies now predate these dispositions | reviews/ |
+
+```json
+[
+  {
+    "fnd": "FND-002",
+    "severity": "low",
+    "confidence": "high",
+    "check": "other",
+    "artifact_id": "reviews/ir-1494-spec-review-base.comment.md",
+    "related_ids": [],
+    "path": "reviews/",
+    "lines": "six *.comment.md files",
+    "excerpt": "reviews/ir-1494-spec-review-{base,integrity,ears-conformance,dependency,failure-domain,criterion-strength}.comment.md",
+    "finding": "The fix round committed the six Linear comment payloads (*.comment.md) under reviews/ beside the SR files; no other review in reviews/ or spec/reviews/ commits comment payloads, and the tracker already holds them. Drop them. The six committed SR files are byte-identical to the review-pass versions, so they lack this round's ## Dispositions and new findings: copy the updated SR files over them in the next fix commit."
+  }
+]
+```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head ab47adb: [TM-001](tests.md) integrates FR-001 through FR-020, and TC-001 through TC-034. |

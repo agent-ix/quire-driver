@@ -151,3 +151,39 @@ FAIL - not mergeable. The projection direction, names (RequirementItem accessors
   ]
 }
 ```
+
+## New findings (disposition pass 1)
+
+Re-review of head ab47adb (commits 5e98dc5, ab47adb) against the review-pass findings.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | high | Kani-routed items of another capability (operation-contract) have no defined outcome; get_kind-by-item-capability contradicts value-validity-only projection | spec/functional/FR-020-project-requirement-records-into-codegen-input.md |
+
+```json
+[
+  {
+    "fnd": "FND-003",
+    "severity": "high",
+    "confidence": "medium",
+    "check": "soundness",
+    "artifact_id": "FR-020",
+    "related_ids": [
+      "FR-020-AC-2",
+      "FR-020-AC-4",
+      "FR-001"
+    ],
+    "path": "spec/functional/FR-020-project-requirement-records-into-codegen-input.md",
+    "lines": "Inputs; Behavior 'find a routed item's record'; 'attach a RoutedRequirement to every routed Kani item'",
+    "excerpt": "- The driver SHALL find a routed item's record at the item's occurrence and the item's capability (`get_kind`), never by occurrence alone.",
+    "finding": "The fix assumes only value-validity items route to Kani. That is not true of the driver today: lower_driver_request selects OwnResult for every export-bound item regardless of capability (src/drive.rs:791-806), Kani manifests may advertise operation-contract (tests/drive.rs uses manifest(\"kani\", &[\"operation-contract\"])), and CG's Kani arm generates state-clause operation contracts (src/kani/generate/frame.rs, IR-412). FR-020 attaches a RoutedRequirement to every OwnResult Kani item and finds its record 'at the item's capability (get_kind)', but projects only value-validity records into RequirementRecords. For an operation-contract Kani item the driver either faults RequirementRecordAbsent (whole run runtime_invariant on a valid input) or hands CG a requirement with no map entry (CG RecordMissing). State the rule for a Kani item whose capability is not value-validity (e.g. select NotApplicable with no requirement, which CG FR-022 accepts when its node has no projected record, or a typed per-item refusal) and add an AC; or show and cite that only value-validity reaches Kani."
+  }
+]
+```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head ab47adb: - The compiled package's checked requirement records (`CheckedGraph::requirements()`, a `RequirementMap` keyed by `OccurrenceKey` and `Capability`: one record per occurrence and capability, and different capabilities may share one occurrence, for example a temporal-satisfaction and an operation-contract record, QSL `RequirementMap`). Each record has a `ResultBound::node()`, a `conversion_context` and a `path_condition`. CG's `RequirementRecords` is keyed by occurrence alone, so only one capability projects: the `value-validity` records, which are the scalar claims a Kani item makes. / - The... |
+| FND-002 | fixed | Round 1, head ab47adb: For each of the seven `RequirementRecordMismatch` variants IR-304 slice (a) defines (`RequirementMissing`, `OccurrenceNotSelected`, `RecordMissing`, `ApplicationMismatch`, `ResultBoundMismatch`, `ConversionContextMismatch`, `PathConditionMismatch`), a CG refusal carrying it is returned as `DriverRefusal::Generation` with the request index, occurrence and mismatch unchanged, stage Generation, wire code `runtime_invariant` and outcome kind internal fault. |

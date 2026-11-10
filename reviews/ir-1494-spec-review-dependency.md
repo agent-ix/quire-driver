@@ -95,3 +95,10 @@ Needs changes. Prerequisites QSL-266/700/904 are Done and their shapes exist on 
   ]
 }
 ```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head ab47adb: IR-1504 owns how the driver tracks CG (both manifests) and the dependency reference; this requirement sets no pin policy and adds no hash, digest or pin. |
+| FND-002 | fixed | Round 1, head ab47adb: IR-304 slice (b) (ticket IR-304, reopened as its owner) lowers guards to `Assume` statements and adds `GuardContextMissing` and the `requirement_occurrence` identity field. The projection does not depend on it; AC-11 and AC-13 do. CG PR #772 (slice (a)) is still open. |

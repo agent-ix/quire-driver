@@ -171,3 +171,72 @@ Run by hand: Jev is not installed on this host. AC-1, AC-2, AC-7, AC-8 and AC-9 
   ]
 }
 ```
+
+## New findings (disposition pass 1)
+
+Re-review of head ab47adb (commits 5e98dc5, ab47adb) against the review-pass findings.
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-005 | medium | (Recorded late) AC-6 asserted FR-001-AC-17's completion, whose evidence is owned by TC-017 | spec/functional/FR-020-project-requirement-records-into-codegen-input.md |
+| FND-006 | low | (Recorded late) TC-034 had no mutant for AC-9's stage and outcome-kind assertions | spec/test-cases/TC-034-project-requirement-records-into-codegen.md |
+| FND-007 | medium | AC-5's cited QSL step-relation fixture holds no value-validity record; its precondition has no named real source | spec/functional/FR-020-project-requirement-records-into-codegen-input.md |
+
+```json
+[
+  {
+    "fnd": "FND-005",
+    "severity": "medium",
+    "confidence": "high",
+    "check": "soundness",
+    "artifact_id": "FR-020-AC-6",
+    "related_ids": [
+      "FR-001-AC-17",
+      "TC-017"
+    ],
+    "path": "spec/functional/FR-020-project-requirement-records-into-codegen-input.md",
+    "lines": "AC-6",
+    "excerpt": "For the FR-010-AC-4 vector, CG receives a `RoutedRequirement` for A and for C and none for B; `RequirementRecords` still holds B's record; B's absent requirement is not a fault, including when B's record is also removed from the view; and the run completes as FR-001-AC-17 states.",
+    "finding": "Reported in the review-pass handback but omitted from this SR file and its Linear comment at review time; recorded here so the record matches what the author acted on. AC-6 asserted 'the run completes as FR-001-AC-17 states', which is FR-001's criterion evidenced by TC-017, not TC-034."
+  },
+  {
+    "fnd": "FND-006",
+    "severity": "low",
+    "confidence": "high",
+    "check": "coverage",
+    "artifact_id": "TC-034",
+    "related_ids": [
+      "FR-020-AC-9"
+    ],
+    "path": "spec/test-cases/TC-034-project-requirement-records-into-codegen.md",
+    "lines": "Mutants",
+    "excerpt": "| Map a CG record refusal to `invalid_request` or rewrite its fields | AC-9 code, kind and field equality |",
+    "finding": "Reported in the review-pass handback but omitted from this SR file and its Linear comment at review time; recorded here. The only AC-9 mutant changed the wire code, so no mutant forced AC-9's stage or outcome-kind assertions to fail."
+  },
+  {
+    "fnd": "FND-007",
+    "severity": "medium",
+    "confidence": "high",
+    "check": "untestable-ac",
+    "artifact_id": "FR-020-AC-5",
+    "related_ids": [
+      "TC-034"
+    ],
+    "path": "spec/functional/FR-020-project-requirement-records-into-codegen-input.md",
+    "lines": "AC-5; TC-034 step 1; mutant 'Look the item's record up by occurrence alone'",
+    "excerpt": "Given a unit whose one occurrence holds both a `value-validity` record and a record of another capability (as QSL's step-relation fixture places a temporal-satisfaction and an operation-contract record on one occurrence), `RequirementRecords` holds exactly the `value-validity` record's fields at that key, the item's requirement equals them, and no fault is raised.",
+    "finding": "QSL's step-relation fixture (qsl-package/src/emit/tests/step_relation.rs:129-154) asserts requirements().len() == 2: a TemporalSatisfaction and an OperationContract record on one claim occurrence, and no value-validity record. AC-5's precondition (one occurrence holding a value-validity record AND another capability) is therefore not met by the cited fixture, and no QSL source is shown that produces it (value-validity records sit on scalar application expression occurrences). Without the shared case, RequirementMap::get returns the sole value-validity record and the 'look up by occurrence alone' mutant is equivalent on every real input. Say AC-5 builds the map through the projection's map argument (RequirementMap is FromIterator, so a test can add another-capability record at the value-validity key), or cite a real source."
+  }
+]
+```
+
+## Dispositions
+
+| FND | outcome | reason |
+| --- | --- | --- |
+| FND-001 | fixed | Round 1, head ab47adb: Given a unit whose one occurrence holds both a `value-validity` record and a record of another capability (as QSL's step-relation fixture places a temporal-satisfaction and an operation-contract record on one occurrence), `RequirementRecords` holds exactly the `value-validity` record's fields at that key, the item's requirement equals them, and no fault is raised. |
+| FND-002 | fixed | Round 1, head ab47adb: Slice (a) only: over the IR-304 guarded package, the unguarded item `g` generates a harness, and each guarded item (`f` then item, `h`) settles `unsupported` with `path_guard_not_lowered` and reason `guard_lowering_not_implemented`; no guarded item has a harness. This criterion retires when slice (b) lands, as CG FR-022-AC-38 does. / After IR-304 slice (b): over the same package the `h` item generates a harness whose guard `Assume` follows the symbolic inputs, and its identity's `requirement_occurrence` equals the item's occurrence; an item with a guard CG cannot lower settles `unsupported`... |
+| FND-003 | still-open | RR16_UNIT (tests/drive.rs:208) already narrows its two x + 1 occurrences to Int[0, 10] and Int[0, 20], so 'extended so its two narrow conversions target different bounded types' changes nothing; but it has no guard, so both path conditions are empty and AC-3's 'differ in ... path condition' is still unmet. Add a guard to the fixture (e.g. route the two calls under if-branches) or drop 'path condition' from AC-3. |
+| FND-004 | fixed | Round 1, head ab47adb: For the FR-010-AC-4 vector, the projection returns a requirement for A (index 0) and C (index 2) and `None` at B's index 1, B's position is excluded, `RequirementRecords` still holds B's record, the run completes without a `DriverRefusal`, and the same holds with B's record removed from the map. FR-001-AC-17 keeps its own evidence in TC-017; this criterion asserts only the projection and the absence of a fault. |
+| FND-005 | fixed | Round 1, head ab47adb: FR-001-AC-17 keeps its own evidence in TC-017; this criterion asserts only the projection and the absence of a fault. |
+| FND-006 | fixed | Round 1, head ab47adb: / Report a CG record refusal at the Negotiation stage / AC-9, AC-13 stage / / / Report a CG record refusal as outcome kind refusal / AC-9, AC-13 outcome kind / / / Rewrite a CG refusal's request index, occurrence or mismatch / AC-9, AC-13 field equality / |

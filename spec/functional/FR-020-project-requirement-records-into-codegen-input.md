@@ -48,14 +48,18 @@ review renames them.
   `RequirementMap`). Each record has a `ResultBound::node()`, a
   `conversion_context` and a `path_condition`. CG's `RequirementRecords`
   is keyed by occurrence alone, so only one capability projects: the
-  `value-validity` records, which are the scalar claims a Kani item makes.
+  `value-validity` records, which are the scalar claims a `value-validity`
+  Kani item makes. A Kani item of any other capability (for example an
+  `operation-contract` item, which CG's Kani arm generates as a state-clause
+  contract) is not a scalar claim and is outside this projection.
 - The E5-admitted `CheckedPackageV2`, whose source frame is the one every
   projected node id is expressed in.
 - FR-010's partition: which items the export bound and which it refused.
 
 ## Outputs
 
-- For each routed Kani item selected with `OwnResult`, a CG
+- For each routed Kani item of the `value-validity` capability, selected
+  with `OwnResult`, a CG
   `RoutedRequirement { occurrence, result_bound, conversion_context,
   path_condition }`, attached with `RoutedGenerationItem::with_requirement`.
 - On `KaniGenerationContext.requirement_records`, one CG `RequirementRecords`
@@ -69,7 +73,12 @@ review renames them.
   argument is what lets a test supply a map with a record removed.
 - Or a `DriverRefusal::Fault` of one of two new `DriverFault` variants:
   `RequirementRecordAbsent { request_index, occurrence }` and
-  `RequirementRecordUnresolved { occurrence, cause }`. Each has stage
+  `RequirementRecordUnresolved { occurrence, cause }`, where `cause` is a
+  new `RequirementRecordUnresolvedCause` with the variants `UnknownNode
+  { node }`, `AmbiguousNode { node }` and `UnknownOccurrenceRole { role }`.
+  The existing `DriverFault` node and role variants carry a request index
+  that a package record lacks, so the new cause type carries the same
+  payload without it. Each has stage
   Generation, wire code `runtime_invariant` and outcome kind internal fault.
   The code is already in the vocabulary FR-001 uses for a missing retained
   association; the driver adds no catalog code.
@@ -80,8 +89,9 @@ review renames them.
   `OccurrenceKey` as follows: `node_id` is the key's `NodeKey` resolved to
   the admitted package's V2 `CheckedNodeId` by the same lookup FR-001 uses
   for an item's node; `role` and `ordinal` are the key's role and ordinal,
-  by value. An unknown QSL role is the existing `UnknownOccurrenceRole`
-  fault.
+  by value. A node or role that does not project is the
+  `RequirementRecordUnresolved` fault with the matching cause, never the
+  existing request-indexed variants.
 - The driver SHALL NOT derive an occurrence from a node id alone, and the
   driver SHALL NOT carry a hash or digest of a key.
 - The driver SHALL build each `RoutedRequirement` from the same
@@ -98,8 +108,20 @@ review renames them.
   capability, because two capabilities can share one occurrence and CG's map
   holds one record per occurrence. It SHALL NOT build a record from an
   item, from the checked graph, or from any source other than QSL's record.
-- The driver SHALL find a routed item's record at the item's occurrence and
-  the item's capability (`get_kind`), never by occurrence alone.
+- The driver SHALL find a `value-validity` item's record at the item's
+  occurrence and the `value-validity` capability (`get_kind`), never by
+  occurrence alone.
+- The driver SHALL attach no requirement to a Kani item of any other
+  capability, and SHALL route it with a `NotApplicable` selection, as CG
+  FR-022 accepts for a node with no projected record. For such an item the
+  driver SHALL treat the absence of a `value-validity` record as no fault.
+  Routing, negotiation and settlement of other capabilities are otherwise
+  unchanged by this requirement.
+- If a `NotApplicable` item of another capability sits at a node that also
+  holds a projected `value-validity` record, then CG refuses the call as
+  `RequirementRecord` with `OccurrenceNotSelected`, and the driver SHALL
+  preserve that refusal unchanged and SHALL NOT drop the record from the map
+  to avoid it.
 - **Frames.** The driver SHALL express every projected node id in the V2
   source frame of the admitted package, as it does for the item's node. QSL's
   `ResultBound::node()` is the type node QSL checked; the driver SHALL pass
@@ -108,8 +130,8 @@ review renames them.
   with the QSL bound. CG makes that comparison, and the driver SHALL preserve
   a disagreement as CG's `ResultBoundMismatch`.
 - The driver SHALL attach a `RoutedRequirement` to every routed Kani item
-  that FR-001 selects with `OwnResult`, which is every item the export bound
-  (FR-010). The projection returns `None` at the request index of an
+  of the `value-validity` capability, which is every such item the export
+  bound (FR-010) and which FR-001 selects with `OwnResult`. The projection returns `None` at the request index of an
   export-refused item, whose position is excluded, and the driver SHALL
   treat the absence of a record for such an item as no fault.
 - The driver SHALL add one `ContextRoot` position for each path guard,
@@ -122,16 +144,15 @@ review renames them.
 - The driver SHALL NOT emit a shared guard root once for several items,
   because CG checks a guard against its own item's span.
 - If the package's requirement records hold no `value-validity` record for
-  a routed item's occurrence, then the driver SHALL refuse the run with the
+  a routed `value-validity` item's occurrence, then the driver SHALL refuse the run with the
   `RequirementRecordAbsent` fault, naming the request index and the item's
   occurrence, before calling CG generation.
 - If a `value-validity` record of the package fails to project (a node of
-  its result bound, conversion occurrence or a guard occurrence is unknown
-  or ambiguous in the admitted package, or a role is unknown), then the
-  driver SHALL refuse the run with the `RequirementRecordUnresolved` fault,
-  naming the record's QSL occurrence key (a package record has no request
-  index) and carrying the unknown-node, ambiguous-node or unknown-role cause
-  unchanged. It SHALL NOT omit the record and continue, whether or not an
+  its key, result bound, conversion occurrence or a guard occurrence is
+  unknown or ambiguous in the admitted package, or a role is unknown), then
+  the driver SHALL refuse the run with the `RequirementRecordUnresolved`
+  fault, naming the record's QSL occurrence key (a package record has no
+  request index) and carrying the matching `RequirementRecordUnresolvedCause`. It SHALL NOT omit the record and continue, whether or not an
   item routes to it.
 - The driver SHALL NOT fabricate, default, repair or substitute a record or
   requirement in any case above, SHALL NOT choose another record by node id
@@ -156,9 +177,9 @@ review renames them.
 |----|----------|--------------|
 | FR-020-AC-1 | For a routed item whose QSL record has a conversion context and a two-guard path condition (one guard requiring `holds = true`, one `holds = false`), the `RoutedRequirement` passed to CG carries that item's occurrence (node, role and ordinal), the V2 node of its result bound, the conversion occurrence, and the two guards in QSL's order with the same `holds` values. For an item with no conversion context it carries `None`. | Test (TC-034) |
 | FR-020-AC-2 | `RequirementRecords` on the Kani context holds one entry per `value-validity` record of the package's `requirements()`, including a record whose item the export refused, each with its own result bound, conversion occurrence and ordered path condition, and holds no entry for a record of another capability. | Test (TC-034) |
-| FR-020-AC-3 | Given one application node with two occurrences that differ in ordinal, result bound and path condition (the RR-16 fixture `rr16_input`, extended so its two narrow conversions target different bounded types), the two routed items carry different `RoutedRequirement` values, `RequirementRecords` holds two entries with different result bounds, and each item's requirement equals the entry at its own key. | Test (TC-034) |
-| FR-020-AC-4 | When the `RequirementMap` given to the projection holds no `value-validity` record for a routed item's occurrence, the run refuses with `DriverFault::RequirementRecordAbsent`, naming the request index and occurrence, with stage Generation, wire code `runtime_invariant` and outcome kind internal fault; CG generation is not called and the result carries no settlement built from a substitute record. | Test (TC-034) |
-| FR-020-AC-5 | Given a unit whose one occurrence holds both a `value-validity` record and a record of another capability (as QSL's step-relation fixture places a temporal-satisfaction and an operation-contract record on one occurrence), `RequirementRecords` holds exactly the `value-validity` record's fields at that key, the item's requirement equals them, and no fault is raised. | Test (TC-034) |
+| FR-020-AC-3 | For a built unit in which one `x + 1` node's then and else occurrences are guarded by `p` and `not p` and converted to `Int[0, 10]` and `Int[0, 20]` (`function f using v(p: Boolean, x: Int[0, 9]): Boolean pure { if p then g(x + 1) else h(x + 1) }` with `g` over `Int[0, 10]` and `h` over `Int[0, 20]`, built on the RR16_UNIT shape), the two occurrences differ in ordinal, result bound and path condition. The two routed items carry different `RoutedRequirement` values, `RequirementRecords` holds two entries with different result bounds and path conditions, and each item's requirement equals the entry at its own key. If QSL emits two nodes for the two `x + 1`, the test fails and the unit is adjusted until one node carries both occurrences. | Test (TC-034) |
+| FR-020-AC-4 | When the `RequirementMap` given to the projection holds no `value-validity` record for a routed `value-validity` item's occurrence, the run refuses with `DriverFault::RequirementRecordAbsent`, naming the request index and occurrence, with stage Generation, wire code `runtime_invariant` and outcome kind internal fault; CG generation is not called and the result carries no settlement built from a substitute record. | Test (TC-034) |
+| FR-020-AC-5 | Given a `RequirementMap` built with `FromIterator` that holds, at one occurrence, both a `value-validity` record and an `operation-contract` record with a different result bound, `RequirementRecords` holds exactly the `value-validity` record's fields at that key, the `value-validity` item's requirement equals them, and no fault is raised. A lookup by occurrence alone finds the key ambiguous and returns no record, so that lookup raises `RequirementRecordAbsent` here. | Test (TC-034) |
 | FR-020-AC-6 | For the FR-010-AC-4 vector, the projection returns a requirement for A (index 0) and C (index 2) and `None` at B's index 1, B's position is excluded, `RequirementRecords` still holds B's record, the run completes without a `DriverRefusal`, and the same holds with B's record removed from the map. FR-001-AC-17 keeps its own evidence in TC-017; this criterion asserts only the projection and the absence of a fault. | Test (TC-034) |
 | FR-020-AC-7 | For an item with two path guards and a conversion context, the request positions hold the conversion `ContextRoot`, then one `ContextRoot` per guard in outermost-first order, all inside the item's context span, and the next item's driver index is unchanged by them. | Test (TC-034) |
 | FR-020-AC-8 | Given a record whose QSL result-bound node differs from the type the IR result context selects, the driver passes the QSL node unchanged; CG refuses with `RequirementRecord` and `ResultBoundMismatch`, and the driver returns it unchanged in `DriverRefusal::Generation` with stage Generation, wire code `runtime_invariant` and kind internal fault. | Test (TC-034) |
@@ -167,7 +188,9 @@ review renames them.
 | FR-020-AC-11 | After IR-304 slice (b): over the same package the `h` item generates a harness whose guard `Assume` follows the symbolic inputs, and its identity's `requirement_occurrence` equals the item's occurrence; an item with a guard CG cannot lower settles `unsupported` with `path_guard_not_lowered` and no harness omits a guard. | Test (TC-034; Planned until IR-304 slice (b) lands) |
 | FR-020-AC-12 | For `if p then x + 1 else x + 1`, whose then and else items are both guarded by the node of `p`, the positions hold a `ContextRoot` for `p` in the then item's span and another in the else item's span, and the root is not emitted once for both. | Test (TC-034) |
 | FR-020-AC-13 | After IR-304 slice (b): a CG refusal `RequirementRecord` with `GuardContextMissing` is returned as `DriverRefusal::Generation` with its request index, occurrence and guard unchanged, stage Generation, wire code `runtime_invariant` and outcome kind internal fault. | Test (TC-034; Planned until IR-304 slice (b) lands) |
-| FR-020-AC-14 | When a `value-validity` record of the package has a result-bound node, conversion occurrence or guard occurrence the admitted package does not resolve (or ambiguously resolves), the run refuses with `DriverFault::RequirementRecordUnresolved`, naming the record's QSL occurrence key and carrying the unknown-node or ambiguous-node cause unchanged, with stage Generation, wire code `runtime_invariant` and outcome kind internal fault, even when no item routes to that record; CG generation is not called. | Test (TC-034) |
+| FR-020-AC-14 | When a `value-validity` record of the package has a guard occurrence whose node the admitted package does not hold, the run refuses with `DriverFault::RequirementRecordUnresolved` naming the record's QSL occurrence key with cause `UnknownNode`; when a record's key has a role outside IR's occurrence vocabulary, the cause is `UnknownOccurrenceRole`. Each has stage Generation, wire code `runtime_invariant` and outcome kind internal fault, is raised even when no item routes to that record, and CG generation is not called. The `AmbiguousNode` cause is produced by the same node lookup FR-001 uses and cannot be built through IR admission, so no criterion constructs it. | Test (TC-034) |
+| FR-020-AC-15 | Given a bound `operation-contract` Kani item whose occurrence has no `value-validity` record in the map, the driver selects `NotApplicable` for it, attaches no requirement (the projection returns `None` at its index), raises no fault, and routes and settles it as before; a `value-validity` item in the same request still receives its requirement. | Test (TC-034) |
+| FR-020-AC-16 | Given a bound `operation-contract` Kani item at a node that also holds a `value-validity` record, CG refuses the call as `RequirementRecord` with `OccurrenceNotSelected`, and the driver returns it unchanged in `DriverRefusal::Generation` with stage Generation, wire code `runtime_invariant` and outcome kind internal fault, with the record still in the map. | Test (TC-034; Planned until CG PR #772, IR-304 slice (a), lands) |
 
 ## Dependencies
 
@@ -183,6 +206,11 @@ review renames them.
   `Assume` statements and adds `GuardContextMissing` and the
   `requirement_occurrence` identity field. The projection does not depend on
   it; AC-11 and AC-13 do. CG PR #772 (slice (a)) is still open.
+- Other capabilities are unchanged: an `operation-contract` Kani item keeps
+  its CG state-clause generation (IR-412) and only its selection becomes
+  `NotApplicable`. The same-node case of AC-16 is a CG rule
+  (FR-022 "Which items need a record"); see the open question recorded on
+  IR-1494.
 - IR-1504 owns how the driver tracks CG (both manifests) and the dependency
   reference; this requirement sets no pin policy and adds no hash, digest or
   pin.
