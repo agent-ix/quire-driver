@@ -120,8 +120,8 @@ kill-on-close in this PR.
    normally. Confirm the CLI closes the session and the process tree exits
    before the CLI exits; if `RunLimits.cancellation_grace` expires first,
    confirm forced cleanup completes within one second. Windows forced cleanup
-   uses the existing `terminate_tree`/`terminate_job` path and is verified in
-   step 14; AC-14 kill-on-close is deferred to IR-674 and is not verified by this PR.
+   uses the existing `terminate_tree`/`terminate_job` path, but this PR does not
+   verify it on Windows. AC-14 kill-on-close is deferred to IR-674.
 13. On Linux and macOS only, for each plugin-session state, run one invocation
    that receives SIGINT and one that receives SIGTERM: wait for a `started`
    marker before hello is written, wait for a request-running marker, and wait
@@ -137,13 +137,11 @@ kill-on-close in this PR.
    exercises SIGTERM during a running request; SIGINT and the starting and
    shutdown-waiting states remain covered by the signal-adapter tests, not by a
    production-entrypoint subprocess test.
-14. On Windows, verify forced plugin-tree cleanup through the host's existing
-   `terminate_tree`/`terminate_job` path using a native Windows runner. The
-   separate automatic kill-on-close mechanism is planned under IR-674; when
-   implemented, verify Job Object assignment before plugin execution and
-   descendant termination on owning-handle close. Record this as
-   Windows-native evidence; do not count Linux or macOS results as Windows
-   evidence.
+14. Windows forced plugin-tree cleanup is outside this PR's verification.
+    AC-14 automatic kill-on-close is deferred to IR-674; that follow-up requires
+    native Windows evidence for Job Object assignment before plugin execution
+    and descendant termination on owning-handle close. Do not count Linux or
+    macOS results as Windows evidence.
 15. Inspect the Windows host startup/error path in
     `quire-plugin-host/src/lib.rs` for Job Object creation and assignment
     failures. Record whether failures are distinguishable as typed start
