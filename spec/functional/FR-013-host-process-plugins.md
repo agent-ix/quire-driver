@@ -77,9 +77,9 @@ specifies the driver-owned process-provider seam and settlement composition.
 - Cancellation or timeout SHALL NOT remap a malformed frame, a protocol or
   result-validation error, a plugin `fault`, or a non-zero exit. Those failures
   SHALL retain their specific typed cause.
-- When cancellation, timeout or protocol failure occurs, the
-  host SHALL terminate the process tree and drain and join its I/O workers
-  within one second after termination begins. It SHALL preserve captured
+- On cancellation, timeout or protocol failure, the host SHALL terminate the
+  process tree and drain and join its I/O workers within one second after
+  termination begins. It SHALL preserve captured
   stderr in the returned diagnostic.
 - The host SHALL enforce stderr retention limits while continuing to drain
   excess bytes.
