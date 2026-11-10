@@ -230,6 +230,34 @@ Re-review of head ab47adb (commits 5e98dc5, ab47adb) against the review-pass fin
 ]
 ```
 
+## New findings (disposition pass 2)
+
+Re-review of head ddf8761 (commit ddf8761 on ab47adb).
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-008 | medium | AC-16 cannot occur in the driver flow: a NotApplicable item settles InvalidRequest at negotiation and never reaches generate_routed | spec/functional/FR-020-project-requirement-records-into-codegen-input.md |
+
+```json
+[
+  {
+    "fnd": "FND-008",
+    "severity": "medium",
+    "confidence": "high",
+    "check": "untestable-ac",
+    "artifact_id": "FR-020-AC-16",
+    "related_ids": [
+      "FR-020-AC-15",
+      "FR-020"
+    ],
+    "path": "spec/functional/FR-020-project-requirement-records-into-codegen-input.md",
+    "lines": "AC-16; Behavior 'If a NotApplicable item of another capability sits at a node'; TC-034 mutant 'Drop the value-validity record'",
+    "excerpt": "Given a bound `operation-contract` Kani item at a node that also holds a `value-validity` record, CG refuses the call as `RequirementRecord` with `OccurrenceNotSelected`, and the driver returns it unchanged in `DriverRefusal::Generation` with stage Generation, wire code `runtime_invariant` and outcome kind internal fault, with the record still in the map.",
+    "finding": "In the driver every Kani item is a V2ScalarClaim; CG's preflight refuses a NotApplicable V2ScalarClaim as Invalid(ScalarResultMissing) -> Disposition::InvalidRequest, so the item is not routed. generate_routed's record checks (including OccurrenceNotSelected) iterate only routed items (generate.rs:416-419), so the AC-16 refusal and the 'drop the value-validity record' mutant's control cannot arise from a driver run. This is not a CG defect and needs no CG ticket; drop AC-16 and its Behavior bullet (see base FND-003)."
+  }
+]
+```
+
 ## Dispositions
 
 | FND | outcome | reason |
@@ -240,3 +268,5 @@ Re-review of head ab47adb (commits 5e98dc5, ab47adb) against the review-pass fin
 | FND-004 | fixed | Round 1, head ab47adb: For the FR-010-AC-4 vector, the projection returns a requirement for A (index 0) and C (index 2) and `None` at B's index 1, B's position is excluded, `RequirementRecords` still holds B's record, the run completes without a `DriverRefusal`, and the same holds with B's record removed from the map. FR-001-AC-17 keeps its own evidence in TC-017; this criterion asserts only the projection and the absence of a fault. |
 | FND-005 | fixed | Round 1, head ab47adb: FR-001-AC-17 keeps its own evidence in TC-017; this criterion asserts only the projection and the absence of a fault. |
 | FND-006 | fixed | Round 1, head ab47adb: / Report a CG record refusal at the Negotiation stage / AC-9, AC-13 stage / / / Report a CG record refusal as outcome kind refusal / AC-9, AC-13 outcome kind / / / Rewrite a CG refusal's request index, occurrence or mismatch / AC-9, AC-13 field equality / |
+| FND-003 | fixed | Round 2, head ddf8761: For a built unit in which one `x + 1` node's then and else occurrences are guarded by `p` and `not p` and converted to `Int[0, 10]` and `Int[0, 20]` (`function f using v(p: Boolean, x: Int[0, 9]): Boolean pure { if p then g(x + 1) else h(x + 1) }` with `g` over `Int[0, 10]` and `h` over `Int[0, 20]`, built on the RR16_UNIT shape), the two occurrences differ in ordinal, result bound and path condition. The two routed items carry different `RoutedRequirement` values, `RequirementRecords` holds two entries with different result bounds and path conditions, and each item's requirement equals the... |
+| FND-007 | fixed | Round 2, head ddf8761: Given a `RequirementMap` built with `FromIterator` that holds, at one occurrence, both a `value-validity` record and an `operation-contract` record with a different result bound, `RequirementRecords` holds exactly the `value-validity` record's fields at that key, the `value-validity` item's requirement equals them, and no fault is raised. A lookup by occurrence alone finds the key ambiguous and returns no record, so that lookup raises `RequirementRecordAbsent` here. |

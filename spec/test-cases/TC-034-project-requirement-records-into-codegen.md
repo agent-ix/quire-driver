@@ -13,7 +13,7 @@ relationships:
 Verify that the driver hands CG each routed item's QSL requirement and the
 package's requirement records exactly, and refuses typed when it cannot.
 
-Scope: FR-020-AC-1 through FR-020-AC-16. Planned until CG PR #772 (IR-304
+Scope: FR-020-AC-1 through FR-020-AC-15. Planned until CG PR #772 (IR-304
 slice (a)) merges; AC-11 and AC-13 wait on IR-304 slice (b).
 FR-001-AC-17 keeps its own evidence in TC-017; this case reuses that vector
 for FR-020-AC-6 only.
@@ -24,11 +24,11 @@ for FR-020-AC-6 only.
    result bounds and guards (the built `if p then g(x + 1) else h(x + 1)`
    unit of AC-3), one with a conversion context and two guards, a map built with `FromIterator` whose
    one occurrence holds a `value-validity` and an `operation-contract`
-   record, a bound `operation-contract` Kani item with and without a
+   record, a bound `operation-contract` item with no
    `value-validity` record at its node, and the
    IR-304 guarded package including `if p then x + 1 else x + 1`. Capture
    what the driver passes to a recording CG seam (AC-1 to AC-3, AC-5 to
-   AC-7, AC-12, AC-15, AC-16).
+   AC-7, AC-12, AC-15).
 2. Call the projection function with the package's `RequirementMap` with the
    item's `value-validity` record removed (AC-4), and with a record whose
    guard node the admitted package does not hold, and with a record whose
@@ -56,9 +56,8 @@ correct driver.
 | Build records only for routed items | AC-2 refused item's record; AC-6 B's record |
 | Project every capability's record, so a later one overwrites at a shared occurrence | AC-2 (no other-capability entry); AC-5 (entry fields equal the `value-validity` record) |
 | Look the item's record up by occurrence alone | AC-5 (the ambiguous key returns no record, so the run faults) |
-| Attach a requirement to every `OwnResult` item, whatever its capability | AC-15 (`None` expected at the `operation-contract` index) |
-| Fault when a non-`value-validity` item has no record | AC-15 (the run must complete) |
-| Drop the `value-validity` record from the map when a non-`value-validity` item shares its node | AC-16 (the record must remain and CG must refuse) |
+| Attach a requirement to every bound item, whatever its capability | AC-15 (`None` expected at the `operation-contract` index) |
+| Fault when a non-`value-validity` item has no record | AC-15 (the run must complete with `InvalidRequest` settled) |
 | Fill an absent record from the item's own fields | AC-4 fault and no-generation-call assertions |
 | Skip a record that fails to resolve and continue | AC-14 fault and no-generation-call assertions |
 | Attach a requirement at B's index, or fault on B's missing record | AC-6 `None` at index 1; completion with B's record removed |

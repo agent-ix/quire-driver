@@ -94,7 +94,35 @@ Re-review of head ab47adb (commits 5e98dc5, ab47adb) against the review-pass fin
     "path": "reviews/",
     "lines": "six *.comment.md files",
     "excerpt": "reviews/ir-1494-spec-review-{base,integrity,ears-conformance,dependency,failure-domain,criterion-strength}.comment.md",
-    "finding": "The fix round committed the six Linear comment payloads (*.comment.md) under reviews/ beside the SR files; no other review in reviews/ or spec/reviews/ commits comment payloads, and the tracker already holds them. Drop them. The six committed SR files are byte-identical to the review-pass versions, so they lack this round's ## Dispositions and new findings: copy the updated SR files over them in the next fix commit."
+    "finding": "The fix round committed the six Linear comment payloads (*.comment.md) under reviews/ beside the SR files; no other review in reviews/ or spec/reviews/ commits comment payloads, and the tracker already holds them. Drop them. The six committed SR files are byte-identical to the review-pass versions, so they lack this round's ## New findings (disposition pass 2)
+
+Re-review of head ddf8761 (commit ddf8761 on ab47adb).
+
+| ID | Severity | Summary | Refs |
+| --- | --- | --- | --- |
+| FND-003 | low | FR-010 and FR-001 cross-references still say every bound/routed Kani item carries a requirement, contradicting the value-validity-only rule | spec/functional/FR-010-send-only-bound-items-to-codegen.md |
+
+```json
+[
+  {
+    "fnd": "FND-003",
+    "severity": "low",
+    "confidence": "high",
+    "check": "other",
+    "artifact_id": "FR-010",
+    "related_ids": [
+      "FR-001",
+      "FR-020"
+    ],
+    "path": "spec/functional/FR-010-send-only-bound-items-to-codegen.md",
+    "lines": "Dependencies, FR-020 line; FR-001 Inputs 'Each routed Kani item also carries'",
+    "excerpt": "- [FR-020](FR-020-project-requirement-records-into-codegen-input.md) attaches a requirement record to each bound item sent to generation and none to a refused item.",
+    "finding": "FR-010 says FR-020 'attaches a requirement record to each bound item sent to generation' and FR-001 Inputs says 'Each routed Kani item also carries its QSL requirement record'. Under the round-2 text a bound non-value-validity item carries none. Align both with whatever rule base FND-003 settles on (under the recommended rule, every item routed to Kani is value-validity and the FR-001 wording becomes true again; FR-010's 'each bound item' still needs 'routed to Kani')."
+  }
+]
+```
+
+## Dispositions and new findings: copy the updated SR files over them in the next fix commit."
   }
 ]
 ```
@@ -104,3 +132,4 @@ Re-review of head ab47adb (commits 5e98dc5, ab47adb) against the review-pass fin
 | FND | outcome | reason |
 | --- | --- | --- |
 | FND-001 | fixed | Round 1, head ab47adb: [TM-001](tests.md) integrates FR-001 through FR-020, and TC-001 through TC-034. |
+| FND-002 | fixed | Round 2, head ddf8761: reviews/ now holds only the six SR files (ir-1494-spec-review-{base,criterion-strength,dependency,ears-conformance,failure-domain,integrity}.md), byte-identical to the round-1 reviewer versions; the *.comment.md payloads are removed. |

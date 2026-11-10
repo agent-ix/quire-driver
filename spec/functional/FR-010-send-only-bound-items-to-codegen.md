@@ -70,5 +70,5 @@ driver SHALL not send the package's unbound item set to CG.
 - [FR-001](FR-001-orchestrate-the-driver-steps.md) owns the per-item refusal
   member and [FR-009](FR-009-settle-execute-and-replay-results.md) the
   terminal records of the items that settle.
-- [FR-020](FR-020-project-requirement-records-into-codegen-input.md) attaches a requirement record to each bound item sent to generation and none to a refused item.
+- [FR-020](FR-020-project-requirement-records-into-codegen-input.md) attaches a requirement record to each bound item routed to Kani and none to a refused item.
 - [TC-017](../test-cases/TC-017-only-bound-items-reach-codegen.md).
