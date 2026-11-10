@@ -291,7 +291,7 @@ pub enum AdapterError<A, V, F> {
     /// The FR-331 result could not be retained in the shared provider carrier.
     #[error("plugin result conversion failed: {0}")]
     Convert(V),
-    /// Sending a request, validating its result, or process monitoring failed.
+    /// Sending a request, validating its result, or process cleanup failed.
     #[error("plugin request failed: {0}")]
     Request(PluginError<AdmissionFailure<A>, V, F>),
     /// Graceful shutdown or diagnostic capture failed.
@@ -375,8 +375,6 @@ where
                     },
                     max_stderr_bytes: limits.max_stderr_bytes,
                     cancellation_grace: limits.cancellation_grace,
-                    max_process_memory_bytes: limits.max_process_memory_bytes,
-                    max_process_cpu_time: limits.max_process_cpu_time,
                 },
                 cancel,
             },
@@ -687,8 +685,6 @@ mod tests {
             max_total_bytes: 16_384,
             max_stderr_bytes: 1024,
             cancellation_grace: Duration::from_millis(500),
-            max_process_memory_bytes: None,
-            max_process_cpu_time: None,
         }
     }
 

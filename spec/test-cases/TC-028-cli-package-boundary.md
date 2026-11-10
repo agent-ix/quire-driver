@@ -35,6 +35,8 @@ FR-006-AC-8,
 FR-006-AC-24..FR-006-AC-27, FR-013-AC-11,
 FR-013-AC-14..FR-013-AC-15,
 FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
+FR-013-AC-14 is listed to record deferral to IR-674; TC-028 does not verify
+kill-on-close in this PR.
 
 ## Test Procedure
 
@@ -57,13 +59,12 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    executables. Each fixture SHALL record its executable identity, exact argv,
    its `deadline_ms`, and hello-ready marker. Give each entry a distinct valid
    `deadline_ms` and distinct, non-default frame, total, stderr-retention, and
-   cancellation-grace values, plus explicit optional
-   process-memory and CPU-time values. Hold the fixture hellos at a test barrier
+   cancellation-grace values. Hold the fixture hellos at a test barrier
    and verify both hellos are admitted before the run begins backend
    negotiation. Use the real QSL/CG route to select the second configured
    provider. Verify only that provider receives the routed request, and verify
    the process-provider dispatch receives that entry's exact executable path,
-   argv, `ProcessProviderLimits`, and `deadline_ms`; the first provider
+   argv, framing/stderr/cleanup limits, and `deadline_ms`; the first provider
    receives no request. Verify the selected provider's FR-331 request contains
    that entry's exact `deadline_ms`, unchanged.
    Include a separate entry with `argv: []` and verify the executable receives
@@ -83,8 +84,8 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    missing or unreadable file; malformed JSON; missing or wrongly typed
    required fields; missing, zero, negative, fractional, null, wrongly typed,
    or greater-than-9,007,199,254,740,991 `deadline_ms`; unknown fields at the
-   top-level, provider-entry and `limits` objects; and `null` or another wrongly
-   typed value for either optional process budget. Add parser-level boundary
+   top-level, provider-entry and `limits` objects, including removed CPU and RSS
+   budget fields. Add parser-level boundary
    cases that accept `deadline_ms` values 1 and 9,007,199,254,740,991; keep
    end-to-end dispatch fixtures' deadlines large enough for the fixture run.
    Verify each process exits with the existing QSL
@@ -118,8 +119,8 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    normally. Confirm the CLI closes the session and the process tree exits
    before the CLI exits; if `RunLimits.cancellation_grace` expires first,
    confirm forced cleanup completes within one second. Windows forced cleanup
-   uses the existing `terminate_tree`/`terminate_job` path and is verified in
-   step 14; only automatic kill-on-close remains planned under IR-674.
+   uses the existing `terminate_tree`/`terminate_job` path, but this PR does not
+   verify it on Windows. AC-14 kill-on-close is deferred to IR-674.
 13. On Linux and macOS only, for each plugin-session state, run one invocation
    that receives SIGINT and one that receives SIGTERM: wait for a `started`
    marker before hello is written, wait for a request-running marker, and wait
@@ -135,13 +136,11 @@ FR-014-AC-1, FR-014-AC-2, FR-014-AC-4..FR-014-AC-6.
    exercises SIGTERM during a running request; SIGINT and the starting and
    shutdown-waiting states remain covered by the signal-adapter tests, not by a
    production-entrypoint subprocess test.
-14. On Windows, verify forced plugin-tree cleanup through the host's existing
-   `terminate_tree`/`terminate_job` path using a native Windows runner. The
-   separate automatic kill-on-close mechanism is planned under IR-674; when
-   implemented, verify Job Object assignment before plugin execution and
-   descendant termination on owning-handle close. Record this as
-   Windows-native evidence; do not count Linux or macOS results as Windows
-   evidence.
+14. Windows forced plugin-tree cleanup is outside this PR's verification.
+    AC-14 automatic kill-on-close is deferred to IR-674; that follow-up requires
+    native Windows evidence for Job Object assignment before plugin execution
+    and descendant termination on owning-handle close. Do not count Linux or
+    macOS results as Windows evidence.
 15. Inspect the Windows host startup/error path in
     `quire-plugin-host/src/lib.rs` for Job Object creation and assignment
     failures. Record whether failures are distinguishable as typed start
@@ -189,9 +188,8 @@ Linux/macOS runners provide the signal evidence in step 13.
   regressions cover duplicate refusal and active-request signal cleanup. Invalid config in machine mode uses
   the existing
   `Operation::Execute` `Code::InvalidRequest` input-refusal document and
-  refusal exit category, with no new code or cause. Optional CPU/RSS fields
-  omitted from `limits` mean no such budget; explicit `null` and wrongly typed
-  values are rejected before spawn.
+  refusal exit category, with no new code or cause. Removed CPU/RSS budget
+  fields are unknown and rejected before spawn.
 - With two configured providers, both hellos are admitted before negotiation;
   the second provider can be selected and receives only its routed request,
   with its exact executable, argv, limits and `deadline_ms`. The hello
@@ -207,7 +205,6 @@ Linux/macOS runners provide the signal evidence in step 13.
 - Normal CLI termination requests graceful shutdown on all supported adapter
   platforms; Linux/macOS handled SIGINT/SIGTERM close active plugin trees
   within the defined bound.
-- Windows forced cleanup uses the merged host's explicit termination path;
-  verify it on a native Windows runner. Automatic kill-on-close remains
-  planned under IR-674, and setup-failure runtime evidence requires a native
-  Windows runner and a usable failure seam.
+- Windows AC-14 kill-on-close is deferred to IR-674 and is neither implemented
+  nor verified by this PR. Setup-failure runtime evidence also requires a
+  native Windows runner and a usable failure seam.

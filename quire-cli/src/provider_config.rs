@@ -14,7 +14,7 @@ pub(crate) struct ProviderConfig {
     pub providers: Vec<ProcessProviderConfig>,
 }
 
-/// One caller-selected process provider and its host resource limits.
+/// One caller-selected process provider and its configured limits.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ProcessProviderConfig {
@@ -25,7 +25,7 @@ pub(crate) struct ProcessProviderConfig {
     /// Caller-owned FR-331 request deadline in milliseconds.
     #[serde(deserialize_with = "deserialize_deadline")]
     pub deadline_ms: u64,
-    /// Required framing and optional process resource limits.
+    /// Required framing and cleanup limits.
     pub limits: ProcessProviderLimitsConfig,
 }
 
@@ -41,19 +41,6 @@ pub(crate) struct ProcessProviderLimitsConfig {
     pub max_stderr_bytes: u64,
     /// Cancellation grace period in milliseconds.
     pub cancellation_grace_ms: u64,
-    /// Optional process-tree resident-memory budget in bytes.
-    #[serde(default, deserialize_with = "deserialize_optional_u64")]
-    pub max_process_memory_bytes: Option<u64>,
-    /// Optional process-tree CPU-time budget in milliseconds.
-    #[serde(default, deserialize_with = "deserialize_optional_u64")]
-    pub max_process_cpu_time_ms: Option<u64>,
-}
-
-fn deserialize_optional_u64<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    u64::deserialize(deserializer).map(Some)
 }
 
 fn deserialize_deadline<'de, D>(deserializer: D) -> Result<u64, D::Error>
@@ -119,16 +106,14 @@ mod tests {
                 "max_frame_bytes": 1024,
                 "max_total_bytes": 4096,
                 "max_stderr_bytes": 256,
-                "cancellation_grace_ms": 500,
-                "max_process_memory_bytes": 1048576,
-                "max_process_cpu_time_ms": 2000
+                "cancellation_grace_ms": 500
             }
         }]
     }"#;
 
-    /// Trace: FR-006-AC-24, FR-014-AC-6; parse the exact required and optional config fields.
+    /// Trace: FR-006-AC-24, FR-014-AC-6; parse the exact required config fields.
     #[test]
-    fn parses_provider_config_with_explicit_empty_arguments_and_optional_budgets() {
+    fn parses_provider_config_with_explicit_empty_arguments() {
         let config: ProviderConfig = serde_json::from_str(VALID).expect("valid provider config");
         assert_eq!(config.providers.len(), 1);
         assert_eq!(
@@ -138,34 +123,21 @@ mod tests {
         assert!(config.providers[0].argv.is_empty());
         assert_eq!(config.providers[0].deadline_ms, 250);
         assert_eq!(config.providers[0].limits.max_frame_bytes, 1024);
-        assert_eq!(
-            config.providers[0].limits.max_process_memory_bytes,
-            Some(1_048_576)
-        );
-        assert_eq!(
-            config.providers[0].limits.max_process_cpu_time_ms,
-            Some(2_000)
-        );
     }
 
-    /// Trace: FR-006-AC-24; omitted optional budgets are absent, while null is invalid.
+    /// Trace: FR-006-AC-24; removed CPU and RSS fields are rejected as unknown.
     #[test]
-    fn omitted_optional_budgets_are_none_and_null_is_rejected() {
-        let value = VALID.replace(
-            "\"max_process_cpu_time_ms\": 2000",
-            "\"max_process_cpu_time_ms\": null",
-        );
-        assert!(serde_json::from_str::<ProviderConfig>(&value).is_err());
-
-        let omitted = VALID
-            .replace(
-                "                \"max_process_memory_bytes\": 1048576,\n",
-                "",
-            )
-            .replace(",\n                \"max_process_cpu_time_ms\": 2000", "");
-        let config: ProviderConfig = serde_json::from_str(&omitted).expect("omitted budgets");
-        assert_eq!(config.providers[0].limits.max_process_memory_bytes, None);
-        assert_eq!(config.providers[0].limits.max_process_cpu_time_ms, None);
+    fn rejects_removed_cpu_and_rss_budget_fields() {
+        for removed_field in ["max_process_memory_bytes", "max_process_cpu_time_ms"] {
+            let invalid = VALID.replace(
+                "\"cancellation_grace_ms\": 500",
+                &format!("\"cancellation_grace_ms\": 500, \"{removed_field}\": 1"),
+            );
+            assert!(
+                serde_json::from_str::<ProviderConfig>(&invalid).is_err(),
+                "accepted removed field {removed_field}"
+            );
+        }
     }
 
     /// Trace: FR-006-AC-24; missing or wrongly typed required fields fail closed.
@@ -180,14 +152,6 @@ mod tests {
             VALID.replace("\"max_total_bytes\": 4096,", ""),
             VALID.replace("\"max_frame_bytes\": 1024", "\"max_frame_bytes\": \"1024\""),
             VALID.replace("\"argv\": []", "\"argv\": \"\""),
-            VALID.replace(
-                "\"max_process_memory_bytes\": 1048576",
-                "\"max_process_memory_bytes\": null",
-            ),
-            VALID.replace(
-                "\"max_process_cpu_time_ms\": 2000",
-                "\"max_process_cpu_time_ms\": \"2000\"",
-            ),
         ] {
             assert!(serde_json::from_str::<ProviderConfig>(&malformed).is_err());
         }

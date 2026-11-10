@@ -570,8 +570,6 @@ mod tests {
                     max_total_bytes: 16_384,
                     max_stderr_bytes: 1024,
                     cancellation_grace: Duration::from_millis(100),
-                    max_process_memory_bytes: None,
-                    max_process_cpu_time: None,
                 };
                 let start_cancel = Cancel::new();
                 let mut session = match provider.start(&python, &arguments, limits, &start_cancel) {

@@ -31,16 +31,15 @@ specifies the driver-owned process-provider seam and settlement composition.
 - Manifest-admission and typed result-validation callbacks supplied by the
   `quire-cli` process-provider adapter.
 - Zero or more provider requests, each with its request identity, package
-  bytes, negotiated items, cancellation, deadline, cancellation-grace limit,
-  and optional memory and CPU-time budgets. Each resource budget applies to
-  the plugin process tree during that request.
+  bytes, negotiated items, cancellation, deadline, and cancellation-grace
+  limit.
 
 ## Outputs
 
 - A session hello containing the plugin's protocol identity and manifest,
   returned before any provider request can be sent.
 - For each accepted request, the validated typed result or its original typed
-  protocol, plugin, process, budget, cancellation, or timeout failure.
+  protocol, plugin, process, cancellation, or timeout failure.
 - Bounded opaque stderr bytes alongside success and failure diagnostics.
 
 ## Behavior
@@ -66,8 +65,8 @@ specifies the driver-owned process-provider seam and settlement composition.
   specific typed tool failure.
 - The host SHALL make frame writes interruptible by caller cancellation and
   deadline. A deadline SHALL terminate the plugin process tree and settle as
-  `TimedOut`; the host SHALL poll cancellation, deadlines, process exit and
-  resource use at intervals no longer than 20 milliseconds. A blocked plugin
+  `TimedOut`; the host SHALL poll cancellation, deadlines and process exit at
+  intervals no longer than 20 milliseconds. A blocked plugin
   pipe SHALL NOT delay that settlement beyond the polling interval plus the
   one-second cleanup bound.
 - When cancellation is requested, the host SHALL send the protocol cancel
@@ -75,40 +74,13 @@ specifies the driver-owned process-provider seam and settlement composition.
   admitted and validated plugin settlement received within grace SHALL be
   returned unchanged. If no valid settlement arrives by grace expiry, the
   host SHALL terminate the process tree and settle as cancelled.
-- Cancellation or timeout SHALL NOT remap a malformed frame, a protocol or
-  result-validation error, a plugin `fault`, a process-budget breach, or a
-  non-zero exit. Those failures SHALL retain their specific typed cause.
-- The host SHALL account each request's CPU time for the plugin and every
-  descendant from request start, including CPU used by descendants that exit
-  between polls. A sampled subset of live processes SHALL NOT be reported as
-  complete CPU accounting.
-- The host SHALL sample memory as the sum of resident bytes for the current
-  process tree at each poll. Sampling is best-effort: a transient memory peak
-  between polls can exceed the configured value before the next measurement.
-- When a request with a CPU-time budget is about to be sent, the host SHALL
-  establish a complete accounting boundary that includes the plugin and every
-  descendant, including members that exit between polls or leave the plugin's
-  process group. That same boundary SHALL allow termination of every member
-  within the one-second cleanup bound after termination begins.
-- When the host cannot establish both the complete CPU accounting boundary
-  and bounded termination for every member of that boundary, the host SHALL
-  return the typed `ProcessBudgetError::Unavailable` before sending the
-  request.
-- When a request with a memory budget is about to be sent, the host SHALL
-  establish that it can observe the complete current process tree.
-- When complete process-tree observation is unavailable, the host SHALL return
-  the typed `ProcessBudgetError::Unavailable` before sending the request.
-- When a request with a memory budget is about to be sent, the host SHALL
-  establish that it can observe and terminate the complete current process
-  tree within the one-second cleanup bound.
-- When the host measures a complete aggregate that exceeds a request budget,
-  the host SHALL return the corresponding typed process-budget failure and
-  terminate every member of the established resource boundary within one
-  second after termination begins.
-- When cancellation, timeout, protocol failure, or a budget breach occurs, the
-  host SHALL terminate the process tree and drain and join its I/O workers
-  within one second after termination begins. It SHALL preserve captured
-  stderr in the returned diagnostic.
+- The host SHALL preserve the specific typed cause of malformed frames,
+  protocol or result-validation errors, plugin `fault`s, and non-zero exits
+  during cancellation or timeout.
+- The host SHALL terminate the process tree and drain and join its I/O workers
+  within one second after termination begins for cancellation, timeout, or
+  protocol failure. It SHALL preserve captured stderr in the returned
+  diagnostic.
 - The host SHALL enforce stderr retention limits while continuing to drain
   excess bytes.
 - The host SHALL NOT parse or treat stderr as protocol data.
@@ -118,8 +90,8 @@ specifies the driver-owned process-provider seam and settlement composition.
 - The merged host's Windows forced-cleanup path terminates the process tree
   through `terminate_tree`/`terminate_job`. It does not configure
   `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` through its standard-library Job Object
-  path; kill-on-close remains planned under IR-674, and this specification
-  makes no claim that automatic handle-close cleanup is implemented.
+  path. Automatic kill-on-close is deferred to the IR-674 follow-up; this
+  specification makes no claim that handle-close cleanup is implemented.
 - When the child exits non-zero, the host SHALL return a process failure.
   EOF before the expected frame SHALL preserve an available
   process exit status in preference to a generic missing-frame error.
@@ -151,18 +123,13 @@ specifies the driver-owned process-provider seam and settlement composition.
 | FR-013-AC-5 | A plugin's valid typed cancellation settlement received within grace is returned unchanged; no settlement by grace expiry terminates the child and descendants and returns cancellation within the one-second cleanup bound. | Test |
 | FR-013-AC-6 | A deadline expiring while a plugin does not read a request frame returns `TimedOut` within the 20-millisecond polling interval plus the one-second cleanup bound. | Test |
 | FR-013-AC-7 | Truncated, malformed, non-canonical, oversized, unexpected, and wrongly correlated frames produce their specific typed failures without allocation above configured limits. | Test |
-| FR-013-AC-8 | Per-request CPU-time accounting includes the plugin and every descendant from request start, including descendants that exit between polls or leave the plugin process group; a sampled subset is not complete accounting. | Test (TC-026) |
 | FR-013-AC-9 | Stderr beyond the session retention limit is drained but not retained; stderr is available on failures, and reader/writer workers are joined within one second after termination begins. | Test |
 | FR-013-AC-10 | After stdout closes while the child remains alive, process-exit waiting does not busy-wait; EOF before a response preserves an available child exit status. | Test |
 | FR-013-AC-11 | The host uses QSL ADR-029 PL-1 through PL-7 without defining a local wire or manifest-digest format; `quire-driver` excludes the host crate, and `quire-cli` has a direct host dependency and composes it with the driver's seam. | Test (TC-005, TC-028) and analysis |
 | FR-013-AC-12 | On a clean Cargo cache, the repository `make test` target fetches every locked platform dependency before running the offline TC-005 dependency metadata check, and the check passes. | Test (TC-027) |
 | FR-013-AC-13 | The host test suite reports an actionable prerequisite failure naming the missing fixture runtime and its installation instructions. | Test (TC-027) |
-| FR-013-AC-14 | When a supported Windows process-tree cleanup mechanism is selected under IR-674, the host assigns the plugin process tree to a kill-on-close Job Object before plugin code executes; closing the owning job handle terminates remaining job members. | Planned under IR-674; native Windows evidence required |
+| FR-013-AC-14 | When the IR-674 follow-up selects and implements a supported Windows process-tree cleanup mechanism, the host assigns the plugin process tree to a kill-on-close Job Object before plugin code executes; closing the owning job handle terminates remaining job members. | Deferred to IR-674; not implemented or verified by this PR; native Windows evidence required |
 | FR-013-AC-15 | When Windows process-tree setup fails before plugin execution, the host returns a typed host-start failure, dispatches no provider request, and terminates any child already created. | Analysis/Inspection (review Windows host startup/error path in `quire-plugin-host`; runtime evidence requires a native Windows runner and an injectable or distinguishable setup-failure seam) |
-| FR-013-AC-16 | Memory is sampled as the sum of resident bytes for the plugin and its current descendants at each poll; sampling is best-effort and a transient peak may exceed the configured value between polls. | Test (TC-026) |
-| FR-013-AC-17 | Before dispatching a CPU-budgeted request, the host establishes complete CPU accounting and bounded termination for that same boundary, or returns `ProcessBudgetError::Unavailable` without sending the request. | Test (TC-026) |
-| FR-013-AC-18 | Before dispatching a memory-budgeted request, the host establishes observation and bounded termination for the plugin and its complete live descendant set, or returns `ProcessBudgetError::Unavailable` without sending the request. | Test (TC-026) |
-| FR-013-AC-19 | When a complete measured aggregate exceeds a request budget, the host returns the corresponding typed failure and terminates every member of that resource boundary within one second after termination begins. | Test (TC-026) |
 
 ## Dependencies
 
