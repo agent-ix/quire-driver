@@ -47,6 +47,15 @@ command-line design:
 | `format` | works | Print the source in QSL's canonical layout. |
 | `analyze`, `monitor`, `prove`, `replay`, `generate`, `inspect`, `render` | planned | Recognized, and end as `unsupported` (exit 21) until a handler is written. |
 
+`parse` and `format` take two logical source labels followed by the file path:
+
+```sh
+quire parse example.org requirements source.qsl --format json
+quire format example.org requirements source.qsl
+```
+
+The labels identify the source; the file path is its physical location.
+
 `run` accepts `--engine interpreter|aot|jit` and `--limit` overrides. The
 interpreter is the linked engine, and the other engines are refused before
 anything runs. The command supplies an empty object environment.
@@ -72,11 +81,21 @@ profile v = "quire.value.complete/v1";
 function yes using v(): Boolean pure { true }
 ```
 
-Save it as `yes.qsl` and run the function. The command exits with code 0:
+Save it as `yes.qsl`, then save this request as `yes.json`. Source labels are
+logical names independent of the physical file path:
+
+```json
+{"format":"native-run/1","request":{"models":[],"program":{"source":{"file":"yes.qsl","authority":"example","identity":"yes","document":"ExampleYes","formal_revision":1}},"call":{"function":"yes","arguments":[]}}}
+```
+
+Run the request; the command exits with code 0:
 
 ```
-quire run yes.qsl yes --format json
+quire run yes.json --format json
 ```
+
+`quire compile` likewise takes a `native-compile/1` request file. Run intake
+accepts `--request-bytes` and `--dependent-bytes`; compile uses fixed ceilings.
 
 ## Library
 

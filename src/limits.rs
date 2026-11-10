@@ -3,8 +3,8 @@
 
 use qsl_foundation::{Setting, SettingLimits, SettingName, UsageRefusal};
 use qsl_replay::{
-    spine::{Call, SpineLimits},
-    AccountingLimits, CallerLimits,
+    spine::{Call, ClauseRunRequest, SpineLimits},
+    AccountingLimits, CallerLimits, ObservationLimits,
 };
 
 /// A recognized caller-selected setting unavailable to the selected operation.
@@ -30,16 +30,40 @@ impl LimitOverrides {
 
     /// Apply settings exposed by the selected `run` operation.
     pub fn apply_to(&self, limits: &mut SpineLimits, call: &mut Call) -> Result<(), LimitError> {
-        let available: Vec<Setting> = limits
+        self.apply_parts(limits, None, &mut call.accounting)
+    }
+
+    /// Apply settings to the actual stage, observation and accounting limits of a clause run.
+    pub fn apply_to_clause(&self, request: &mut ClauseRunRequest) -> Result<(), LimitError> {
+        self.apply_parts(
+            &mut request.limits,
+            Some(&mut request.observation_limits),
+            &mut request.accounting,
+        )
+    }
+
+    fn apply_parts(
+        &self,
+        limits: &mut SpineLimits,
+        mut observation: Option<&mut ObservationLimits>,
+        accounting: &mut quire_exact::ScalarLimits,
+    ) -> Result<(), LimitError> {
+        let mut available: Vec<Setting> = limits
             .bounds()
             .into_iter()
             .map(|(setting, _)| setting)
             .collect();
-        let mut updated_accounting = AccountingLimits(call.accounting);
+        if let Some(observation) = observation.as_deref() {
+            available.extend(observation.bounds().into_iter().map(|(setting, _)| setting));
+        }
+        let mut updated_accounting = AccountingLimits(*accounting);
         let mut caller_limits = CallerLimits {
             spine: *limits,
             ..CallerLimits::default()
         };
+        if let Some(observation) = observation.as_deref() {
+            caller_limits.observation = *observation;
+        }
         for (setting, value) in &self.0 {
             match setting {
                 SettingName::Stage(setting) => {
@@ -64,7 +88,10 @@ impl LimitOverrides {
             }
         }
         *limits = caller_limits.spine;
-        call.accounting = updated_accounting.0;
+        if let Some(observation) = observation.as_mut() {
+            **observation = caller_limits.observation;
+        }
+        *accounting = updated_accounting.0;
         Ok(())
     }
 
@@ -95,7 +122,87 @@ mod tests {
             arguments: Vec::new(),
             accounting: default_accounting(100),
             supplied: quire_semantic_value::supplied_stop::SuppliedLimits::default(),
+            backend: Default::default(),
         }
+    }
+
+    fn clause_request() -> qsl_replay::spine::ClauseRunRequest {
+        qsl_replay::spine::ClauseRunRequest {
+            source: qsl_replay::spine::ClauseRunSource::Program {
+                identity: qsl_foundation::SourceIdentity::new("issuer", "unit"),
+                path: "unit.qsl".to_owned(),
+                bytes: Vec::new(),
+            },
+            package_name: "unit".to_owned(),
+            packages: Default::default(),
+            dependencies: Default::default(),
+            snapshots: Default::default(),
+            invocations: Default::default(),
+            selection: qsl_replay::spine::ClauseRunSelection::Function {
+                name: "yes".to_owned(),
+                arguments: Vec::new(),
+                snapshot: qsl_semantics::model::observation::DocumentRef {
+                    authority: "issuer".to_owned(),
+                    identity: "snapshot".to_owned(),
+                },
+            },
+            limits: SpineLimits::default(),
+            observation_limits: qsl_replay::ObservationLimits::default(),
+            accounting: default_accounting(17),
+        }
+    }
+
+    #[ix_trace_rs::trace("TC-010", "FR-003-AC-4")]
+    #[test]
+    fn clause_limits_apply_to_the_actual_observation_and_accounting_bounds() {
+        let mut request = clause_request();
+        let original = request.observation_limits;
+        let (setting, value) = original.bounds()[0];
+        let value = value.saturating_sub(1);
+        let limits = LimitOverrides::parse(&[
+            format!("{}={value}", setting.name()),
+            "accounting.work_units=3".to_owned(),
+        ])
+        .expect("parse owner setting names");
+        limits
+            .apply_to_clause(&mut request)
+            .expect("clause exposes observation and accounting");
+        assert_eq!(
+            request
+                .observation_limits
+                .bounds()
+                .into_iter()
+                .find(|(name, _)| *name == setting),
+            Some((setting, value))
+        );
+        assert_eq!(
+            AccountingLimits(request.accounting)
+                .bounds()
+                .into_iter()
+                .find(|(name, _)| *name == qsl_foundation::AccountingSetting::WorkUnits)
+                .map(|(_, value)| value),
+            Some(3)
+        );
+        assert_eq!(request.limits, SpineLimits::default());
+    }
+
+    #[ix_trace_rs::trace("TC-010", "FR-003-AC-5")]
+    #[test]
+    fn invalid_clause_limit_is_atomic_across_all_actual_bounds() {
+        let mut request = clause_request();
+        let original_spine = request.limits;
+        let original_observation = request.observation_limits;
+        let original_accounting = request.accounting;
+        let limits = LimitOverrides::parse(&[
+            "s1.input_bytes=1".to_owned(),
+            "accounting.work_units=0".to_owned(),
+            "explore.states=1".to_owned(),
+        ])
+        .expect("all settings are recognized");
+        assert!(limits.apply_to_clause(&mut request).is_err());
+        assert_eq!(request.limits, original_spine);
+        assert_eq!(request.observation_limits, original_observation);
+        assert_eq!(request.accounting, original_accounting);
     }
 
     /// Trace: FR-003-AC-1, FR-003-AC-4, FR-003-AC-6.

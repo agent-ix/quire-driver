@@ -524,6 +524,7 @@ mod tests {
             ],
             accounting: default_accounting(1_000_000),
             supplied: Default::default(),
+            backend: Default::default(),
         };
         let objects = qsl_semantics::model::object_environment::ObjectEnvironment::default();
         let call_run = qsl_replay::run_with_requirements(

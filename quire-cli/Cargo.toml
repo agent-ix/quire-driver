@@ -21,6 +21,7 @@ tc018-test-adapter = []
 [dependencies]
 quire-semantic-value = { git = "https://github.com/agent-ix/quire-semantic-value", branch = "main" }
 base64 = "=0.22.1"
+qsl-command = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-cst = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }

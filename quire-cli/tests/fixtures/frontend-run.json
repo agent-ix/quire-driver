@@ -1,0 +1,19 @@
+{
+  "format": "native-run/1",
+  "request": {
+    "models": [],
+    "program": {
+      "source": {
+        "file": "ir608-run.qsl",
+        "authority": "issuer",
+        "identity": "document",
+        "document": "CliFrontend",
+        "formal_revision": 1
+      }
+    },
+    "call": {
+      "function": "yes",
+      "arguments": []
+    }
+  }
+}

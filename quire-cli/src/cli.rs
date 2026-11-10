@@ -5,20 +5,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use ix_cli_kit::exit::{caller_exit_code, RESERVED_COMMAND_NOT_FOUND};
 use ix_cli_kit::streams::{self, Diagnostics};
+use qsl_command::command::{self, PreparedRun, RunLimits};
 use qsl_cst::format::{format_with_limits, FormatLimits, FormatRefusal};
 use qsl_foundation::diagnostic::Code;
 use qsl_foundation::diagnostic::Staged;
-use qsl_foundation::SourceIdentity;
+use qsl_foundation::source::{SourceReadCause, SourceReadError, SourceReadRefusal};
+use qsl_foundation::{SettingLimits, SettingName, SourceIdentity};
 use qsl_replay::spine::{
-    check, default_accounting, package, parse, select, Call, CallArgument, DependencyInput,
-    PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
+    check, parse, select, Call, CompileRefusal, DependencyInput, ParseRequest, SpineLimits,
 };
 use qsl_replay::{run_with_requirements, CallOutcome, RunRefusal};
-use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
+use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument, OutcomeStage};
 use quire_driver::{
     build_linked_providers, drive, execute, CompileInput, Driven, ExecutionEngine,
     ExecutionFailure, ExecutionRequest, GenerationInput, LimitOverrides, ObjectEnvironment,
@@ -26,9 +28,7 @@ use quire_driver::{
     ProviderRequest, ProviderResults, QslCg,
 };
 use quire_exact::Cancel;
-use quire_exact::{Integer, Value};
 use quire_semantic_value::catalog::Category;
-use quire_semantic_value::supplied_stop::SuppliedLimits;
 
 /// Pass QSL's category result through the kit without converting it to an `Outcome`.
 #[must_use]
@@ -123,6 +123,13 @@ fn help_exit_code() -> ExitCode {
         ));
     }
     help.push_str(concat!(
+        "\nSource operands:\n",
+        "  parse <authority> <identity> <file> [--format json|text]\n",
+        "  format <authority> <identity> <file> [--format json|text]\n",
+        "  compile <request-file> [--format json|text]\n",
+        "  run <request-file> [--request-bytes <bytes>] [--dependent-bytes <bytes>]\n",
+        "      [--limit name=value] [--engine interpreter|aot|jit] [--provider-config <path>]\n",
+        "      [--format json|text]\n",
         "\nOptions:\n",
         "  --format text|json|dot  Select output format (default: text).\n",
         "                         dot is accepted only for inspect.\n",
@@ -245,10 +252,7 @@ fn parse_invocation(arguments: &[OsString]) -> Result<Invocation, String> {
     let mut format = OutputFormat::Text;
     let mut index = 1;
     while index < arguments.len() {
-        let arg = arguments[index]
-            .to_str()
-            .ok_or_else(|| "option must be valid UTF-8".to_owned())?;
-        if arg == "--format" {
+        if arguments[index] == "--format" {
             index += 1;
             let value = arguments
                 .get(index)
@@ -275,9 +279,8 @@ fn parse_invocation(arguments: &[OsString]) -> Result<Invocation, String> {
 }
 
 struct RunOptions {
-    path: String,
-    function: String,
-    arguments: Vec<CallArgument>,
+    path: PathBuf,
+    intake_limits: RunLimits,
     limits: LimitOverrides,
     engine: ExecutionEngine,
     provider_config: Option<std::path::PathBuf>,
@@ -382,6 +385,7 @@ struct ConfiguredRunFailure {
 
 struct ConfiguredRunRequest<'a> {
     path: &'a str,
+    package_name: &'a str,
     bytes: &'a [u8],
     source: SourceIdentity,
     limits: SpineLimits,
@@ -426,71 +430,52 @@ fn configured_failure_after_call(
 }
 
 struct CompileOptions {
-    path: String,
+    path: PathBuf,
 }
 
 struct CheckOptions {
     path: String,
 }
 
-struct ParseOptions {
-    path: String,
+struct SourceOptions {
+    source: SourceIdentity,
+    path: PathBuf,
 }
 
-struct FormatOptions {
-    path: String,
-}
-
-impl FormatOptions {
-    fn parse(arguments: &[OsString]) -> Result<Self, String> {
+impl SourceOptions {
+    fn parse(verb: Verb, arguments: &[OsString]) -> Result<Self, String> {
+        let usage = || {
+            format!(
+                "usage: quire {} <authority> <identity> <file> [--format json|text]",
+                verb.name()
+            )
+        };
         let mut positionals = Vec::new();
         let mut index = 0;
         while index < arguments.len() {
-            let argument = arguments[index]
-                .to_str()
-                .ok_or_else(|| "format arguments must be valid UTF-8".to_owned())?;
+            let argument = &arguments[index];
             if argument == "--format" {
                 index += 2;
                 continue;
             }
-            if argument.starts_with('-') {
-                return Err(format!("unknown format option `{argument}`"));
+            if let Some(option) = argument.to_str().filter(|value| value.starts_with('-')) {
+                return Err(format!("unknown {} option `{option}`", verb.name()));
             }
-            positionals.push(argument.to_owned());
+            positionals.push(argument);
             index += 1;
         }
-        if positionals.len() != 1 {
-            return Err("usage: quire format <source-path> [--format json|text]".to_owned());
-        }
+        let [authority, identity, path] = positionals.as_slice() else {
+            return Err(usage());
+        };
+        let authority = authority
+            .to_str()
+            .ok_or_else(|| format!("{} authority label must be valid UTF-8", verb.name()))?;
+        let identity = identity
+            .to_str()
+            .ok_or_else(|| format!("{} identity label must be valid UTF-8", verb.name()))?;
         Ok(Self {
-            path: positionals.remove(0),
-        })
-    }
-}
-
-impl ParseOptions {
-    fn parse(arguments: &[OsString]) -> Result<Self, String> {
-        let mut positionals = Vec::new();
-        let mut index = 0;
-        while index < arguments.len() {
-            let argument = arguments[index]
-                .to_str()
-                .ok_or_else(|| "parse arguments must be valid UTF-8".to_owned())?;
-            if argument == "--format" {
-                index += 2;
-                continue;
-            }
-            if argument.starts_with('-') {
-                return Err(format!("unknown parse option `{argument}`"));
-            }
-            positionals.push(argument.to_owned());
-            index += 1;
-        }
-        if positionals.len() != 1 {
-            return Err("usage: quire parse <source-path> [--format json|text]".to_owned());
-        }
-        Ok(Self {
-            path: positionals.remove(0),
+            source: SourceIdentity::new(authority, identity),
+            path: PathBuf::from(*path),
         })
     }
 }
@@ -500,24 +485,22 @@ impl CompileOptions {
         let mut positionals = Vec::new();
         let mut index = 0;
         while index < arguments.len() {
-            let argument = arguments[index]
-                .to_str()
-                .ok_or_else(|| "compile arguments must be valid UTF-8".to_owned())?;
+            let argument = &arguments[index];
             if argument == "--format" {
                 index += 2;
                 continue;
             }
-            if argument.starts_with('-') {
-                return Err(format!("unknown compile option `{argument}`"));
+            if let Some(option) = argument.to_str().filter(|value| value.starts_with('-')) {
+                return Err(format!("unknown compile option `{option}`"));
             }
-            positionals.push(argument.to_owned());
+            positionals.push(argument);
             index += 1;
         }
-        if positionals.len() != 1 {
-            return Err("usage: quire compile <source-path> [--format json|text]".to_owned());
-        }
+        let [path] = positionals.as_slice() else {
+            return Err("usage: quire compile <request-file> [--format json|text]".to_owned());
+        };
         Ok(Self {
-            path: positionals.remove(0),
+            path: PathBuf::from(*path),
         })
     }
 }
@@ -550,18 +533,37 @@ impl CheckOptions {
 }
 
 impl RunOptions {
+    const USAGE: &str = "usage: quire run <request-file> [--request-bytes <bytes>] [--dependent-bytes <bytes>] [--limit name=value] [--engine interpreter|aot|jit] [--provider-config <path>] [--format json|text]";
+
     fn parse(arguments: &[OsString]) -> Result<Self, String> {
         let mut positionals = Vec::new();
         let mut limit_operands = Vec::new();
         let mut engine = None;
+        let mut intake_limits = RunLimits::default();
+        let mut byte_options = BTreeSet::new();
         let mut provider_config: Option<std::path::PathBuf> = None;
         let mut index = 0;
         while index < arguments.len() {
-            let arg = arguments[index]
-                .to_str()
-                .ok_or_else(|| "run arguments must be valid UTF-8".to_owned())?;
+            let arg = arguments[index].to_str();
             match arg {
-                "--limit" => {
+                Some("--request-bytes" | "--dependent-bytes") => {
+                    let option = arg.unwrap_or_default();
+                    if !byte_options.insert(option) {
+                        return Err(format!("{option} may be supplied only once"));
+                    }
+                    index += 1;
+                    let value = arguments
+                        .get(index)
+                        .and_then(|value| value.to_str())
+                        .and_then(|value| value.parse::<usize>().ok())
+                        .ok_or_else(|| format!("{option} requires a non-negative byte count"))?;
+                    if option == "--request-bytes" {
+                        intake_limits.request_bytes = value;
+                    } else {
+                        intake_limits.dependent_bytes = value;
+                    }
+                }
+                Some("--limit") => {
                     index += 1;
                     limit_operands.push(
                         arguments
@@ -571,7 +573,7 @@ impl RunOptions {
                             .to_owned(),
                     );
                 }
-                "--engine" => {
+                Some("--engine") => {
                     index += 1;
                     let value = arguments
                         .get(index)
@@ -582,7 +584,7 @@ impl RunOptions {
                     }
                     engine = Some(ExecutionEngine::parse(value)?);
                 }
-                "--provider-config" => {
+                Some("--provider-config") => {
                     index += 1;
                     let path = arguments
                         .get(index)
@@ -595,52 +597,29 @@ impl RunOptions {
                         return Err("--provider-config may be supplied only once".to_owned());
                     }
                 }
-                "--format" | "--color" => {
+                Some("--format" | "--color") => {
                     index += 1;
                     if arguments
                         .get(index)
                         .and_then(|value| value.to_str())
                         .is_none()
                     {
-                        return Err(format!("{arg} requires a value"));
+                        return Err(format!("{} requires a value", arg.unwrap_or_default()));
                     }
                 }
-                option if option.starts_with('-') => {
+                Some(option) if option.starts_with('-') => {
                     return Err(format!("unknown run option `{option}`"));
                 }
-                value => positionals.push(value.to_owned()),
+                _ => positionals.push(arguments[index].clone()),
             }
             index += 1;
         }
-        if positionals.len() < 2 {
-            return Err("usage: quire run <source-path> <function> [parameter=value ...] [--limit name=value] [--engine interpreter|aot|jit] [--provider-config <path>] [--format json|text]".to_owned());
-        }
-        let mut call_arguments = Vec::new();
-        for argument in &positionals[2..] {
-            let (parameter, value) = argument
-                .split_once('=')
-                .ok_or_else(|| format!("run argument `{argument}` must be parameter=value"))?;
-            if parameter.is_empty() {
-                return Err(format!(
-                    "run argument `{argument}` has an empty parameter name"
-                ));
-            }
-            let value = match value {
-                "true" => Value::Boolean(true),
-                "false" => Value::Boolean(false),
-                _ => Value::Integer(Integer::from(value.parse::<i64>().map_err(|_| {
-                    format!("run argument `{argument}` is not a Boolean or integer")
-                })?)),
-            };
-            call_arguments.push(CallArgument {
-                parameter: parameter.to_owned(),
-                value,
-            });
-        }
+        let [path] = positionals.as_slice() else {
+            return Err(Self::USAGE.to_owned());
+        };
         Ok(Self {
-            path: positionals[0].clone(),
-            function: positionals[1].clone(),
-            arguments: call_arguments,
+            path: PathBuf::from(path),
+            intake_limits,
             limits: LimitOverrides::parse(&limit_operands).map_err(|error| error.to_string())?,
             engine: engine.unwrap_or_default(),
             provider_config,
@@ -695,10 +674,6 @@ impl CommandResult {
     /// An input refusal raised before QSL runs, recorded with QSL's native code.
     fn input_refusal(operation: Operation, message: impl Into<String>) -> Self {
         Self::catalog_failure_for(operation, Code::InvalidRequest, message)
-    }
-
-    fn catalog_failure(code: Code, message: impl Into<String>) -> Self {
-        Self::catalog_failure_for(Operation::Execute, code, message)
     }
 
     fn catalog_failure_for(operation: Operation, code: Code, message: impl Into<String>) -> Self {
@@ -768,32 +743,57 @@ fn run(options: RunOptions) -> CommandResult {
         let failure = ExecutionFailure::UnsupportedEngine(options.engine);
         return CommandResult::document(failure.into_document());
     }
-    let packages = BTreeMap::new();
-    let dependencies = DependencyInput::default();
-    let mut limits = SpineLimits::default();
-    let mut call = Call {
-        function: options.function,
-        arguments: options.arguments,
-        accounting: default_accounting(DEFAULT_WORK_UNITS),
-        supplied: SuppliedLimits::default(),
+    // Reject a setting unavailable to every run family before request-file I/O.
+    // The selected function or clause still validates its exact bounds below.
+    let mut exposed = SpineLimits::default().bounds();
+    exposed.extend(qsl_replay::ObservationLimits::default().bounds());
+    for (setting, _) in options.limits.values() {
+        if let SettingName::Stage(stage) = setting {
+            if !exposed.iter().any(|(available, _)| available == stage) {
+                return CommandResult::input_refusal(
+                    Operation::Execute,
+                    quire_driver::LimitError::OperationUnavailable { setting: *setting }
+                        .to_string(),
+                );
+            }
+        }
+    }
+    let prepared = match command::prepare_run(&options.path, options.intake_limits) {
+        Ok(prepared) => prepared,
+        Err(error) => return CommandResult::document(error.outcome_document(Operation::Execute)),
     };
+    let input = match prepared {
+        PreparedRun::Function(prepared) => prepared.into_input(),
+        PreparedRun::Clause(request) => {
+            if !provider_config.providers.is_empty() {
+                return CommandResult::catalog_failure_for(
+                    Operation::Monitor,
+                    Code::UnimplementedCapability,
+                    "process-provider composition for clause requests is unavailable",
+                );
+            }
+            return run_clause_request(*request, &options.limits);
+        }
+    };
+    let command::FunctionRunInput {
+        source,
+        package_name,
+        packages,
+        dependencies,
+        mut call,
+    } = input;
+    let mut limits = SpineLimits::default();
     if let Err(error) = options.limits.apply_to(&mut limits, &mut call) {
         return CommandResult::input_refusal(Operation::Execute, error.to_string());
     }
-    let bytes = match read_source(&options.path, limits.source.source_bytes) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            let message = format!("could not read source {}: {error}", options.path);
-            return CommandResult::catalog_failure(Code::IoError, message);
-        }
-    };
-    let source = SourceIdentity::new("quire", &options.path);
+    let identity = source.identity().clone();
     if !provider_config.providers.is_empty() {
         let configured = crate::signals::run(move |signals| {
             run_configured_providers(ConfiguredRunRequest {
-                path: &options.path,
-                bytes: &bytes,
-                source,
+                path: source.path(),
+                package_name: &package_name,
+                bytes: source.text().as_bytes(),
+                source: identity,
                 limits,
                 call,
                 packages,
@@ -811,10 +811,10 @@ fn run(options: RunOptions) -> CommandResult {
         };
     }
     match execute(ExecutionRequest {
-        source,
-        package_name: &options.path,
-        path: &options.path,
-        bytes: &bytes,
+        source: identity,
+        package_name: &package_name,
+        path: source.path(),
+        bytes: source.text().as_bytes(),
         packages: &packages,
         dependencies: &dependencies,
         limits,
@@ -828,11 +828,67 @@ fn run(options: RunOptions) -> CommandResult {
     }
 }
 
+/// Dispatch typed clause dispositions to QSL's existing document producers.
+fn run_clause_request(
+    mut request: qsl_replay::spine::ClauseRunRequest,
+    limits: &LimitOverrides,
+) -> CommandResult {
+    use qsl_replay::spine::{
+        ClauseDisposition, ClauseRunSelection, ClauseRunStage, TemporalTraceRefusal,
+    };
+    use qsl_semantics::model::observation::AdmissionFailure;
+    if let Err(error) = limits.apply_to_clause(&mut request) {
+        return CommandResult::input_refusal(Operation::Monitor, error.to_string());
+    }
+    let name = match &request.selection {
+        ClauseRunSelection::Clause(selection) => selection.name.clone(),
+        ClauseRunSelection::Function { name, .. } | ClauseRunSelection::Temporal { name, .. } => {
+            name.clone()
+        }
+        ClauseRunSelection::Frame { operation, .. } => operation.to_string(),
+    };
+    let report = match qsl_replay::spine::run_clause(request) {
+        Ok(report) => report,
+        Err(error) => return CommandResult::input_refusal(Operation::Monitor, error.to_string()),
+    };
+    let document = match &report.disposition {
+        ClauseDisposition::Compile(refusal) => OutcomeDocument::new(
+            Operation::Monitor,
+            Some(refusal.stage().into()),
+            refusal.code().category(),
+        )
+        .with_diagnostics(vec![OutcomeDiagnostic::from_compile_refusal(refusal)]),
+        ClauseDisposition::ArgumentRefusal(refusal) => {
+            OutcomeDocument::from_run_refusal(Operation::Monitor, refusal)
+        }
+        ClauseDisposition::EvaluateFault(fault)
+        | ClauseDisposition::Admit(AdmissionFailure::Fault(fault))
+        | ClauseDisposition::TemporalRefusal(TemporalTraceRefusal::Fault(fault)) => {
+            OutcomeDocument::from_run_refusal(Operation::Monitor, &RunRefusal::Fault(fault.clone()))
+        }
+        _ => {
+            let last_stage = match report.disposition.stage() {
+                ClauseRunStage::Compile => None,
+                ClauseRunStage::Select | ClauseRunStage::Admit => Some(OutcomeStage::S4),
+                ClauseRunStage::Evaluate => Some(OutcomeStage::S6a),
+            };
+            match OutcomeDocument::from_clause_runs(last_stage, [(name.as_str(), &report)]) {
+                Ok(document) => document,
+                Err(error) => {
+                    return CommandResult::failure(Category::InternalFailure, error.to_string())
+                }
+            }
+        }
+    };
+    CommandResult::document(document)
+}
+
 fn run_configured_providers(
     request: ConfiguredRunRequest<'_>,
 ) -> Result<ConfiguredRun, Box<ConfiguredRunFailure>> {
     let ConfiguredRunRequest {
         path,
+        package_name,
         bytes,
         source,
         limits,
@@ -849,7 +905,7 @@ fn run_configured_providers(
     // package negotiation/generation pipeline below and does not call execute.
     let call_run = run_with_requirements(
         source.clone(),
-        path.to_owned(),
+        package_name.to_owned(),
         path,
         bytes,
         &packages,
@@ -882,10 +938,10 @@ fn run_configured_providers(
             }));
         }
     };
-    let package_name = call_run.package_name().as_str().to_owned();
+    let selected_package_name = call_run.package_name().as_str().to_owned();
     let (outcome, requirements) = call_run.into_parts();
     let call = ConfiguredCall {
-        package_name,
+        package_name: selected_package_name,
         outcome,
         requirements,
     };
@@ -994,7 +1050,7 @@ fn run_configured_providers(
         &QslCg,
         CompileInput {
             source,
-            package_name: path,
+            package_name,
             path,
             bytes,
             packages: &packages,
@@ -1101,43 +1157,12 @@ fn run_configured_providers(
     })
 }
 
-/// Compile one source through QSL's typed spine and serialize its package outcome.
+/// Compile a request through its owner and retain the actual package outcome.
 fn compile(options: CompileOptions) -> CommandResult {
-    let limits = SpineLimits::default();
-    let bytes = match read_source(&options.path, limits.source.source_bytes) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            let message = format!("could not read source {}: {error}", options.path);
-            return CommandResult::catalog_failure_for(Operation::Package, Code::IoError, message);
-        }
-    };
-    let source = SourceIdentity::new("quire", &options.path);
-    let dependencies = DependencyInput::default();
-    let packages = BTreeMap::new();
-    let cancel = Cancel::new();
-    let result = parse(
-        &ParseRequest {
-            source: &source,
-            path: &options.path,
-            bytes: &bytes,
-        },
-        limits.source,
-        &cancel,
-    )
-    .and_then(|parsed| {
-        select(parsed.value(), &packages, limits.model, &cancel).and_then(|models| {
-            check(
-                parsed.value(),
-                options.path.clone(),
-                models.value(),
-                &dependencies,
-                limits,
-                &cancel,
-            )
-            .and_then(|checked| package(checked.value(), PackageLimits::default(), &cancel))
-        })
-    });
-    CommandResult::document(OutcomeDocument::from_package(&result))
+    match command::compile_outcome(&options.path) {
+        Ok(outcome) => CommandResult::document(outcome.document().clone()),
+        Err(error) => CommandResult::document(error.outcome_document(Operation::Package)),
+    }
 }
 
 /// Check one source through QSL's typed front-end and serialize its S4 outcome.
@@ -1212,21 +1237,52 @@ fn tc018_record_check_request(
     }
 }
 
+/// Refuse an invalid logical label before opening its physical source path.
+fn source_preflight(
+    options: &SourceOptions,
+    operation: Operation,
+    byte_limit: usize,
+) -> Option<CommandResult> {
+    let label = options.source.first_blank_label()?;
+    let diagnostic = qsl_cst::diagnostic::source_refusal(
+        SourceReadRefusal {
+            cause: SourceReadCause::BlankLabel { label },
+            error: SourceReadError {
+                source: options.source.clone(),
+                path: options.path.to_string_lossy().into_owned(),
+                region: None,
+                message: format!("source {} label must not be blank", label.as_str()),
+            },
+        },
+        byte_limit,
+    );
+    let refusal = CompileRefusal::Source(diagnostic);
+    Some(CommandResult::document(
+        OutcomeDocument::new(
+            operation,
+            Some(refusal.stage().into()),
+            refusal.code().category(),
+        )
+        .with_diagnostics(vec![OutcomeDiagnostic::from_compile_refusal(&refusal)]),
+    ))
+}
+
 /// Parse one source through QSL and serialize its typed parse outcome.
-fn parse_source(options: ParseOptions) -> CommandResult {
+fn parse_source(options: SourceOptions) -> CommandResult {
     let limits = SpineLimits::default();
     let bytes = match read_source(&options.path, limits.source.source_bytes) {
         Ok(bytes) => bytes,
         Err(error) => {
-            let message = format!("could not read source {}: {error}", options.path);
+            let message = format!("could not read source {}: {error}", options.path.display());
             return CommandResult::catalog_failure_for(Operation::Parse, Code::IoError, message);
         }
     };
-    let source = SourceIdentity::new("quire", &options.path);
+    let source = options.source;
+    let display_path = options.path.to_string_lossy();
     let result = parse(
         &ParseRequest {
             source: &source,
-            path: &options.path,
+            path: &display_path,
             bytes: &bytes,
         },
         limits.source,
@@ -1236,18 +1292,19 @@ fn parse_source(options: ParseOptions) -> CommandResult {
 }
 
 /// Format one parsed source through QSL and retain its typed outcome.
-fn format_source(options: FormatOptions) -> CommandResult {
+fn format_source(options: SourceOptions) -> CommandResult {
     let limits = qsl_cst::Limits::default();
     let bytes = match read_source(&options.path, limits.source_bytes) {
         Ok(bytes) => bytes,
         Err(error) => {
-            let message = format!("could not read source {}: {error}", options.path);
+            let message = format!("could not read source {}: {error}", options.path.display());
             return CommandResult::catalog_failure_for(Operation::Format, Code::IoError, message);
         }
     };
-    let source = SourceIdentity::new("quire", &options.path);
+    let source = options.source;
+    let display_path = options.path.to_string_lossy();
     let cancel = Cancel::new();
-    let result = qsl_cst::parse_with_cancel(source, &options.path, &bytes, limits, &cancel)
+    let result = qsl_cst::parse_with_cancel(source, display_path.as_ref(), &bytes, limits, &cancel)
         .map_err(FormatRefusal::DiagnosedSource)
         .and_then(|parsed| format_with_limits(&parsed, FormatLimits::default()).map(Staged::new));
     let document = OutcomeDocument::from_format(&result);
@@ -1258,7 +1315,7 @@ fn format_source(options: FormatOptions) -> CommandResult {
 /// Read at most one byte beyond the caller's source limit. Passing that
 /// sentinel byte to QSL preserves its typed source-limit refusal while
 /// keeping the CLI's input buffer bounded by the configured limit.
-fn read_source(path: &str, source_limit: usize) -> std::io::Result<Vec<u8>> {
+fn read_source(path: impl AsRef<Path>, source_limit: usize) -> std::io::Result<Vec<u8>> {
     let read_limit = u64::try_from(source_limit)
         .unwrap_or(u64::MAX)
         .saturating_add(1);
@@ -1297,17 +1354,31 @@ fn dispatch(verb: Verb, format: OutputFormat, raw_arguments: &[OsString]) -> Com
         };
     }
     if verb == Verb::Parse {
-        return match ParseOptions::parse(raw_arguments) {
-            Ok(_options) if format == OutputFormat::Text => {
-                text_rendering_unavailable(Operation::Parse, "parse")
+        return match SourceOptions::parse(verb, raw_arguments) {
+            Ok(options) => {
+                if let Some(refusal) = source_preflight(
+                    &options,
+                    Operation::Parse,
+                    SpineLimits::default().source.source_bytes,
+                ) {
+                    refusal
+                } else if format == OutputFormat::Text {
+                    text_rendering_unavailable(Operation::Parse, "parse")
+                } else {
+                    parse_source(options)
+                }
             }
-            Ok(options) => parse_source(options),
             Err(error) => CommandResult::input_refusal(Operation::Parse, error),
         };
     }
     if verb == Verb::Format {
-        return match FormatOptions::parse(raw_arguments) {
-            Ok(options) => format_source(options),
+        return match SourceOptions::parse(verb, raw_arguments) {
+            Ok(options) => source_preflight(
+                &options,
+                Operation::Format,
+                qsl_cst::Limits::default().source_bytes,
+            )
+            .unwrap_or_else(|| format_source(options)),
             Err(error) => CommandResult::input_refusal(Operation::Format, error),
         };
     }
@@ -1355,31 +1426,52 @@ fn text_rendering_unavailable(operation: Operation, verb: &str) -> CommandResult
 
 /// Emit one result document with the kit's canonical JSON and stream APIs.
 fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
+    let primary = if format == OutputFormat::Json {
+        match result
+            .document
+            .as_ref()
+            .map(|document| ix_cli_kit::json::encode_canonical(document, false))
+            .transpose()
+        {
+            Ok(encoded) => encoded.map(|mut encoded| {
+                encoded.push('\n');
+                encoded
+            }),
+            Err(error) => {
+                emit_diagnostic(
+                    "OutputFailure",
+                    &format!("could not encode outcome document: {error}"),
+                );
+                return Category::InternalFailure;
+            }
+        }
+    } else {
+        result.text_output.clone()
+    };
+    let mut category = result.category;
+    if let Some(primary) = primary {
+        match streams::write_primary_stdout(primary.as_bytes()) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::BrokenPipe => return result.category,
+            Err(error) => {
+                emit_diagnostic(
+                    "OutputFailure",
+                    &format!(
+                        "OutputFailure: could not write {}: {error}",
+                        if format == OutputFormat::Json {
+                            "outcome document"
+                        } else {
+                            "formatted source"
+                        }
+                    ),
+                );
+                category = Category::InternalFailure;
+            }
+        }
+    }
     let mut stderr = io::stderr().lock();
     let _ = write_result_diagnostics(result, &mut stderr);
-    drop(stderr);
-    let Some(document) = &result.document else {
-        return result.category;
-    };
-    if format != OutputFormat::Json {
-        if let Some(text) = &result.text_output {
-            return write_primary_output(text.as_bytes(), "formatted source", result.category);
-        }
-        return result.category;
-    }
-    match ix_cli_kit::json::encode_canonical(document, false) {
-        Ok(mut encoded) => {
-            encoded.push('\n');
-            write_primary_output(encoded.as_bytes(), "outcome document", result.category)
-        }
-        Err(error) => {
-            emit_diagnostic(
-                "OutputFailure",
-                &format!("could not encode outcome document: {error}"),
-            );
-            Category::InternalFailure
-        }
-    }
+    category
 }
 
 pub(super) fn entrypoint() -> ExitCode {
@@ -1564,15 +1656,13 @@ mod tests {
     fn run_options_keep_the_requested_engine_and_limits() {
         let args = vec![
             OsString::from("unit.qsl"),
-            OsString::from("yes"),
             OsString::from("--engine"),
             OsString::from("interpreter"),
             OsString::from("--limit"),
             OsString::from("s1.input_bytes=1024"),
         ];
         let options = RunOptions::parse(&args).expect("valid run options");
-        assert_eq!(options.path, "unit.qsl");
-        assert_eq!(options.function, "yes");
+        assert_eq!(options.path, std::path::Path::new("unit.qsl"));
         assert_eq!(options.engine, ExecutionEngine::Interpreter);
         assert_eq!(
             options.limits.values(),
@@ -1589,7 +1679,6 @@ mod tests {
     fn run_options_accept_one_provider_config_path() {
         let args = vec![
             OsString::from("unit.qsl"),
-            OsString::from("yes"),
             OsString::from("--provider-config"),
             OsString::from("providers.json"),
         ];
@@ -1605,7 +1694,6 @@ mod tests {
     fn run_options_reject_missing_or_duplicate_provider_config_path() {
         let missing = vec![
             OsString::from("unit.qsl"),
-            OsString::from("yes"),
             OsString::from("--provider-config"),
         ];
         assert!(RunOptions::parse(&missing)
@@ -1615,7 +1703,6 @@ mod tests {
 
         let duplicate = vec![
             OsString::from("unit.qsl"),
-            OsString::from("yes"),
             OsString::from("--provider-config"),
             OsString::from("one.json"),
             OsString::from("--provider-config"),
@@ -1632,7 +1719,6 @@ mod tests {
     fn run_options_refuse_unknown_engine_values() {
         let args = vec![
             OsString::from("unit.qsl"),
-            OsString::from("yes"),
             OsString::from("--engine"),
             OsString::from("gpu"),
         ];
@@ -1739,6 +1825,7 @@ mod configured_run_tests {
             ],
             accounting: default_accounting(DEFAULT_WORK_UNITS),
             supplied: Default::default(),
+            backend: Default::default(),
         };
         let executable = python_path();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1781,6 +1868,7 @@ mod configured_run_tests {
 
         let configured = match run_configured_providers(ConfiguredRunRequest {
             path,
+            package_name: path,
             bytes: bytes.as_bytes(),
             source,
             limits,
@@ -1908,6 +1996,7 @@ mod configured_run_tests {
             ],
             accounting: default_accounting(DEFAULT_WORK_UNITS),
             supplied: Default::default(),
+            backend: Default::default(),
         };
         let executable = python_path();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1950,6 +2039,7 @@ mod configured_run_tests {
 
         let failure = match run_configured_providers(ConfiguredRunRequest {
             path,
+            package_name: path,
             bytes: bytes.as_bytes(),
             source,
             limits: SpineLimits::default(),
