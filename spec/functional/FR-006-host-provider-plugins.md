@@ -37,7 +37,8 @@ settlement path used for first-party providers.
   vector, a per-provider `deadline_ms`, and `ProcessProviderLimits` per entry.
 - The admitted provider manifest, negotiated provider identity and routed
   request items.
-- The emitted checked-package bytes and provider limits.
+- The emitted checked-package bytes, frame and session-byte limits, stderr
+  retention limit, and cancellation-grace interval.
 - The caller-owned QSL cancellation handle for the active run.
 - The process-provider seam supplied by the `quire-cli` composition.
 

@@ -242,7 +242,7 @@ implementation; FR-013 specifies the in-repository plugin host; FR-014 specifies
 | [TC-023](test-cases/TC-023-plugin-session-and-admission.md) | Start a plugin session and admit hello before requests |
 | [TC-024](test-cases/TC-024-plugin-frames-and-failure-identity.md) | Enforce plugin framing and preserve typed failures |
 | [TC-025](test-cases/TC-025-plugin-cancellation-and-deadline.md) | Preserve plugin settlement during cancellation and bound deadlines |
-| [TC-026](test-cases/TC-026-plugin-resource-bounds-and-cleanup.md) | Enforce plugin process-tree budgets and bounded cleanup |
+| [TC-026](test-cases/TC-026-plugin-resource-bounds-and-cleanup.md) | Bound plugin stderr and preserve cleanup |
 | [TC-027](test-cases/TC-027-clean-cache-plugin-host-gate.md) | Run plugin-host tests and dependency checks from a clean cache |
 | [TC-028](test-cases/TC-028-cli-package-boundary.md) | Keep the CLI package separate from the driver and compose cache and host |
 | [TC-029](test-cases/TC-029-admitted-monitor-program-preparation.md) | Prepare and execute actual admitted monitor programs (planned until IR-721 lands) |
