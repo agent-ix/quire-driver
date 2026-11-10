@@ -9,6 +9,7 @@ use std::path::Path;
 use std::process::Command;
 
 use ix_cli_kit::version::Agreement;
+use ix_trace_rs::trace;
 use qsl_cst::format::{format_with_limits, FormatLimits, FormatRefusal};
 use qsl_foundation::diagnostic::{Code, Staged};
 use qsl_foundation::SourceIdentity;
@@ -426,6 +427,103 @@ fn version_command_reports_the_quire_cli_package_version() {
         format!("{}\n", env!("CARGO_PKG_VERSION")).as_bytes()
     );
     assert!(output.stderr.is_empty());
+}
+
+#[trace("TC-009", "FR-002-AC-17")]
+#[test]
+fn root_help_selectors_print_the_same_informative_help_without_an_operation() {
+    let mut expected_help = None;
+    for arguments in [&[][..], &["--help"][..], &["-h"][..], &["help"][..]] {
+        let output = Command::new(QUIRE)
+            .args(arguments)
+            .output()
+            .expect("run root help without a source or lifecycle operation");
+        assert_eq!(output.status.code(), Some(0), "arguments: {arguments:?}");
+        assert!(output.stderr.is_empty(), "arguments: {arguments:?}");
+        let help = std::str::from_utf8(&output.stdout).expect("help is UTF-8");
+        for required in [
+            "Usage: quire <command>",
+            "--format text|json|dot",
+            "dot is accepted only for inspect",
+            "--version, -V",
+        ] {
+            assert!(help.contains(required), "missing {required:?} in {help:?}");
+        }
+        if let Some(expected) = &expected_help {
+            assert_eq!(&output.stdout, expected, "arguments: {arguments:?}");
+        } else {
+            expected_help = Some(output.stdout);
+        }
+    }
+}
+
+#[trace("TC-009", "FR-002-AC-17")]
+#[test]
+fn root_help_identifies_current_command_availability_and_text_restrictions() {
+    let output = Command::new(QUIRE)
+        .arg("--help")
+        .output()
+        .expect("read root help");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    let help = std::str::from_utf8(&output.stdout).expect("help is UTF-8");
+    let command_line = |command| {
+        help.lines()
+            .find(|line| line.split_whitespace().next() == Some(command))
+            .expect("every recognized lifecycle command has its own help row")
+    };
+    for command in ["parse", "check", "compile", "run"] {
+        let line = command_line(command);
+        assert!(line.contains("Executes with --format json"), "{line}");
+        assert!(
+            line.contains("default text output is unavailable"),
+            "{line}"
+        );
+    }
+    let format_line = command_line("format");
+    assert!(format_line.contains("Executes source formatting"));
+    assert!(format_line.contains("text output is the default"));
+    for command in [
+        "analyze", "monitor", "prove", "replay", "generate", "inspect", "render",
+    ] {
+        assert!(command_line(command).contains("unsupported-capability"));
+        let unavailable = Command::new(QUIRE)
+            .args([command, "--format", "json"])
+            .output()
+            .expect("observe the advertised unsupported command");
+        assert_eq!(
+            unavailable.status.code(),
+            Some(i32::from(Category::Unsupported.exit_code())),
+            "{command}"
+        );
+        assert!(unavailable.stdout.is_empty(), "{command}");
+        assert!(unavailable.stderr.is_empty(), "{command}");
+    }
+}
+
+#[trace("TC-009", "FR-002-AC-17")]
+#[test]
+fn informative_help_does_not_replace_invalid_command_or_format_refusals() {
+    for (arguments, diagnostic) in [
+        (&["not-a-command"][..], "unknown verb `not-a-command`"),
+        (
+            &["check", "--format", "dot"][..],
+            "the `dot` format is available only for `inspect`",
+        ),
+    ] {
+        let output = Command::new(QUIRE)
+            .args(arguments)
+            .output()
+            .expect("run an invalid command selection");
+        assert_eq!(output.status.code(), Some(20), "{arguments:?}");
+        assert!(output.stdout.is_empty(), "{arguments:?}");
+        assert!(
+            std::str::from_utf8(&output.stderr)
+                .expect("diagnostics are UTF-8")
+                .contains(diagnostic),
+            "arguments: {arguments:?}"
+        );
+    }
 }
 
 /// Trace: FR-002-AC-12, the built binary agrees with its Cargo package version.

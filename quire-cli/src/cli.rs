@@ -104,12 +104,37 @@ fn version_exit_code() -> ExitCode {
     ))
 }
 
-/// Parser selectors implement the command surface owned by QSL ADR-029.
-#[cfg(test)]
-const VERBS: &[&str] = &[
-    "parse", "format", "check", "compile", "run", "analyze", "monitor", "prove", "replay",
-    "generate", "inspect", "render",
-];
+fn help_exit_code() -> ExitCode {
+    if category_exit_result(Category::Success) == RESERVED_COMMAND_NOT_FOUND {
+        return process_exit_code(Category::Success);
+    }
+
+    let mut help = String::from(concat!(
+        "Usage: quire <command> [arguments] [--format text|json|dot]\n",
+        "       quire --help|-h|help\n",
+        "       quire --version|-V\n\n",
+        "Commands:\n",
+    ));
+    for verb in Verb::ALL {
+        help.push_str(&format!(
+            "  {:<10} {}\n",
+            verb.name(),
+            verb.help_description()
+        ));
+    }
+    help.push_str(concat!(
+        "\nOptions:\n",
+        "  --format text|json|dot  Select output format (default: text).\n",
+        "                         dot is accepted only for inspect.\n",
+        "  --version, -V           Show the package version.\n",
+        "  --help, -h, help        Show this help without running an operation.\n",
+    ));
+    process_exit_code(write_primary_output(
+        help.as_bytes(),
+        "root help",
+        Category::Success,
+    ))
+}
 
 /// Output selector for QSL ADR-029's CLI grammar.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -138,22 +163,56 @@ enum Verb {
 }
 
 impl Verb {
+    const ALL: [Self; 12] = [
+        Self::Parse,
+        Self::Format,
+        Self::Check,
+        Self::Compile,
+        Self::Run,
+        Self::Analyze,
+        Self::Monitor,
+        Self::Prove,
+        Self::Replay,
+        Self::Generate,
+        Self::Inspect,
+        Self::Render,
+    ];
+
     fn parse(value: &str) -> Option<Self> {
-        Some(match value {
-            "parse" => Self::Parse,
-            "format" => Self::Format,
-            "check" => Self::Check,
-            "compile" => Self::Compile,
-            "run" => Self::Run,
-            "analyze" => Self::Analyze,
-            "monitor" => Self::Monitor,
-            "prove" => Self::Prove,
-            "replay" => Self::Replay,
-            "generate" => Self::Generate,
-            "inspect" => Self::Inspect,
-            "render" => Self::Render,
-            _ => return None,
-        })
+        Self::ALL.into_iter().find(|verb| verb.name() == value)
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Parse => "parse",
+            Self::Format => "format",
+            Self::Check => "check",
+            Self::Compile => "compile",
+            Self::Run => "run",
+            Self::Analyze => "analyze",
+            Self::Monitor => "monitor",
+            Self::Prove => "prove",
+            Self::Replay => "replay",
+            Self::Generate => "generate",
+            Self::Inspect => "inspect",
+            Self::Render => "render",
+        }
+    }
+
+    fn help_description(self) -> &'static str {
+        match self {
+            Self::Parse | Self::Check | Self::Compile | Self::Run => {
+                "Executes with --format json; default text output is unavailable."
+            }
+            Self::Format => "Executes source formatting; text output is the default.",
+            Self::Analyze
+            | Self::Monitor
+            | Self::Prove
+            | Self::Replay
+            | Self::Generate
+            | Self::Inspect
+            | Self::Render => "Recognized; currently returns an unsupported-capability result.",
+        }
     }
 }
 
@@ -1326,7 +1385,7 @@ fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
 pub(super) fn entrypoint() -> ExitCode {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
     match parse_invocation(&arguments) {
-        Ok(Invocation::Help) => process_exit_code(Category::Success),
+        Ok(Invocation::Help) => help_exit_code(),
         Ok(Invocation::Version) => version_exit_code(),
         Ok(Invocation::Operation {
             verb,
@@ -1426,14 +1485,16 @@ mod outcome_tests {
 mod tests {
     use super::{
         parse_invocation, read_source, ExecutionEngine, Invocation, OutputFormat, RunOptions, Verb,
-        VERBS,
     };
     use std::ffi::OsString;
 
     /// Trace: FR-002-AC-1, root command surface.
     #[test]
     fn root_parser_recognizes_every_lifecycle_verb() {
-        for verb in VERBS {
+        for verb in [
+            "parse", "format", "check", "compile", "run", "analyze", "monitor", "prove", "replay",
+            "generate", "inspect", "render",
+        ] {
             let args = vec![OsString::from(verb)];
             assert!(
                 matches!(parse_invocation(&args), Ok(Invocation::Operation { .. })),
