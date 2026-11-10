@@ -74,13 +74,13 @@ specifies the driver-owned process-provider seam and settlement composition.
   admitted and validated plugin settlement received within grace SHALL be
   returned unchanged. If no valid settlement arrives by grace expiry, the
   host SHALL terminate the process tree and settle as cancelled.
-- Cancellation or timeout SHALL NOT remap a malformed frame, a protocol or
-  result-validation error, a plugin `fault`, or a non-zero exit. Those failures
-  SHALL retain their specific typed cause.
-- On cancellation, timeout or protocol failure, the host SHALL terminate the
-  process tree and drain and join its I/O workers within one second after
-  termination begins. It SHALL preserve captured
-  stderr in the returned diagnostic.
+- The host SHALL preserve the specific typed cause of malformed frames,
+  protocol or result-validation errors, plugin `fault`s, and non-zero exits
+  during cancellation or timeout.
+- The host SHALL terminate the process tree and drain and join its I/O workers
+  within one second after termination begins for cancellation, timeout, or
+  protocol failure. It SHALL preserve captured stderr in the returned
+  diagnostic.
 - The host SHALL enforce stderr retention limits while continuing to drain
   excess bytes.
 - The host SHALL NOT parse or treat stderr as protocol data.
