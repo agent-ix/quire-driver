@@ -9,6 +9,8 @@ standards_alignment:
 relationships:
   - target: ix://agent-ix/quire-driver/US-001
     type: contains
+  - target: ix://agent-ix/quire-driver/US-002
+    type: contains
   - target: ix://agent-ix/quire-driver/AD-001
     type: contains
   - target: ix://agent-ix/quire-driver/TM-001
@@ -45,7 +47,11 @@ relationships:
     type: contains
   - target: ix://agent-ix/quire-driver/FR-019
     type: contains
+  - target: ix://agent-ix/quire-driver/FR-020
+    type: contains
   - target: ix://agent-ix/quire-driver/TC-033
+    type: contains
+  - target: ix://agent-ix/quire-driver/TC-034
     type: contains
   - target: ix://agent-ix/quire-driver/TC-001
     type: contains
@@ -200,6 +206,7 @@ implementation; FR-013 specifies the in-repository plugin host; FR-014 specifies
 | ID | Title |
 |---|---|
 | [US-001](usecase/US-001-run-a-checked-request.md) | Run one checked request from source to routed backends |
+| [US-002](usecase/US-002-run-a-runtime-monitor-from-qsl-source.md) | Run a runtime monitor from QSL source |
 | [FR-001](functional/FR-001-orchestrate-the-driver-steps.md) | Orchestrate compile, backend conversion, negotiation, routing and generation |
 | [FR-002](functional/FR-002-expose-driver-cli-and-outcome-contract.md) | Expose the lifecycle through one driver CLI and outcome contract |
 | [FR-003](functional/FR-003-apply-caller-selected-limits.md) | Apply caller-selected lifecycle limits |
@@ -216,7 +223,9 @@ implementation; FR-013 specifies the in-repository plugin host; FR-014 specifies
 | [FR-014](functional/FR-014-separate-the-user-cli-package.md) | Place the user CLI in a separate workspace package |
 | [FR-015](functional/FR-015-prepare-an-admitted-monitor-program.md) | Prepare one admitted monitor program for the runtime (planned until IR-721 lands) |
 | [FR-019](functional/FR-019-prepare-the-complete-monitor-program-under-one-budget.md) | Prepare the complete monitor program from one plan root under one preparation budget |
+| [FR-020](functional/FR-020-generate-and-run-a-runtime-monitor-from-qsl-source.md) | Generate and run a runtime monitor from QSL source |
 | [TC-033](test-cases/TC-033-prepare-monitor-under-one-budget.md) | Prepare a monitor program from a plan root under one budget |
+| [TC-034](test-cases/TC-034-generate-and-run-a-runtime-monitor.md) | Generate and run a runtime monitor from QSL source |
 | [TC-001](test-cases/TC-001-steps-run-in-order.md) | The steps run in ADR-011 T-13 order |
 | [TC-002](test-cases/TC-002-unknown-backend-refusal.md) | An unknown `BackendId` refuses the run before negotiation |
 | [TC-003](test-cases/TC-003-route-after-negotiation.md) | `route` runs after negotiation, for `supported` items only |
