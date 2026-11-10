@@ -15,7 +15,7 @@ use qsl_cst::format::{format_with_limits, FormatLimits, FormatRefusal};
 use qsl_foundation::diagnostic::Code;
 use qsl_foundation::diagnostic::Staged;
 use qsl_foundation::source::{SourceReadCause, SourceReadError, SourceReadRefusal};
-use qsl_foundation::SourceIdentity;
+use qsl_foundation::{SettingLimits, SettingName, SourceIdentity};
 use qsl_replay::spine::{
     check, parse, select, Call, CompileRefusal, DependencyInput, ParseRequest, SpineLimits,
 };
@@ -743,6 +743,21 @@ fn run(options: RunOptions) -> CommandResult {
         let failure = ExecutionFailure::UnsupportedEngine(options.engine);
         return CommandResult::document(failure.into_document());
     }
+    // Reject a setting unavailable to every run family before request-file I/O.
+    // The selected function or clause still validates its exact bounds below.
+    let mut exposed = SpineLimits::default().bounds();
+    exposed.extend(qsl_replay::ObservationLimits::default().bounds());
+    for (setting, _) in options.limits.values() {
+        if let SettingName::Stage(stage) = setting {
+            if !exposed.iter().any(|(available, _)| available == stage) {
+                return CommandResult::input_refusal(
+                    Operation::Execute,
+                    quire_driver::LimitError::OperationUnavailable { setting: *setting }
+                        .to_string(),
+                );
+            }
+        }
+    }
     let prepared = match command::prepare_run(&options.path, options.intake_limits) {
         Ok(prepared) => prepared,
         Err(error) => return CommandResult::document(error.outcome_document(Operation::Execute)),
@@ -1441,7 +1456,14 @@ fn emit_result(result: &CommandResult, format: OutputFormat) -> Category {
             Err(error) => {
                 emit_diagnostic(
                     "OutputFailure",
-                    &format!("could not write command output: {error}"),
+                    &format!(
+                        "OutputFailure: could not write {}: {error}",
+                        if format == OutputFormat::Json {
+                            "outcome document"
+                        } else {
+                            "formatted source"
+                        }
+                    ),
                 );
                 category = Category::InternalFailure;
             }
