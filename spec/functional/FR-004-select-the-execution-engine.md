@@ -124,7 +124,8 @@ object-context input, its handler SHALL explicitly supply an empty
   `Unsupported`, as well as typed preparation refusals. This is distinct from
   the driver's pre-invocation `ExecutionFailure::UnsupportedEngine` for an
   engine not linked into the binary. A callback-only count cannot observe a
-  direct invocation outside that callback.
+  direct invocation outside that callback. Completion evidence for AC-4 is
+  deferred to IR-1435, which is blocked by IR-610.
 - [FR-002](FR-002-expose-driver-cli-and-outcome-contract.md) defines the
   command entry point and exit function.
 - [TC-011](../test-cases/TC-011-execution-engine-selection.md).
