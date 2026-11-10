@@ -676,10 +676,6 @@ impl CommandResult {
         Self::catalog_failure_for(operation, Code::InvalidRequest, message)
     }
 
-    fn catalog_failure(code: Code, message: impl Into<String>) -> Self {
-        Self::catalog_failure_for(Operation::Execute, code, message)
-    }
-
     fn catalog_failure_for(operation: Operation, code: Code, message: impl Into<String>) -> Self {
         let message = message.into();
         Self::document(
