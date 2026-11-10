@@ -92,11 +92,19 @@ the fallback when that function returns reserved value `5`.
   `streams` module for stream discipline.
 - When the CLI writes machine-mode outcomes, it SHALL use ix-cli-kit's `json`
   module for canonical JSON encoding.
-- When writing primary command output to stdout fails with `BrokenPipe`, the
-  CLI SHALL retain the category of the completed operation and use that
-  category's normal process exit conversion. It SHALL NOT reclassify the
-  operation as an output failure or emit an `OutputFailure` diagnostic to
-  stderr.
+- When writing or flushing primary command output to stdout fails with
+  `BrokenPipe`, the CLI SHALL retain the category of the completed operation and use that
+  category's normal process exit conversion. The invocation SHALL write nothing
+  to stderr, including any pending operation diagnostics. It SHALL NOT
+  reclassify the operation as an output failure or emit an `OutputFailure`
+  diagnostic. This rule applies to successful and refused operations alike;
+  the CLI SHALL defer operation diagnostics until it knows the primary write
+  and flush disposition.
+- When primary stdout writing and flushing succeed, the CLI SHALL retain its
+  ordinary command diagnostics and category. Invocations that attempt no
+  primary stdout write remain governed by their existing diagnostic and exit
+  rules, including AC-6, AC-7 and AC-13; no closed-pipe probe or output artifact
+  is introduced for them.
 - When writing or flushing primary command output to stdout fails with an I/O
   error other than `BrokenPipe`, the CLI SHALL select
   `Category::InternalFailure` for process exit conversion and SHALL make a
@@ -147,7 +155,7 @@ the fallback when that function returns reserved value `5`.
 | FR-002-AC-11 | When invoked with `--version`, the CLI reports the semantic version declared by the `quire-cli` Cargo package. | Test (TC-009) |
 | FR-002-AC-12 | The `quire-cli` built-binary version-agreement check uses `ix_cli_kit::version::Agreement::command` to compare `CARGO_PKG_VERSION` with the output of the built `quire --version` command and requires agreement. | Test (TC-009) |
 | FR-002-AC-13 | When text rendering is unavailable for parse, check, compile or run, the CLI returns the operation-specific QSL `UnimplementedCapability` result, writes no stdout, and does not execute the requested lifecycle operation. | Test (TC-009) |
-| FR-002-AC-14 | For a `BrokenPipe` while writing or flushing primary stdout, the process status equals the completed operation's QSL category exit result; no output-failure category is selected and no `OutputFailure` diagnostic appears on stderr. | Test (TC-018) |
+| FR-002-AC-14 | For a `BrokenPipe` while writing or flushing primary stdout, the process status equals the completed operation's QSL category exit result and stderr is empty, including for a refused operation with nonempty diagnostics when stdout is writable. No output-failure category is selected and no `OutputFailure` diagnostic is emitted. | Test |
 | FR-002-AC-15 | If writing or flushing primary stdout returns an I/O error other than `BrokenPipe`, the process exits with QSL's `Category::InternalFailure` exit result. The criterion makes no assertion that stdout is empty or complete. | Test (TC-018) |
 | FR-002-AC-16 | If a non-`BrokenPipe` primary stdout write or flush fails and stderr is writable, stderr contains an `OutputFailure` diagnostic that identifies the failed output. | Test (TC-018) |
 | FR-002-AC-17 | With no arguments or with each of `--help`, `-h` and `help` as the sole argument, the built `quire` binary writes root help to stdout containing invocation syntax, recognized lifecycle verb names, `--format text\|json\|dot` with `dot` limited to `inspect`, and `--version`/`-V`. The help distinguishes executable verbs from verbs that currently return unsupported-capability results and identifies executable verbs whose default text output is unavailable. Successful help exits with QSL's success result, writes no stderr, and starts no lifecycle operation. | Test |
@@ -167,3 +175,9 @@ the fallback when that function returns reserved value `5`.
   version agreement used by AC-12.
 - [TC-009](../test-cases/TC-009-cli-outcome-and-exit-contract.md).
 - [TC-018](../test-cases/TC-018-binary-process-boundary.md), adding verification for AC-2 through AC-4 and AC-6.
+
+AC-14 adopts QSL FR-287-AC-8's quiet behavior only when a primary stdout write
+or flush actually reports `BrokenPipe`. AC-13's outputless text refusals do not
+attempt that write, so this requirement does not qualify the whole QSL
+criterion across output modes. It adds no file-descriptor probe or replacement
+refusal envelope.
