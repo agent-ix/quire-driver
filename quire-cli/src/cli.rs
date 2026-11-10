@@ -550,6 +550,8 @@ impl CheckOptions {
 }
 
 impl RunOptions {
+    const USAGE: &str = "usage: quire run <source-path> <function> [parameter=value ...] [--limit name=value] [--engine interpreter|aot|jit] [--provider-config <path>] [--format json|text]";
+
     fn parse(arguments: &[OsString]) -> Result<Self, String> {
         let mut positionals = Vec::new();
         let mut limit_operands = Vec::new();
@@ -613,13 +615,18 @@ impl RunOptions {
             index += 1;
         }
         if positionals.len() < 2 {
-            return Err("usage: quire run <source-path> <function> [parameter=value ...] [--limit name=value] [--engine interpreter|aot|jit] [--provider-config <path>] [--format json|text]".to_owned());
+            return Err(Self::USAGE.to_owned());
         }
         let mut call_arguments = Vec::new();
         for argument in &positionals[2..] {
             let (parameter, value) = argument
                 .split_once('=')
-                .ok_or_else(|| format!("run argument `{argument}` must be parameter=value"))?;
+                .ok_or_else(|| {
+                    format!(
+                        "{}\nrun argument `{argument}` must be parameter=value",
+                        Self::USAGE
+                    )
+                })?;
             if parameter.is_empty() {
                 return Err(format!(
                     "run argument `{argument}` has an empty parameter name"

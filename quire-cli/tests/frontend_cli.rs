@@ -5,6 +5,7 @@
 
 use std::process::{Command, Output, Stdio};
 
+use ix_trace_rs::trace;
 use quire_semantic_value::catalog::Category;
 
 const QUIRE: &str = env!("CARGO_BIN_EXE_quire");
@@ -12,6 +13,10 @@ const SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ir608-
 const INVALID_SOURCE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/parse-invalid.qsl"
+);
+const MISSING_SOURCE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/missing-source.qsl"
 );
 
 fn refusal_code() -> i32 {
@@ -56,14 +61,10 @@ fn missing_and_extra_operands_are_refused_before_any_file_is_read() {
         let output = quire(arguments);
         assert_refused_quietly(&output, &format!("{arguments:?}"));
         let stderr = String::from_utf8_lossy(&output.stderr);
-        // `run` takes trailing `parameter=value` operands, so an extra bare word
-        // is a malformed call argument rather than an arity error.
-        if arguments != ["run", "missing.qsl", "yes", "extra"] {
-            assert!(
-                stderr.starts_with(&format!("usage: quire {verb} ")),
-                "{arguments:?}: {stderr}"
-            );
-        }
+        assert!(
+            stderr.starts_with(&format!("usage: quire {verb} ")),
+            "{arguments:?}: {stderr}"
+        );
         assert!(
             !stderr.contains("could not read"),
             "{arguments:?} opened its path: {stderr}"
@@ -73,61 +74,78 @@ fn missing_and_extra_operands_are_refused_before_any_file_is_read() {
     assert_refused_quietly(&output, "format without an operand");
 }
 
-/// Trace: FR-287-AC-5; each invalid invocation exits 20 without a panic, and the
-/// same verb then runs normally on a valid invocation.
+#[trace("TC-1262", "FR-287-AC-5")]
 #[test]
 fn invalid_invocations_exit_20_and_the_next_valid_call_runs() {
-    let verbs: [(&[&str], &[&[&str]]); 4] = [
+    type InvalidCase<'a> = (&'a [&'a str], &'a str);
+    assert!(
+        !std::path::Path::new(MISSING_SOURCE).exists(),
+        "the invalid invocation cases require a nonexistent source"
+    );
+    let verbs: [(&[&str], &[InvalidCase<'_>]); 4] = [
         (
             &["parse", SOURCE, "--format", "json"],
             &[
-                &["parse", "--bogus", SOURCE],
-                &["parse"],
-                &["parse", SOURCE, "extra"],
-                &["parse", SOURCE, "--format", "bogus"],
+                (&["parse", "--bogus", MISSING_SOURCE], "unknown parse option `--bogus`"),
+                (&["parse"], "usage: quire parse "),
+                (&["parse", MISSING_SOURCE, "extra"], "usage: quire parse "),
+                (&["parse", MISSING_SOURCE, "--format"], "--format requires text, json, or dot"),
+                (&["parse", MISSING_SOURCE, "--format", "bogus"], "unknown output format `bogus`"),
             ],
         ),
         (
             &["format", SOURCE],
             &[
-                &["format", "--bogus", SOURCE],
-                &["format"],
-                &["format", SOURCE, "extra"],
+                (&["format", "--bogus", MISSING_SOURCE], "unknown format option `--bogus`"),
+                (&["format"], "usage: quire format "),
+                (&["format", MISSING_SOURCE, "extra"], "usage: quire format "),
+                (&["format", MISSING_SOURCE, "--format"], "--format requires text, json, or dot"),
+                (&["format", MISSING_SOURCE, "--format", "bogus"], "unknown output format `bogus`"),
             ],
         ),
         (
             &["compile", SOURCE, "--format", "json"],
             &[
-                &["compile", "--bogus", SOURCE],
-                &["compile"],
-                &["compile", SOURCE, "extra"],
-                &["compile", SOURCE, "--format", "bogus"],
+                (&["compile", "--bogus", MISSING_SOURCE], "unknown compile option `--bogus`"),
+                (&["compile"], "usage: quire compile "),
+                (&["compile", MISSING_SOURCE, "extra"], "usage: quire compile "),
+                (&["compile", MISSING_SOURCE, "--format"], "--format requires text, json, or dot"),
+                (&["compile", MISSING_SOURCE, "--format", "bogus"], "unknown output format `bogus`"),
             ],
         ),
         (
             &["run", SOURCE, "yes", "--format", "json"],
             &[
-                &["run", "--bogus", SOURCE, "yes"],
-                &["run", SOURCE],
-                &["run", SOURCE, "yes", "extra"],
-                &["run", SOURCE, "yes", "--limit"],
-                &["run", SOURCE, "yes", "--limit", "no-equals-sign"],
-                &["run", SOURCE, "yes", "--engine", "bogus"],
+                (&["run", "--bogus", MISSING_SOURCE, "yes"], "unknown run option `--bogus`"),
+                (&["run", MISSING_SOURCE], "usage: quire run "),
+                (&["run", MISSING_SOURCE, "yes", "extra"], "run argument `extra` must be parameter=value"),
+                (&["run", MISSING_SOURCE, "yes", "--format"], "--format requires text, json, or dot"),
+                (&["run", MISSING_SOURCE, "yes", "--format", "bogus"], "unknown output format `bogus`"),
+                (&["run", MISSING_SOURCE, "yes", "--limit"], "--limit requires name=value"),
+                (&["run", MISSING_SOURCE, "yes", "--limit", "no-equals-sign"], "NotAnAssignment"),
+                (&["run", MISSING_SOURCE, "yes", "--engine", "bogus"], "unknown engine `bogus`"),
             ],
         ),
     ];
     for (valid, invalid) in verbs {
-        for arguments in invalid {
-            assert_refused_quietly(&quire(arguments), &format!("{arguments:?}"));
+        for (arguments, expected_error) in invalid {
+            let output = quire(arguments);
+            assert_refused_quietly(&output, &format!("{arguments:?}"));
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains(expected_error), "{arguments:?}: {stderr}");
+            assert!(
+                !stderr.contains("could not read"),
+                "{arguments:?} opened its path: {stderr}"
+            );
+            let output = quire(valid);
+            assert_eq!(
+                output.status.code(),
+                Some(i32::from(Category::Success.exit_code())),
+                "{valid:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(!output.stdout.is_empty(), "{valid:?}");
         }
-        let output = quire(valid);
-        assert_eq!(
-            output.status.code(),
-            Some(i32::from(Category::Success.exit_code())),
-            "{valid:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(!output.stdout.is_empty(), "{valid:?}");
     }
 }
 
