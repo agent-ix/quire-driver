@@ -35,7 +35,7 @@ quire-driver = { path = ".." }
 quire-exact = { git = "https://github.com/agent-ix/quire-exact", branch = "main" }
 quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main", features = ["serde_json"] }
 quire-plugin-host = { path = "../quire-plugin-host" }
-serde = { version = "=1.0.229", features = ["derive", "rc"] }
+serde = { version = "=1.0.228", features = ["derive", "rc"] }
 serde_json = "=1.0.151"
 thiserror = "=2.0.20"
 serde_path_to_error = "=0.1.20"

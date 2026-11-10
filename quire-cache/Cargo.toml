@@ -12,7 +12,7 @@ publish = false
 quire-driver = { path = ".." }
 qsl-foundation = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main", features = ["serde_json"] }
-serde = { version = "=1.0.229", features = ["derive"] }
+serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.151"
 thiserror = "=2.0.20"
 

@@ -53,7 +53,7 @@ quire-observation = { git = "https://github.com/agent-ix/quire-observation", bra
 quire-canonical = { git = "https://github.com/agent-ix/quire-canonical", branch = "main" }
 # QSL's caller-owned cancellation handle is a public driver API type.
 quire-exact = { git = "https://github.com/agent-ix/quire-exact", branch = "main" }
-serde = { version = "=1.0.229", features = ["derive"] }
+serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "=2.0.20"
 
