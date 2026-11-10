@@ -18,7 +18,7 @@ use quire_exact::Cancel;
 
 use crate::{ProviderManifest, ProviderRequest, ProviderResults};
 
-/// Caller-owned process and framing budgets, independent of the host crate.
+/// Caller-owned frame, stderr and cancellation limits, independent of the host crate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProcessProviderLimits {
     /// Maximum encoded frame size.
@@ -30,10 +30,6 @@ pub struct ProcessProviderLimits {
     pub max_stderr_bytes: u64,
     /// Grace period for cancellation and shutdown.
     pub cancellation_grace: Duration,
-    /// Maximum process-tree resident memory, when configured.
-    pub max_process_memory_bytes: Option<u64>,
-    /// Maximum process-tree CPU time, when configured.
-    pub max_process_cpu_time: Option<Duration>,
 }
 
 /// One routed request sent over an already-started process session.

@@ -5,10 +5,6 @@
 //! FR-331 bodies remain caller-typed; this crate does not define a second
 //! provider schema or settlement vocabulary.
 
-#[cfg(target_os = "linux")]
-use nix::unistd::{sysconf, SysconfVar};
-#[cfg(target_os = "linux")]
-mod linux_cgroup;
 use process_wrap::std::{ChildWrapper, CommandWrap};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -313,7 +309,7 @@ impl<W: Write> FrameWriter<W> {
     }
 }
 
-/// Caller budgets for one child-process run.
+/// Framing and cancellation limits for one child-process run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RunLimits {
     /// Per-frame and aggregate stdin/stdout byte limits.
@@ -322,10 +318,6 @@ pub struct RunLimits {
     pub max_stderr_bytes: u64,
     /// Grace period for a plugin to settle open items after cancellation.
     pub cancellation_grace: Duration,
-    /// Maximum observed resident memory in bytes, where the platform reports it.
-    pub max_process_memory_bytes: Option<u64>,
-    /// Maximum observed accumulated CPU time, where the platform reports it.
-    pub max_process_cpu_time: Option<Duration>,
 }
 
 /// Inputs to a hello-first plugin session. No provider request is required to
@@ -335,7 +327,7 @@ pub struct SessionStart<'a> {
     pub executable: &'a Path,
     /// Caller-supplied argument vector, passed without shell interpretation.
     pub arguments: &'a [std::ffi::OsString],
-    /// Session, frame, cancellation and process-tree budgets.
+    /// Session, frame, cancellation and process-tree cleanup limits.
     pub limits: RunLimits,
     /// Caller-owned cancellation handle used while awaiting the hello.
     pub cancel: &'a Cancel,
@@ -363,7 +355,7 @@ pub struct PluginSession<M, F, A> {
     receiver: Receiver<Result<Option<Envelope>, FrameError>>,
     reader_thread: Option<thread::JoinHandle<()>>,
     stderr_thread: Option<thread::JoinHandle<io::Result<CapturedStderr>>>,
-    monitor: ProcessMonitor,
+    process_tree: ProcessTree,
     limits: RunLimits,
     next_id: u64,
     #[cfg(test)]
@@ -395,88 +387,27 @@ where
         if let Some(cause) = start.cancel.cause() {
             return Err(cancel_error(cause));
         }
-        #[cfg(target_os = "linux")]
-        let (command, service_command) = if start.limits.max_process_cpu_time.is_some() {
-            let working_directory = std::env::current_dir()
-                .map_err(|_| PluginError::ProcessBudget(ProcessBudgetError::Unavailable))?;
-            let (command, service) = linux_cgroup::service_command(
-                start.executable,
-                start.arguments,
-                &working_directory,
-            )
-            .map_err(|_| PluginError::ProcessBudget(ProcessBudgetError::Unavailable))?;
-            (command, Some(service))
-        } else {
-            let mut command = Command::new(start.executable);
-            command
-                .args(start.arguments)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            (command, None)
-        };
-        #[cfg(not(target_os = "linux"))]
-        let command = {
-            let mut command = Command::new(start.executable);
-            command
-                .args(start.arguments)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            command
-        };
+        let mut command = Command::new(start.executable);
+        command
+            .args(start.arguments)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         let mut command = wrap_plugin_command(command);
         let mut child = command
             .spawn()
             .map_err(|error| PluginError::from_spawn(start.executable, error))?;
-        #[cfg(target_os = "linux")]
-        let cgroup_boundary = if let Some(service) = service_command {
-            match linux_cgroup::Boundary::attach(
-                service.unit.clone(),
-                start.limits.max_process_memory_bytes.is_some(),
-            ) {
-                Ok(boundary) => {
-                    service.environment_loaded();
-                    Some(boundary)
-                }
-                Err(_) => {
-                    let cleanup_until = Instant::now() + WORKER_CLEANUP_LIMIT;
-                    let unit_stopped = linux_cgroup::stop_unit(&service.unit, cleanup_until);
-                    let _ = child.start_kill();
-                    let mut launcher_exited = false;
-                    while Instant::now() < cleanup_until {
-                        if child.try_wait().is_ok_and(|status| status.is_some()) {
-                            launcher_exited = true;
-                            break;
-                        }
-                        thread::sleep(Duration::from_millis(5));
-                    }
-                    if !unit_stopped || !launcher_exited {
-                        return Err(PluginError::ProcessTreeCleanupTimeout);
-                    }
-                    return Err(PluginError::ProcessBudget(ProcessBudgetError::Unavailable));
-                }
-            }
-        } else {
-            None
-        };
-        let mut monitor = ProcessMonitor::new(
-            child.as_ref(),
-            start.limits.max_process_memory_bytes,
-            start.limits.max_process_cpu_time,
-            #[cfg(target_os = "linux")]
-            cgroup_boundary,
-        );
+        let mut process_tree = ProcessTree::new(child.as_ref());
         let Some(stdin) = child.stdin().take() else {
-            let _ = monitor.terminate_tree(child.as_mut());
+            let _ = process_tree.terminate_tree(child.as_mut());
             return Err(PluginError::MissingPipe("stdin"));
         };
         let Some(stdout) = child.stdout().take() else {
-            let _ = monitor.terminate_tree(child.as_mut());
+            let _ = process_tree.terminate_tree(child.as_mut());
             return Err(PluginError::MissingPipe("stdout"));
         };
         let Some(stderr) = child.stderr().take() else {
-            let _ = monitor.terminate_tree(child.as_mut());
+            let _ = process_tree.terminate_tree(child.as_mut());
             return Err(PluginError::MissingPipe("stderr"));
         };
 
@@ -488,7 +419,7 @@ where
         ) {
             Ok(workers) => workers,
             Err(error) => {
-                monitor.terminate_tree(child.as_mut());
+                process_tree.terminate_tree(child.as_mut());
                 return Err(PluginError::WorkerSpawn {
                     worker: "stdin writer",
                     source: error,
@@ -520,7 +451,7 @@ where
             Ok(handle) => handle,
             Err(error) => {
                 drop(writer);
-                monitor.terminate_tree(child.as_mut());
+                process_tree.terminate_tree(child.as_mut());
                 if join_thread_within(&writer_thread, WORKER_CLEANUP_LIMIT) {
                     let _ = writer_thread.join();
                 }
@@ -538,7 +469,7 @@ where
             Ok(handle) => handle,
             Err(error) => {
                 drop(writer);
-                monitor.terminate_tree(child.as_mut());
+                process_tree.terminate_tree(child.as_mut());
                 if join_thread_within(&reader_thread, WORKER_CLEANUP_LIMIT) {
                     let _ = reader_thread.join();
                 }
@@ -559,7 +490,7 @@ where
             receiver,
             reader_thread: Some(reader_thread),
             stderr_thread: Some(stderr_thread),
-            monitor,
+            process_tree,
             limits: start.limits,
             next_id: 1,
             #[cfg(test)]
@@ -576,7 +507,6 @@ where
                 &session.receiver,
                 child.as_mut(),
                 start.cancel,
-                &mut session.monitor,
                 session.limits.cancellation_grace,
             )?;
             if envelope.kind == Kind::Fault {
@@ -621,14 +551,6 @@ where
             if let Some(cause) = cancel.cause() {
                 return Err(cancel_error(cause));
             }
-            let child = self
-                .child
-                .as_ref()
-                .map(Box::as_ref)
-                .ok_or(PluginError::MissingPipe("child"))?;
-            self.monitor
-                .begin_request(child)
-                .map_err(PluginError::ProcessBudget)?;
             let request_id = self.next_id;
             self.next_id = self
                 .next_id
@@ -654,7 +576,6 @@ where
                 },
                 cancel,
                 child.as_mut(),
-                &mut self.monitor,
             )?;
             let frame = match next_frame(
                 &self.receiver,
@@ -663,7 +584,6 @@ where
                     .map(Box::as_mut)
                     .ok_or(PluginError::MissingPipe("child"))?,
                 cancel,
-                &mut self.monitor,
                 self.limits.cancellation_grace,
             ) {
                 Ok(frame) => frame,
@@ -686,7 +606,6 @@ where
                             .map(Box::as_mut)
                             .ok_or(PluginError::MissingPipe("child"))?,
                         self.limits.cancellation_grace,
-                        &mut self.monitor,
                     ) {
                         Ok(frame) => frame,
                         Err(PluginError::GraceExpired) => {
@@ -714,15 +633,11 @@ where
                 .map(Box::as_mut)
                 .ok_or(PluginError::MissingPipe("child"))?;
             let status = child.try_wait().map_err(PluginError::Wait)?;
-            self.monitor
-                .check(child)
-                .map_err(PluginError::ProcessBudget)?;
             if let Some(status) = status {
                 if !status.success() {
                     return Err(PluginError::Exited(status));
                 }
             }
-            self.monitor.end_request();
             Ok(typed)
         })();
         match result {
@@ -753,12 +668,7 @@ where
                 .as_mut()
                 .map(Box::as_mut)
                 .ok_or(PluginError::MissingPipe("child"))?;
-            wait_for_exit(
-                &self.receiver,
-                child,
-                &mut self.monitor,
-                self.limits.cancellation_grace,
-            )?;
+            wait_for_exit(&self.receiver, child, self.limits.cancellation_grace)?;
             let (stderr, stderr_truncated) = join_stderr(
                 self.stderr_thread
                     .take()
@@ -770,7 +680,7 @@ where
                 self.limits.cancellation_grace,
             )?;
             if let Some(child) = self.child.as_mut() {
-                if !self.monitor.terminate_tree(child.as_mut()) {
+                if !self.process_tree.terminate_tree(child.as_mut()) {
                     return Err(PluginError::ProcessTreeCleanupTimeout);
                 }
             }
@@ -794,7 +704,7 @@ where
         let process_tree_cleanup_failed = self
             .child
             .as_mut()
-            .is_some_and(|child| !self.monitor.terminate_tree(child.as_mut()));
+            .is_some_and(|child| !self.process_tree.terminate_tree(child.as_mut()));
         self.child.take();
         self.writer.take();
         let (stderr, stderr_truncated, capture_error) = match self.stderr_thread.take() {
@@ -834,7 +744,7 @@ impl<M, F, A> Drop for PluginSession<M, F, A> {
             .checked_add(WORKER_CLEANUP_LIMIT)
             .unwrap_or_else(Instant::now);
         if let Some(child) = self.child.as_mut() {
-            let _ = self.monitor.terminate_tree(child.as_mut());
+            let _ = self.process_tree.terminate_tree(child.as_mut());
         }
         self.writer.take();
         if let Some(handle) = self.writer_thread.take() {
@@ -859,7 +769,6 @@ fn next_frame<A, V, F>(
     receiver: &Receiver<Result<Option<Envelope>, FrameError>>,
     child: &mut dyn ChildWrapper,
     cancel: &Cancel,
-    monitor: &mut ProcessMonitor,
     eof_grace: Duration,
 ) -> Result<Envelope, PluginError<A, V, F>> {
     loop {
@@ -869,7 +778,6 @@ fn next_frame<A, V, F>(
         match receiver.recv_timeout(Duration::from_millis(20)) {
             Ok(Ok(Some(frame))) => {
                 frame.validate_protocol()?;
-                monitor.check(child).map_err(PluginError::ProcessBudget)?;
                 return Ok(frame);
             }
             Ok(Ok(None)) => return Err(eof_error(child, eof_grace)?),
@@ -877,10 +785,8 @@ fn next_frame<A, V, F>(
             Err(RecvTimeoutError::Disconnected) => return Err(eof_error(child, eof_grace)?),
             Err(RecvTimeoutError::Timeout) => {
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
-                    monitor.check(child).map_err(PluginError::ProcessBudget)?;
                     return Err(PluginError::Exited(status));
                 }
-                monitor.check(child).map_err(PluginError::ProcessBudget)?;
             }
         }
     }
@@ -890,7 +796,6 @@ fn next_frame_with_grace<A, V, F>(
     receiver: &Receiver<Result<Option<Envelope>, FrameError>>,
     child: &mut dyn ChildWrapper,
     grace: Duration,
-    monitor: &mut ProcessMonitor,
 ) -> Result<Envelope, PluginError<A, V, F>> {
     let Some(until) = Instant::now().checked_add(grace) else {
         return Err(PluginError::GraceExpired);
@@ -902,7 +807,6 @@ fn next_frame_with_grace<A, V, F>(
         match receiver.recv_timeout(remaining.min(Duration::from_millis(20))) {
             Ok(Ok(Some(frame))) => {
                 frame.validate_protocol()?;
-                monitor.check(child).map_err(PluginError::ProcessBudget)?;
                 return Ok(frame);
             }
             Ok(Ok(None)) | Err(RecvTimeoutError::Disconnected) => {
@@ -911,10 +815,8 @@ fn next_frame_with_grace<A, V, F>(
             Ok(Err(error)) => return Err(PluginError::Frame(error)),
             Err(RecvTimeoutError::Timeout) => {
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
-                    monitor.check(child).map_err(PluginError::ProcessBudget)?;
                     return Err(PluginError::Exited(status));
                 }
-                monitor.check(child).map_err(PluginError::ProcessBudget)?;
             }
         }
     }
@@ -925,7 +827,6 @@ fn write_frame_cancellable<A, V, F>(
     frame: Envelope,
     cancel: &Cancel,
     child: &mut dyn ChildWrapper,
-    monitor: &mut ProcessMonitor,
 ) -> Result<(), PluginError<A, V, F>> {
     let (completion, receiver) = mpsc::channel();
     writer
@@ -941,10 +842,8 @@ fn write_frame_cancellable<A, V, F>(
                     return result;
                 }
                 if let Some(status) = child.try_wait().map_err(PluginError::Wait)? {
-                    monitor.check(child).map_err(PluginError::ProcessBudget)?;
                     return Err(PluginError::Exited(status));
                 }
-                monitor.check(child).map_err(PluginError::ProcessBudget)?;
             }
         }
     }
@@ -1044,7 +943,6 @@ fn send_shutdown<A, V, F>(
 fn wait_for_exit<A, V, F>(
     receiver: &Receiver<Result<Option<Envelope>, FrameError>>,
     child: &mut dyn ChildWrapper,
-    monitor: &mut ProcessMonitor,
     shutdown_grace: Duration,
 ) -> Result<ExitStatus, PluginError<A, V, F>> {
     let mut status = None;
@@ -1076,16 +974,13 @@ fn wait_for_exit<A, V, F>(
                     Err(PluginError::Exited(status))
                 };
             }
-            monitor.check(child).map_err(PluginError::ProcessBudget)?;
             continue;
         }
         match receiver.recv_timeout(Duration::from_millis(20)) {
             Ok(Ok(Some(_))) => return Err(PluginError::UnexpectedFrame),
             Ok(Err(error)) => return Err(PluginError::Frame(error)),
             Ok(Ok(None)) | Err(RecvTimeoutError::Disconnected) => stdout_closed = true,
-            Err(RecvTimeoutError::Timeout) => {
-                monitor.check(child).map_err(PluginError::ProcessBudget)?;
-            }
+            Err(RecvTimeoutError::Timeout) => continue,
         }
     }
 }
@@ -1129,185 +1024,17 @@ fn eof_error<A, V, F>(
     }
 }
 
-struct ProcessMonitor {
+struct ProcessTree {
     #[cfg(unix)]
     group_id: Option<u32>,
-    memory_limit: Option<u64>,
-    cpu_time_limit: Option<Duration>,
-    #[cfg(target_os = "linux")]
-    request_cpu_baseline_micros: u64,
-    #[cfg(target_os = "windows")]
-    request_cpu_baseline: Option<Duration>,
-    #[cfg(target_os = "linux")]
-    cgroup_boundary: Option<linux_cgroup::Boundary>,
-    request_active: bool,
-    #[cfg(all(test, target_os = "linux"))]
-    force_unavailable: bool,
 }
 
-impl ProcessMonitor {
-    fn new(
-        _child: &dyn ChildWrapper,
-        memory_limit: Option<u64>,
-        cpu_time_limit: Option<Duration>,
-        #[cfg(target_os = "linux")] cgroup_boundary: Option<linux_cgroup::Boundary>,
-    ) -> Self {
+impl ProcessTree {
+    fn new(child: &dyn ChildWrapper) -> Self {
         Self {
             #[cfg(unix)]
-            group_id: Some(_child.id()),
-            memory_limit,
-            cpu_time_limit,
-            #[cfg(target_os = "linux")]
-            request_cpu_baseline_micros: 0,
-            #[cfg(target_os = "windows")]
-            request_cpu_baseline: None,
-            #[cfg(target_os = "linux")]
-            cgroup_boundary,
-            request_active: false,
-            #[cfg(all(test, target_os = "linux"))]
-            force_unavailable: false,
+            group_id: Some(child.id()),
         }
-    }
-
-    fn begin_request(&mut self, _child: &dyn ChildWrapper) -> Result<(), ProcessBudgetError> {
-        if self.memory_limit.is_none() && self.cpu_time_limit.is_none() {
-            return Ok(());
-        }
-        #[cfg(all(test, target_os = "linux"))]
-        if self.force_unavailable {
-            return Err(ProcessBudgetError::Unavailable);
-        }
-        #[cfg(target_os = "linux")]
-        {
-            if let Some(boundary) = &self.cgroup_boundary {
-                self.request_cpu_baseline_micros = boundary
-                    .cpu_usage_micros()
-                    .map_err(|_| ProcessBudgetError::Unavailable)?;
-            } else if self.cpu_time_limit.is_some() {
-                return Err(ProcessBudgetError::Unavailable);
-            }
-            self.request_active = true;
-            self.check(_child)
-        }
-        #[cfg(target_os = "macos")]
-        {
-            // PGID sampling cannot prove complete-tree coverage: descendants
-            // may call setsid and disappear from the host's process group.
-            // Refuse every requested budget before dispatch until macOS has a
-            // mechanism that covers escaped and already-exited descendants.
-            Err(ProcessBudgetError::Unavailable)
-        }
-        #[cfg(target_os = "windows")]
-        {
-            // The process-wrap Job Object API supplies complete CPU accounting, including
-            // terminated members. It does not provide a coherent live resident-memory total.
-            // Refuse memory requests before dispatch rather than treating CPU support as a
-            // complete resource boundary.
-            if self.memory_limit.is_some() {
-                return Err(ProcessBudgetError::Unavailable);
-            }
-            self.request_cpu_baseline = Some(
-                _child
-                    .job_cpu_time()
-                    .map_err(|_| ProcessBudgetError::Unavailable)?,
-            );
-            self.request_active = true;
-            self.check(_child)
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-        Err(ProcessBudgetError::Unavailable)
-    }
-
-    fn end_request(&mut self) {
-        self.request_active = false;
-    }
-
-    fn check(&mut self, _child: &dyn ChildWrapper) -> Result<(), ProcessBudgetError> {
-        if (self.memory_limit.is_none() && self.cpu_time_limit.is_none()) || !self.request_active {
-            return Ok(());
-        }
-        #[cfg(target_os = "linux")]
-        {
-            if let Some(boundary) = &self.cgroup_boundary {
-                if let Some(limit) = self.memory_limit {
-                    let memory = boundary
-                        .memory_current()
-                        .map_err(|_| ProcessBudgetError::Unavailable)?;
-                    if memory > limit {
-                        return Err(ProcessBudgetError::MemoryExceeded);
-                    }
-                }
-                if let Some(limit) = self.cpu_time_limit {
-                    let current = boundary
-                        .cpu_usage_micros()
-                        .map_err(|_| ProcessBudgetError::Unavailable)?;
-                    let Some(delta_micros) = current.checked_sub(self.request_cpu_baseline_micros)
-                    else {
-                        return Err(ProcessBudgetError::Unavailable);
-                    };
-                    if u128::from(delta_micros).saturating_mul(1_000) > limit.as_nanos() {
-                        return Err(ProcessBudgetError::CpuTimeExceeded);
-                    }
-                }
-            } else {
-                let samples = self.refresh_tree()?;
-                let resident_bytes = samples
-                    .iter()
-                    .fold(0_u64, |sum, sample| sum.saturating_add(sample.memory_bytes));
-                if self
-                    .memory_limit
-                    .is_some_and(|limit| resident_bytes > limit)
-                {
-                    return Err(ProcessBudgetError::MemoryExceeded);
-                }
-            }
-            Ok(())
-        }
-        #[cfg(target_os = "macos")]
-        {
-            Err(ProcessBudgetError::Unavailable)
-        }
-        #[cfg(target_os = "windows")]
-        {
-            if self.memory_limit.is_some() {
-                return Err(ProcessBudgetError::Unavailable);
-            }
-            if let Some(limit) = self.cpu_time_limit {
-                let baseline = self
-                    .request_cpu_baseline
-                    .ok_or(ProcessBudgetError::Unavailable)?;
-                let current = _child
-                    .job_cpu_time()
-                    .map_err(|_| ProcessBudgetError::Unavailable)?;
-                let elapsed = current
-                    .checked_sub(baseline)
-                    .ok_or(ProcessBudgetError::Unavailable)?;
-                if elapsed > limit {
-                    return Err(ProcessBudgetError::CpuTimeExceeded);
-                }
-            }
-            Ok(())
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-        Err(ProcessBudgetError::Unavailable)
-    }
-
-    #[cfg(target_os = "linux")]
-    fn refresh_tree(&self) -> Result<Vec<LinuxProcessSample>, ProcessBudgetError> {
-        #[cfg(test)]
-        let force_unavailable = self.force_unavailable;
-        #[cfg(not(test))]
-        let force_unavailable = false;
-        if force_unavailable {
-            return Err(ProcessBudgetError::Unavailable);
-        }
-        let group_id = self.group_id.ok_or(ProcessBudgetError::Unavailable)?;
-        let members =
-            linux_process_group_samples(group_id).ok_or(ProcessBudgetError::Unavailable)?;
-        if members.is_empty() {
-            return Err(ProcessBudgetError::Unavailable);
-        }
-        Ok(members)
     }
 
     fn terminate_tree(&mut self, child: &mut dyn ChildWrapper) -> bool {
@@ -1318,10 +1045,6 @@ impl ProcessMonitor {
         };
         #[cfg(unix)]
         {
-            #[cfg(target_os = "linux")]
-            if let Some(boundary) = &mut self.cgroup_boundary {
-                return boundary.terminate(child, until);
-            }
             if self.group_id.is_none() {
                 let _ = child.try_wait();
                 return false;
@@ -1379,16 +1102,11 @@ impl ProcessMonitor {
 #[cfg(target_os = "linux")]
 #[derive(Clone, Copy, Debug)]
 struct LinuxProcessSample {
-    memory_bytes: u64,
     state: char,
 }
 
 #[cfg(target_os = "linux")]
 fn linux_process_group_samples(group_id: u32) -> Option<Vec<LinuxProcessSample>> {
-    let page_size = u64::try_from(sysconf(SysconfVar::PAGE_SIZE).ok()??).ok()?;
-    if page_size == 0 {
-        return None;
-    }
     let mut members = Vec::new();
     for entry in std::fs::read_dir("/proc").ok()? {
         let entry = entry.ok()?;
@@ -1419,22 +1137,7 @@ fn linux_process_group_samples(group_id: u32) -> Option<Vec<LinuxProcessSample>>
             continue;
         };
         if process_group == group_id {
-            let statm = match std::fs::read_to_string(entry.path().join("statm")) {
-                Ok(statm) => statm,
-                Err(error) if proc_entry_vanished(&error) => continue,
-                Err(_) => return None,
-            };
-            let statm_fields: Vec<&str> = statm.split_ascii_whitespace().collect();
-            let Some(resident_pages) = statm_fields
-                .get(1)
-                .and_then(|value| value.parse::<u64>().ok())
-            else {
-                continue;
-            };
-            members.push(LinuxProcessSample {
-                memory_bytes: resident_pages.saturating_mul(page_size),
-                state,
-            });
+            members.push(LinuxProcessSample { state });
         }
     }
     Some(members)
@@ -1447,7 +1150,7 @@ fn proc_entry_vanished(error: &io::Error) -> bool {
 }
 
 #[cfg(all(test, target_os = "linux"))]
-/// Trace: FR-013-AC-8, TC-026; only disappeared /proc members are skipped.
+/// Trace: FR-013-AC-9, TC-026; cleanup skips only disappeared /proc members.
 #[test]
 fn proc_scan_skips_only_disappeared_entries() {
     assert!(proc_entry_vanished(&io::Error::from(
@@ -1459,20 +1162,6 @@ fn proc_scan_skips_only_disappeared_entries() {
     assert!(!proc_entry_vanished(&io::Error::from(
         io::ErrorKind::PermissionDenied
     )));
-}
-
-/// Why the host could not continue enforcing the requested process budget.
-#[derive(Debug, Error)]
-pub enum ProcessBudgetError {
-    /// The child exceeded its observed resident-memory limit.
-    #[error("plugin process tree exceeded its memory limit")]
-    MemoryExceeded,
-    /// The child exceeded its observed accumulated CPU-time limit.
-    #[error("plugin process tree exceeded its CPU-time limit")]
-    CpuTimeExceeded,
-    /// The platform could not provide process measurements.
-    #[error("the complete plugin process tree cannot be measured on this platform")]
-    Unavailable,
 }
 
 struct CapturedStderr {
@@ -1666,10 +1355,6 @@ pub enum PluginError<A, V, F> {
     /// Reading opaque plugin stderr failed.
     #[error("plugin stderr capture failed: {0}")]
     Stderr(#[source] io::Error),
-    /// The host observed a process resource limit breach or could not measure
-    /// a requested process budget on this platform.
-    #[error("plugin process resource budget failed: {0:?}")]
-    ProcessBudget(ProcessBudgetError),
 }
 
 impl<A, V, F> PluginError<A, V, F> {
@@ -1748,8 +1433,7 @@ mod tests {
     use super::WORKER_CLEANUP_LIMIT;
     use super::{
         spawn_writer, write_frame_control, Envelope, FrameError, FrameLimits, FrameReader,
-        FrameWriter, Kind, PluginError, PluginSession, ProcessBudgetError, RunLimits, SessionStart,
-        PROTOCOL,
+        FrameWriter, Kind, PluginError, PluginSession, RunLimits, SessionStart, PROTOCOL,
     };
     #[cfg(windows)]
     use process_wrap::std::ChildWrapper;
@@ -2074,108 +1758,6 @@ mod tests {
     }
 
     #[cfg(windows)]
-    fn windows_accounting_fixture(
-        ready: &Path,
-        request_seen: &Path,
-        descendant_started: &Path,
-        descendant_pid: &Path,
-        descendant_done: &Path,
-        descendant_script: &Path,
-    ) -> (PathBuf, [OsString; 5]) {
-        let powershell =
-            PathBuf::from(std::env::var_os("SystemRoot").expect("Windows sets SystemRoot"))
-                .join("System32")
-                .join("WindowsPowerShell")
-                .join("v1.0")
-                .join("powershell.exe");
-        let ready = ready.to_string_lossy().replace('\'', "''");
-        let request_seen = request_seen.to_string_lossy().replace('\'', "''");
-        let descendant_started = descendant_started.to_string_lossy().replace('\'', "''");
-        let descendant_pid = descendant_pid.to_string_lossy().replace('\'', "''");
-        let descendant_done = descendant_done.to_string_lossy().replace('\'', "''");
-        let descendant_script_path = descendant_script.to_string_lossy().replace('\'', "''");
-        let descendant_script_contents = format!(
-            "[IO.File]::WriteAllText('{descendant_started}','started'); \
-             $process=[Diagnostics.Process]::GetCurrentProcess(); $baseline=$process.TotalProcessorTime; \
-             while ($true) {{ $process.Refresh(); if (($process.TotalProcessorTime-$baseline).TotalMilliseconds -ge 1000) {{ break }}; [void]([Math]::Sqrt(123456.789)) }}; \
-             [IO.File]::WriteAllText('{descendant_done}','done')"
-        );
-        std::fs::write(descendant_script, descendant_script_contents)
-            .expect("write descendant PowerShell fixture");
-        let script = format!(
-            "$hello=[Text.Encoding]::UTF8.GetBytes('{{\"body\":{{\"advertises\":[],\"identity\":\"agent-ix/provider/test\"}},\"id\":0,\"kind\":\"hello\",\"protocol\":\"quire.plugin-wire/v1\"}}'); \
-             $prefix=[BitConverter]::GetBytes([UInt64]$hello.Length); \
-             [Array]::Reverse($prefix); \
-             $stdout=[Console]::OpenStandardOutput(); \
-             $stdout.Write($prefix,0,8); $stdout.Write($hello,0,$hello.Length); $stdout.Flush(); \
-             $process=[Diagnostics.Process]::GetCurrentProcess(); $baseline=$process.TotalProcessorTime; \
-             while ($true) {{ $process.Refresh(); if (($process.TotalProcessorTime-$baseline).TotalMilliseconds -ge 1000) {{ break }}; [void]([Math]::Sqrt(123456.789)) }}; \
-             [IO.File]::WriteAllText('{ready}','ready'); \
-             $stdin=[Console]::OpenStandardInput(); $first=$stdin.ReadByte(); if ($first -lt 0) {{ exit 2 }}; \
-             [IO.File]::WriteAllText('{request_seen}','request'); \
-             $childArgs='-NoLogo -NonInteractive -NoProfile -ExecutionPolicy Bypass -File \"{descendant_script_path}\"'; \
-             $worker=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $childArgs -PassThru -WindowStyle Hidden; \
-             [IO.File]::WriteAllText('{descendant_pid}',[string]$worker.Id); \
-             while (!(Test-Path '{descendant_done}')) {{ Start-Sleep -Milliseconds 10 }}; \
-             $result=[Text.Encoding]::UTF8.GetBytes('{{\"body\":{{\"identity\":\"agent-ix/provider/test\",\"items\":[\"item-1\"]}},\"id\":1,\"kind\":\"result\",\"protocol\":\"quire.plugin-wire/v1\"}}'); \
-             $resultPrefix=[BitConverter]::GetBytes([UInt64]$result.Length); [Array]::Reverse($resultPrefix); \
-             $stdout.Write($resultPrefix,0,8); $stdout.Write($result,0,$result.Length); $stdout.Flush()"
-        );
-        (
-            powershell,
-            [
-                OsString::from("-NoLogo"),
-                OsString::from("-NonInteractive"),
-                OsString::from("-NoProfile"),
-                OsString::from("-Command"),
-                OsString::from(script),
-            ],
-        )
-    }
-
-    #[cfg(windows)]
-    fn windows_shutdown_cpu_fixture(
-        request_cpu: &Path,
-        shutdown_cpu: &Path,
-    ) -> (PathBuf, [OsString; 5]) {
-        let powershell =
-            PathBuf::from(std::env::var_os("SystemRoot").expect("Windows sets SystemRoot"))
-                .join("System32")
-                .join("WindowsPowerShell")
-                .join("v1.0")
-                .join("powershell.exe");
-        let request_cpu = request_cpu.to_string_lossy().replace('\'', "''");
-        let shutdown_cpu = shutdown_cpu.to_string_lossy().replace('\'', "''");
-        let script = format!(
-            "$hello=[Text.Encoding]::UTF8.GetBytes('{{\"body\":{{\"advertises\":[],\"identity\":\"agent-ix/provider/test\"}},\"id\":0,\"kind\":\"hello\",\"protocol\":\"quire.plugin-wire/v1\"}}'); \
-             $prefix=[BitConverter]::GetBytes([UInt64]$hello.Length); [Array]::Reverse($prefix); \
-             $stdout=[Console]::OpenStandardOutput(); $stdout.Write($prefix,0,8); $stdout.Write($hello,0,$hello.Length); $stdout.Flush(); \
-             $process=[Diagnostics.Process]::GetCurrentProcess(); $windowBaseline=$process.TotalProcessorTime; \
-             $stdin=[Console]::OpenStandardInput(); $prefix=New-Object byte[] 8; $offset=0; \
-             while ($offset -lt 8) {{ $read=$stdin.Read($prefix,$offset,8-$offset); if ($read -le 0) {{ exit 2 }}; $offset += $read }}; \
-             [Array]::Reverse($prefix); $remaining=[int][BitConverter]::ToUInt64($prefix,0); $buffer=New-Object byte[] 1024; \
-             while ($remaining -gt 0) {{ $read=$stdin.Read($buffer,0,[Math]::Min($buffer.Length,$remaining)); if ($read -le 0) {{ exit 2 }}; $remaining -= $read }}; \
-             while ($true) {{ $process.Refresh(); $spent=($process.TotalProcessorTime-$windowBaseline).TotalMilliseconds; if ($spent -ge 100) {{ break }}; [void]([Math]::Sqrt(123456.789)) }}; \
-             [IO.File]::WriteAllText('{request_cpu}',[string][int64]$spent); \
-             $result=[Text.Encoding]::UTF8.GetBytes('{{\"body\":{{\"identity\":\"agent-ix/provider/test\",\"items\":[\"item-1\"]}},\"id\":1,\"kind\":\"result\",\"protocol\":\"quire.plugin-wire/v1\"}}'); \
-             $resultPrefix=[BitConverter]::GetBytes([UInt64]$result.Length); [Array]::Reverse($resultPrefix); $stdout.Write($resultPrefix,0,8); $stdout.Write($result,0,$result.Length); $stdout.Flush(); \
-             if ($stdin.ReadByte() -lt 0) {{ exit 3 }}; \
-             while ($true) {{ $process.Refresh(); $total=($process.TotalProcessorTime-$windowBaseline).TotalMilliseconds; if ($total -ge 1500) {{ break }}; [void]([Math]::Sqrt(123456.789)) }}; \
-             [IO.File]::WriteAllText('{shutdown_cpu}',[string][int64]$total)"
-        );
-        (
-            powershell,
-            [
-                OsString::from("-NoLogo"),
-                OsString::from("-NonInteractive"),
-                OsString::from("-NoProfile"),
-                OsString::from("-Command"),
-                OsString::from(script),
-            ],
-        )
-    }
-
-    #[cfg(windows)]
     fn wait_for_fixture_file(path: &Path) -> bool {
         let deadline = Instant::now() + Duration::from_secs(10);
         while !path.exists() && Instant::now() < deadline {
@@ -2227,279 +1809,6 @@ mod tests {
         }
     }
 
-    #[cfg(windows)]
-    #[derive(Debug)]
-    struct FixedCpuChild(Duration);
-
-    #[cfg(windows)]
-    impl ChildWrapper for FixedCpuChild {
-        fn inner(&self) -> &dyn ChildWrapper {
-            self
-        }
-
-        fn inner_mut(&mut self) -> &mut dyn ChildWrapper {
-            self
-        }
-
-        fn into_inner(self: Box<Self>) -> Box<dyn ChildWrapper> {
-            self
-        }
-
-        fn job_cpu_time(&self) -> std::io::Result<Duration> {
-            Ok(self.0)
-        }
-    }
-
-    /// Trace: FR-013-AC-8, FR-013-AC-17, TC-026; a final result frame cannot bypass the Job Object CPU check.
-    #[cfg(windows)]
-    #[test]
-    fn windows_cpu_budget_checks_final_result_frame() {
-        let mut child = FixedCpuChild(Duration::from_millis(10));
-        let mut monitor = super::ProcessMonitor {
-            memory_limit: None,
-            cpu_time_limit: Some(Duration::from_millis(1)),
-            request_cpu_baseline: Some(Duration::ZERO),
-            request_active: true,
-        };
-        let (sender, receiver) = std::sync::mpsc::channel();
-        sender
-            .send(Ok(Some(super::Envelope {
-                protocol: super::PROTOCOL.to_owned(),
-                id: 1,
-                kind: super::Kind::Result,
-                body: serde_json::json!({}),
-            })))
-            .expect("final result frame is queued");
-
-        let error = super::next_frame::<String, String, serde_json::Value>(
-            &receiver,
-            &mut child,
-            &Cancel::new(),
-            &mut monitor,
-            Duration::ZERO,
-        )
-        .expect_err("an over-budget final result is rejected");
-        assert!(matches!(
-            error,
-            PluginError::ProcessBudget(ProcessBudgetError::CpuTimeExceeded)
-        ));
-    }
-
-    /// Trace: FR-013-AC-8, FR-013-AC-17, FR-013-AC-19, TC-026; use the Job Object counter from the request baseline.
-    #[cfg(windows)]
-    #[test]
-    fn windows_cpu_budget_uses_job_counter_from_request_start() {
-        let base = ready_fixture_path();
-        let ready = marker_path(&base, "ready");
-        let request_seen = marker_path(&base, "request");
-        let descendant_started = marker_path(&base, "descendant-started");
-        let descendant_pid = marker_path(&base, "descendant-pid");
-        let descendant_done = marker_path(&base, "descendant-done");
-        let descendant_script = marker_path(&base, "descendant.ps1");
-        let _files = TestFiles::new([
-            ready.clone(),
-            request_seen.clone(),
-            descendant_started.clone(),
-            descendant_pid.clone(),
-            descendant_done.clone(),
-            descendant_script.clone(),
-        ]);
-        let (executable, arguments) = windows_accounting_fixture(
-            &ready,
-            &request_seen,
-            &descendant_started,
-            &descendant_pid,
-            &descendant_done,
-            &descendant_script,
-        );
-        let cancel = Cancel::new();
-        let mut limits = session_limits();
-        limits.max_process_cpu_time = Some(Duration::from_millis(250));
-        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
-            SessionStart {
-                executable: &executable,
-                arguments: &arguments,
-                limits,
-                cancel: &cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-        .expect("Windows Job Object starts and admits the plugin hello");
-
-        assert!(
-            wait_for_fixture_file(&ready),
-            "plugin completed its pre-request CPU work"
-        );
-        let error = session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect_err("the post-request CPU work exceeds the request budget");
-        assert!(matches!(
-            error.primary_cause(),
-            PluginError::ProcessBudget(ProcessBudgetError::CpuTimeExceeded)
-        ));
-        assert!(
-            request_seen.exists(),
-            "the plugin received the request before its CPU budget was exceeded"
-        );
-        assert!(
-            descendant_started.exists(),
-            "a descendant, not only the plugin root, consumed CPU inside the Job Object"
-        );
-        assert!(
-            !descendant_done.exists(),
-            "the CPU refusal interrupted the descendant before its normal completion"
-        );
-        let pid_text = std::fs::read_to_string(&descendant_pid)
-            .expect("the plugin records the CPU-burning descendant PID");
-        let pid = pid_text
-            .parse::<u32>()
-            .expect("the descendant PID marker contains a numeric process ID");
-        assert!(pid > 0, "the descendant PID is nonzero");
-        let PluginError::WithDiagnostics {
-            process_tree_cleanup_failed,
-            reader_join_failed,
-            writer_join_failed,
-            capture_error,
-            ..
-        } = &error
-        else {
-            panic!("typed budget refusal retains process-tree cleanup diagnostics");
-        };
-        assert!(
-            !process_tree_cleanup_failed
-                && !reader_join_failed
-                && !writer_join_failed
-                && capture_error.is_none(),
-            "the typed refusal reports successful bounded process-tree and worker cleanup"
-        );
-        assert!(
-            wait_for_windows_process_exit(pid)
-                .expect("PowerShell can query the descendant process"),
-            "the CPU-burning descendant exited within the process cleanup bound"
-        );
-    }
-
-    /// Trace: FR-013-AC-8, FR-013-AC-17, TC-026; shutdown CPU is outside a completed request budget.
-    #[cfg(windows)]
-    #[test]
-    fn windows_shutdown_cpu_is_not_charged_to_completed_request() {
-        let base = ready_fixture_path();
-        let request_cpu = marker_path(&base, "request-cpu-ms");
-        let shutdown_cpu = marker_path(&base, "shutdown-cpu-ms");
-        let script = marker_path(&base, "shutdown-cpu.ps1");
-        let _files = TestFiles::new([request_cpu.clone(), shutdown_cpu.clone(), script.clone()]);
-        let (executable, arguments) = windows_shutdown_cpu_fixture(&request_cpu, &shutdown_cpu);
-        let cancel = Cancel::new();
-        let mut limits = session_limits();
-        limits.max_process_cpu_time = Some(Duration::from_secs(1));
-        limits.cancellation_grace = Duration::from_secs(4);
-        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
-            SessionStart {
-                executable: &executable,
-                arguments: &arguments,
-                limits,
-                cancel: &cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-        .expect("Windows Job Object starts and admits the plugin hello");
-
-        session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect("request CPU remains within its one-second budget");
-        session
-            .shutdown()
-            .expect("shutdown CPU is not charged to the completed request");
-
-        let request_cpu = std::fs::read_to_string(request_cpu)
-            .expect("fixture records CPU at request completion")
-            .parse::<u64>()
-            .expect("request CPU marker is an integer");
-        let shutdown_cpu = std::fs::read_to_string(shutdown_cpu)
-            .expect("fixture records CPU after shutdown handling")
-            .parse::<u64>()
-            .expect("shutdown CPU marker is an integer");
-        assert!(
-            request_cpu < 1_000,
-            "request completed within its one-second CPU budget: {request_cpu} ms"
-        );
-        assert!(
-            shutdown_cpu > 1_000,
-            "shutdown handling exceeded the completed request's budget: {shutdown_cpu} ms"
-        );
-    }
-
-    /// Trace: FR-013-AC-18, TC-026; refuse a Windows memory budget before writing a request.
-    #[cfg(windows)]
-    #[test]
-    fn windows_memory_budget_is_unavailable_before_dispatch() {
-        let base = ready_fixture_path();
-        let ready = marker_path(&base, "ready");
-        let request_seen = marker_path(&base, "request");
-        let descendant_started = marker_path(&base, "descendant-started");
-        let descendant_pid = marker_path(&base, "descendant-pid");
-        let descendant_done = marker_path(&base, "descendant-done");
-        let descendant_script = marker_path(&base, "descendant.ps1");
-        let _files = TestFiles::new([
-            ready.clone(),
-            request_seen.clone(),
-            descendant_started,
-            descendant_pid,
-            descendant_done,
-            descendant_script.clone(),
-        ]);
-        let (executable, arguments) = windows_accounting_fixture(
-            &ready,
-            &request_seen,
-            &marker_path(&base, "descendant-started"),
-            &marker_path(&base, "descendant-pid"),
-            &marker_path(&base, "descendant-done"),
-            &descendant_script,
-        );
-        let cancel = Cancel::new();
-        let mut limits = session_limits();
-        limits.max_process_memory_bytes = Some(u64::MAX);
-        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
-            SessionStart {
-                executable: &executable,
-                arguments: &arguments,
-                limits,
-                cancel: &cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-        .expect("Windows Job Object starts and admits the plugin hello");
-
-        assert!(
-            wait_for_fixture_file(&ready),
-            "plugin completed its pre-request CPU work"
-        );
-        let error = session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect_err("the unsupported complete memory boundary refuses the request");
-        assert!(matches!(
-            error.primary_cause(),
-            PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
-        ));
-        assert!(
-            !request_seen.exists(),
-            "the plugin received no request when memory measurement is unavailable"
-        );
-        assert!(!session.request_write_started);
-    }
-
     struct StopEscapedFixture {
         release: std::path::PathBuf,
         stop: std::path::PathBuf,
@@ -2544,8 +1853,6 @@ mod tests {
             frames: LIMITS,
             max_stderr_bytes: 128,
             cancellation_grace: Duration::from_millis(250),
-            max_process_memory_bytes: None,
-            max_process_cpu_time: None,
         }
     }
 
@@ -2555,86 +1862,9 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "linux")]
-    fn cpu_session(
-        executable: &Path,
-        arguments: &[OsString],
-        limit: Duration,
-        cancel: &Cancel,
-    ) -> Result<
-        PluginSession<TestManifest, serde_json::Value, String>,
-        PluginError<String, std::convert::Infallible, serde_json::Value>,
-    > {
-        let mut limits = session_limits();
-        limits.max_process_cpu_time = Some(limit);
-        PluginSession::start(
-            SessionStart {
-                executable,
-                arguments,
-                limits,
-                cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-    }
-
-    #[cfg(target_os = "linux")]
-    fn require_complete_cpu_boundary_for_qualification() {
-        assert!(
-            std::env::var_os("QUIRE_REQUIRE_COMPLETE_CPU_BOUNDARY").is_none(),
-            "IR-733 qualification requires delegated systemd cgroup-v2 support"
-        );
-    }
-
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     fn marker_path(base: &Path, suffix: &str) -> PathBuf {
         PathBuf::from(format!("{}.{}", base.display(), suffix))
-    }
-
-    #[cfg(target_os = "linux")]
-    fn marker_u64(path: &Path) -> u64 {
-        std::fs::read_to_string(path)
-            .expect("fixture writes CPU sample")
-            .parse::<u64>()
-            .expect("CPU sample is an integer")
-    }
-
-    #[cfg(target_os = "linux")]
-    fn wait_until_process_stops(pid: u32) -> bool {
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while Path::new("/proc").join(pid.to_string()).exists() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(5));
-        }
-        !Path::new("/proc").join(pid.to_string()).exists()
-    }
-
-    #[cfg(target_os = "linux")]
-    fn assert_budget_diagnostics(error: PluginError<String, String, serde_json::Value>) {
-        let PluginError::WithDiagnostics {
-            cause,
-            process_tree_cleanup_failed,
-            reader_join_failed,
-            writer_join_failed,
-            capture_error,
-            ..
-        } = error
-        else {
-            panic!("budget refusal includes bounded cleanup diagnostics")
-        };
-        assert!(matches!(
-            cause.primary_cause(),
-            PluginError::ProcessBudget(ProcessBudgetError::CpuTimeExceeded)
-        ));
-        assert!(
-            !process_tree_cleanup_failed,
-            "the full cgroup boundary stopped"
-        );
-        assert!(!reader_join_failed, "stdout reader worker joined");
-        assert!(!writer_join_failed, "stdin writer worker joined");
-        assert!(
-            capture_error.is_none(),
-            "stderr worker joined without error"
-        );
     }
 
     #[cfg(unix)]
@@ -3058,10 +2288,10 @@ mod tests {
         let _ = std::fs::remove_file(ready);
     }
 
-    #[cfg(unix)]
     /// Trace: FR-013-AC-1, TC-023; refuse bare executable names.
+    #[cfg(unix)]
     #[test]
-    fn session_enforces_cpu_budget_and_refuses_bare_executable_names() {
+    fn session_refuses_bare_executable_names() {
         let cancel = Cancel::new();
         let error = match PluginSession::<TestManifest, serde_json::Value, String>::start(
             SessionStart {
@@ -3076,47 +2306,6 @@ mod tests {
             Err(error) => error,
         };
         assert!(matches!(error, PluginError::BareExecutableName(_)));
-
-        let executable = failure_fixture();
-        let arguments = [OsString::from("cpu")];
-        #[cfg(target_os = "linux")]
-        let mut session = match cpu_session(&executable, &arguments, Duration::ZERO, &cancel) {
-            Ok(session) => session,
-            Err(PluginError::ProcessBudget(ProcessBudgetError::Unavailable)) => return,
-            Err(error) => panic!("unexpected CPU test setup failure: {error:?}"),
-        };
-        #[cfg(not(target_os = "linux"))]
-        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
-            SessionStart {
-                executable: &executable,
-                arguments: &arguments,
-                limits: RunLimits {
-                    max_process_cpu_time: Some(Duration::ZERO),
-                    ..session_limits()
-                },
-                cancel: &cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-        .expect("hello is admitted");
-        let request = test_request();
-        let error = session
-            .request(&request, &cancel, |_manifest, _result: &TestResult| {
-                Ok::<(), String>(())
-            })
-            .expect_err("CPU budget stops a spinning plugin");
-        #[cfg(target_os = "linux")]
-        assert!(matches!(
-            error.primary_cause(),
-            PluginError::ProcessBudget(ProcessBudgetError::CpuTimeExceeded)
-        ));
-        #[cfg(not(target_os = "linux"))]
-        {
-            assert!(matches!(
-                error.primary_cause(),
-                PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
-            ));
-        }
     }
 
     /// Trace: FR-013-AC-2, TC-023; reject protocol identity before manifest admission.
@@ -3175,207 +2364,6 @@ mod tests {
                 actual: 2
             }
         ));
-    }
-
-    /// Trace: FR-013-AC-8, FR-013-AC-18, TC-026; refuse a memory-budgeted dispatch when measurement is unavailable.
-    #[cfg(unix)]
-    #[test]
-    fn begin_request_returns_unavailable_before_dispatch() {
-        let cancel = Cancel::new();
-        let executable = failure_fixture();
-        let marker = ready_fixture_path();
-        let ready = PathBuf::from(format!("{}.ready", marker.display()));
-        let arguments = [
-            OsString::from("request-marker"),
-            marker.as_os_str().to_owned(),
-        ];
-        let mut limits = session_limits();
-        limits.max_process_memory_bytes = Some(u64::MAX);
-        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
-            SessionStart {
-                executable: &executable,
-                arguments: &arguments,
-                limits,
-                cancel: &cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-        .expect("hello is admitted");
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while !ready.exists() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(2));
-        }
-        assert!(ready.exists(), "fixture is waiting for its first request");
-        #[cfg(target_os = "linux")]
-        {
-            session.monitor.force_unavailable = true;
-        }
-        let error = session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect_err("measurement failure prevents request dispatch");
-        assert!(matches!(
-            error.primary_cause(),
-            PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
-        ));
-        assert!(!session.request_write_started);
-        assert!(
-            !marker.exists(),
-            "the request was not written before measurement"
-        );
-        let closed = session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect_err("a terminated session cannot be reused");
-        assert!(matches!(closed, PluginError::SessionClosed));
-        let _ = std::fs::remove_file(marker);
-        let _ = std::fs::remove_file(ready);
-    }
-
-    /// Trace: FR-013-AC-17, TC-026; reject unsupported macOS CPU accounting before dispatch.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_cpu_budget_returns_unavailable_before_dispatch() {
-        let cancel = Cancel::new();
-        let executable = failure_fixture();
-        let marker = ready_fixture_path();
-        let ready = PathBuf::from(format!("{}.ready", marker.display()));
-        let arguments = [
-            OsString::from("request-marker"),
-            marker.as_os_str().to_owned(),
-        ];
-        let mut limits = session_limits();
-        limits.max_process_cpu_time = Some(Duration::from_secs(1));
-        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
-            SessionStart {
-                executable: &executable,
-                arguments: &arguments,
-                limits,
-                cancel: &cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-        .expect("hello is admitted");
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while !ready.exists() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(2));
-        }
-        assert!(ready.exists(), "fixture is waiting for its first request");
-        let error = session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect_err("unsupported CPU measurement prevents request dispatch");
-        assert!(matches!(
-            error.primary_cause(),
-            PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
-        ));
-        assert!(!session.request_write_started);
-        assert!(!marker.exists(), "the request was not written");
-        let _ = std::fs::remove_file(marker);
-        let _ = std::fs::remove_file(ready);
-    }
-
-    /// Trace: FR-013-AC-18, TC-026; fail closed when a descendant escapes the sampled process group.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_memory_budget_refuses_before_dispatch_for_escaped_descendant() {
-        let cancel = Cancel::new();
-        let executable = failure_fixture();
-        let ready = ready_fixture_path();
-        let writing = PathBuf::from(format!("{}.writing", ready.display()));
-        let release = PathBuf::from(format!("{}.release", ready.display()));
-        let stop = PathBuf::from(format!("{}.stop", ready.display()));
-        let mut stop_escaped_fixture = StopEscapedFixture {
-            release: release.clone(),
-            stop: stop.clone(),
-            armed: true,
-        };
-        let done = PathBuf::from(format!("{}.done", ready.display()));
-        let request_marker = PathBuf::from(format!("{}.request", ready.display()));
-        let arguments = [
-            OsString::from("escaped-descendant-memory"),
-            ready.as_os_str().to_owned(),
-            writing.as_os_str().to_owned(),
-            release.as_os_str().to_owned(),
-            stop.as_os_str().to_owned(),
-            done.as_os_str().to_owned(),
-            request_marker.as_os_str().to_owned(),
-        ];
-        let mut limits = session_limits();
-        limits.max_process_memory_bytes = Some(1);
-        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
-            SessionStart {
-                executable: &executable,
-                arguments: &arguments,
-                limits,
-                cancel: &cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-        .expect("hello is admitted");
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !writing.exists() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(2));
-        }
-        assert!(
-            writing.exists(),
-            "escaped descendant exposed its partial write"
-        );
-        assert!(
-            !ready.exists(),
-            "the readiness path stays absent while JSON is only partially written"
-        );
-        std::fs::write(&release, b"release").expect("release complete JSON publication");
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !ready.exists() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(2));
-        }
-        assert!(ready.exists(), "complete JSON is atomically published");
-        let identity: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&ready).expect("read escaped PID and PGID"))
-                .expect("valid escaped process identity");
-        assert_ne!(
-            identity["pgid"], identity["host_pgid"],
-            "fixture descendant is outside the process group observed by the host"
-        );
-        let error = session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect_err("incomplete macOS process-tree observation refuses before dispatch");
-        assert!(matches!(
-            error.primary_cause(),
-            PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
-        ));
-        assert!(!session.request_write_started);
-        assert!(!request_marker.exists(), "no request reaches plugin code");
-        std::fs::write(&stop, b"stop").expect("release escaped descendant fixture");
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while !done.exists() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(2));
-        }
-        assert!(
-            done.exists(),
-            "escaped descendant exits after cleanup signal"
-        );
-        stop_escaped_fixture.disarm();
-        let _ = std::fs::remove_file(&ready);
-        let _ = std::fs::remove_file(writing);
-        let _ = std::fs::remove_file(release);
-        let _ = std::fs::remove_file(stop);
-        let _ = std::fs::remove_file(done);
-        let _ = std::fs::remove_file(request_marker);
     }
 
     /// Trace: TC-026; verify the escaped fixture's request marker names its own path.
@@ -3491,305 +2479,6 @@ mod tests {
         let _ = std::fs::remove_file(stop);
     }
 
-    /// Trace: FR-013-AC-8, FR-013-AC-16, TC-026; sum memory for double-forked process-group members.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn process_memory_budget_includes_descendant_usage() {
-        let cancel = Cancel::new();
-        let executable = failure_fixture();
-        let ready = ready_fixture_path();
-        let arguments = [
-            OsString::from("descendant-memory"),
-            ready.as_os_str().to_owned(),
-        ];
-        let mut limits = session_limits();
-        limits.max_process_memory_bytes = Some(96 * 1024 * 1024);
-        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
-            SessionStart {
-                executable: &executable,
-                arguments: &arguments,
-                limits,
-                cancel: &cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-        .expect("hello is admitted");
-        assert!(
-            (0..3).all(|index| PathBuf::from(format!("{}.{}", ready.display(), index)).exists()),
-            "three double-fork descendants signaled readiness"
-        );
-        let members = session
-            .monitor
-            .refresh_tree()
-            .expect("group members are measured");
-        let member_memory: Vec<u64> = members.iter().map(|sample| sample.memory_bytes).collect();
-        assert!(member_memory.iter().all(|bytes| *bytes < 96 * 1024 * 1024));
-        assert!(
-            members
-                .iter()
-                .filter(|sample| sample.memory_bytes > 0)
-                .count()
-                >= 3
-        );
-        assert!(member_memory.iter().sum::<u64>() > 96 * 1024 * 1024);
-        let error = session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect_err("descendant pushes aggregate process memory over the limit");
-        assert!(matches!(
-            error.primary_cause(),
-            PluginError::ProcessBudget(ProcessBudgetError::MemoryExceeded)
-        ));
-        let _ = std::fs::remove_file(&ready);
-        for index in 0..3 {
-            let _ = std::fs::remove_file(format!("{}.{}", ready.display(), index));
-        }
-    }
-
-    /// Trace: FR-013-AC-8, TC-026; smoke test concurrent fork/exit tolerance while sampling.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn forking_plugin_sampling_smoke_does_not_return_unavailable() {
-        let cancel = Cancel::new();
-        let executable = failure_fixture();
-        let arguments = [OsString::from("fork-during-request")];
-        let mut limits = session_limits();
-        limits.max_process_memory_bytes = Some(512 * 1024 * 1024);
-        let mut session = PluginSession::<TestManifest, serde_json::Value, String>::start(
-            SessionStart {
-                executable: &executable,
-                arguments: &arguments,
-                limits,
-                cancel: &cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-        .expect("hello is admitted");
-        let result = session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect("a process appearing during polling is not an unavailable failure");
-        assert_eq!(result.items, test_request().items);
-        session.shutdown().expect("fork descendants are terminated");
-    }
-
-    /// Trace: FR-013-AC-17, TC-026; do not dispatch without a cgroup CPU and kill boundary.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn cpu_budget_unavailable_before_dispatch_does_not_reach_plugin() {
-        let cancel = Cancel::new();
-        let executable = failure_fixture();
-        let base = ready_fixture_path();
-        let marker = marker_path(&base, "request");
-        let _files = TestFiles::new([
-            marker.clone(),
-            PathBuf::from(format!("{}.ready", marker.display())),
-        ]);
-        let arguments = [
-            OsString::from("request-marker"),
-            marker.as_os_str().to_owned(),
-        ];
-        let mut session =
-            match cpu_session(&executable, &arguments, Duration::from_secs(1), &cancel) {
-                Ok(session) => session,
-                Err(PluginError::ProcessBudget(ProcessBudgetError::Unavailable)) => {
-                    assert!(
-                        !marker.exists(),
-                        "no request is sent when boundary setup fails"
-                    );
-                    return;
-                }
-                Err(error) => panic!("unexpected CPU boundary setup failure: {error:?}"),
-            };
-        session.monitor.force_unavailable = true;
-        let error = session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect_err("request is refused before the frame is sent");
-        assert!(matches!(
-            error.primary_cause(),
-            PluginError::ProcessBudget(ProcessBudgetError::Unavailable)
-        ));
-        assert!(!marker.exists(), "the plugin did not receive the request");
-        assert!(!session.request_write_started);
-        let _ = std::fs::remove_file(marker);
-        let _ = std::fs::remove_file(format!("{}.ready", base.display()));
-    }
-
-    /// Trace: FR-013-AC-8, FR-013-AC-19, TC-026; count a child reaped before the first monitor poll.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn cpu_budget_includes_reaped_child_before_first_poll() {
-        let cancel = Cancel::new();
-        let executable = failure_fixture();
-        let base = ready_fixture_path();
-        let go = marker_path(&base, "go");
-        let ready = marker_path(&base, "ready");
-        let done = marker_path(&base, "done");
-        let reaped = marker_path(&base, "reaped");
-        let child_cpu = marker_path(&base, "child-cpu");
-        let child_pid = marker_path(&base, "child-pid");
-        let plugin_cpu = marker_path(&base, "plugin-cpu");
-        let plugin_pid = marker_path(&base, "plugin-pid");
-        let _files = TestFiles::new([
-            go.clone(),
-            ready.clone(),
-            done.clone(),
-            reaped.clone(),
-            child_cpu.clone(),
-            child_pid.clone(),
-            plugin_cpu.clone(),
-            plugin_pid.clone(),
-        ]);
-        let arguments = [
-            OsString::from("cpu-reaped-child"),
-            go.as_os_str().to_owned(),
-            ready.as_os_str().to_owned(),
-            done.as_os_str().to_owned(),
-            reaped.as_os_str().to_owned(),
-            child_cpu.as_os_str().to_owned(),
-            child_pid.as_os_str().to_owned(),
-            plugin_cpu.as_os_str().to_owned(),
-            plugin_pid.as_os_str().to_owned(),
-        ];
-        let limit = Duration::from_millis(380);
-        let mut session = match cpu_session(&executable, &arguments, limit, &cancel) {
-            Ok(session) => session,
-            Err(PluginError::ProcessBudget(ProcessBudgetError::Unavailable)) => {
-                require_complete_cpu_boundary_for_qualification();
-                eprintln!("skipping positive cgroup CPU case: systemd user cgroup-v2 boundary unavailable");
-                return;
-            }
-            Err(error) => panic!("unexpected CPU boundary setup failure: {error:?}"),
-        };
-        let child = u32::try_from(marker_u64(&child_pid)).expect("child pid fits u32");
-        let plugin = u32::try_from(marker_u64(&plugin_pid)).expect("plugin pid fits u32");
-        assert!(ready.exists(), "child is waiting before dispatch");
-        let started = Instant::now();
-        let error = session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect_err("aggregate child plus plugin CPU crosses the limit");
-        assert_budget_diagnostics(error);
-        assert!(started.elapsed() < Duration::from_secs(1));
-        assert!(
-            done.exists() && reaped.exists(),
-            "child exited and was reaped before the plugin workload completed"
-        );
-        assert!(marker_u64(&child_cpu) < u64::try_from(limit.as_micros()).expect("limit fits u64"));
-        assert!(marker_u64(&plugin_cpu) < u64::try_from(limit.as_micros()).unwrap());
-        assert!(
-            marker_u64(&child_cpu).saturating_add(350_000)
-                > u64::try_from(limit.as_micros()).unwrap(),
-            "the child's measured work plus the plugin's bounded CPU workload exceeds the cap"
-        );
-        assert!(
-            wait_until_process_stops(child),
-            "reaped child is absent after failure"
-        );
-        assert!(
-            wait_until_process_stops(plugin),
-            "plugin is absent after failure"
-        );
-        for path in [
-            go, ready, done, reaped, child_cpu, child_pid, plugin_cpu, plugin_pid,
-        ] {
-            let _ = std::fs::remove_file(path);
-        }
-    }
-
-    /// Trace: FR-013-AC-8, FR-013-AC-19, TC-026; count and terminate escaped-PGID CPU work.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn cpu_budget_includes_and_kills_escaped_process_group_member() {
-        let cancel = Cancel::new();
-        let executable = failure_fixture();
-        let base = ready_fixture_path();
-        let go = marker_path(&base, "go");
-        let ready = marker_path(&base, "ready");
-        let done = marker_path(&base, "done");
-        let reaped = marker_path(&base, "reaped");
-        let child_cpu = marker_path(&base, "child-cpu");
-        let child_pid = marker_path(&base, "child-pid");
-        let plugin_cpu = marker_path(&base, "plugin-cpu");
-        let plugin_pid = marker_path(&base, "plugin-pid");
-        let _files = TestFiles::new([
-            go.clone(),
-            ready.clone(),
-            done.clone(),
-            reaped.clone(),
-            child_cpu.clone(),
-            child_pid.clone(),
-            plugin_cpu.clone(),
-            plugin_pid.clone(),
-        ]);
-        let arguments = [
-            OsString::from("cpu-escaped-child"),
-            go.as_os_str().to_owned(),
-            ready.as_os_str().to_owned(),
-            done.as_os_str().to_owned(),
-            reaped.as_os_str().to_owned(),
-            child_cpu.as_os_str().to_owned(),
-            child_pid.as_os_str().to_owned(),
-            plugin_cpu.as_os_str().to_owned(),
-            plugin_pid.as_os_str().to_owned(),
-        ];
-        let limit = Duration::from_millis(700);
-        let mut session = match cpu_session(&executable, &arguments, limit, &cancel) {
-            Ok(session) => session,
-            Err(PluginError::ProcessBudget(ProcessBudgetError::Unavailable)) => {
-                require_complete_cpu_boundary_for_qualification();
-                eprintln!("skipping positive cgroup CPU case: systemd user cgroup-v2 boundary unavailable");
-                return;
-            }
-            Err(error) => panic!("unexpected CPU boundary setup failure: {error:?}"),
-        };
-        let child = u32::try_from(marker_u64(&child_pid)).expect("child pid fits u32");
-        let plugin = u32::try_from(marker_u64(&plugin_pid)).expect("plugin pid fits u32");
-        assert!(ready.exists(), "escaped child is waiting before dispatch");
-        let error = session
-            .request(
-                &test_request(),
-                &cancel,
-                |_manifest, _result: &TestResult| Ok::<(), String>(()),
-            )
-            .expect_err("aggregate escaped child plus plugin CPU crosses the limit");
-        assert_budget_diagnostics(error);
-        let child_cpu_micros = marker_u64(&child_cpu);
-        let plugin_cpu_micros = marker_u64(&plugin_cpu);
-        assert!((100_000..700_000).contains(&child_cpu_micros));
-        assert!((100_000..700_000).contains(&plugin_cpu_micros));
-        assert!(
-            500_000 < 700_000 && 500_000_u64.saturating_add(500_000) > 700_000,
-            "each bounded workload fits individually but their combined work exceeds the cap"
-        );
-        assert!(
-            wait_until_process_stops(child),
-            "escaped child is absent after failure"
-        );
-        assert!(
-            wait_until_process_stops(plugin),
-            "plugin is absent after failure"
-        );
-        for path in [
-            go, ready, done, reaped, child_cpu, child_pid, plugin_cpu, plugin_pid,
-        ] {
-            let _ = std::fs::remove_file(path);
-        }
-    }
-
     struct SlowWriter;
 
     impl std::io::Write for SlowWriter {
@@ -3835,27 +2524,6 @@ mod tests {
             .expect("worker exits after its bounded fake write");
     }
 
-    /// Trace: FR-013-AC-8, TC-026; sysinfo thread tasks do not inflate process-tree membership.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn multithreaded_plugin_counts_as_one_process() {
-        let cancel = Cancel::new();
-        let executable = failure_fixture();
-        let arguments = [OsString::from("thread-tasks")];
-        let session = PluginSession::<TestManifest, serde_json::Value, String>::start(
-            SessionStart {
-                executable: &executable,
-                arguments: &arguments,
-                limits: session_limits(),
-                cancel: &cancel,
-            },
-            |_manifest| Ok::<(), String>(()),
-        )
-        .expect("hello is admitted");
-        let members = session.monitor.refresh_tree().expect("tree sampling works");
-        assert_eq!(members.len(), 1);
-        drop(session);
-    }
     /// Trace: FR-013-AC-7, TC-024; charge hello, requests and results to one session budget.
     #[cfg(unix)]
     #[test]
