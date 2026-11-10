@@ -1027,6 +1027,7 @@ mod native_receipt_integration_tests {
             }],
             accounting: default_accounting(1_000_000),
             supplied: Default::default(),
+            backend: Default::default(),
         };
         let environment = ObjectEnvironment::default();
         let installation = KaniInstallation::discover().expect("cargo-kani is installed");

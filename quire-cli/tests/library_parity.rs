@@ -146,6 +146,7 @@ fn library_execute(
             arguments,
             accounting: default_accounting(DEFAULT_WORK_UNITS),
             supplied: SuppliedLimits::default(),
+            backend: Default::default(),
         },
         object_environment: &ObjectEnvironment::default(),
         cancel: Cancel::new(),

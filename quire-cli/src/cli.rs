@@ -775,15 +775,13 @@ fn run(options: RunOptions) -> CommandResult {
     if let Err(error) = options.limits.apply_to(&mut limits, &mut call) {
         return CommandResult::input_refusal(Operation::Execute, error.to_string());
     }
-    let path = source.path();
-    let bytes = source.text().as_bytes();
     let identity = source.identity().clone();
     if !provider_config.providers.is_empty() {
         let configured = crate::signals::run(move |signals| {
             run_configured_providers(ConfiguredRunRequest {
-                path,
+                path: source.path(),
                 package_name: &package_name,
-                bytes,
+                bytes: source.text().as_bytes(),
                 source: identity,
                 limits,
                 call,
@@ -804,8 +802,8 @@ fn run(options: RunOptions) -> CommandResult {
     match execute(ExecutionRequest {
         source: identity,
         package_name: &package_name,
-        path,
-        bytes,
+        path: source.path(),
+        bytes: source.text().as_bytes(),
         packages: &packages,
         dependencies: &dependencies,
         limits,
@@ -1041,7 +1039,7 @@ fn run_configured_providers(
         &QslCg,
         CompileInput {
             source,
-            package_name,
+            package_name: &package_name,
             path,
             bytes,
             packages: &packages,
@@ -1295,7 +1293,7 @@ fn format_source(options: SourceOptions) -> CommandResult {
     let source = options.source;
     let display_path = options.path.to_string_lossy();
     let cancel = Cancel::new();
-    let result = qsl_cst::parse_with_cancel(source, &display_path, &bytes, limits, &cancel)
+    let result = qsl_cst::parse_with_cancel(source, display_path.as_ref(), &bytes, limits, &cancel)
         .map_err(FormatRefusal::DiagnosedSource)
         .and_then(|parsed| format_with_limits(&parsed, FormatLimits::default()).map(Staged::new));
     let document = OutcomeDocument::from_format(&result);
@@ -1809,6 +1807,7 @@ mod configured_run_tests {
             ],
             accounting: default_accounting(DEFAULT_WORK_UNITS),
             supplied: Default::default(),
+            backend: Default::default(),
         };
         let executable = python_path();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1979,6 +1978,7 @@ mod configured_run_tests {
             ],
             accounting: default_accounting(DEFAULT_WORK_UNITS),
             supplied: Default::default(),
+            backend: Default::default(),
         };
         let executable = python_path();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))

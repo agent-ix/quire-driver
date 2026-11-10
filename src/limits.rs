@@ -122,6 +122,7 @@ mod tests {
             arguments: Vec::new(),
             accounting: default_accounting(100),
             supplied: quire_semantic_value::supplied_stop::SuppliedLimits::default(),
+            backend: Default::default(),
         }
     }
 
