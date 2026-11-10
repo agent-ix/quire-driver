@@ -19,16 +19,22 @@ generators.
 ## Getting started
 
 quire-driver is built from source. Install a Rust toolchain at least as new as
-the `rust-version` in `Cargo.toml`, then install the `quire` binary from a
-clone:
+the `rust-version` in `Cargo.toml`, then install the `quire` binary using the
+repository's locked dependencies:
+
+```
+cargo install --git https://github.com/agent-ix/quire-driver --locked quire-cli
+```
+
+To install from a local checkout instead:
 
 ```
 git clone https://github.com/agent-ix/quire-driver
 cd quire-driver
-cargo install --path quire-cli
+cargo install --path quire-cli --locked
 ```
 
-Check the install with `quire --help`.
+Check the install with `quire --version`.
 
 ## Commands
 
