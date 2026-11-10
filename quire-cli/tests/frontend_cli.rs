@@ -54,8 +54,8 @@ fn missing_and_extra_operands_are_refused_before_any_file_is_read() {
         ("compile", &["compile"]),
         ("compile", &["compile", "missing.qsl", "extra"]),
         ("parse", &["parse"]),
-        ("parse", &["parse", "missing.qsl", "extra"]),
-        ("format", &["format", "missing.qsl", "extra"]),
+        ("parse", &["parse", "issuer", "document", "missing.qsl", "extra"]),
+        ("format", &["format", "issuer", "document", "missing.qsl", "extra"]),
     ];
     for (verb, arguments) in cases {
         let output = quire(arguments);
@@ -72,9 +72,28 @@ fn missing_and_extra_operands_are_refused_before_any_file_is_read() {
     }
     let output = quire(&["format"]);
     assert_refused_quietly(&output, "format without an operand");
+    for verb in ["parse", "format"] {
+        for (authority, identity, label) in [
+            ("", "document", "authority"),
+            ("issuer", "\u{3000}", "identity"),
+            (" ", "", "authority"),
+        ] {
+            let output = quire(&[
+                verb, authority, identity, MISSING_SOURCE, "--format", "json",
+            ]);
+            assert_eq!(output.status.code(), Some(refusal_code()));
+            assert!(!String::from_utf8_lossy(&output.stderr).contains("could not read"));
+            let document: serde_json::Value = serde_json::from_slice(&output.stdout)
+                .expect("typed source identity refusal");
+            let diagnostic = &document["diagnostics"][0];
+            assert_eq!(diagnostic["code"], "invalid_source_identity");
+            assert_eq!(diagnostic["cause"], "blank-label");
+            assert_eq!(diagnostic["label"], label);
+            assert_eq!(diagnostic["locus"], serde_json::Value::Null);
+        }
+    }
 }
 
-#[trace("TC-1262", "FR-287-AC-5")]
 #[test]
 fn invalid_invocations_exit_20_and_the_next_valid_call_runs() {
     type InvalidCase<'a> = (&'a [&'a str], &'a str);
@@ -84,14 +103,14 @@ fn invalid_invocations_exit_20_and_the_next_valid_call_runs() {
     );
     let verbs: [(&[&str], &[InvalidCase<'_>]); 4] = [
         (
-            &["parse", SOURCE, "--format", "json"],
+            &["parse", "issuer", "document", SOURCE, "--format", "json"],
             &[
                 (
                     &["parse", "--bogus", MISSING_SOURCE],
                     "unknown parse option `--bogus`",
                 ),
                 (&["parse"], "usage: quire parse "),
-                (&["parse", MISSING_SOURCE, "extra"], "usage: quire parse "),
+                (&["parse", "issuer", "document", MISSING_SOURCE, "extra"], "usage: quire parse "),
                 (
                     &["parse", MISSING_SOURCE, "--format"],
                     "--format requires text, json, or dot",
@@ -103,14 +122,14 @@ fn invalid_invocations_exit_20_and_the_next_valid_call_runs() {
             ],
         ),
         (
-            &["format", SOURCE],
+            &["format", "issuer", "document", SOURCE],
             &[
                 (
                     &["format", "--bogus", MISSING_SOURCE],
                     "unknown format option `--bogus`",
                 ),
                 (&["format"], "usage: quire format "),
-                (&["format", MISSING_SOURCE, "extra"], "usage: quire format "),
+                (&["format", "issuer", "document", MISSING_SOURCE, "extra"], "usage: quire format "),
                 (
                     &["format", MISSING_SOURCE, "--format"],
                     "--format requires text, json, or dot",
@@ -200,33 +219,59 @@ fn invalid_invocations_exit_20_and_the_next_valid_call_runs() {
     }
 }
 
-/// Trace: FR-287-AC-6; a command word or operand that is not UTF-8 is refused
-/// before the file operand is opened.
 #[cfg(unix)]
-#[test]
-fn non_utf8_arguments_are_refused_before_the_file_is_opened() {
-    use std::ffi::OsString;
+fn invalid_os_string() -> std::ffi::OsString {
     use std::os::unix::ffi::OsStringExt;
+    std::ffi::OsString::from_vec(vec![0xff])
+}
 
-    let invalid = || OsString::from_vec(vec![0xff]);
-    let cases: [Vec<OsString>; 3] = [
-        vec![invalid(), "missing.qsl".into()],
-        vec!["parse".into(), "missing.qsl".into(), invalid()],
-        vec!["run".into(), "missing.qsl".into(), invalid()],
-    ];
+#[cfg(windows)]
+fn invalid_os_string() -> std::ffi::OsString {
+    use std::os::windows::ffi::OsStringExt;
+    std::ffi::OsString::from_wide(&[0xd800])
+}
+
+#[cfg(any(unix, windows))]
+#[trace("TC-1262", "FR-287-AC-6")]
+#[test]
+fn non_utf8_commands_and_labels_refuse_but_raw_file_paths_parse() {
+    use std::ffi::OsString;
+
+    let mut cases = vec![vec![invalid_os_string(), MISSING_SOURCE.into()]];
+    for verb in ["parse", "format"] {
+        cases.push(vec![
+            verb.into(), invalid_os_string(), "document".into(), MISSING_SOURCE.into(),
+        ]);
+        cases.push(vec![
+            verb.into(), "issuer".into(), invalid_os_string(), MISSING_SOURCE.into(),
+        ]);
+    }
     for arguments in cases {
-        let output = Command::new(QUIRE)
-            .args(&arguments)
-            .output()
-            .expect("run quire with a non-UTF-8 argument");
+        let output = Command::new(QUIRE).args(&arguments).output()
+            .expect("run quire with invalid command or label encoding");
         assert_refused_quietly(&output, &format!("{arguments:?}"));
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("UTF-8"), "{arguments:?}: {stderr}");
-        assert!(
-            !stderr.contains("could not read"),
-            "{arguments:?}: {stderr}"
-        );
+        assert!(!stderr.contains("could not read"), "{arguments:?}: {stderr}");
     }
+    let directory = TestDirectory(std::env::temp_dir().join(format!(
+        "quire-frontend-raw-path-{}", std::process::id()
+    )));
+    std::fs::create_dir_all(&directory.0).expect("create raw-path directory");
+    let mut filename = OsString::from("source-");
+    filename.push(invalid_os_string());
+    filename.push(".qsl");
+    let path = directory.0.join(filename);
+    std::fs::copy(SOURCE, &path).expect("create source at raw OS path");
+    let output = Command::new(QUIRE)
+        .args(["parse", "issuer", "document"])
+        .arg(&path).args(["--format", "json"]).output()
+        .expect("parse raw OS path");
+    assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(output.stderr.is_empty());
+    let document: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .expect("typed parse outcome");
+    assert_eq!(document["category"], "success");
 }
 
 /// Trace: FR-287-AC-7; a failed stdout write exits 30 for every verb.
@@ -234,12 +279,12 @@ fn non_utf8_arguments_are_refused_before_the_file_is_opened() {
 #[test]
 fn stdout_write_failure_exits_30() {
     let cases: [&[&str]; 5] = [
-        &["parse", SOURCE, "--format", "json"],
-        &["format", SOURCE],
+        &["parse", "issuer", "document", SOURCE, "--format", "json"],
+        &["format", "issuer", "document", SOURCE],
         &["compile", SOURCE, "--format", "json"],
         &["run", SOURCE, "yes", "--format", "json"],
         // A refused outcome document is written to the same stream.
-        &["parse", INVALID_SOURCE, "--format", "json"],
+        &["parse", "issuer", "document", INVALID_SOURCE, "--format", "json"],
     ];
     for arguments in cases {
         let full = std::fs::OpenOptions::new()
@@ -271,12 +316,12 @@ fn closed_stdout_pipe_keeps_the_outcome_exit_code_and_stays_quiet() {
     let success = i32::from(Category::Success.exit_code());
     let refusal = i32::from(Category::Refusal.exit_code());
     let cases: [(&[&str], i32); 5] = [
-        (&["parse", SOURCE, "--format", "json"], success),
-        (&["format", SOURCE], success),
+        (&["parse", "issuer", "document", SOURCE, "--format", "json"], success),
+        (&["format", "issuer", "document", SOURCE], success),
         (&["compile", SOURCE, "--format", "json"], success),
         (&["run", SOURCE, "yes", "--format", "json"], success),
         // A refused outcome keeps its own non-zero code, distinguishing it from 30.
-        (&["parse", INVALID_SOURCE, "--format", "json"], refusal),
+        (&["parse", "issuer", "document", INVALID_SOURCE, "--format", "json"], refusal),
     ];
     for (arguments, expected) in cases {
         // The reader is gone before the child exists, so its first write

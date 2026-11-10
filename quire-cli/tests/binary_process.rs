@@ -270,7 +270,7 @@ fn run_without_engine_executes_with_the_interpreter() {
 #[test]
 fn unavailable_text_renderers_return_typed_unsupported_refusals() {
     let cases = [
-        vec!["parse", "missing-text-renderer.qsl"],
+        vec!["parse", "issuer", "document", "missing-text-renderer.qsl"],
         vec!["check", "missing-text-renderer.qsl"],
         vec!["compile", "missing-text-renderer.qsl"],
         vec!["run", "missing-text-renderer.qsl", "yes"],

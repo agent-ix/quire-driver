@@ -47,6 +47,15 @@ command-line design:
 | `format` | works | Print the source in QSL's canonical layout. |
 | `analyze`, `monitor`, `prove`, `replay`, `generate`, `inspect`, `render` | planned | Recognized, and end as `unsupported` (exit 21) until a handler is written. |
 
+`parse` and `format` take two logical source labels followed by the file path:
+
+```sh
+quire parse example.org requirements source.qsl --format json
+quire format example.org requirements source.qsl
+```
+
+The labels identify the source; the file path is its physical location.
+
 `run` accepts `--engine interpreter|aot|jit` and `--limit` overrides. The
 interpreter is the linked engine, and the other engines are refused before
 anything runs. The command supplies an empty object environment.

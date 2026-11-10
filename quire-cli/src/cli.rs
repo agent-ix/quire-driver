@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use ix_cli_kit::exit::{caller_exit_code, RESERVED_COMMAND_NOT_FOUND};
@@ -12,10 +13,11 @@ use ix_cli_kit::streams::{self, Diagnostics};
 use qsl_cst::format::{format_with_limits, FormatLimits, FormatRefusal};
 use qsl_foundation::diagnostic::Code;
 use qsl_foundation::diagnostic::Staged;
+use qsl_foundation::source::{SourceReadCause, SourceReadError, SourceReadRefusal};
 use qsl_foundation::SourceIdentity;
 use qsl_replay::spine::{
     check, default_accounting, package, parse, select, Call, CallArgument, DependencyInput,
-    PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
+    CompileRefusal, PackageLimits, ParseRequest, SpineLimits, DEFAULT_WORK_UNITS,
 };
 use qsl_replay::{run_with_requirements, CallOutcome, RunRefusal};
 use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
@@ -123,6 +125,9 @@ fn help_exit_code() -> ExitCode {
         ));
     }
     help.push_str(concat!(
+        "\nSource operands:\n",
+        "  parse <authority> <identity> <file> [--format json|text]\n",
+        "  format <authority> <identity> <file> [--format json|text]\n",
         "\nOptions:\n",
         "  --format text|json|dot  Select output format (default: text).\n",
         "                         dot is accepted only for inspect.\n",
@@ -245,10 +250,7 @@ fn parse_invocation(arguments: &[OsString]) -> Result<Invocation, String> {
     let mut format = OutputFormat::Text;
     let mut index = 1;
     while index < arguments.len() {
-        let arg = arguments[index]
-            .to_str()
-            .ok_or_else(|| "option must be valid UTF-8".to_owned())?;
-        if arg == "--format" {
+        if arguments[index] == "--format" {
             index += 1;
             let value = arguments
                 .get(index)
@@ -433,64 +435,43 @@ struct CheckOptions {
     path: String,
 }
 
-struct ParseOptions {
-    path: String,
+struct SourceOptions {
+    source: SourceIdentity,
+    path: PathBuf,
 }
 
-struct FormatOptions {
-    path: String,
-}
-
-impl FormatOptions {
-    fn parse(arguments: &[OsString]) -> Result<Self, String> {
+impl SourceOptions {
+    fn parse(verb: Verb, arguments: &[OsString]) -> Result<Self, String> {
+        let usage = || format!(
+            "usage: quire {} <authority> <identity> <file> [--format json|text]",
+            verb.name()
+        );
         let mut positionals = Vec::new();
         let mut index = 0;
         while index < arguments.len() {
-            let argument = arguments[index]
-                .to_str()
-                .ok_or_else(|| "format arguments must be valid UTF-8".to_owned())?;
+            let argument = &arguments[index];
             if argument == "--format" {
                 index += 2;
                 continue;
             }
-            if argument.starts_with('-') {
-                return Err(format!("unknown format option `{argument}`"));
+            if let Some(option) = argument.to_str().filter(|value| value.starts_with('-')) {
+                return Err(format!("unknown {} option `{option}`", verb.name()));
             }
-            positionals.push(argument.to_owned());
+            positionals.push(argument);
             index += 1;
         }
-        if positionals.len() != 1 {
-            return Err("usage: quire format <source-path> [--format json|text]".to_owned());
-        }
+        let [authority, identity, path] = positionals.as_slice() else {
+            return Err(usage());
+        };
+        let authority = authority.to_str().ok_or_else(|| {
+            format!("{} authority label must be valid UTF-8", verb.name())
+        })?;
+        let identity = identity.to_str().ok_or_else(|| {
+            format!("{} identity label must be valid UTF-8", verb.name())
+        })?;
         Ok(Self {
-            path: positionals.remove(0),
-        })
-    }
-}
-
-impl ParseOptions {
-    fn parse(arguments: &[OsString]) -> Result<Self, String> {
-        let mut positionals = Vec::new();
-        let mut index = 0;
-        while index < arguments.len() {
-            let argument = arguments[index]
-                .to_str()
-                .ok_or_else(|| "parse arguments must be valid UTF-8".to_owned())?;
-            if argument == "--format" {
-                index += 2;
-                continue;
-            }
-            if argument.starts_with('-') {
-                return Err(format!("unknown parse option `{argument}`"));
-            }
-            positionals.push(argument.to_owned());
-            index += 1;
-        }
-        if positionals.len() != 1 {
-            return Err("usage: quire parse <source-path> [--format json|text]".to_owned());
-        }
-        Ok(Self {
-            path: positionals.remove(0),
+            source: SourceIdentity::new(authority, identity),
+            path: PathBuf::from(*path),
         })
     }
 }
@@ -1217,21 +1198,48 @@ fn tc018_record_check_request(
     }
 }
 
+/// Refuse an invalid logical label before opening its physical source path.
+fn source_preflight(
+    options: &SourceOptions,
+    operation: Operation,
+    byte_limit: usize,
+) -> Option<CommandResult> {
+    let label = options.source.first_blank_label()?;
+    let diagnostic = qsl_cst::diagnostic::source_refusal(
+        SourceReadRefusal {
+            cause: SourceReadCause::BlankLabel { label },
+            error: SourceReadError {
+                source: options.source.clone(),
+                path: options.path.to_string_lossy().into_owned(),
+                region: None,
+                message: format!("source {} label must not be blank", label.as_str()),
+            },
+        },
+        byte_limit,
+    );
+    let refusal = CompileRefusal::Source(diagnostic);
+    Some(CommandResult::document(
+        OutcomeDocument::new(operation, Some(refusal.stage().into()), refusal.code().category())
+            .with_diagnostics(vec![OutcomeDiagnostic::from_compile_refusal(&refusal)]),
+    ))
+}
+
 /// Parse one source through QSL and serialize its typed parse outcome.
-fn parse_source(options: ParseOptions) -> CommandResult {
+fn parse_source(options: SourceOptions) -> CommandResult {
     let limits = SpineLimits::default();
     let bytes = match read_source(&options.path, limits.source.source_bytes) {
         Ok(bytes) => bytes,
         Err(error) => {
-            let message = format!("could not read source {}: {error}", options.path);
+            let message = format!("could not read source {}: {error}", options.path.display());
             return CommandResult::catalog_failure_for(Operation::Parse, Code::IoError, message);
         }
     };
-    let source = SourceIdentity::new("quire", &options.path);
+    let source = options.source;
+    let display_path = options.path.to_string_lossy();
     let result = parse(
         &ParseRequest {
             source: &source,
-            path: &options.path,
+            path: &display_path,
             bytes: &bytes,
         },
         limits.source,
@@ -1241,18 +1249,19 @@ fn parse_source(options: ParseOptions) -> CommandResult {
 }
 
 /// Format one parsed source through QSL and retain its typed outcome.
-fn format_source(options: FormatOptions) -> CommandResult {
+fn format_source(options: SourceOptions) -> CommandResult {
     let limits = qsl_cst::Limits::default();
     let bytes = match read_source(&options.path, limits.source_bytes) {
         Ok(bytes) => bytes,
         Err(error) => {
-            let message = format!("could not read source {}: {error}", options.path);
+            let message = format!("could not read source {}: {error}", options.path.display());
             return CommandResult::catalog_failure_for(Operation::Format, Code::IoError, message);
         }
     };
-    let source = SourceIdentity::new("quire", &options.path);
+    let source = options.source;
+    let display_path = options.path.to_string_lossy();
     let cancel = Cancel::new();
-    let result = qsl_cst::parse_with_cancel(source, &options.path, &bytes, limits, &cancel)
+    let result = qsl_cst::parse_with_cancel(source, &display_path, &bytes, limits, &cancel)
         .map_err(FormatRefusal::DiagnosedSource)
         .and_then(|parsed| format_with_limits(&parsed, FormatLimits::default()).map(Staged::new));
     let document = OutcomeDocument::from_format(&result);
@@ -1263,7 +1272,7 @@ fn format_source(options: FormatOptions) -> CommandResult {
 /// Read at most one byte beyond the caller's source limit. Passing that
 /// sentinel byte to QSL preserves its typed source-limit refusal while
 /// keeping the CLI's input buffer bounded by the configured limit.
-fn read_source(path: &str, source_limit: usize) -> std::io::Result<Vec<u8>> {
+fn read_source(path: impl AsRef<Path>, source_limit: usize) -> std::io::Result<Vec<u8>> {
     let read_limit = u64::try_from(source_limit)
         .unwrap_or(u64::MAX)
         .saturating_add(1);
@@ -1302,17 +1311,26 @@ fn dispatch(verb: Verb, format: OutputFormat, raw_arguments: &[OsString]) -> Com
         };
     }
     if verb == Verb::Parse {
-        return match ParseOptions::parse(raw_arguments) {
-            Ok(_options) if format == OutputFormat::Text => {
-                text_rendering_unavailable(Operation::Parse, "parse")
-            }
-            Ok(options) => parse_source(options),
+        return match SourceOptions::parse(verb, raw_arguments) {
+            Ok(options) => {
+                if let Some(refusal) = source_preflight(
+                    &options, Operation::Parse, SpineLimits::default().source.source_bytes,
+                ) {
+                    refusal
+                } else if format == OutputFormat::Text {
+                    text_rendering_unavailable(Operation::Parse, "parse")
+                } else {
+                    parse_source(options)
+                }
+            },
             Err(error) => CommandResult::input_refusal(Operation::Parse, error),
         };
     }
     if verb == Verb::Format {
-        return match FormatOptions::parse(raw_arguments) {
-            Ok(options) => format_source(options),
+        return match SourceOptions::parse(verb, raw_arguments) {
+            Ok(options) => source_preflight(
+                &options, Operation::Format, qsl_cst::Limits::default().source_bytes,
+            ).unwrap_or_else(|| format_source(options)),
             Err(error) => CommandResult::input_refusal(Operation::Format, error),
         };
     }
@@ -1426,7 +1444,8 @@ pub(super) fn entrypoint() -> ExitCode {
 )]
 mod outcome_tests {
     use std::io;
-    use std::process::ExitCode;
+    use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
     use qsl_replay::{Operation, OutcomeDiagnostic, OutcomeDocument};
     use quire_semantic_value::catalog::Category;
@@ -1684,7 +1703,8 @@ mod tests {
 mod configured_run_tests {
     use std::path::{Path, PathBuf};
 
-    use qsl_foundation::SourceIdentity;
+    use qsl_foundation::source::{SourceReadCause, SourceReadError, SourceReadRefusal};
+use qsl_foundation::SourceIdentity;
     use qsl_replay::spine::{
         default_accounting, Call, CallArgument, SpineLimits, DEFAULT_WORK_UNITS,
     };

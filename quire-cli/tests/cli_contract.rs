@@ -33,7 +33,7 @@ const CHECK_INVALID_SOURCE: &str = concat!(
 
 fn parse_outcome_bytes(path: &'static str) -> Vec<u8> {
     let bytes = std::fs::read(path).expect("read parse fixture");
-    let source = SourceIdentity::new("quire", path);
+    let source = SourceIdentity::new("issuer", "document");
     let limits = SpineLimits::default();
     let result = parse(
         &ParseRequest {
@@ -116,7 +116,7 @@ fn package_outcome_bytes(path: &'static str) -> Vec<u8> {
 
 fn format_outcome_bytes(path: &'static str) -> Vec<u8> {
     let bytes = std::fs::read(path).expect("read format fixture");
-    let source = SourceIdentity::new("quire", path);
+    let source = SourceIdentity::new("issuer", "document");
     let limits = qsl_cst::Limits::default();
     let cancel = Cancel::new();
     let result = qsl_cst::parse_with_cancel(source, path, &bytes, limits, &cancel)
@@ -335,7 +335,7 @@ fn implemented_verb_argument_refusals_use_the_selected_operation() {
 #[test]
 fn parse_emits_qsl_parse_outcome_document() {
     let output = Command::new(QUIRE)
-        .args(["parse", SOURCE, "--format", "json"])
+        .args(["parse", "issuer", "document", SOURCE, "--format", "json"])
         .output()
         .expect("run parse command");
     assert_eq!(output.status.code(), Some(0));
@@ -348,7 +348,7 @@ fn parse_emits_qsl_parse_outcome_document() {
 #[test]
 fn parse_refusal_emits_qsl_diagnostic_cause_and_locus() {
     let output = Command::new(QUIRE)
-        .args(["parse", INVALID_SOURCE, "--format", "json"])
+        .args(["parse", "issuer", "document", INVALID_SOURCE, "--format", "json"])
         .output()
         .expect("run parse refusal");
     assert_eq!(output.status.code(), Some(20));
@@ -362,7 +362,7 @@ fn parse_refusal_emits_qsl_diagnostic_cause_and_locus() {
 fn format_writes_qsl_formatted_text_without_editing_the_source() {
     let source = std::fs::read(SOURCE).expect("read format fixture");
     let parsed = qsl_cst::parse_with_cancel(
-        SourceIdentity::new("quire", SOURCE),
+        SourceIdentity::new("issuer", "document"),
         SOURCE,
         &source,
         qsl_cst::Limits::default(),
@@ -373,7 +373,7 @@ fn format_writes_qsl_formatted_text_without_editing_the_source() {
         .expect("fixture formats under the default limit");
 
     let output = Command::new(QUIRE)
-        .args(["format", SOURCE])
+        .args(["format", "issuer", "document", SOURCE])
         .output()
         .expect("run format command");
     assert_eq!(output.status.code(), Some(0));
@@ -389,7 +389,7 @@ fn format_writes_qsl_formatted_text_without_editing_the_source() {
 #[test]
 fn format_machine_mode_emits_qsl_format_outcome_document() {
     let output = Command::new(QUIRE)
-        .args(["format", SOURCE, "--format", "json"])
+        .args(["format", "issuer", "document", SOURCE, "--format", "json"])
         .output()
         .expect("run format in machine mode");
     assert_eq!(output.status.code(), Some(0));
@@ -402,7 +402,7 @@ fn format_machine_mode_emits_qsl_format_outcome_document() {
 #[test]
 fn format_refusal_emits_qsl_diagnostic_cause_and_locus() {
     let output = Command::new(QUIRE)
-        .args(["format", INVALID_SOURCE, "--format", "json"])
+        .args(["format", "issuer", "document", INVALID_SOURCE, "--format", "json"])
         .output()
         .expect("run format refusal");
     assert_eq!(output.status.code(), Some(20));
