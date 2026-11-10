@@ -255,8 +255,8 @@ implementation; FR-013 specifies the in-repository plugin host; FR-014 specifies
 
 ## 5. Verification and Delivery Boundary
 
-[TM-001](tests.md) integrates FR-001 through FR-014, and TC-001 through
-TC-028.
+[TM-001](tests.md) integrates FR-001 through FR-020, and TC-001 through
+TC-034.
 It distinguishes existing orchestration tests from planned driver tests and
 records their verification owners. Cross-backend and CLI/library conformance
 formerly described by CG FR-005 and IR-337 feed IR-528's G5b gate exclusively

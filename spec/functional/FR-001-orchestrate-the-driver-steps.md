@@ -72,7 +72,7 @@ the request's selected byte ceiling.
   node's own operation and bound (IR-294).
   Each routed Kani item also carries its QSL requirement record, and the Kani
   context carries the package's requirement records; FR-020 owns that
-  projection and its missing-record fault.
+  projection and its absent-record and unresolved-record faults.
 - A caller-owned, cloneable QSL `Cancel` handle. The driver passes the same
   handle through `parse`, `select`, `check` and `package`; the caller may
   cancel it from another thread while a stage runs. QSL owns polling and

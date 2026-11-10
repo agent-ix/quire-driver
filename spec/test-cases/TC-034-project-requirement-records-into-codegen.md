@@ -13,25 +13,32 @@ relationships:
 Verify that the driver hands CG each routed item's QSL requirement and the
 package's requirement records exactly, and refuses typed when it cannot.
 
-Scope: FR-020-AC-1 through FR-020-AC-11. Planned until CG PR #772 (IR-304
-slice (a)) merges.
+Scope: FR-020-AC-1 through FR-020-AC-14. Planned until CG PR #772 (IR-304
+slice (a)) merges; AC-11 and AC-13 wait on IR-304 slice (b).
+FR-001-AC-17 keeps its own evidence in TC-017; this case reuses that vector
+for FR-020-AC-6 only.
 
 ## Test Procedure
 
-1. Check a QSL unit with one node carrying two occurrences (different
-   ordinal, result bound and path condition), one with a conversion context
-   and two guards, and the IR-304 guarded package. Capture what the driver
-   passes to a recording CG seam (AC-1 to AC-3, AC-6, AC-7).
-2. Drive the projection function over a requirements view with the item's
-   key removed (AC-4), and over a view in which two keys map to one
-   occurrence (AC-5). Assert the fault fields, code, stage, kind and that the
-   recording seam saw no generation call.
-3. Reuse the FR-010-AC-4 partition vector, once as is and once with B's record removed from the view (AC-6).
+1. Check a QSL unit with one node carrying two occurrences with different
+   result bounds (`rr16_input` with its two narrows on different bounded
+   types), one with a conversion context and two guards, one whose single
+   occurrence holds a `value-validity` and another-capability record, and the
+   IR-304 guarded package including `if p then x + 1 else x + 1`. Capture
+   what the driver passes to a recording CG seam (AC-1 to AC-3, AC-5 to
+   AC-7, AC-12).
+2. Call the projection function with the package's `RequirementMap` with the
+   item's `value-validity` record removed (AC-4), and with a record whose
+   guard node the admitted package does not hold (AC-14). Assert the fault
+   fields, code, stage, kind and that the recording seam saw no generation
+   call.
+3. Reuse the FR-010-AC-4 partition vector, once as is and once with B's
+   record removed from the map (AC-6).
 4. Tamper one record's result-bound node, run with real CG, and compare the
-   returned refusal (AC-8). Feed a fake CG error of each mismatch variant
-   (AC-9).
-5. Run the end-to-end package through real CG with the Kani provider fixture
-   (AC-10). Inspect `Cargo.toml` (AC-11).
+   returned refusal (AC-8). Feed a fake CG error of each slice (a) mismatch
+   variant (AC-9) and of `GuardContextMissing` (AC-13).
+5. Run the guarded package through real CG with the Kani provider fixture
+   (AC-10 in slice (a), AC-11 after slice (b)).
 
 ## Mutants
 
@@ -44,17 +51,22 @@ correct driver.
 | Reverse the path condition, or flip a `holds` value | AC-1 ordered-guard equality |
 | Drop the conversion context or fill it from the node | AC-1 `None` and `Some` cases |
 | Build records only for routed items | AC-2 refused item's record; AC-6 B's record |
-| Fill a missing record from the item's own fields | AC-4 fault and no-generation-call assertions |
-| Overwrite on a duplicate key instead of refusing | AC-5 fault and no-generation-call assertions |
-| Refuse on any missing record, or attach a requirement to B | AC-6 completion with B's record removed; B's absent requirement |
+| Project every capability's record, so a later one overwrites at a shared occurrence | AC-2 (no other-capability entry); AC-5 (entry fields equal the `value-validity` record) |
+| Look the item's record up by occurrence alone | AC-5 (the item gets the other capability's record or none) |
+| Fill an absent record from the item's own fields | AC-4 fault and no-generation-call assertions |
+| Skip a record that fails to resolve and continue | AC-14 fault and no-generation-call assertions |
+| Attach a requirement at B's index, or fault on B's missing record | AC-6 `None` at index 1; completion with B's record removed |
 | Place guard roots before the conversion root, in reverse, or advance driver indices | AC-7 position order and next index |
+| Emit a shared guard root once for both items | AC-12 (the else span lacks the root) |
 | Replace the QSL result bound with the IR selected type | AC-8 (CG then reports no mismatch) |
-| Map a CG record refusal to `invalid_request` or rewrite its fields | AC-9 code, kind and field equality |
-| Strip an unlowered guard | AC-10 (no guard-free harness) |
-| Add a `rev` to the CG dependency | AC-11 inspection |
+| Map a CG record refusal to `invalid_request` | AC-9, AC-13 wire code |
+| Report a CG record refusal at the Negotiation stage | AC-9, AC-13 stage |
+| Report a CG record refusal as outcome kind refusal | AC-9, AC-13 outcome kind |
+| Rewrite a CG refusal's request index, occurrence or mismatch | AC-9, AC-13 field equality |
+| Strip an unlowered guard | AC-10, AC-11 (no guard-free harness) |
 
 ## Expected Results
 
-- The projection equals QSL's values field by field; a missing or duplicated
-  record is a `runtime_invariant` Generation fault before CG is called; CG's
-  record refusals pass through unchanged.
+- The projection equals QSL's `value-validity` values field by field; an
+  absent or unresolvable record is a `runtime_invariant` Generation fault
+  before CG is called; CG's record refusals pass through unchanged.
