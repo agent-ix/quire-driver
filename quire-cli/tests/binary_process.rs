@@ -34,8 +34,16 @@ use quire_semantic_value::supplied_stop::SuppliedLimits;
 #[path = "../../tests/common/units.rs"]
 mod shared_units;
 
+#[path = "common/requests.rs"]
+mod requests;
+
 const QUIRE: &str = env!("CARGO_BIN_EXE_quire");
 const SOURCE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ir608-run.qsl");
+
+const RUN_REQUEST: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/frontend-run.json"
+);
 
 #[cfg(all(unix, feature = "tc018-test-adapter"))]
 static TEST_DIRECTORY_ID: AtomicUsize = AtomicUsize::new(0);
@@ -257,7 +265,7 @@ fn expected_document_bytes(code: Code, message: &str) -> Vec<u8> {
 #[test]
 fn run_without_engine_executes_with_the_interpreter() {
     let output = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--format", "json"])
+        .args(["run", RUN_REQUEST, "--format", "json"])
         .output()
         .expect("run quire");
     assert_eq!(
@@ -273,7 +281,7 @@ fn unavailable_text_renderers_return_typed_unsupported_refusals() {
         vec!["parse", "issuer", "document", "missing-text-renderer.qsl"],
         vec!["check", "missing-text-renderer.qsl"],
         vec!["compile", "missing-text-renderer.qsl"],
-        vec!["run", "missing-text-renderer.qsl", "yes"],
+        vec!["run", "missing-text-renderer.json"],
     ];
 
     for arguments in cases {
@@ -310,7 +318,7 @@ fn unavailable_text_renderers_return_typed_unsupported_refusals() {
 #[test]
 fn machine_run_writes_the_canonical_qsl_outcome() {
     let output = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--format", "json"])
+        .args(["run", RUN_REQUEST, "--format", "json"])
         .output()
         .expect("run quire in machine mode");
     assert_eq!(output.status.code(), Some(0));
@@ -320,8 +328,8 @@ fn machine_run_writes_the_canonical_qsl_outcome() {
     let dependencies = DependencyInput::default();
     let source_bytes = std::fs::read(SOURCE).expect("read source fixture");
     let request = ExecutionRequest {
-        source: SourceIdentity::new("quire", SOURCE),
-        package_name: SOURCE,
+        source: SourceIdentity::new("issuer", "document"),
+        package_name: "document",
         path: SOURCE,
         bytes: &source_bytes,
         packages: &packages,
@@ -356,8 +364,7 @@ fn malformed_run_limit_emits_one_qsl_outcome_and_streams_diagnostic() {
     let output = Command::new(QUIRE)
         .args([
             "run",
-            "missing-source.qsl",
-            "yes",
+            "missing-request.json",
             "--limit",
             "s1.input_bytes=invalid",
             "--format",
@@ -379,22 +386,29 @@ fn malformed_run_limit_emits_one_qsl_outcome_and_streams_diagnostic() {
 #[test]
 fn missing_source_emits_qsl_io_error_document_and_diagnostic() {
     let output = Command::new(QUIRE)
-        .args(["run", "missing-source.qsl", "yes", "--format", "json"])
+        .args(["run", "missing-request.json", "--format", "json"])
         .output()
         .expect("run quire with a missing source");
     assert_eq!(output.status.code(), Some(20));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("could not read source missing-source.qsl:"));
+    assert!(stderr.contains("cannot read missing-request.json:"));
     assert!(stderr.ends_with('\n'));
-    assert_eq!(
-        output.stdout,
-        expected_document_bytes(Code::IoError, stderr.trim_end())
-    );
+    let error = qsl_command::command::prepare_run(
+        std::path::Path::new("missing-request.json"),
+        qsl_command::command::RunLimits::default(),
+    )
+    .err()
+    .expect("owner refuses missing request");
+    let expected =
+        ix_cli_kit::json::encode_canonical(&error.outcome_document(Operation::Execute), false)
+            .expect("encode owner refusal");
+    // OS error wording is owned by the same intake operation.
+    assert_eq!(output.stdout, format!("{expected}\n").as_bytes());
 }
 
 fn run_with_provider_config(path: &std::path::Path) -> std::process::Output {
     Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--provider-config"])
+        .args(["run", RUN_REQUEST, "--provider-config"])
         .arg(path)
         .args(["--format", "json"])
         .output()
@@ -516,7 +530,7 @@ fn empty_provider_config_executes_without_starting_a_provider() {
     ));
     std::fs::write(&path, r#"{"providers":[]}"#).expect("write empty provider config");
     let output = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--provider-config"])
+        .args(["run", RUN_REQUEST, "--provider-config"])
         .arg(&path)
         .args(["--format", "json"])
         .output()
@@ -591,14 +605,19 @@ fn duplicate_provider_identities_refuse_before_negotiation_and_close_sessions() 
     )
     .expect("write provider config");
 
-    let output = Command::new(QUIRE)
-        .args([
-            "run",
-            source_path.to_str().expect("UTF-8 source path"),
+    let request = requests::request(
+        source_path.to_str().expect("UTF-8 source path"),
+        Some((
             "eq",
-            "x=2",
-            "y=3",
-        ])
+            serde_json::json!([
+                {"parameter":"x","value":2},
+                {"parameter":"y","value":3}
+            ]),
+        )),
+    );
+    let output = Command::new(QUIRE)
+        .arg("run")
+        .arg(request.as_str())
         .arg("--provider-config")
         .arg(&config_path)
         .args(["--format", "json"])
@@ -684,14 +703,19 @@ fn configured_process_sigterm_cleans_active_session_before_reraise() {
     .expect("write provider config");
 
     let started = Instant::now();
-    let mut child = Command::new(QUIRE)
-        .args([
-            "run",
-            source_path.to_str().expect("UTF-8 source path"),
+    let request = requests::request(
+        source_path.to_str().expect("UTF-8 source path"),
+        Some((
             "eq",
-            "x=2",
-            "y=3",
-        ])
+            serde_json::json!([
+                {"parameter":"x","value":2},
+                {"parameter":"y","value":3}
+            ]),
+        )),
+    );
+    let mut child = Command::new(QUIRE)
+        .arg("run")
+        .arg(request.as_str())
         .arg("--provider-config")
         .arg(&config_path)
         .args(["--format", "json"])
@@ -761,7 +785,7 @@ fn configured_process_sigterm_cleans_active_session_before_reraise() {
 #[test]
 fn root_argv_refusal_names_invalid_format_without_result_output() {
     let output = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--format", "dot"])
+        .args(["run", RUN_REQUEST, "--format", "dot"])
         .output()
         .expect("run quire with an invalid root format");
     assert_eq!(output.status.code(), Some(20));
@@ -793,8 +817,7 @@ fn unavailable_engines_are_not_substituted() {
         let output = Command::new(QUIRE)
             .args([
                 "run",
-                "missing-source.qsl",
-                "yes",
+                "missing-request.json",
                 "--engine",
                 engine,
                 "--format",
@@ -825,7 +848,7 @@ fn unavailable_engines_are_not_substituted() {
 #[test]
 fn an_unknown_engine_is_a_refusal() {
     let output = Command::new(QUIRE)
-        .args(["run", "missing-source.qsl", "yes", "--engine", "gpu"])
+        .args(["run", "missing-request.json", "--engine", "gpu"])
         .output()
         .expect("run quire");
     assert_eq!(
@@ -841,8 +864,7 @@ fn checking_work_limit_changes_the_call_outcome() {
     let exhausted = Command::new(QUIRE)
         .args([
             "run",
-            SOURCE,
-            "yes",
+            RUN_REQUEST,
             "--limit",
             "s3.work_units=0",
             "--format",
@@ -858,8 +880,7 @@ fn checking_work_limit_changes_the_call_outcome() {
     let sufficient = Command::new(QUIRE)
         .args([
             "run",
-            SOURCE,
-            "yes",
+            RUN_REQUEST,
             "--limit",
             "s3.work_units=1000",
             "--format",
@@ -879,8 +900,7 @@ fn named_accounting_work_units_limit_reaches_qsl_call_accounting() {
     let output = Command::new(QUIRE)
         .args([
             "run",
-            SOURCE,
-            "yes",
+            RUN_REQUEST,
             "--limit",
             "accounting.work_units=0",
             "--format",
@@ -908,8 +928,7 @@ fn lifecycle_stage_limit_uses_incomplete_exit_code() {
     let output = Command::new(QUIRE)
         .args([
             "run",
-            SOURCE,
-            "yes",
+            RUN_REQUEST,
             "--limit",
             "s1.input_bytes=1",
             "--format",
@@ -925,7 +944,7 @@ fn lifecycle_stage_limit_uses_incomplete_exit_code() {
     let source_bytes = std::fs::read(SOURCE).expect("read fixture to set exact source bound");
     let bound = format!("s1.input_bytes={}", source_bytes.len());
     let raised = Command::new(QUIRE)
-        .args(["run", SOURCE, "yes", "--limit", &bound, "--format", "json"])
+        .args(["run", RUN_REQUEST, "--limit", &bound, "--format", "json"])
         .output()
         .expect("run with the source bound raised to the fixture length");
     assert_eq!(
@@ -944,7 +963,7 @@ fn qsl_rejects_unknown_malformed_and_duplicate_limits_before_source_read() {
         "s1.input_bytes=1", // duplicated below using the same option twice
     ] {
         let mut command = Command::new(QUIRE);
-        command.args(["run", "missing-source.qsl", "yes", "--limit", operand]);
+        command.args(["run", "missing-request.json", "--limit", operand]);
         if operand == "s1.input_bytes=1" {
             command.args(["--limit", operand]);
         }
@@ -973,8 +992,7 @@ fn recognized_setting_unavailable_for_run_is_named_before_source_read() {
     let output = Command::new(QUIRE)
         .args([
             "run",
-            "missing-source.qsl",
-            "yes",
+            "missing-request.json",
             "--limit",
             "explore.states=2",
             "--format",
@@ -1005,8 +1023,7 @@ fn invalid_operand_precedes_recognized_but_unavailable_setting() {
     let output = Command::new(QUIRE)
         .args([
             "run",
-            "missing-source.qsl",
-            "yes",
+            "missing-request.json",
             "--limit",
             "explore.states=2",
             "--limit",
@@ -1029,7 +1046,7 @@ fn invalid_operand_precedes_recognized_but_unavailable_setting() {
 #[cfg(unix)]
 #[test]
 fn refusal_keeps_its_exit_code_when_stderr_is_unwritable() {
-    let status = status_with_unwritable_stderr(&["run", SOURCE, "yes", "--format", "dot"], false);
+    let status = status_with_unwritable_stderr(&["run", RUN_REQUEST, "--format", "dot"], false);
     assert_eq!(status.code(), Some(20));
 }
 
@@ -1159,7 +1176,7 @@ fn reserved_exit_code_uses_internal_failure_fallback() {
 
     for format in ["text", "json"] {
         let output = Command::new(QUIRE)
-            .args(["run", SOURCE, "yes", "--format", format])
+            .args(["run", RUN_REQUEST, "--format", format])
             .env("TC018_CASE", "reserved-exit")
             .output()
             .expect("run the test-built quire binary with a valid verb");
@@ -1190,8 +1207,7 @@ fn reserved_exit_code_uses_internal_failure_fallback() {
 
     #[cfg(unix)]
     {
-        let status =
-            status_with_unwritable_stderr(&["run", SOURCE, "yes", "--format", "json"], true);
+        let status = status_with_unwritable_stderr(&["run", RUN_REQUEST, "--format", "json"], true);
         assert_eq!(status.code(), Some(30));
     }
 }

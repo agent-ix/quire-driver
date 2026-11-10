@@ -81,11 +81,21 @@ profile v = "quire.value.complete/v1";
 function yes using v(): Boolean pure { true }
 ```
 
-Save it as `yes.qsl` and run the function. The command exits with code 0:
+Save it as `yes.qsl`, then save this request as `yes.json`. Source labels are
+logical names independent of the physical file path:
+
+```json
+{"format":"native-run/1","request":{"models":[],"program":{"source":{"file":"yes.qsl","authority":"example","identity":"yes","document":"ExampleYes","formal_revision":1}},"call":{"function":"yes","arguments":[]}}}
+```
+
+Run the request; the command exits with code 0:
 
 ```
-quire run yes.qsl yes --format json
+quire run yes.json --format json
 ```
+
+`quire compile` likewise takes a `native-compile/1` request file. Run intake
+accepts `--request-bytes` and `--dependent-bytes`; compile uses fixed ceilings.
 
 ## Library
 

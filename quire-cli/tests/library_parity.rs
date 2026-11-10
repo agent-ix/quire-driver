@@ -18,6 +18,9 @@ use quire_exact::{Cancel, Integer, Value};
 use quire_semantic_value::catalog::Category;
 use quire_semantic_value::supplied_stop::SuppliedLimits;
 
+#[path = "common/requests.rs"]
+mod requests;
+
 const QUIRE: &str = env!("CARGO_BIN_EXE_quire");
 
 const VALUE_SOURCE: &str = "language \"ix:native\" edition \"1-draft\";\n\
@@ -196,24 +199,36 @@ fn binary_outcomes_equal_the_library_outcomes_for_one_value_source() {
     assert_parity(&output, &checked, "check");
     assert_eq!(output.stdout, quire(&["check", &path]).stdout);
 
+    let compile_request = requests::request(&path, None);
+    let p_request = requests::request(
+        &path,
+        Some(("p", serde_json::json!([{"parameter":"x","value":3}]))),
+    );
+    let q_request = requests::request(
+        &path,
+        Some(("q", serde_json::json!([{"parameter":"x","value":7}]))),
+    );
     let packaged = library_package(&path, bytes);
     assert_eq!(i32::from(packaged.category().exit_code()), success);
-    let output = quire(&["compile", &path]);
+    let output = quire(&["compile", compile_request.as_str()]);
     assert_parity(&output, &packaged, "compile");
-    assert_eq!(output.stdout, quire(&["compile", &path]).stdout);
+    assert_eq!(
+        output.stdout,
+        quire(&["compile", compile_request.as_str()]).stdout
+    );
 
     let executed = library_execute(&path, bytes, "p", digit_argument(3));
     assert_eq!(i32::from(executed.category().exit_code()), success);
-    let output = quire(&["run", &path, "p", "x=3"]);
+    let output = quire(&["run", p_request.as_str()]);
     assert_parity(&output, &executed, "run p x=3");
     let document: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("run prints one JSON document");
     assert_eq!(document["result"]["value"]["value"], true);
-    assert_eq!(output.stdout, quire(&["run", &path, "p", "x=3"]).stdout);
+    assert_eq!(output.stdout, quire(&["run", p_request.as_str()]).stdout);
 
     // The second function of the source takes the same path.
     let executed = library_execute(&path, bytes, "q", digit_argument(7));
-    assert_parity(&quire(&["run", &path, "q", "x=7"]), &executed, "run q x=7");
+    assert_parity(&quire(&["run", q_request.as_str()]), &executed, "run q x=7");
 }
 
 /// Trace: FR-299-AC-1; a refused source gives the library's refusal document,
@@ -222,6 +237,8 @@ fn binary_outcomes_equal_the_library_outcomes_for_one_value_source() {
 fn binary_refusals_equal_the_library_refusals_for_a_malformed_source() {
     let (_directory, path) = source_file("malformed", MALFORMED_SOURCE);
     let bytes = MALFORMED_SOURCE.as_bytes();
+    let compile_request = requests::request(&path, None);
+    let run_request = requests::request(&path, Some(("f", serde_json::json!([]))));
 
     let checked = library_check(&path, bytes);
     assert_ne!(
@@ -230,12 +247,12 @@ fn binary_refusals_equal_the_library_refusals_for_a_malformed_source() {
     );
     assert_parity(&quire(&["check", &path]), &checked, "check");
     assert_parity(
-        &quire(&["compile", &path]),
+        &quire(&["compile", compile_request.as_str()]),
         &library_package(&path, bytes),
         "compile",
     );
     assert_parity(
-        &quire(&["run", &path, "f"]),
+        &quire(&["run", run_request.as_str()]),
         &library_execute(&path, bytes, "f", Vec::new()),
         "run",
     );
