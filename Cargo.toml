@@ -44,7 +44,7 @@ qsl-package = { git = "https://github.com/agent-ix/quire-spec-language", branch 
 qsl-replay = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-route = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
 qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main" }
-quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", tag = "v0.1.0" }
+quire-contract-codegen = { git = "https://github.com/agent-ix/quire-contract-codegen", branch = "main" }
 quire-contract-model = { git = "https://github.com/agent-ix/quire-contract-ir", branch = "main" }
 quire-contract-runtime = { git = "https://github.com/agent-ix/quire-contract-runtime", branch = "main", default-features = false, features = ["exact"] }
 # The observation owner issues the progress view in the preparation request.

@@ -16,6 +16,7 @@ use qsl_replay::spine::{
 };
 use qsl_route::routing::{route, Disposition};
 use qsl_route::Candidate;
+use qsl_semantics::check::RequirementMap;
 use qsl_semantics::model::intake::PackageInput;
 use quire_contract_codegen::{
     generate_routed, negotiate_contract_package, BackendDescriptor, BackendKind,
@@ -115,6 +116,12 @@ pub trait Upstream {
         positions: &[ContractRequestPosition],
         envelope: &BackendProviderEnvelope,
     ) -> Result<Vec<ContractItemSettlement>, Box<ContractNegotiationError>>;
+
+    /// The compiled package's requirement records (`CheckedGraph::requirements()`),
+    /// the one source FR-020 projects into CG's typed input.
+    fn requirement_records(&self, package: &CheckedPackage) -> RequirementMap {
+        package.graph().requirements().clone()
+    }
 
     /// The routing step: `qsl_route::routing::route`.
     fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>>;

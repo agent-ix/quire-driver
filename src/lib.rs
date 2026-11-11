@@ -85,7 +85,7 @@ pub use quire_contract_codegen::RoutedItemOutput;
 pub use quire_contract_codegen::{Candidate, ProofCeilings};
 pub use refusal::{
     DriverFault, DriverRefusal, DriverStage, OutcomeKind, PackageReadDiagnostic,
-    PackageReadFailure, PackageReadLimit, PackageReadLocation,
+    PackageReadFailure, PackageReadLimit, PackageReadLocation, RequirementRecordUnresolvedCause,
 };
 pub use registry::{
     build_linked_providers, build_registry, AdmittedRegistry, LinkedProviders, ProviderManifest,

@@ -449,8 +449,8 @@ mod tests {
         TerminalValue,
     };
     use quire_contract_codegen::{
-        Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver, MemoryMechanism,
-        MemoryObservation, ProofCeilings, SymbolicArgumentBounds, SymbolicBounds,
+        Candidate, KaniInconclusiveReason, KaniRunOutcome, KaniSolver, MemoryObservation,
+        ProofCeilings, SymbolicArgumentBounds, SymbolicBounds,
     };
     use quire_contract_codegen::{
         KaniExecutableHarness, KaniFailureCause, KaniFailurePhase, KaniNoVerdictDiagnostics,
@@ -558,7 +558,7 @@ mod tests {
             result: Ok(KaniExecutionEvidence {
                 ceilings: ceilings(),
                 memory: MemoryObservation {
-                    mechanism: MemoryMechanism::LinuxPidNamespaceProcfsTreeRss,
+                    source: Some("fixture".to_owned()),
                     peak_resident_bytes: Some(16),
                 },
                 symbolic_arguments: vec![SymbolicArgumentBounds {
@@ -581,6 +581,7 @@ mod tests {
                 batch: None,
                 diagnostics: None,
                 failure_cause: None,
+                proof_phase: None,
             }),
         }
     }

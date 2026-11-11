@@ -14,6 +14,7 @@ use qsl_replay::spine::{
 use qsl_route::request::{items_from_requirements, ExtentClassification, RequirementItem};
 use qsl_route::routing::Disposition as RouteDisposition;
 use qsl_route::{Candidate, CandidateOutcome, Mode, Registry};
+use qsl_semantics::check::{Capability, RequirementMap};
 use qsl_semantics::model::object_environment::ObjectEnvironment;
 use quire_contract_codegen as cg;
 use quire_contract_codegen::{
@@ -24,7 +25,9 @@ use quire_contract_model::{CheckedNodeId, CheckedPackageV2};
 use quire_exact::Cancel;
 
 use crate::handoff::handoff;
-use crate::{AdmittedRegistry, DriverFault, DriverRefusal, Upstream};
+use crate::{
+    AdmittedRegistry, DriverFault, DriverRefusal, RequirementRecordUnresolvedCause, Upstream,
+};
 
 macro_rules! native_limit_fields_match {
     ($left:expr, $right:expr) => {{
@@ -405,7 +408,12 @@ pub fn drive(
             item_refusals: Vec::new(),
         }
     };
-    let lowered = lower_driver_request(&checked, &items, &partition)?;
+    let lowered = lower_driver_request(
+        &checked,
+        &items,
+        &partition,
+        &upstream.requirement_records(checked_unit.package()),
+    )?;
 
     // T-13 order: the `route` candidate step, then every registered
     // BackendId through CG's one conversion, then E7.
@@ -729,6 +737,22 @@ fn generate(
                 .cloned()
                 .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?,
         );
+        let generation_item = if item.kind == cg::BackendKind::Kani {
+            let requirement = lowered
+                .requirements
+                .get(request_index)
+                .cloned()
+                .flatten()
+                .ok_or_else(|| {
+                    DriverRefusal::Fault(DriverFault::RequirementRecordAbsent {
+                        request_index,
+                        occurrence: items[request_index].occurrence().clone(),
+                    })
+                })?;
+            generation_item.with_requirement(requirement)
+        } else {
+            generation_item
+        };
         generation_items.push(generation_item);
     }
     let contexts = cg::GenerationContexts {
@@ -736,6 +760,7 @@ fn generate(
             ceilings: kani.ceilings,
             subject_path: kani.subject_path,
             unwind: kani.unwind,
+            requirement_records: &lowered.records,
         }),
     };
     upstream
@@ -753,6 +778,216 @@ struct LoweredDriverRequest {
     contract_package: quire_contract_model::ContractPackageV1,
     positions: Vec<cg::ContractRequestPosition>,
     result_selections: Vec<cg::ContractDriverResultSelection>,
+    /// FR-020: the requirement for each request index, `None` at an excluded
+    /// position and at a bound item with no `value-validity` record.
+    requirements: Vec<Option<cg::RoutedRequirement>>,
+    /// FR-020: one entry for every `value-validity` record of the package.
+    records: cg::RequirementRecords,
+}
+
+/// The projection of QSL's requirement records into CG's typed input
+/// (FR-020).
+struct RequirementProjection {
+    requirements: Vec<Option<cg::RoutedRequirement>>,
+    records: cg::RequirementRecords,
+}
+
+/// Why a QSL node does not resolve in the admitted package.
+enum NodeLookup {
+    Unknown,
+    Ambiguous,
+}
+
+/// The V2 node of `node` in the admitted package, by the lookup FR-001 uses.
+fn lookup_checked_node<'a>(
+    checked: &'a CheckedPackageV2,
+    node: &quire_exact::NodeKey,
+) -> Result<&'a CheckedNodeId, NodeLookup> {
+    let mut matches = checked
+        .resolved_graph()
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, candidate)| {
+            checked
+                .structural_key_at(index)
+                .map(|key| (&candidate.node_id, key))
+        })
+        .filter_map(|(id, key)| structural_key_matches(key, node).then_some(id));
+    let selected = matches.next().ok_or(NodeLookup::Unknown)?;
+    if matches.next().is_some() {
+        return Err(NodeLookup::Ambiguous);
+    }
+    Ok(selected)
+}
+
+/// IR's occurrence role for a QSL role spelling.
+fn occurrence_role(role: &str) -> Option<quire_contract_model::CheckedOccurrenceRole> {
+    use quire_contract_model::CheckedOccurrenceRole as Role;
+    match role {
+        "declaration" => Some(Role::Declaration),
+        "type" => Some(Role::Type),
+        "expression" => Some(Role::Expression),
+        "anchor" => Some(Role::Anchor),
+        "claim" => Some(Role::Claim),
+        "generated" => Some(Role::Generated),
+        _ => None,
+    }
+}
+
+/// A package record's QSL occurrence key as CG's `RequirementOccurrence`,
+/// in the admitted package's V2 frame. A record has no request index, so a
+/// failure is the record-level fault naming the record's `record` key.
+fn record_occurrence(
+    checked: &CheckedPackageV2,
+    record: &OccurrenceKey,
+    occurrence: &OccurrenceKey,
+) -> Result<cg::RequirementOccurrence, DriverRefusal> {
+    let unresolved = |cause| {
+        DriverRefusal::Fault(DriverFault::RequirementRecordUnresolved {
+            occurrence: record.clone(),
+            cause,
+        })
+    };
+    let node_id = lookup_checked_node(checked, occurrence.node())
+        .map_err(|lookup| {
+            unresolved(match lookup {
+                NodeLookup::Unknown => RequirementRecordUnresolvedCause::UnknownNode {
+                    node: occurrence.node().clone(),
+                },
+                NodeLookup::Ambiguous => RequirementRecordUnresolvedCause::AmbiguousNode {
+                    node: occurrence.node().clone(),
+                },
+            })
+        })?
+        .clone();
+    let role = occurrence_role(occurrence.origin().role().as_str()).ok_or_else(|| {
+        unresolved(RequirementRecordUnresolvedCause::UnknownOccurrenceRole {
+            role: occurrence.origin().role().as_str().to_owned(),
+        })
+    })?;
+    Ok(cg::RequirementOccurrence {
+        node_id,
+        role,
+        ordinal: occurrence.origin().ordinal(),
+    })
+}
+
+/// A package record's result-bound node in the admitted package's V2 frame.
+fn record_node(
+    checked: &CheckedPackageV2,
+    record: &OccurrenceKey,
+    node: &quire_exact::NodeKey,
+) -> Result<CheckedNodeId, DriverRefusal> {
+    lookup_checked_node(checked, node)
+        .cloned()
+        .map_err(|lookup| {
+            DriverRefusal::Fault(DriverFault::RequirementRecordUnresolved {
+                occurrence: record.clone(),
+                cause: match lookup {
+                    NodeLookup::Unknown => {
+                        RequirementRecordUnresolvedCause::UnknownNode { node: node.clone() }
+                    }
+                    NodeLookup::Ambiguous => {
+                        RequirementRecordUnresolvedCause::AmbiguousNode { node: node.clone() }
+                    }
+                },
+            })
+        })
+}
+
+/// FR-020: project the QSL requirement of every export-bound
+/// `value-validity` item that has a record, and the package's whole set of
+/// `value-validity` records, from the one `map`. Only the `value-validity`
+/// capability projects, because CG keys its records by occurrence alone and
+/// two capabilities can share one. An item of another capability, and an
+/// item with no record, projects `None` and raises nothing here; the absent
+/// record of a routed item is refused when the generation items are built.
+fn project_requirements(
+    checked: &CheckedPackageV2,
+    items: &[RequirementItem],
+    partition: &ExportPartition,
+    map: &RequirementMap,
+) -> Result<RequirementProjection, DriverRefusal> {
+    let mut records = BTreeMap::new();
+    for (key, record) in map.iter() {
+        if record.requirements().kind() != Capability::ValueValidity {
+            continue;
+        }
+        let occurrence = record_occurrence(checked, key, key)?;
+        let conversion = record
+            .conversion_context()
+            .map(|conversion| record_occurrence(checked, key, conversion))
+            .transpose()?;
+        let path_condition = record
+            .path_condition()
+            .iter()
+            .map(|guard| {
+                Ok(cg::RequirementGuard {
+                    occurrence: record_occurrence(checked, key, guard.occurrence())?,
+                    holds: guard.holds(),
+                })
+            })
+            .collect::<Result<Vec<_>, DriverRefusal>>()?;
+        records.insert(
+            occurrence,
+            cg::RequirementRecordInput {
+                result_bound: record_node(checked, key, &record.result_bound().node())?,
+                conversion_context: conversion,
+                path_condition,
+            },
+        );
+    }
+    let mut requirements = Vec::with_capacity(items.len());
+    for (request_index, item) in items.iter().enumerate() {
+        if !partition.includes(request_index)
+            || map
+                .get_kind(item.occurrence(), Capability::ValueValidity)
+                .is_none()
+        {
+            requirements.push(None);
+            continue;
+        }
+        let occurrence = |key: &OccurrenceKey| {
+            contract_occurrence(checked, key, request_index)
+                .map(|key| cg::RequirementOccurrence::from(&key))
+        };
+        let result_bound = resolve_checked_node(
+            checked
+                .resolved_graph()
+                .nodes
+                .iter()
+                .enumerate()
+                .filter_map(|(index, node)| {
+                    checked
+                        .structural_key_at(index)
+                        .map(|key| (&node.node_id, key))
+                }),
+            item.result_bound(),
+            request_index,
+        )?
+        .clone();
+        let path_condition = item
+            .path_condition()
+            .iter()
+            .map(|guard| {
+                Ok(cg::RequirementGuard {
+                    occurrence: occurrence(guard.occurrence())?,
+                    holds: guard.holds(),
+                })
+            })
+            .collect::<Result<Vec<_>, DriverRefusal>>()?;
+        requirements.push(Some(cg::RoutedRequirement {
+            occurrence: occurrence(item.occurrence())?,
+            result_bound,
+            conversion_context: item.conversion_context().map(occurrence).transpose()?,
+            path_condition,
+        }));
+    }
+    Ok(RequirementProjection {
+        requirements,
+        records: cg::RequirementRecords::new(records),
+    })
 }
 
 /// Lower each admitted driver item and its QSL-selected result context once.
@@ -761,7 +996,9 @@ fn lower_driver_request(
     checked: &CheckedPackageV2,
     items: &[RequirementItem],
     partition: &ExportPartition,
+    map: &RequirementMap,
 ) -> Result<LoweredDriverRequest, DriverRefusal> {
+    let projection = project_requirements(checked, items, partition, map)?;
     let mut roots = Vec::new();
     let mut positions = Vec::new();
     let mut result_selections = Vec::with_capacity(items.len());
@@ -811,6 +1048,16 @@ fn lower_driver_request(
                 node_id: conversion.node_id,
             });
         }
+        // FR-020: one guard root per path guard, outermost first, inside this
+        // item's own context span; a guard shared by two items is rooted in each.
+        if let Some(requirement) = &projection.requirements[request_index] {
+            for guard in &requirement.path_condition {
+                roots.push(guard.occurrence.node_id.clone());
+                positions.push(cg::ContractRequestPosition::ContextRoot {
+                    node_id: guard.occurrence.node_id.clone(),
+                });
+            }
+        }
     }
     let lowered = checked.lower(&roots, &cg::routed_contract_lowering_profile());
     let Some(contract_package) = lowered.package.wire().cloned() else {
@@ -839,6 +1086,8 @@ fn lower_driver_request(
         contract_package,
         positions,
         result_selections,
+        requirements: projection.requirements,
+        records: projection.records,
     })
 }
 
@@ -862,19 +1111,11 @@ fn contract_occurrence(
         request_index,
     )?
     .clone();
-    let role = match occurrence.origin().role().as_str() {
-        "declaration" => quire_contract_model::CheckedOccurrenceRole::Declaration,
-        "type" => quire_contract_model::CheckedOccurrenceRole::Type,
-        "expression" => quire_contract_model::CheckedOccurrenceRole::Expression,
-        "anchor" => quire_contract_model::CheckedOccurrenceRole::Anchor,
-        "claim" => quire_contract_model::CheckedOccurrenceRole::Claim,
-        "generated" => quire_contract_model::CheckedOccurrenceRole::Generated,
-        other => {
-            return Err(DriverRefusal::Fault(DriverFault::UnknownOccurrenceRole {
-                role: other.to_owned(),
-            }));
-        }
-    };
+    let role = occurrence_role(occurrence.origin().role().as_str()).ok_or_else(|| {
+        DriverRefusal::Fault(DriverFault::UnknownOccurrenceRole {
+            role: occurrence.origin().role().as_str().to_owned(),
+        })
+    })?;
     Ok(quire_contract_model::ContractOccurrenceKeyV1 {
         node_id,
         role,

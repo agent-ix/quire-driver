@@ -34,8 +34,8 @@ use quire_contract_codegen::{
     generate_routed, BackendDescriptor, BackendKind, BackendProviderEnvelope, Candidates, Cause,
     ClaimDisposition, ContractItemSettlement, ContractNegotiationError, ContractRequestPosition,
     DerivedDomain, Disposition, EnvelopeRefusal, GenerationContexts, KaniExecutionEvidence,
-    KaniForm, KaniGenerationContext, KaniRunOutcome, KaniSolver, KindOutput, MemoryMechanism,
-    MemoryObservation, ObligationDisposition, ProofCeilings, RoutedGeneration,
+    KaniForm, KaniGenerationContext, KaniRunOutcome, KaniSolver, KindOutput, MemoryObservation,
+    ObligationDisposition, ProofCeilings, RequirementRecords, RoutedGeneration,
     RoutedGenerationError, RoutedGenerationItem, UnsupportedObligation,
 };
 use quire_contract_model::{
@@ -46,7 +46,7 @@ use quire_driver::{
     build_registry, drive, CompileInput, Driven, DriverFault, DriverRefusal, DriverStage,
     GenerationInput, KaniInput, KaniProvider, OutcomeKind, Provider, ProviderItemFailure,
     ProviderItemResult, ProviderLimits, ProviderManifest, ProviderRequest, QslCg,
-    ScalarExecutionInput, Upstream,
+    RequirementRecordUnresolvedCause, ScalarExecutionInput, Upstream,
 };
 use quire_exact::{Cancel, CancelCause, Integer, Value};
 use quire_semantic_value::catalog::Category;
@@ -204,12 +204,15 @@ static DEAD_BRANCH_UNIT: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// RR-16: the same `x + 1` node is requested at two occurrences whose
-/// direct result conversions have different target ranges.
+/// direct result conversions have different target ranges. Both are call
+/// arguments, so neither is guarded by the other (`and` would guard the
+/// right operand by the left, FR-020).
 static RR16_UNIT: LazyLock<String> = LazyLock::new(|| {
     unit(
         "function g using v(p: Int[0, 10]): Boolean pure { true }\n\
           function h using v(q: Int[0, 20]): Boolean pure { true }\n\
-          function f using v(x: Int[0, 9]): Boolean pure { g(x + 1) and h(x + 1) }\n",
+          function k using v(a: Boolean, b: Boolean): Boolean pure { true }\n\
+          function f using v(x: Int[0, 9]): Boolean pure { k(g(x + 1), h(x + 1)) }\n",
     )
 });
 
@@ -279,6 +282,14 @@ struct Recorder {
     read_evidence: RefCell<Option<CheckedPackageEvidence>>,
     /// Exact E7 lowered package and request-position projection passed to CG.
     generation_input: RefCell<Option<(ContractPackageV1, Vec<ContractRequestPosition>)>>,
+    /// The routed items, with the requirement the driver bound to each, and
+    /// the requirement records of the Kani context CG generation received.
+    generation_routed: RefCell<Vec<RoutedGenerationItem>>,
+    /// When set, rewrites the package's requirement records before the driver
+    /// projects them, so a test can remove or re-key a record (FR-020).
+    requirement_rewrite:
+        Option<fn(qsl_semantics::check::RequirementMap) -> qsl_semantics::check::RequirementMap>,
+    generation_records: RefCell<Option<RequirementRecords>>,
 }
 
 impl Recorder {
@@ -459,6 +470,17 @@ impl Upstream for Recorder {
         QslCg.route(dispositions)
     }
 
+    fn requirement_records(
+        &self,
+        package: &qsl_package::CheckedPackage,
+    ) -> qsl_semantics::check::RequirementMap {
+        let records = QslCg.requirement_records(package);
+        match self.requirement_rewrite {
+            Some(rewrite) => rewrite(records),
+            None => records,
+        }
+    }
+
     fn generate(
         &self,
         source: &quire_contract_model::CheckedPackageV2,
@@ -471,6 +493,9 @@ impl Upstream for Recorder {
             items: routed.len(),
         });
         *self.generation_input.borrow_mut() = Some((package.clone(), positions.to_vec()));
+        *self.generation_routed.borrow_mut() = routed.to_vec();
+        *self.generation_records.borrow_mut() =
+            contexts.kani.map(|kani| kani.requirement_records.clone());
         self.source_matches.borrow_mut().push(
             self.source
                 .borrow()
@@ -1091,7 +1116,7 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
                 result: Ok(KaniExecutionEvidence {
                     ceilings: proof_ceilings(),
                     memory: MemoryObservation {
-                        mechanism: MemoryMechanism::LinuxPidNamespaceProcfsTreeRss,
+                        source: Some("fixture".to_owned()),
                         peak_resident_bytes: Some(16),
                     },
                     symbolic_arguments: Vec::new(),
@@ -1108,6 +1133,7 @@ fn export_partition_withholds_b_and_preserves_a_and_c_indices() {
                     batch: None,
                     diagnostics: None,
                     failure_cause: None,
+                    proof_phase: None,
                 }),
             }
             .terminal_record()
@@ -1274,12 +1300,18 @@ fn routed_generation_item(
         .expect("the Kani candidate matches its linked descriptor")
 }
 
+/// CG's own `generate_routed` over the routed items and Kani context the
+/// driver passed, so a test compares the driver's output with CG's answer to
+/// exactly that input. The requirement of each item and the requirement
+/// records are the driver's projection (FR-020); `routed` and `contexts` name
+/// which items and ceilings the test expects.
 fn direct_generation(
     recorder: &Recorder,
     routed: &[RoutedGenerationItem],
     contexts: &GenerationContexts<'_>,
 ) -> Result<RoutedGeneration, RoutedGenerationError> {
     let (package, positions) = recorder.generation_input();
+    let passed = recorder.generation_routed.borrow().clone();
     let routed = routed
         .iter()
         .cloned()
@@ -1297,16 +1329,32 @@ fn direct_generation(
                 })
                 .expect("the request index has an explicit lowering position")
                 .clone();
-            item.with_scalar_selection(&package, selection)
+            let item = item.with_scalar_selection(&package, selection);
+            let driver_item = passed
+                .iter()
+                .find(|driver| driver.request_index == item.request_index)
+                .expect("the driver passed the expected request index");
+            driver_item.clone()
         })
         .collect::<Vec<_>>();
+    let records = recorder
+        .generation_records
+        .borrow()
+        .clone()
+        .unwrap_or_default();
+    let contexts = GenerationContexts {
+        kani: contexts.kani.map(|kani| KaniGenerationContext {
+            requirement_records: &records,
+            ..kani
+        }),
+    };
     let source = recorder.source.borrow();
     generate_routed(
         source.as_deref().expect("negotiation retained its source"),
         &package,
         &positions,
         &routed,
-        contexts,
+        &contexts,
     )
 }
 
@@ -1432,6 +1480,7 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
                 ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
+                requirement_records: &RequirementRecords::default(),
             }),
         },
     )
@@ -1808,6 +1857,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
                 ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
+                requirement_records: &RequirementRecords::default(),
             }),
         },
     )
@@ -2090,6 +2140,7 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
                 ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
+                requirement_records: &RequirementRecords::default(),
             }),
         },
     )
@@ -2297,6 +2348,7 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
                 ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
+                requirement_records: &RequirementRecords::default(),
             }),
         },
     )
@@ -2712,6 +2764,7 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
                 ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
+                requirement_records: &RequirementRecords::default(),
             }),
         },
     )
@@ -3136,6 +3189,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
                 ceilings: proof_ceilings(),
                 subject_path: "crate::subject",
                 unwind: 1,
+                requirement_records: &RequirementRecords::default(),
             }),
         },
     )
@@ -3258,5 +3312,681 @@ fn current_owner_boundary_raw_slots_resolve_in_each_holding_row() {
             .count(),
         3,
         "all three operations reach generation"
+    );
+}
+
+// FR-020 (TC-034): the driver hands CG each routed item's QSL requirement and
+// the package's `value-validity` records.
+
+/// A unit whose one `x + 1` node has a then and an else occurrence, guarded by
+/// `p` and `not p` and converted to different ranges.
+static GUARDED_UNIT: LazyLock<String> = LazyLock::new(|| {
+    unit(
+        "function g using v(r: Int[0, 10]): Boolean pure { true }\n\
+         function h using v(q: Int[0, 20]): Boolean pure { true }\n\
+         function f using v(p: Boolean, x: Int[0, 9]): Boolean pure { if p then g(x + 1) else h(x + 1) }\n",
+    )
+});
+
+#[allow(clippy::result_large_err, reason = "the driver's own refusal type")]
+fn drive_unit(recorder: &Recorder, source: &str) -> Result<Driven, DriverRefusal> {
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    drive(
+        recorder,
+        CompileInput {
+            bytes: source.as_bytes(),
+            ..input(&packages)
+        },
+        &registry,
+        None,
+        kani_input(),
+    )
+}
+
+fn resolve_node(driven: &Driven, key: &quire_exact::NodeKey) -> CheckedNodeId {
+    let wanted = qsl_foundation::node_wire::node_key_to_json(key).expect("the key serializes");
+    let checked = driven.checked();
+    checked
+        .resolved_graph()
+        .nodes
+        .iter()
+        .enumerate()
+        .find_map(|(index, node)| {
+            let structural = checked.structural_key_at(index)?;
+            (serde_json::to_value(structural).ok()? == wanted).then(|| node.node_id.clone())
+        })
+        .expect("the QSL node is in the admitted package")
+}
+
+fn expected_occurrence(
+    driven: &Driven,
+    key: &qsl_foundation::source::provenance::OccurrenceKey,
+) -> quire_contract_codegen::RequirementOccurrence {
+    assert_eq!(key.origin().role().as_str(), "expression");
+    quire_contract_codegen::RequirementOccurrence {
+        node_id: resolve_node(driven, key.node()),
+        role: quire_contract_model::CheckedOccurrenceRole::Expression,
+        ordinal: key.origin().ordinal(),
+    }
+}
+
+fn expected_guards(
+    driven: &Driven,
+    guards: &[qsl_semantics::check::PathGuard],
+) -> Vec<quire_contract_codegen::RequirementGuard> {
+    guards
+        .iter()
+        .map(|guard| quire_contract_codegen::RequirementGuard {
+            occurrence: expected_occurrence(driven, guard.occurrence()),
+            holds: guard.holds(),
+        })
+        .collect()
+}
+
+fn value_validity_records(
+    driven: &Driven,
+) -> Vec<(
+    usize,
+    qsl_foundation::source::provenance::OccurrenceKey,
+    qsl_semantics::check::RequirementRecord,
+)> {
+    driven
+        .package()
+        .package()
+        .graph()
+        .requirements()
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, record))| {
+            record.requirements().kind() == qsl_semantics::check::Capability::ValueValidity
+        })
+        .map(|(index, (key, record))| (index, key.clone(), record.clone()))
+        .collect()
+}
+
+fn selection_at(
+    positions: &[ContractRequestPosition],
+    request_index: usize,
+) -> quire_contract_codegen::ContractDriverResultSelection {
+    positions
+        .iter()
+        .filter(|position| !matches!(position, ContractRequestPosition::ContextRoot { .. }))
+        .nth(request_index)
+        .and_then(|position| match position {
+            ContractRequestPosition::DriverItem {
+                result_selection, ..
+            } => Some(result_selection.clone()),
+            ContractRequestPosition::Excluded { .. }
+            | ContractRequestPosition::ContextRoot { .. } => None,
+        })
+        .expect("the request index has a driver item position")
+}
+
+/// FR-020-AC-1, AC-2, AC-3, AC-7, AC-12: every routed item carries the
+/// requirement of its own occurrence, `RequirementRecords` holds every
+/// `value-validity` record, and each item's guard roots sit in its own span.
+#[test]
+#[trace(
+    "TC-034",
+    "FR-020-AC-1",
+    "FR-020-AC-2",
+    "FR-020-AC-3",
+    "FR-020-AC-7",
+    "FR-020-AC-12"
+)]
+fn guarded_occurrences_carry_their_own_requirement_and_guard_roots() {
+    let recorder = Recorder::default();
+    let driven = drive_unit(&recorder, &GUARDED_UNIT).expect("the guarded unit drives");
+    let records = value_validity_records(&driven);
+
+    // AC-2: one entry per value-validity record.
+    let expected_records = expected_record_set(&driven, &records);
+    assert_eq!(
+        recorder.generation_records.borrow().as_ref(),
+        Some(&expected_records)
+    );
+
+    // AC-3: the two guarded occurrences of the shared `x + 1` differ.
+    let guarded = records
+        .iter()
+        .filter(|(_, _, record)| !record.path_condition().is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(guarded.len(), 2, "then and else occurrences are guarded");
+    let holds = guarded
+        .iter()
+        .map(|(_, _, record)| {
+            record
+                .path_condition()
+                .iter()
+                .map(|g| g.holds())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        holds.contains(&vec![true]) && holds.contains(&vec![false]),
+        "{holds:?}"
+    );
+    assert_ne!(guarded[0].1, guarded[1].1, "distinct occurrences");
+    assert_ne!(
+        guarded[0].2.result_bound().node(),
+        guarded[1].2.result_bound().node(),
+        "distinct result bounds"
+    );
+
+    // AC-1: each routed item carries its own occurrence's requirement.
+    let (_, positions) = recorder.generation_input();
+    let passed = recorder.generation_routed.borrow().clone();
+    assert!(!passed.is_empty());
+    for item in &passed {
+        let (_, key, record) = records
+            .iter()
+            .find(|(index, ..)| *index == item.request_index)
+            .expect("a routed item is a value-validity record");
+        let expected = expected_item(&recorder, &driven, item.request_index, key, record);
+        assert_eq!(item, &expected, "request {}", item.request_index);
+    }
+
+    // AC-7, AC-12: after each driver item, the conversion root then one root
+    // per guard in outermost-first order, all before the next driver item.
+    let mut guard_root_total = 0;
+    let mut span: Vec<Vec<CheckedNodeId>> = Vec::new();
+    for position in &positions {
+        match position {
+            ContractRequestPosition::ContextRoot { node_id } => span
+                .last_mut()
+                .expect("a context root follows its item")
+                .push(node_id.clone()),
+            ContractRequestPosition::DriverItem { .. }
+            | ContractRequestPosition::Excluded { .. } => {
+                span.push(Vec::new());
+            }
+        }
+    }
+    assert_eq!(span.len(), driven.request_items.len());
+    for (index, _, record) in &records {
+        let mut expected_roots = Vec::new();
+        if let Some(conversion) = record.conversion_context() {
+            expected_roots.push(resolve_node(&driven, conversion.node()));
+        }
+        for guard in record.path_condition() {
+            expected_roots.push(resolve_node(&driven, guard.occurrence().node()));
+            guard_root_total += 1;
+        }
+        assert_eq!(span[*index], expected_roots, "span of request {index}");
+    }
+    assert_eq!(
+        guard_root_total, 2,
+        "the guard node is rooted once per guarded item"
+    );
+}
+
+/// FR-020-AC-4: a routed item with no `value-validity` record refuses with the
+/// absent-record fault after negotiation and before CG generation.
+#[test]
+#[trace("TC-034", "FR-020-AC-4")]
+fn a_routed_item_without_a_record_refuses_before_generation() {
+    let baseline = drive_unit(&Recorder::default(), &GUARDED_UNIT).expect("baseline drives");
+    let routed_index = baseline.routed[0].request_index;
+    let recorder = Recorder {
+        requirement_rewrite: Some(|map| {
+            map.iter()
+                .filter(|(_, record)| {
+                    record.requirements().kind() != qsl_semantics::check::Capability::ValueValidity
+                })
+                .map(|(key, record)| (key.clone(), record.clone()))
+                .collect()
+        }),
+        ..Recorder::default()
+    };
+    let refusal = drive_unit(&recorder, &GUARDED_UNIT).expect_err("no record, no generation");
+    let DriverRefusal::Fault(DriverFault::RequirementRecordAbsent {
+        request_index,
+        occurrence,
+    }) = &refusal
+    else {
+        panic!("expected the absent-record fault, got {refusal:?}");
+    };
+    assert_eq!(*request_index, routed_index);
+    assert_eq!(
+        occurrence,
+        baseline.request_items[routed_index].occurrence()
+    );
+    assert_eq!(refusal.code(), "runtime_invariant");
+    assert_eq!(refusal.stage(), DriverStage::Generation);
+    assert_eq!(refusal.kind(), OutcomeKind::Fault);
+    let calls = recorder.calls();
+    assert!(calls
+        .iter()
+        .any(|call| matches!(call, Call::Negotiate { .. })));
+    assert!(!calls
+        .iter()
+        .any(|call| matches!(call, Call::Generate { .. })));
+}
+
+fn rekey(
+    map: qsl_semantics::check::RequirementMap,
+    new_key: fn(
+        &qsl_foundation::source::provenance::OccurrenceKey,
+    ) -> qsl_foundation::source::provenance::OccurrenceKey,
+) -> qsl_semantics::check::RequirementMap {
+    let mut done = false;
+    map.iter()
+        .map(|(key, record)| {
+            let vv =
+                record.requirements().kind() == qsl_semantics::check::Capability::ValueValidity;
+            if vv && !done {
+                done = true;
+                (new_key(key), record.clone())
+            } else {
+                (key.clone(), record.clone())
+            }
+        })
+        .collect()
+}
+
+/// FR-020-AC-14: a record whose key does not project refuses the run before
+/// negotiation, naming the record and the cause.
+#[test]
+#[trace("TC-034", "FR-020-AC-14")]
+fn an_unprojectable_record_refuses_before_negotiation() {
+    let unknown_role = Recorder {
+        requirement_rewrite: Some(|map| {
+            rekey(map, |key| {
+                qsl_foundation::source::provenance::OccurrenceKey::new(
+                    key.node().clone(),
+                    quire_exact::Origin::new(quire_exact::Role::new("nope"), 0),
+                )
+            })
+        }),
+        ..Recorder::default()
+    };
+    let refusal = drive_unit(&unknown_role, &GUARDED_UNIT).expect_err("unknown role");
+    assert!(
+        matches!(&refusal, DriverRefusal::Fault(DriverFault::RequirementRecordUnresolved {
+            cause: RequirementRecordUnresolvedCause::UnknownOccurrenceRole { role }, ..
+        }) if role == "nope"),
+        "{refusal:?}"
+    );
+
+    let unknown_node = Recorder {
+        requirement_rewrite: Some(|map| {
+            rekey(map, |key| {
+                qsl_foundation::source::provenance::OccurrenceKey::new(
+                    quire_exact::NodeKey::new(
+                        "missing".to_owned(),
+                        vec![quire_exact::PathSegment::Text("n".to_owned())],
+                        0,
+                    )
+                    .expect("a fixture key"),
+                    key.origin().clone(),
+                )
+            })
+        }),
+        ..Recorder::default()
+    };
+    let refusal = drive_unit(&unknown_node, &GUARDED_UNIT).expect_err("unknown node");
+    assert!(
+        matches!(
+            &refusal,
+            DriverRefusal::Fault(DriverFault::RequirementRecordUnresolved {
+                cause: RequirementRecordUnresolvedCause::UnknownNode { .. },
+                ..
+            })
+        ),
+        "{refusal:?}"
+    );
+    for (name, recorder) in [("role", &unknown_role), ("node", &unknown_node)] {
+        assert_eq!(
+            DriverRefusal::code(&drive_unit(recorder, &GUARDED_UNIT).unwrap_err()),
+            "runtime_invariant",
+            "{name}"
+        );
+        let calls = recorder.calls();
+        assert!(
+            !calls
+                .iter()
+                .any(|c| matches!(c, Call::Negotiate { .. } | Call::Generate { .. })),
+            "{name}: {calls:?}"
+        );
+    }
+}
+
+/// The `test/orders` model document of QSL's switch-transition example: a
+/// `Switch` with an `on` field and `set`/`adjust` operations. A `post` clause
+/// on one of them writes `operation-contract` requirement records.
+const SWITCH_MODEL_DOCUMENT: &str = r#"{"canonicalization":{"algorithm":"rfc8785-v1"},"constructs":[{"construct":{"identity":"none","meaning":"quire.meaning.model.object-type/v1","members":{"identityFields":"required"},"shape":"record"},"kind":{"module":"test/business","name":"thing"},"moduleVersion":"1.0.0"}],"contractVersion":"2.0.0","extensions":[],"occurrences":[],"package":{"identity":"test/orders","mappingVersions":[],"profileVersions":[],"version":"1"},"source":{"dialect":"spec-bundle","identity":"ix://test/orders/spec","version":"1.0.0"},"types":[{"constraints":[],"displayName":"Switch","extensions":[],"fields":[{"defaultKind":"none","identity":"ix://test/orders/Switch/sid","multiplicity":{"lower":1,"ordered":false,"unique":true,"upper":1},"name":"sid","nullable":false,"origin":{"generated":{"generatorIdentity":"ix://test/orders/Switch/sid","generatorVersion":"1.0.0","inputIdentities":["ix://test/orders/Switch/sid"]}},"presence":"required","typeRef":"ix://quire/native/Integer"},{"defaultKind":"none","identity":"ix://test/orders/Switch/on","multiplicity":{"lower":1,"ordered":false,"unique":true,"upper":1},"name":"on","nullable":false,"origin":{"generated":{"generatorIdentity":"ix://test/orders/Switch/on","generatorVersion":"1.0.0","inputIdentities":["ix://test/orders/Switch/on"]}},"presence":"required","typeRef":"ix://quire/native/Boolean"}],"identity":"ix://test/orders/Switch","identityFields":["ix://test/orders/Switch/sid"],"kind":{"module":"test/business","name":"thing"},"operations":[{"frame":{"creates":[],"deletes":[],"modifies":["ix://test/orders/Switch/on"]},"identity":"ix://test/orders/Switch/set","name":"set","origin":{"generated":{"generatorIdentity":"ix://test/orders/Switch/set","generatorVersion":"1.0.0","inputIdentities":["ix://test/orders/Switch/set"]}},"params":[{"defaultKind":"none","identity":"ix://test/orders/Switch/set/flag","multiplicity":{"lower":1,"ordered":false,"unique":true,"upper":1},"name":"flag","nullable":false,"origin":{"generated":{"generatorIdentity":"ix://test/orders/Switch/set/flag","generatorVersion":"1.0.0","inputIdentities":["ix://test/orders/Switch/set/flag"]}},"presence":"required","typeRef":"ix://quire/native/Boolean"}],"post":[],"pre":[]},{"frame":{"creates":[],"deletes":[],"modifies":["ix://test/orders/Switch/on"]},"identity":"ix://test/orders/Switch/adjust","name":"adjust","origin":{"generated":{"generatorIdentity":"ix://test/orders/Switch/adjust","generatorVersion":"1.0.0","inputIdentities":["ix://test/orders/Switch/adjust"]}},"params":[{"defaultKind":"none","identity":"ix://test/orders/Switch/adjust/flag","multiplicity":{"lower":1,"ordered":false,"unique":true,"upper":1},"name":"flag","nullable":false,"origin":{"generated":{"generatorIdentity":"ix://test/orders/Switch/adjust/flag","generatorVersion":"1.0.0","inputIdentities":["ix://test/orders/Switch/adjust/flag"]}},"presence":"required","typeRef":"ix://quire/native/Boolean"}],"post":[],"pre":[]}],"origin":{"generated":{"generatorIdentity":"ix://test/orders/Switch","generatorVersion":"1.0.0","inputIdentities":["ix://test/orders/Switch"]}},"roles":[],"unknownPolicy":"reject"}]}"#;
+
+/// A unit holding one `value-validity` item and the `operation-contract`
+/// records of a `post` clause over the model's `set` operation.
+static MODEL_READING_UNIT: LazyLock<String> = LazyLock::new(|| {
+    unit(
+        "model M = \"test/orders\";\n\
+         function inc using v(x: Int[0, 9]): Int[0, 10] pure { x + 1 }\n\
+         post Q1 using v on M::Switch::set { self.on }\n",
+    )
+});
+
+/// FR-020-AC-15: a bound item of another capability projects `None`, adds no
+/// guard root, raises no fault, and a `value-validity` item in the same
+/// request still receives its requirement.
+#[test]
+#[trace("TC-034", "FR-020-AC-15")]
+fn a_bound_operation_contract_item_projects_none_and_raises_no_fault() {
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = qsl_semantics::model::intake::package_input([SWITCH_MODEL_DOCUMENT.as_bytes()])
+        .expect("the switch model document is a package");
+    let recorder = Recorder::default();
+    let driven = drive(
+        &recorder,
+        CompileInput {
+            bytes: MODEL_READING_UNIT.as_bytes(),
+            ..input(&packages)
+        },
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("a bound operation-contract item raises no fault");
+
+    let other = driven
+        .request_items
+        .iter()
+        .position(|item| item.kind() != qsl_semantics::check::Capability::ValueValidity)
+        .expect("the post clause writes an operation-contract item");
+    let records = value_validity_records(&driven);
+    assert!(
+        !records.is_empty(),
+        "the function writes a value-validity record"
+    );
+    // The operation-contract item is not routed and not generated.
+    assert!(driven
+        .routed
+        .iter()
+        .all(|routed| routed.request_index != other));
+    assert!(driven
+        .generation()
+        .items
+        .iter()
+        .all(|item| item.request_index != other));
+    // Its position carries no guard root: nothing but its own item position.
+    let (_, positions) = recorder.generation_input();
+    let mut spans: Vec<usize> = Vec::new();
+    for position in &positions {
+        match position {
+            ContractRequestPosition::ContextRoot { .. } => {
+                *spans.last_mut().expect("a root follows its item") += 1;
+            }
+            ContractRequestPosition::DriverItem { .. }
+            | ContractRequestPosition::Excluded { .. } => spans.push(0),
+        }
+    }
+    assert_eq!(spans[other], 0, "no root for an item with no projection");
+    // The value-validity item still receives its requirement.
+    let passed = recorder.generation_routed.borrow().clone();
+    assert!(!passed.is_empty(), "the value-validity item is routed");
+    for item in &passed {
+        let (_, key, record) = records
+            .iter()
+            .find(|(index, ..)| *index == item.request_index)
+            .expect("a routed item is a value-validity record");
+        assert_eq!(
+            item,
+            &expected_item(&recorder, &driven, item.request_index, key, record)
+        );
+    }
+}
+
+type VvRecord = (
+    usize,
+    qsl_foundation::source::provenance::OccurrenceKey,
+    qsl_semantics::check::RequirementRecord,
+);
+
+fn expected_requirement(
+    driven: &Driven,
+    key: &qsl_foundation::source::provenance::OccurrenceKey,
+    record: &qsl_semantics::check::RequirementRecord,
+) -> quire_contract_codegen::RoutedRequirement {
+    quire_contract_codegen::RoutedRequirement {
+        occurrence: expected_occurrence(driven, key),
+        result_bound: resolve_node(driven, &record.result_bound().node()),
+        conversion_context: record
+            .conversion_context()
+            .map(|conversion| expected_occurrence(driven, conversion)),
+        path_condition: expected_guards(driven, record.path_condition()),
+    }
+}
+
+fn expected_record_set(driven: &Driven, records: &[VvRecord]) -> RequirementRecords {
+    RequirementRecords::new(
+        records
+            .iter()
+            .map(|(_, key, record)| {
+                let requirement = expected_requirement(driven, key, record);
+                (
+                    requirement.occurrence,
+                    quire_contract_codegen::RequirementRecordInput {
+                        result_bound: requirement.result_bound,
+                        conversion_context: requirement.conversion_context,
+                        path_condition: requirement.path_condition,
+                    },
+                )
+            })
+            .collect(),
+    )
+}
+
+/// The generation item the driver must pass for `request_index`: CG's own
+/// constructor plus the QSL record's requirement.
+fn expected_item(
+    recorder: &Recorder,
+    driven: &Driven,
+    request_index: usize,
+    key: &qsl_foundation::source::provenance::OccurrenceKey,
+    record: &qsl_semantics::check::RequirementRecord,
+) -> RoutedGenerationItem {
+    let (package, positions) = recorder.generation_input();
+    routed_generation_item(
+        request_index,
+        resolve_node(driven, key.node()),
+        kani_candidate(driven),
+    )
+    .with_scalar_selection(&package, selection_at(&positions, request_index))
+    .with_requirement(expected_requirement(driven, key, record))
+}
+
+/// FR-020-AC-6: for the FR-010-AC-4 vector (B export-refused), the projection
+/// gives A and C their requirements and B none, `RequirementRecords` still
+/// holds B's record, and the run completes, also with B's record removed.
+#[test]
+#[trace("TC-034", "FR-020-AC-6")]
+fn the_export_partition_vector_projects_a_and_c_and_not_b() {
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    for remove_b in [false, true] {
+        let recorder = Recorder {
+            export_refused_at: vec![1],
+            requirement_rewrite: remove_b.then_some(|map| {
+                let mut seen = 0;
+                map.iter()
+                    .filter(|(_, record)| {
+                        record.requirements().kind()
+                            != qsl_semantics::check::Capability::ValueValidity
+                            || {
+                                seen += 1;
+                                seen != 2
+                            }
+                    })
+                    .map(|(key, record)| (key.clone(), record.clone()))
+                    .collect()
+            }),
+            ..Recorder::default()
+        };
+        let driven = drive(
+            &recorder,
+            partition_input(&packages),
+            &registry,
+            None,
+            kani_input(),
+        )
+        .expect("the run completes without a refusal");
+        let records = value_validity_records(&driven);
+        assert_eq!(records.len(), 3);
+        let passed = recorder.generation_routed.borrow().clone();
+        assert_eq!(
+            passed
+                .iter()
+                .map(|item| item.request_index)
+                .collect::<Vec<_>>(),
+            [0, 2]
+        );
+        for item in &passed {
+            let (_, key, record) = &records[item.request_index];
+            assert_eq!(
+                item,
+                &expected_item(&recorder, &driven, item.request_index, key, record)
+            );
+        }
+        let kept = records
+            .iter()
+            .filter(|(index, ..)| !remove_b || *index != 1)
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            recorder.generation_records.borrow().as_ref(),
+            Some(&expected_record_set(&driven, &kept)),
+            "remove_b = {remove_b}"
+        );
+    }
+}
+
+/// FR-020-AC-8: a record whose result bound disagrees with the item's is
+/// passed unchanged to CG, and CG's `ResultBoundMismatch` comes back
+/// unchanged as a Generation-stage `runtime_invariant` fault.
+#[test]
+#[trace("TC-034", "FR-020-AC-8")]
+fn a_disagreeing_result_bound_is_cg_s_refusal_returned_unchanged() {
+    let recorder = Recorder {
+        requirement_rewrite: Some(|map| {
+            // Swap the records of the two `x + 1` occurrences, so each key
+            // holds the other occurrence's result bound.
+            let vv = map
+                .iter()
+                .filter(|(_, record)| {
+                    record.requirements().kind() == qsl_semantics::check::Capability::ValueValidity
+                })
+                .map(|(key, record)| (key.clone(), record.clone()))
+                .collect::<Vec<_>>();
+            let (first, second) = (vv[0].0.clone(), vv[1].0.clone());
+            let (first_record, second_record) = (vv[0].1.clone(), vv[1].1.clone());
+            map.iter()
+                .map(|(key, record)| {
+                    if *key == first {
+                        (key.clone(), second_record.clone())
+                    } else if *key == second {
+                        (key.clone(), first_record.clone())
+                    } else {
+                        (key.clone(), record.clone())
+                    }
+                })
+                .collect()
+        }),
+        ..Recorder::default()
+    };
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = BTreeMap::new();
+    let refusal = drive(
+        &recorder,
+        rr16_input(&packages),
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect_err("the swapped records disagree with their items");
+    let DriverRefusal::Generation(RoutedGenerationError::RequirementRecord { mismatch, .. }) =
+        &refusal
+    else {
+        panic!("expected CG's RequirementRecord refusal, got {refusal:?}");
+    };
+    assert!(
+        matches!(
+            mismatch.as_ref(),
+            quire_contract_codegen::RequirementRecordMismatch::ResultBoundMismatch { item, record, .. }
+                if item != record
+        ),
+        "{mismatch:?}"
+    );
+    assert_eq!(refusal.code(), "runtime_invariant");
+    assert_eq!(refusal.stage(), DriverStage::Generation);
+    assert_eq!(refusal.kind(), OutcomeKind::Fault);
+}
+
+/// FR-020-AC-10 (slice (a)): an unguarded item generates a harness; a
+/// guarded item settles `unsupported` with `path_guard_not_lowered` and
+/// `guard_lowering_not_implemented`, and has no harness.
+#[test]
+#[trace("TC-034", "FR-020-AC-10")]
+fn a_guarded_item_settles_path_guard_not_lowered_and_has_no_harness() {
+    let source = unit(
+        "function g using v(x: Int[0, 9]): Int[0, 10] pure { x + 1 }\n\
+         function f using v(y: Int[0, 9]): Int[0, 10] pure { if y > 5 then y + 1 else 0 }\n",
+    );
+    let recorder = Recorder::default();
+    let driven = drive_unit(&recorder, &source).expect("the guarded package drives");
+    let records = value_validity_records(&driven);
+    let guarded = records
+        .iter()
+        .filter(|(_, _, record)| !record.path_condition().is_empty())
+        .map(|(index, ..)| *index)
+        .collect::<Vec<_>>();
+    let unguarded = records
+        .iter()
+        .filter(|(_, _, record)| record.path_condition().is_empty())
+        .map(|(index, ..)| *index)
+        .collect::<Vec<_>>();
+    assert!(!guarded.is_empty() && !unguarded.is_empty());
+    let output = |index: usize| {
+        driven
+            .generation()
+            .items
+            .iter()
+            .find(|item| item.request_index == index)
+            .map(|item| &item.output)
+    };
+    for index in &guarded {
+        let Some(quire_contract_codegen::KindOutput::Kani { record, harness }) = output(*index)
+        else {
+            panic!("guarded request {index} is routed to Kani");
+        };
+        assert!(harness.is_none(), "guarded request {index} has no harness");
+        assert!(
+            matches!(
+                &record.disposition,
+                ObligationDisposition::Unsupported {
+                    reason: UnsupportedObligation::PathGuardNotLowered {
+                        reason:
+                            quire_contract_codegen::PathGuardRefusal::GuardLoweringNotImplemented,
+                        ..
+                    }
+                }
+            ),
+            "request {index}: {:?}",
+            record.disposition
+        );
+    }
+    assert!(
+        unguarded.iter().any(|index| matches!(
+            output(*index),
+            Some(quire_contract_codegen::KindOutput::Kani {
+                harness: Some(_),
+                ..
+            })
+        )),
+        "an unguarded item generates a harness"
     );
 }
