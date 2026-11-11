@@ -1300,48 +1300,34 @@ fn routed_generation_item(
         .expect("the Kani candidate matches its linked descriptor")
 }
 
-/// CG's own `generate_routed` over the routed items and Kani context the
-/// driver passed, so a test compares the driver's output with CG's answer to
-/// exactly that input. The requirement of each item and the requirement
-/// records are the driver's projection (FR-020); `routed` and `contexts` name
-/// which items and ceilings the test expects.
+/// CG's own `generate_routed` over the expected routed items and Kani
+/// context. Each item's requirement and the requirement records are computed
+/// here from QSL's own records in `driven` (FR-020), never taken from what the
+/// driver passed, so the comparison with the driver's output keeps an
+/// independent oracle. `routed` and `contexts` name which items and ceilings
+/// the test expects.
 fn direct_generation(
     recorder: &Recorder,
+    driven: &Driven,
     routed: &[RoutedGenerationItem],
     contexts: &GenerationContexts<'_>,
 ) -> Result<RoutedGeneration, RoutedGenerationError> {
     let (package, positions) = recorder.generation_input();
-    let passed = recorder.generation_routed.borrow().clone();
+    let map = driven.package().package().graph().requirements();
+    let records = expected_record_set(driven, &value_validity_records(driven));
     let routed = routed
         .iter()
         .cloned()
         .map(|item| {
-            let selection = positions
-                .iter()
-                .filter(|position| !matches!(position, ContractRequestPosition::ContextRoot { .. }))
-                .nth(item.request_index)
-                .and_then(|position| match position {
-                    ContractRequestPosition::DriverItem {
-                        result_selection, ..
-                    } => Some(result_selection),
-                    ContractRequestPosition::Excluded { .. }
-                    | ContractRequestPosition::ContextRoot { .. } => None,
-                })
-                .expect("the request index has an explicit lowering position")
-                .clone();
+            let selection = selection_at(&positions, item.request_index);
             let item = item.with_scalar_selection(&package, selection);
-            let driver_item = passed
-                .iter()
-                .find(|driver| driver.request_index == item.request_index)
-                .expect("the driver passed the expected request index");
-            driver_item.clone()
+            let key = driven.request_items[item.request_index].occurrence();
+            match map.get_kind(key, qsl_semantics::check::Capability::ValueValidity) {
+                Some(record) => item.with_requirement(expected_requirement(driven, key, record)),
+                None => item,
+            }
         })
         .collect::<Vec<_>>();
-    let records = recorder
-        .generation_records
-        .borrow()
-        .clone()
-        .unwrap_or_default();
     let contexts = GenerationContexts {
         kani: contexts.kani.map(|kani| KaniGenerationContext {
             requirement_records: &records,
@@ -1474,6 +1460,7 @@ fn tc_001_tc_006_steps_run_in_order_through_generation() {
     let backend = kani_candidate(&driven);
     let expected = direct_generation(
         &recorder,
+        &driven,
         &[routed_generation_item(0, neg.clone(), backend.clone())],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
@@ -1851,6 +1838,7 @@ fn tc_006_x_plus_1_generation_passes_through_unchanged() {
     let backend = kani_candidate(&driven);
     let expected = direct_generation(
         &recorder,
+        &driven,
         &[routed_generation_item(0, add, backend)],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
@@ -2131,6 +2119,7 @@ fn tc_006_rr16_preserves_each_occurrence_conversion_context() {
     let backend = kani_candidate(&driven);
     let expected = direct_generation(
         &recorder,
+        &driven,
         &[
             routed_generation_item(0, actual_contexts[0].0.node_id.clone(), backend.clone()),
             routed_generation_item(1, actual_contexts[1].0.node_id.clone(), backend),
@@ -2342,6 +2331,7 @@ fn tc_006_x_plus_y_generation_passes_through_unchanged() {
     let backend = kani_candidate(&driven);
     let expected = direct_generation(
         &recorder,
+        &driven,
         &[routed_generation_item(0, add, backend)],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
@@ -2758,6 +2748,7 @@ fn tc_003_route_and_generate_skip_a_negotiation_unsupported_item_by_request_inde
     let backend = kani_candidate(&driven);
     let expected = direct_generation(
         &recorder,
+        &driven,
         &[routed_generation_item(1, neg, backend)],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
@@ -3183,6 +3174,7 @@ fn tc_006_typed_form_refusal_preserves_supported_sibling() {
     let backend = kani_candidate(&driven);
     let alone = direct_generation(
         &recorder,
+        &driven,
         &[routed_generation_item(1, neg.clone(), backend)],
         &GenerationContexts {
             kani: Some(KaniGenerationContext {
@@ -3522,6 +3514,92 @@ fn guarded_occurrences_carry_their_own_requirement_and_guard_roots() {
     );
 }
 
+/// A unit whose `x + 1` sits under two nested guards: `p` holding, then `q`
+/// not holding.
+static NESTED_GUARDED_UNIT: LazyLock<String> = LazyLock::new(|| {
+    unit(
+        "function g using v(r: Int[0, 10]): Boolean pure { true }\n\
+         function f using v(p: Boolean, q: Boolean, x: Int[0, 9]): Boolean pure \
+         { if p then (if q then true else g(x + 1)) else true }\n",
+    )
+});
+
+/// FR-020-AC-1, AC-7: an item under two path guards carries them in
+/// outermost-first order (`p` holds, then `q` does not) in its requirement,
+/// and the guard roots follow the conversion root in that same order inside
+/// the item's span. Reversing either order fails this test.
+#[test]
+#[trace("TC-034", "FR-020-AC-1", "FR-020-AC-7")]
+fn two_nested_guards_keep_outermost_first_order_in_the_requirement_and_roots() {
+    let recorder = Recorder::default();
+    let driven = drive_unit(&recorder, &NESTED_GUARDED_UNIT).expect("the nested unit drives");
+    let records = value_validity_records(&driven);
+    let (index, key, record) = records
+        .iter()
+        .find(|(_, _, record)| record.path_condition().len() == 2)
+        .expect("one occurrence is under two guards");
+    let holds = record
+        .path_condition()
+        .iter()
+        .map(|guard| guard.holds())
+        .collect::<Vec<_>>();
+    assert_eq!(holds, [true, false], "QSL records outermost-first");
+    let outer = resolve_node(&driven, record.path_condition()[0].occurrence().node());
+    let inner = resolve_node(&driven, record.path_condition()[1].occurrence().node());
+    assert_ne!(outer, inner, "the two guards are distinct nodes");
+
+    // The projected requirement carries that order.
+    let passed = recorder.generation_routed.borrow().clone();
+    let item = passed
+        .iter()
+        .find(|item| item.request_index == *index)
+        .expect("the doubly guarded item is routed");
+    assert_eq!(
+        item,
+        &expected_item(&recorder, &driven, *index, key, record)
+    );
+    let projected = expected_requirement(&driven, key, record);
+    assert_eq!(
+        projected
+            .path_condition
+            .iter()
+            .map(|guard| (guard.occurrence.node_id.clone(), guard.holds))
+            .collect::<Vec<_>>(),
+        [(outer.clone(), true), (inner.clone(), false)]
+    );
+    assert_eq!(
+        recorder
+            .generation_records
+            .borrow()
+            .as_ref()
+            .expect("records recorded"),
+        &expected_record_set(&driven, &records),
+        "the record set carries the same order"
+    );
+
+    // The span after the item: conversion root, then outer, then inner.
+    let (_, positions) = recorder.generation_input();
+    let mut span: Vec<Vec<CheckedNodeId>> = Vec::new();
+    for position in &positions {
+        match position {
+            ContractRequestPosition::ContextRoot { node_id } => span
+                .last_mut()
+                .expect("a context root follows its item")
+                .push(node_id.clone()),
+            ContractRequestPosition::DriverItem { .. }
+            | ContractRequestPosition::Excluded { .. } => span.push(Vec::new()),
+        }
+    }
+    let conversion = resolve_node(
+        &driven,
+        record
+            .conversion_context()
+            .expect("the call converts x + 1")
+            .node(),
+    );
+    assert_eq!(span[*index], [conversion, outer, inner]);
+}
+
 /// FR-020-AC-4: a routed item with no `value-validity` record refuses with the
 /// absent-record fault after negotiation and before CG generation.
 #[test]
@@ -3737,6 +3815,78 @@ fn a_bound_operation_contract_item_projects_none_and_raises_no_fault() {
             &expected_item(&recorder, &driven, item.request_index, key, record)
         );
     }
+}
+
+/// FR-020-AC-5: two capabilities at one occurrence. The `operation-contract`
+/// record of the `post` clause is re-keyed onto the `value-validity` item's
+/// occurrence (through the `requirement_records` seam), so the map holds both
+/// a `value-validity` and an `operation-contract` record there. Only the
+/// `value-validity` fields project, and the run raises no fault.
+#[test]
+#[trace("TC-034", "FR-020-AC-5")]
+fn two_capabilities_at_one_occurrence_project_only_the_value_validity_record() {
+    use qsl_semantics::check::Capability;
+    let registry = build_registry(&[manifest("kani", &["value-validity"])])
+        .expect("the kani manifest registers");
+    let packages = qsl_semantics::model::intake::package_input([SWITCH_MODEL_DOCUMENT.as_bytes()])
+        .expect("the switch model document is a package");
+    let shared = Recorder {
+        requirement_rewrite: Some(|map| {
+            let vv_key = map
+                .iter()
+                .find(|(_, record)| record.requirements().kind() == Capability::ValueValidity)
+                .map(|(key, _)| key.clone())
+                .expect("the function writes a value-validity record");
+            let mut moved = false;
+            map.iter()
+                .map(|(key, record)| {
+                    if !moved && record.requirements().kind() == Capability::OperationContract {
+                        moved = true;
+                        (vv_key.clone(), record.clone())
+                    } else {
+                        (key.clone(), record.clone())
+                    }
+                })
+                .collect()
+        }),
+        ..Recorder::default()
+    };
+    let driven = drive(
+        &shared,
+        CompileInput {
+            bytes: MODEL_READING_UNIT.as_bytes(),
+            ..input(&packages)
+        },
+        &registry,
+        None,
+        kani_input(),
+    )
+    .expect("a second capability at the occurrence raises no fault");
+
+    let records = value_validity_records(&driven);
+    assert_eq!(records.len(), 1, "one value-validity record");
+    let (index, key, record) = &records[0];
+    // The re-keyed map really holds both capabilities at the one occurrence.
+    let rewritten = (shared.requirement_rewrite.expect("set"))(
+        driven.package().package().graph().requirements().clone(),
+    );
+    assert!(rewritten
+        .get_kind(key, Capability::OperationContract)
+        .is_some());
+    assert!(rewritten.get_kind(key, Capability::ValueValidity).is_some());
+
+    // RequirementRecords holds exactly the value-validity fields.
+    assert_eq!(
+        shared.generation_records.borrow().as_ref(),
+        Some(&expected_record_set(&driven, &records))
+    );
+    // The item's requirement is the value-validity record's.
+    let passed = shared.generation_routed.borrow().clone();
+    assert_eq!(passed.len(), 1);
+    assert_eq!(
+        passed[0],
+        expected_item(&shared, &driven, *index, key, record)
+    );
 }
 
 type VvRecord = (

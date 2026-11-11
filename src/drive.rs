@@ -704,20 +704,7 @@ fn generate(
             .get(request_index)
             .ok_or(DriverRefusal::Fault(DriverFault::RoutingTarget))?
             .node();
-        let node_id = resolve_checked_node(
-            checked
-                .resolved_graph()
-                .nodes
-                .iter()
-                .enumerate()
-                .filter_map(|(index, node)| {
-                    checked
-                        .structural_key_at(index)
-                        .map(|key| (&node.node_id, key))
-                }),
-            node,
-            request_index,
-        )?;
+        let node_id = resolve_checked_node(checked_node_keys(checked), node, request_index)?;
         let descriptor = descriptors
             .iter()
             .find(|descriptor| descriptor.identity == item.candidate.id().as_str())
@@ -798,27 +785,41 @@ enum NodeLookup {
     Ambiguous,
 }
 
-/// The V2 node of `node` in the admitted package, by the lookup FR-001 uses.
-fn lookup_checked_node<'a>(
-    checked: &'a CheckedPackageV2,
-    node: &quire_exact::NodeKey,
-) -> Result<&'a CheckedNodeId, NodeLookup> {
-    let mut matches = checked
+/// Every V2 node of the admitted package paired with its structural key.
+fn checked_node_keys(
+    checked: &CheckedPackageV2,
+) -> impl Iterator<Item = (&CheckedNodeId, &CheckedNodeId)> {
+    checked
         .resolved_graph()
         .nodes
         .iter()
         .enumerate()
-        .filter_map(|(index, candidate)| {
+        .filter_map(|(index, node)| {
             checked
                 .structural_key_at(index)
-                .map(|key| (&candidate.node_id, key))
+                .map(|key| (&node.node_id, key))
         })
-        .filter_map(|(id, key)| structural_key_matches(key, node).then_some(id));
+}
+
+/// The one node walk: the V2 node whose structural key is `node`.
+fn select_node<'a>(
+    nodes: impl Iterator<Item = (&'a CheckedNodeId, &'a CheckedNodeId)>,
+    node: &quire_exact::NodeKey,
+) -> Result<&'a CheckedNodeId, NodeLookup> {
+    let mut matches = nodes.filter_map(|(id, key)| structural_key_matches(key, node).then_some(id));
     let selected = matches.next().ok_or(NodeLookup::Unknown)?;
     if matches.next().is_some() {
         return Err(NodeLookup::Ambiguous);
     }
     Ok(selected)
+}
+
+/// The V2 node of `node` in the admitted package, by the walk FR-001 uses.
+fn lookup_checked_node<'a>(
+    checked: &'a CheckedPackageV2,
+    node: &quire_exact::NodeKey,
+) -> Result<&'a CheckedNodeId, NodeLookup> {
+    select_node(checked_node_keys(checked), node)
 }
 
 /// IR's occurrence role for a QSL role spelling.
@@ -903,12 +904,50 @@ fn record_node(
 /// two capabilities can share one. An item of another capability, and an
 /// item with no record, projects `None` and raises nothing here; the absent
 /// record of a routed item is refused when the generation items are built.
+/// Items resolve first (request-indexed faults), then the package records.
 fn project_requirements(
     checked: &CheckedPackageV2,
     items: &[RequirementItem],
     partition: &ExportPartition,
     map: &RequirementMap,
 ) -> Result<RequirementProjection, DriverRefusal> {
+    let mut requirements = Vec::with_capacity(items.len());
+    for (request_index, item) in items.iter().enumerate() {
+        if !partition.includes(request_index)
+            || map
+                .get_kind(item.occurrence(), Capability::ValueValidity)
+                .is_none()
+        {
+            requirements.push(None);
+            continue;
+        }
+        let occurrence = |key: &OccurrenceKey| {
+            contract_occurrence(checked, key, request_index)
+                .map(|key| cg::RequirementOccurrence::from(&key))
+        };
+        let result_bound = resolve_checked_node(
+            checked_node_keys(checked),
+            item.result_bound(),
+            request_index,
+        )?
+        .clone();
+        let path_condition = item
+            .path_condition()
+            .iter()
+            .map(|guard| {
+                Ok(cg::RequirementGuard {
+                    occurrence: occurrence(guard.occurrence())?,
+                    holds: guard.holds(),
+                })
+            })
+            .collect::<Result<Vec<_>, DriverRefusal>>()?;
+        requirements.push(Some(cg::RoutedRequirement {
+            occurrence: occurrence(item.occurrence())?,
+            result_bound,
+            conversion_context: item.conversion_context().map(occurrence).transpose()?,
+            path_condition,
+        }));
+    }
     let mut records = BTreeMap::new();
     for (key, record) in map.iter() {
         if record.requirements().kind() != Capability::ValueValidity {
@@ -938,52 +977,6 @@ fn project_requirements(
             },
         );
     }
-    let mut requirements = Vec::with_capacity(items.len());
-    for (request_index, item) in items.iter().enumerate() {
-        if !partition.includes(request_index)
-            || map
-                .get_kind(item.occurrence(), Capability::ValueValidity)
-                .is_none()
-        {
-            requirements.push(None);
-            continue;
-        }
-        let occurrence = |key: &OccurrenceKey| {
-            contract_occurrence(checked, key, request_index)
-                .map(|key| cg::RequirementOccurrence::from(&key))
-        };
-        let result_bound = resolve_checked_node(
-            checked
-                .resolved_graph()
-                .nodes
-                .iter()
-                .enumerate()
-                .filter_map(|(index, node)| {
-                    checked
-                        .structural_key_at(index)
-                        .map(|key| (&node.node_id, key))
-                }),
-            item.result_bound(),
-            request_index,
-        )?
-        .clone();
-        let path_condition = item
-            .path_condition()
-            .iter()
-            .map(|guard| {
-                Ok(cg::RequirementGuard {
-                    occurrence: occurrence(guard.occurrence())?,
-                    holds: guard.holds(),
-                })
-            })
-            .collect::<Result<Vec<_>, DriverRefusal>>()?;
-        requirements.push(Some(cg::RoutedRequirement {
-            occurrence: occurrence(item.occurrence())?,
-            result_bound,
-            conversion_context: item.conversion_context().map(occurrence).transpose()?,
-            path_condition,
-        }));
-    }
     Ok(RequirementProjection {
         requirements,
         records: cg::RequirementRecords::new(records),
@@ -998,32 +991,14 @@ fn lower_driver_request(
     partition: &ExportPartition,
     map: &RequirementMap,
 ) -> Result<LoweredDriverRequest, DriverRefusal> {
-    let projection = project_requirements(checked, items, partition, map)?;
-    let mut roots = Vec::new();
-    let mut positions = Vec::new();
-    let mut result_selections = Vec::with_capacity(items.len());
+    // FR-001 first: every item's own application, occurrence and conversion
+    // resolve (request-indexed faults) before any package record is read.
+    let mut frames = Vec::with_capacity(items.len());
     for (request_index, item) in items.iter().enumerate() {
-        let application = resolve_checked_node(
-            checked
-                .resolved_graph()
-                .nodes
-                .iter()
-                .enumerate()
-                .filter_map(|(index, node)| {
-                    checked
-                        .structural_key_at(index)
-                        .map(|key| (&node.node_id, key))
-                }),
-            item.node(),
-            request_index,
-        )?
-        .clone();
+        let application =
+            resolve_checked_node(checked_node_keys(checked), item.node(), request_index)?.clone();
         if !partition.includes(request_index) {
-            roots.push(application.clone());
-            positions.push(cg::ContractRequestPosition::Excluded {
-                node_id: application,
-            });
-            result_selections.push(cg::ContractDriverResultSelection::NotApplicable);
+            frames.push((application, None));
             continue;
         }
         let application_occurrence =
@@ -1032,6 +1007,21 @@ fn lower_driver_request(
             .conversion_context()
             .map(|occurrence| contract_occurrence(checked, occurrence, request_index))
             .transpose()?;
+        frames.push((application, Some((application_occurrence, conversion))));
+    }
+    let projection = project_requirements(checked, items, partition, map)?;
+    let mut roots = Vec::new();
+    let mut positions = Vec::new();
+    let mut result_selections = Vec::with_capacity(items.len());
+    for (request_index, (application, selection)) in frames.into_iter().enumerate() {
+        let Some((application_occurrence, conversion)) = selection else {
+            roots.push(application.clone());
+            positions.push(cg::ContractRequestPosition::Excluded {
+                node_id: application,
+            });
+            result_selections.push(cg::ContractDriverResultSelection::NotApplicable);
+            continue;
+        };
         let result_selection = cg::ContractDriverResultSelection::OwnResult {
             application: application_occurrence,
             conversion: conversion.clone(),
@@ -1096,21 +1086,8 @@ fn contract_occurrence(
     occurrence: &qsl_foundation::source::provenance::OccurrenceKey,
     request_index: usize,
 ) -> Result<quire_contract_model::ContractOccurrenceKeyV1, DriverRefusal> {
-    let node_id = resolve_checked_node(
-        checked
-            .resolved_graph()
-            .nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(index, node)| {
-                checked
-                    .structural_key_at(index)
-                    .map(|key| (&node.node_id, key))
-            }),
-        occurrence.node(),
-        request_index,
-    )?
-    .clone();
+    let node_id =
+        resolve_checked_node(checked_node_keys(checked), occurrence.node(), request_index)?.clone();
     let role = occurrence_role(occurrence.origin().role().as_str()).ok_or_else(|| {
         DriverRefusal::Fault(DriverFault::UnknownOccurrenceRole {
             role: occurrence.origin().role().as_str().to_owned(),
@@ -1503,20 +1480,7 @@ fn project_kani_form(
     request_index: usize,
     lowered: &LoweredDriverRequest,
 ) -> Result<cg::KaniForm, DriverRefusal> {
-    let selected = resolve_checked_node(
-        checked
-            .resolved_graph()
-            .nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(index, node)| {
-                checked
-                    .structural_key_at(index)
-                    .map(|key| (&node.node_id, key))
-            }),
-        node,
-        request_index,
-    )?;
+    let selected = resolve_checked_node(checked_node_keys(checked), node, request_index)?;
     Ok(cg::KaniForm::V2ScalarClaim {
         package: Arc::clone(checked),
         contract: Box::new(lowered.contract_package.clone()),
@@ -1531,23 +1495,18 @@ fn resolve_checked_node<'a>(
     node: &quire_exact::NodeKey,
     request_index: usize,
 ) -> Result<&'a CheckedNodeId, DriverRefusal> {
-    let unknown = || {
-        DriverRefusal::Fault(DriverFault::UnknownNode {
-            request_index,
-            node: node.clone(),
+    select_node(nodes, node).map_err(|lookup| {
+        DriverRefusal::Fault(match lookup {
+            NodeLookup::Unknown => DriverFault::UnknownNode {
+                request_index,
+                node: node.clone(),
+            },
+            NodeLookup::Ambiguous => DriverFault::AmbiguousNode {
+                request_index,
+                node: node.clone(),
+            },
         })
-    };
-    let mut matches = nodes.filter_map(|(id, key)| structural_key_matches(key, node).then_some(id));
-    let Some(selected) = matches.next() else {
-        return Err(unknown());
-    };
-    if matches.next().is_some() {
-        return Err(DriverRefusal::Fault(DriverFault::AmbiguousNode {
-            request_index,
-            node: node.clone(),
-        }));
-    }
-    Ok(selected)
+    })
 }
 
 /// Compare the owners' borrowed structural forms without constructing another source graph.

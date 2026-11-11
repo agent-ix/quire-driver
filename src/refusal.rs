@@ -2062,8 +2062,10 @@ mod tests {
 
     /// The five Kani-harness oracle failures a test can build, each with the
     /// code, kind and message fragment that belongs to it alone.
-    /// `KaniReaderCatalogUnavailable` wraps IR's `CatalogReadError`, which has
-    /// private fields and no constructor; its own test inspects the source.
+    /// `KaniReaderCatalogUnavailable` wraps IR's `CatalogReadError`, whose
+    /// fields are `pub(super)` and which has no public constructor, so no test
+    /// can build one: its `RuntimeInvariant` mapping (shared with
+    /// `KaniReaderRefused` in `oracle_code`) is not pinned by any test.
     fn kani_oracle_cases() -> Vec<(
         &'static str,
         OracleGenerationError,

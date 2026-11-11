@@ -1274,7 +1274,7 @@ dependencies = [
 [[package]]
 name = "qsl-analyze"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#48a12edb628236a3bf2e866155a3c36fb763d1d1"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#91ada09a785432803ee980fe2b9bf4b0f1c5a2b7"
 dependencies = [
  "ix-trace-rs",
  "num-bigint",
@@ -1299,7 +1299,7 @@ dependencies = [
 [[package]]
 name = "qsl-command"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#48a12edb628236a3bf2e866155a3c36fb763d1d1"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#91ada09a785432803ee980fe2b9bf4b0f1c5a2b7"
 dependencies = [
  "ix-trace-rs",
  "qsl-cst",
@@ -1421,7 +1421,7 @@ dependencies = [
 [[package]]
 name = "qsl-route"
 version = "0.1.0"
-source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#48a12edb628236a3bf2e866155a3c36fb763d1d1"
+source = "git+https://github.com/agent-ix/quire-spec-language?branch=main#91ada09a785432803ee980fe2b9bf4b0f1c5a2b7"
 dependencies = [
  "ix-trace-rs",
  "qsl-foundation",
