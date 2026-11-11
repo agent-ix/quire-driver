@@ -53,3 +53,15 @@ AC-2, AC-3, AC-6, AC-12, AC-15 and AC-4 are asserted with the driver's output co
 | FR-020-AC-14 | examined | A record with a guard occurrence whose node the admitted package does not hold refuses RequirementRecordUnresolved with UnknownNode; an unmapped key role gives UnknownOccurrenceRole; raised before generation. |
 | FR-020-AC-15 | examined | A bound operation-contract item projects None, adds no guard root, raises no fault; a value-validity item still receives its requirement. |
 | TC-034 | context_only | Test procedure and mutant table for FR-020-AC-1..15. |
+
+## Dispositions
+
+Round 1, head 856d2e3a, checked against `git diff 2d9b9220..856d2e3a`, `quire matrix` and the focused job (drive 46/46, refusal lib 32/32; mutants in SR-14860). quire validate passes on the edited FR-020, TC-034, tests.md and spec.md, and on both committed SR files, which are byte-identical (`cmp`) to the reviewer's round-0 copies.
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | The new two-guard test is tagged FR-020-AC-1 and AC-7 (matrix: tests/drive.rs:3533) and asserts the outermost-first order in the requirement, the record set and the roots; the reverse-order mutant M1 now fails it. |
+| FND-002 | fixed | `two_capabilities_at_one_occurrence_project_only_the_value_validity_record` (tagged AC-5) moves the first operation-contract record of MODEL_READING_UNIT onto the value-validity occurrence through the `requirement_records` seam, re-runs the rewrite to assert both `get_kind` lookups succeed at that key, and checks the record set and the routed item against QSL-derived expectations. The two records really share one occurrence, and the oracle does not come from the driver. M7 (lookup by occurrence alone) now fails it. |
+| FND-003 | fixed | tests.md FR-020 and TC-034 rows read Partial and list what runs (AC-1 to AC-10, AC-12, AC-14's key-node and role cases, AC-15) and what is Planned (AC-11, AC-13 on slice (b); the guard-node half of AC-14; the KaniReaderCatalogUnavailable mapping); spec.md index says partial; FR-020 Description/Dependencies and the AC-9/AC-10 rows no longer say not merged. No row claims more than the tests show. |
+| FND-004 | fixed | The FR-020-AC-14 row and TC-034 scope now record the guard-node case as Planned (QSL PathGuard and RequirementRecord have no public constructor) and say the test covers the record-key node and role. |
+| FND-005 | fixed | TC-034 step 2 now names the additive, documented `Upstream::requirement_records` seam and drops the in-module test and the guard-node case. |

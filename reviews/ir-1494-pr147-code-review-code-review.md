@@ -47,3 +47,16 @@ Executed (own worktree, `flock /tmp/cargo-slot.lock`, `QUIRE_CVC5_BIN` set): `ca
 | src/provider.rs, tests/drive.rs MemoryObservation fixtures | examined | source: Some("fixture"), proof_phase: None. |
 | tests/drive.rs RR16_UNIT | examined | function f using v(x: Int[0, 9]): Boolean pure { k(g(x + 1), h(x + 1)) } |
 | tests/drive.rs direct_generation | examined | Returns the driver's passed item for each expected request index. |
+
+## Dispositions
+
+Round 1, head 856d2e3a (one fix commit on 2d9b9220; based on main d6b6b31, `git merge-tree` against origin/main clean). Checked against `git diff 2d9b9220..856d2e3a` and the code. Focused job in own worktree: drive 46/46, refusal lib 32/32. M1 (reverse the path condition in projection and roots) now fails `two_nested_guards_keep_outermost_first_order_in_the_requirement_and_roots` (the run refuses at `drive_unit(...).expect`, tests/drive.rs:3535); M7 (look the item's record up with `get` instead of `get_kind`) fails `two_capabilities_at_one_occurrence_project_only_the_value_validity_record` (tests/drive.rs:3864).
+
+| FND | Outcome | Reason |
+| --- | --- | --- |
+| FND-001 | fixed | NESTED_GUARDED_UNIT (`if p then (if q then true else g(x + 1)) else true`) and `two_nested_guards_keep_outermost_first_order_in_the_requirement_and_roots` assert holds `[true, false]`, distinct outer and inner guard nodes, the item and record set against QSL-derived expectations, and the span `[conversion, outer, inner]`; M1 now fails it. |
+| FND-002 | fixed | The case-table comment now says CatalogReadError has `pub(super)` fields and no public constructor and that the RuntimeInvariant mapping is not pinned by any test; tests.md records the mapping as Planned. No false test claim remains. |
+| FND-003 | fixed | `direct_generation` takes `driven`, builds each expected item with `with_scalar_selection` and attaches `expected_requirement` from QSL's own `get_kind(ValueValidity)` record, and builds `requirement_records` with `expected_record_set` from `driven`; nothing is read from `generation_routed` or `generation_records`, so the oracle is independent of what the driver passed. |
+| FND-004 | fixed | Cargo.lock: all ten QSL crates at 91ada09a; the lock diff is the three source lines of qsl-analyze, qsl-command and qsl-route. |
+| FND-005 | fixed | `lower_driver_request` first resolves every item's application, occurrence and conversion (request-indexed faults) into `frames`, then calls `project_requirements`, which projects items before package records. This matches FR-020's "FR-001 resolves an item's own occurrence first". No test pins the order; accepted, because an item whose own occurrence fails lookup cannot be built from a compiled package, so the competing fault is unreachable from a test. |
+| FND-006 | fixed | `checked_node_keys` (one iterator) and `select_node` (one walk) now back both `lookup_checked_node` and `resolve_checked_node`; the four repeated iterator expressions are gone. |
