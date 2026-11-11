@@ -10,9 +10,9 @@ use qsl_package::ExportRefusal;
 use qsl_replay::spine::{BindRefusal, CompileRefusal, RunRefusal, SpineStage};
 use qsl_route::RegistrationRefusal;
 use quire_contract_codegen::{
-    ContractNegotiationError, ContractScalarError, EnvelopeRefusal, KaniObligationError,
-    KaniScalarNativeError, KaniScalarNativeErrorClass, OracleGenerationError, PackageRequestError,
-    RoutedGenerationError,
+    CheckedFunctionErrorCode, ContractNegotiationError, ContractScalarError, EnvelopeRefusal,
+    KaniObligationError, KaniScalarNativeError, KaniScalarNativeErrorClass, KaniUnsupportedReason,
+    OracleGenerationError, PackageRequestError, RoutedGenerationError,
 };
 use quire_contract_model::{
     CheckedNodeId, CheckedPackageIncomplete, CheckedPackageLimit, CheckedPackageRefusal,
@@ -228,6 +228,27 @@ pub enum DriverFault {
     /// IR lowering did not return a package despite having no typed limit result.
     #[error("IR lowering returned no contract package and no limit record")]
     ContractLoweringIncomplete,
+    /// QSL holds no `value-validity` record at the occurrence of an item
+    /// negotiation routed to Kani (FR-020). The driver never substitutes
+    /// another record for it.
+    #[error(
+        "request item {request_index} has no value-validity requirement record at {occurrence:?}"
+    )]
+    RequirementRecordAbsent {
+        /// The routed item's request index.
+        request_index: usize,
+        /// The item's QSL occurrence key.
+        occurrence: OccurrenceKey,
+    },
+    /// A `value-validity` record of the compiled package does not project
+    /// into the admitted package's frame (FR-020).
+    #[error("requirement record {occurrence:?} does not project: {cause}")]
+    RequirementRecordUnresolved {
+        /// The record's QSL occurrence key.
+        occurrence: OccurrenceKey,
+        /// Why the record does not project.
+        cause: RequirementRecordUnresolvedCause,
+    },
     /// CG's receipt does not consistently attest the request's original
     /// scalar limits.
     #[error("CG's native receipt does not attest the retained ScalarLimits")]
@@ -235,6 +256,32 @@ pub enum DriverFault {
     /// A receipt failed the driver's artifact identity or retained-byte check.
     #[error("CG's native receipt failed the retained artifact identity check")]
     NativeReceiptMismatch,
+}
+
+/// Why a package requirement record does not project into the admitted
+/// package (FR-020). It carries the node and role payloads of the
+/// request-indexed [`DriverFault`] variants without a request index, which a
+/// package record lacks.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum RequirementRecordUnresolvedCause {
+    /// A node of the record is not in the admitted package.
+    #[error("node {node:?} is not in the checked package")]
+    UnknownNode {
+        /// The node the record names.
+        node: NodeKey,
+    },
+    /// A node of the record maps to several checked node identities.
+    #[error("node {node:?} maps to multiple checked node identities")]
+    AmbiguousNode {
+        /// The node whose identity is ambiguous.
+        node: NodeKey,
+    },
+    /// The record's occurrence role is outside IR's occurrence vocabulary.
+    #[error("occurrence role `{role}` has no IR occurrence role")]
+    UnknownOccurrenceRole {
+        /// The exact QSL role spelling.
+        role: String,
+    },
 }
 
 impl From<EnvelopeRefusal> for DriverRefusal {
@@ -620,7 +667,10 @@ impl DriverRefusal {
                 DriverStage::Generation
             }
             Self::Fault(
-                DriverFault::UnknownOccurrenceRole { .. } | DriverFault::ContractLoweringIncomplete,
+                DriverFault::UnknownOccurrenceRole { .. }
+                | DriverFault::ContractLoweringIncomplete
+                | DriverFault::RequirementRecordAbsent { .. }
+                | DriverFault::RequirementRecordUnresolved { .. },
             ) => DriverStage::Generation,
             Self::Fault(
                 DriverFault::ManifestRepeatsBackendIdentity { .. }
@@ -669,7 +719,7 @@ impl DriverRefusal {
             Self::LoweringLimit { .. } => OutcomeKind::Limit,
             Self::Generation(error) => match generation_code(error) {
                 Code::RuntimeInvariant => OutcomeKind::Fault,
-                Code::ResourceExhausted => OutcomeKind::Limit,
+                Code::ResourceExhausted | Code::StageLimitExceeded => OutcomeKind::Limit,
                 _ => OutcomeKind::Refused,
             },
             Self::ManifestEncoding(error) if manifest_encoding_exhausted(error) => {
@@ -900,6 +950,10 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
             ContractScalarError::Oracle(oracle) => oracle_code(oracle),
         },
         RoutedGenerationError::UnauthenticatedOperationView { .. } => Code::RuntimeInvariant,
+        // FR-020: CG found the driver's projected requirement or keyed record
+        // disagreeing with the authenticated selection. The driver built both
+        // from QSL's own record, so it is a broken join, not the caller's input.
+        RoutedGenerationError::RequirementRecord { .. } => Code::RuntimeInvariant,
         RoutedGenerationError::MissingKindContext { .. }
         | RoutedGenerationError::Kani(
             KaniObligationError::InvalidSubjectPath | KaniObligationError::InvalidUnwind { .. },
@@ -938,6 +992,42 @@ fn oracle_code(error: &OracleGenerationError) -> Code {
         | OracleGenerationError::LocationMapSerialization
         | OracleGenerationError::InvalidPlanState
         | OracleGenerationError::UnknownRuntimeVariant { .. } => Code::RuntimeInvariant,
+        // The Kani-harness entry re-reads the package bytes the driver retained
+        // after IR admitted them, so a refusal or an unreadable catalog breaks
+        // that join; a reader that hits the caller's limit is a limit.
+        OracleGenerationError::KaniReaderRefused(_)
+        | OracleGenerationError::KaniReaderCatalogUnavailable(_) => Code::RuntimeInvariant,
+        OracleGenerationError::KaniReaderIncomplete(incomplete) => {
+            if incomplete.limit_kind == CheckedPackageLimit::Diagnostics {
+                Code::RuntimeInvariant
+            } else {
+                Code::StageLimitExceeded
+            }
+        }
+        OracleGenerationError::KaniOwnerPathRefused { code } => owner_path_code(*code),
+        OracleGenerationError::KaniUnsupportedBody { .. }
+        | OracleGenerationError::KaniNestedCallBody { .. } => Code::InvalidRequest,
+    }
+}
+
+/// The catalog code of a Kani-harness owner-path failure: the driver-built
+/// join breaking is an internal fault; QSL not issuing what the requested
+/// function needs is the request's.
+fn owner_path_code(code: CheckedFunctionErrorCode) -> Code {
+    match code {
+        CheckedFunctionErrorCode::InvalidIdentity
+        | CheckedFunctionErrorCode::PackageEncoding
+        | CheckedFunctionErrorCode::OwnerIdentityMismatch
+        | CheckedFunctionErrorCode::SelectionRefused
+        | CheckedFunctionErrorCode::MissingCallOccurrence
+        | CheckedFunctionErrorCode::AmbiguousCallOccurrence
+        | CheckedFunctionErrorCode::ApplicationBeginRefused => Code::RuntimeInvariant,
+        CheckedFunctionErrorCode::Acquisition
+        | CheckedFunctionErrorCode::NominalDeclaration
+        | CheckedFunctionErrorCode::OwnerPackage
+        | CheckedFunctionErrorCode::FacadeLookup
+        | CheckedFunctionErrorCode::NestedCallSiteRefused
+        | CheckedFunctionErrorCode::RegistrationNotAccepted => Code::InvalidRequest,
     }
 }
 
@@ -970,7 +1060,7 @@ fn compile_cause(refusal: &CompileRefusal) -> Option<&'static str> {
         | CompileRefusal::OperationClause { .. }
         | CompileRefusal::TypeInvariant { .. }
         | CompileRefusal::Assembly { .. }
-        | CompileRefusal::Emit(_)
+        | CompileRefusal::Emit(..)
         | CompileRefusal::Omitted(_) => None,
         CompileRefusal::UnitList(refusal) => refusal.cause(),
         CompileRefusal::Limit(limit) => Some(limit.kind().catalog_cause()),
@@ -1049,6 +1139,13 @@ fn generation_message(error: &RoutedGenerationError) -> String {
         RoutedGenerationError::MissingKindContext { kind } => {
             format!("no generation context for backend kind {}", kind.identity())
         }
+        RoutedGenerationError::RequirementRecord {
+            request_index,
+            occurrence,
+            mismatch,
+        } => format!(
+            "request item {request_index} at {occurrence:?} disagrees with its requirement record: {mismatch:?}"
+        ),
         RoutedGenerationError::Kani(error) => {
             format!("the Kani arm refused: {}", kani_message(error))
         }
@@ -1119,6 +1216,32 @@ fn oracle_message(error: &OracleGenerationError) -> String {
         OracleGenerationError::InvalidPlanState => {
             "the validated oracle plan violated a rendering invariant".to_owned()
         }
+        OracleGenerationError::KaniReaderRefused(refusal) => {
+            format!("the Kani harness reader refused the retained package: {refusal:?}")
+        }
+        OracleGenerationError::KaniReaderIncomplete(incomplete) => {
+            format!("the Kani harness reader stopped at a limit: {incomplete:?}")
+        }
+        OracleGenerationError::KaniReaderCatalogUnavailable(error) => {
+            format!("the Kani harness reader could not read its operation catalog: {error:?}")
+        }
+        OracleGenerationError::KaniOwnerPathRefused { code } => {
+            format!("the Kani harness owner path refused ({code:?})")
+        }
+        OracleGenerationError::KaniUnsupportedBody { reason } => match reason {
+            KaniUnsupportedReason::BodyShape => {
+                "the requested function body is not a supported integer scalar operator".to_owned()
+            }
+            KaniUnsupportedReason::QualifiedName => {
+                "the requested function name is not a single segment".to_owned()
+            }
+            KaniUnsupportedReason::SourceIndex => {
+                "the requested function has no body index in source order".to_owned()
+            }
+        },
+        OracleGenerationError::KaniNestedCallBody { function } => {
+            format!("the requested function {function:?} has a nested-call body")
+        }
     }
 }
 
@@ -1161,6 +1284,7 @@ fn envelope_message(refusal: &EnvelopeRefusal) -> String {
 mod tests {
     use ix_trace_rs::trace;
     use qsl_foundation::EmptyBackendIdentity;
+    use quire_contract_codegen::{CheckedFunctionErrorCode, KaniUnsupportedReason};
     use quire_contract_codegen::{
         ContractNegotiationError, ContractPackageIncompleteProjection,
         ContractPackageRefusalProjection, ContractScalarError, EnvelopeRefusal, HarnessPath,
@@ -1904,5 +2028,314 @@ mod tests {
         assert_eq!(limit.kind(), OutcomeKind::Limit);
         assert_eq!(limit.code(), "resource_exhausted");
         assert_eq!(limit.stage(), DriverStage::Generation);
+    }
+
+    fn generation(error: OracleGenerationError) -> DriverRefusal {
+        DriverRefusal::Generation(RoutedGenerationError::ContractScalar(Box::new(
+            ContractScalarError::Oracle(error),
+        )))
+    }
+
+    fn refused_package() -> Box<quire_contract_model::CheckedPackageRefusal> {
+        use quire_contract_model::{
+            CheckedPackageEvidence, CheckedPackageReadLimits, CheckedPackageV2,
+            CheckedPackageV2ReadResult,
+        };
+        match CheckedPackageV2::read(
+            b"{",
+            CheckedPackageReadLimits::bounded(),
+            &CheckedPackageEvidence::new(),
+        ) {
+            CheckedPackageV2ReadResult::Refused(refusal) => Box::new(refusal),
+            other => panic!("malformed bytes must be refused: {other:?}"),
+        }
+    }
+
+    fn incomplete(limit_kind: CheckedPackageLimit) -> Box<CheckedPackageIncomplete> {
+        Box::new(CheckedPackageIncomplete {
+            limit_kind,
+            limit: 1,
+            consumed: 2,
+            path: None,
+        })
+    }
+
+    /// The five Kani-harness oracle failures a test can build, each with the
+    /// code, kind and message fragment that belongs to it alone.
+    /// `KaniReaderCatalogUnavailable` wraps IR's `CatalogReadError`, whose
+    /// fields are `pub(super)` and which has no public constructor, so no test
+    /// can build one: its `RuntimeInvariant` mapping (shared with
+    /// `KaniReaderRefused` in `oracle_code`) is not pinned by any test.
+    fn kani_oracle_cases() -> Vec<(
+        &'static str,
+        OracleGenerationError,
+        &'static str,
+        OutcomeKind,
+        &'static str,
+    )> {
+        vec![
+            (
+                "KaniReaderRefused",
+                OracleGenerationError::KaniReaderRefused(refused_package()),
+                "runtime_invariant",
+                OutcomeKind::Fault,
+                "reader refused the retained package",
+            ),
+            (
+                "KaniReaderIncomplete",
+                OracleGenerationError::KaniReaderIncomplete(incomplete(CheckedPackageLimit::Bytes)),
+                "stage_limit_exceeded",
+                OutcomeKind::Limit,
+                "reader stopped at a limit",
+            ),
+            (
+                "KaniOwnerPathRefused",
+                OracleGenerationError::KaniOwnerPathRefused {
+                    code: CheckedFunctionErrorCode::SelectionRefused,
+                },
+                "runtime_invariant",
+                OutcomeKind::Fault,
+                "owner path refused",
+            ),
+            (
+                "KaniUnsupportedBody",
+                OracleGenerationError::KaniUnsupportedBody {
+                    reason: KaniUnsupportedReason::BodyShape,
+                },
+                "invalid-request",
+                OutcomeKind::Refused,
+                "not a supported integer scalar operator",
+            ),
+            (
+                "KaniNestedCallBody",
+                OracleGenerationError::KaniNestedCallBody {
+                    function: node_id("f"),
+                },
+                "invalid-request",
+                OutcomeKind::Refused,
+                "nested-call body",
+            ),
+        ]
+    }
+
+    fn assert_case(
+        name: &str,
+        error: OracleGenerationError,
+        code: &str,
+        kind: OutcomeKind,
+        fragment: &str,
+    ) {
+        let refusal = generation(error);
+        assert_eq!(refusal.code(), code, "{name} code");
+        assert_eq!(refusal.kind(), kind, "{name} kind");
+        assert_eq!(refusal.stage(), DriverStage::Generation, "{name} stage");
+        assert!(
+            refusal.to_string().contains(fragment),
+            "{name} message: {refusal}"
+        );
+    }
+
+    macro_rules! kani_oracle_case_test {
+        ($test:ident, $name:literal) => {
+            #[trace("TC-007", "FR-001-AC-24")]
+            #[test]
+            fn $test() {
+                let (name, error, code, kind, fragment) = kani_oracle_cases()
+                    .into_iter()
+                    .find(|case| case.0 == $name)
+                    .expect("the case table names this variant");
+                assert_case(name, error, code, kind, fragment);
+            }
+        };
+    }
+
+    kani_oracle_case_test!(
+        kani_reader_refused_is_a_runtime_invariant_fault,
+        "KaniReaderRefused"
+    );
+    kani_oracle_case_test!(
+        kani_reader_incomplete_is_a_stage_limit,
+        "KaniReaderIncomplete"
+    );
+    kani_oracle_case_test!(
+        kani_owner_path_refused_is_its_own_refusal,
+        "KaniOwnerPathRefused"
+    );
+    kani_oracle_case_test!(
+        kani_unsupported_body_is_an_invalid_request,
+        "KaniUnsupportedBody"
+    );
+    kani_oracle_case_test!(
+        kani_nested_call_body_is_an_invalid_request,
+        "KaniNestedCallBody"
+    );
+
+    /// A reader that reaches the diagnostics budget is the driver's fault; any
+    /// other reader limit is a stage limit.
+    #[trace("TC-007", "FR-001-AC-24")]
+    #[test]
+    fn kani_reader_diagnostics_limit_is_a_fault_and_other_limits_are_limits() {
+        assert_case(
+            "diagnostics",
+            OracleGenerationError::KaniReaderIncomplete(incomplete(
+                CheckedPackageLimit::Diagnostics,
+            )),
+            "runtime_invariant",
+            OutcomeKind::Fault,
+            "reader stopped at a limit",
+        );
+    }
+
+    /// The owner-path code decides the refusal: a join the driver built
+    /// breaking is a fault, QSL not issuing a selection is the request's.
+    #[trace("TC-007", "FR-001-AC-24")]
+    #[test]
+    fn kani_owner_path_code_decides_fault_or_request_refusal() {
+        for (code, expected, kind) in [
+            (
+                CheckedFunctionErrorCode::OwnerIdentityMismatch,
+                "runtime_invariant",
+                OutcomeKind::Fault,
+            ),
+            (
+                CheckedFunctionErrorCode::FacadeLookup,
+                "invalid-request",
+                OutcomeKind::Refused,
+            ),
+        ] {
+            let refusal = generation(OracleGenerationError::KaniOwnerPathRefused { code });
+            assert_eq!(refusal.code(), expected, "{code:?}");
+            assert_eq!(refusal.kind(), kind, "{code:?}");
+            assert!(refusal.to_string().contains(&format!("{code:?}")));
+        }
+    }
+
+    /// Merging two variants into one arm, or one message, fails here: every
+    /// buildable variant has a message no other variant has, and the unsupported
+    /// reasons are told apart.
+    #[trace("TC-007", "FR-001-AC-24")]
+    #[test]
+    fn kani_oracle_refusals_are_pairwise_distinct() {
+        let mut messages = kani_oracle_cases()
+            .into_iter()
+            .map(|(_, error, ..)| generation(error).to_string())
+            .collect::<Vec<_>>();
+        for reason in [
+            KaniUnsupportedReason::BodyShape,
+            KaniUnsupportedReason::QualifiedName,
+            KaniUnsupportedReason::SourceIndex,
+        ] {
+            messages.push(
+                generation(OracleGenerationError::KaniUnsupportedBody { reason }).to_string(),
+            );
+        }
+        // BodyShape appears twice by construction; the rest must be unique.
+        messages.remove(messages.len() - 3);
+        let unique = messages.iter().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(unique.len(), messages.len(), "{messages:?}");
+    }
+
+    fn requirement_occurrence() -> quire_contract_codegen::RequirementOccurrence {
+        quire_contract_codegen::RequirementOccurrence {
+            node_id: node_id("n"),
+            role: quire_contract_model::CheckedOccurrenceRole::Expression,
+            ordinal: 0,
+        }
+    }
+
+    /// FR-020-AC-9: each mismatch CG names reaches the caller unchanged as a
+    /// Generation-stage `runtime_invariant` fault, with a message of its own.
+    #[trace("TC-034", "FR-020-AC-9")]
+    #[test]
+    fn every_requirement_record_mismatch_is_a_distinct_generation_fault() {
+        use quire_contract_codegen::RequirementRecordMismatch as Mismatch;
+        let occurrence = requirement_occurrence();
+        let mismatches = vec![
+            Mismatch::RequirementMissing,
+            Mismatch::OccurrenceNotSelected,
+            Mismatch::RecordMissing,
+            Mismatch::ApplicationMismatch {
+                selected: occurrence.clone(),
+            },
+            Mismatch::ResultBoundMismatch {
+                item: node_id("a"),
+                record: node_id("b"),
+                selected: None,
+            },
+            Mismatch::ConversionContextMismatch {
+                item: None,
+                record: Some(occurrence.clone()),
+                selected: None,
+            },
+            Mismatch::PathConditionMismatch {
+                item: Vec::new(),
+                record: Vec::new(),
+            },
+        ];
+        let mut messages = std::collections::BTreeSet::new();
+        for mismatch in mismatches {
+            let refusal = DriverRefusal::Generation(RoutedGenerationError::RequirementRecord {
+                request_index: 3,
+                occurrence: Some(occurrence.clone()),
+                mismatch: Box::new(mismatch.clone()),
+            });
+            assert_eq!(refusal.code(), "runtime_invariant", "{mismatch:?}");
+            assert_eq!(refusal.stage(), DriverStage::Generation, "{mismatch:?}");
+            assert_eq!(refusal.kind(), OutcomeKind::Fault, "{mismatch:?}");
+            assert!(
+                matches!(&refusal, DriverRefusal::Generation(
+                    RoutedGenerationError::RequirementRecord { request_index: 3, mismatch: kept, .. })
+                    if **kept == mismatch),
+                "{mismatch:?} is kept unchanged"
+            );
+            let message = refusal.to_string();
+            assert!(message.contains("request item 3"), "{message}");
+            assert!(messages.insert(message), "{mismatch:?} has its own message");
+        }
+        assert_eq!(messages.len(), 7);
+    }
+
+    /// FR-020: the driver's own record faults are Generation-stage
+    /// `runtime_invariant` faults and name their record.
+    #[trace("TC-034", "FR-020-AC-4", "FR-020-AC-14")]
+    #[test]
+    fn requirement_record_faults_are_generation_runtime_invariants() {
+        let key = |name: &str| {
+            qsl_foundation::source::provenance::OccurrenceKey::new(
+                NodeKey::new(
+                    "pkg".to_owned(),
+                    vec![quire_exact::PathSegment::Text(name.to_owned())],
+                    0,
+                )
+                .expect("a fixture key is admissible"),
+                quire_exact::Origin::new(quire_exact::Role::new("expression"), 0),
+            )
+        };
+        let faults = [
+            DriverFault::RequirementRecordAbsent {
+                request_index: 2,
+                occurrence: key("a"),
+            },
+            DriverFault::RequirementRecordUnresolved {
+                occurrence: key("a"),
+                cause: super::RequirementRecordUnresolvedCause::UnknownNode {
+                    node: key("a").node().clone(),
+                },
+            },
+            DriverFault::RequirementRecordUnresolved {
+                occurrence: key("a"),
+                cause: super::RequirementRecordUnresolvedCause::UnknownOccurrenceRole {
+                    role: "nope".to_owned(),
+                },
+            },
+        ];
+        let mut messages = std::collections::BTreeSet::new();
+        for fault in faults {
+            let refusal = DriverRefusal::Fault(fault);
+            assert_eq!(refusal.code(), "runtime_invariant");
+            assert_eq!(refusal.stage(), DriverStage::Generation);
+            assert_eq!(refusal.kind(), OutcomeKind::Fault);
+            assert!(messages.insert(refusal.to_string()));
+        }
     }
 }

@@ -13,8 +13,9 @@ relationships:
 Verify that the driver hands CG each routed item's QSL requirement and the
 package's requirement records exactly, and refuses typed when it cannot.
 
-Scope: FR-020-AC-1 through FR-020-AC-15. Planned until CG PR #772 (IR-304
-slice (a)) merges; AC-11 and AC-13 wait on IR-304 slice (b).
+Scope: FR-020-AC-1 through FR-020-AC-15. AC-11 and AC-13 wait on IR-304
+slice (b); the guard-node half of AC-14 has no test because QSL's
+`PathGuard` and `RequirementRecord` have no public constructor.
 FR-001-AC-17 keeps its own evidence in TC-017; this case reuses that vector
 for FR-020-AC-6 only.
 
@@ -29,12 +30,13 @@ for FR-020-AC-6 only.
    IR-304 guarded package including `if p then x + 1 else x + 1`. Capture
    what the driver passes to a recording CG seam (AC-1 to AC-3, AC-5 to
    AC-7, AC-12, AC-15).
-2. In an in-module test in `src/drive.rs` (`drive()` takes no
-   `RequirementMap`), call the private `lower_driver_request`, negotiation
-   and `generate` with a `RequirementMap` argument missing the routed
+2. Through the additive, documented `Upstream::requirement_records` seam
+   (a defaulted trait method returning the package's own map; `drive()`
+   takes no `RequirementMap`, so a test upstream overrides it), drive the
+   run with a `RequirementMap` missing the routed
    item's `value-validity` record (AC-4), and with a record whose
-   guard node the admitted package does not hold, and with a record whose
-   key has an unmapped role (AC-14). Assert the fault
+   key node the admitted package does not hold, and with a record whose
+   key has an unmapped role (AC-14; the guard-node case cannot be built). Assert the fault
    fields, code, stage, kind and that the recording seam saw no generation
    call.
 3. Reuse the FR-010-AC-4 partition vector, once as is and once with B's
@@ -53,7 +55,7 @@ correct driver.
 | Mutant | Caught by |
 |---|---|
 | Build the occurrence from the node id with role and ordinal dropped | AC-1 occurrence equality; AC-3 (two items collapse) |
-| Reverse the path condition, or flip a `holds` value | AC-1 ordered-guard equality |
+| Reverse the path condition, or flip a `holds` value | AC-1 and AC-7 ordered-guard equality over an item under two nested guards (`if p then (if q then true else g(x + 1)) else true`: `holds` is `[true, false]`, roots are conversion, `p`, `q`) |
 | Drop the conversion context or fill it from the node | AC-1 `None` and `Some` cases |
 | Build records only for routed items | AC-2 refused item's record; AC-6 B's record |
 | Project every capability's record, so a later one overwrites at a shared occurrence | AC-2 (no other-capability entry); AC-5 (entry fields equal the `value-validity` record) |
