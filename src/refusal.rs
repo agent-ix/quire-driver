@@ -2079,9 +2079,9 @@ mod tests {
             ),
             (
                 "KaniReaderCatalogUnavailable",
-                OracleGenerationError::KaniReaderCatalogUnavailable(
+                OracleGenerationError::KaniReaderCatalogUnavailable(Box::new(
                     quire_contract_model::CatalogReadError::new("operations/0", "unreadable"),
-                ),
+                )),
                 "runtime_invariant",
                 OutcomeKind::Fault,
                 "could not read its operation catalog",
