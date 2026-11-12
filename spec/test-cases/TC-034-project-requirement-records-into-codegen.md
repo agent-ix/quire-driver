@@ -13,8 +13,7 @@ relationships:
 Verify that the driver hands CG each routed item's QSL requirement and the
 package's requirement records exactly, and refuses typed when it cannot.
 
-Scope: FR-020-AC-1 through FR-020-AC-15. The guard-node half of AC-14 has no test because QSL's
-`PathGuard` and `RequirementRecord` have no public constructor.
+Scope: FR-020-AC-1 through FR-020-AC-15.
 FR-001-AC-17 keeps its own evidence in TC-017; this case reuses that vector
 for FR-020-AC-6 only.
 
@@ -35,7 +34,7 @@ for FR-020-AC-6 only.
    run with a `RequirementMap` missing the routed
    item's `value-validity` record (AC-4), and with a record whose
    key node the admitted package does not hold, and with a record whose
-   key has an unmapped role (AC-14; the guard-node case cannot be built). Assert the fault
+   key has an unmapped role and with a record whose path guard names a node the package lacks (AC-14, built with QSL's `test-support` constructors). Assert the fault
    fields, code, stage, kind and that the recording seam saw no generation
    call.
 3. Reuse the FR-010-AC-4 partition vector, once as is and once with B's
@@ -65,7 +64,7 @@ correct driver.
 | Fault at projection time for any bound item without a record | AC-15 (the run must complete with `InvalidRequest` settled); AC-4 (the fault must come only after negotiation, for the routed item) |
 | Skip the absent-record check for a routed item, or check items that are not routed | AC-4 (fault expected, no CG call); AC-15 (no fault expected) |
 | Fill an absent record from the item's own fields | AC-4 fault and no-generation-call assertions |
-| Skip a record that fails to resolve and continue | AC-14 fault and no-generation-call assertions |
+| Skip a record that fails to resolve, or skip resolving a guard node, and continue | AC-14 fault and no-generation-call assertions |
 | Attach a requirement at B's index, or fault on B's missing record | AC-6 `None` at index 1; completion with B's record removed |
 | Place guard roots before the conversion root, in reverse, or advance driver indices | AC-7 position order and next index |
 | Emit a shared guard root once for both items | AC-12 (the else span lacks the root) |

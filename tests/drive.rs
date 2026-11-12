@@ -3765,6 +3765,74 @@ fn an_unprojectable_record_refuses_before_negotiation() {
     }
 }
 
+/// FR-020-AC-14 (guard-node case): a `value-validity` record whose path
+/// guard names a node the admitted package does not hold refuses the run
+/// before negotiation, naming the record's key and the guard's node.
+#[test]
+#[trace("TC-034", "FR-020-AC-14")]
+fn a_guard_whose_node_the_package_lacks_refuses_before_negotiation() {
+    let missing = || {
+        quire_exact::NodeKey::new(
+            "missing".to_owned(),
+            vec![quire_exact::PathSegment::Text("guard".to_owned())],
+            0,
+        )
+        .expect("a fixture key")
+    };
+    let recorder = Recorder {
+        requirement_rewrite: Some(|map| {
+            map.iter()
+                .map(|(key, record)| {
+                    let vv = record.requirements().kind()
+                        == qsl_semantics::check::Capability::ValueValidity;
+                    if !vv {
+                        return (key.clone(), record.clone());
+                    }
+                    let guard = qsl_semantics::check::PathGuard::new(
+                        qsl_foundation::source::provenance::OccurrenceKey::new(
+                            quire_exact::NodeKey::new(
+                                "missing".to_owned(),
+                                vec![quire_exact::PathSegment::Text("guard".to_owned())],
+                                0,
+                            )
+                            .expect("a fixture key"),
+                            key.origin().clone(),
+                        ),
+                        true,
+                    );
+                    (key.clone(), record.clone().with_path_condition(vec![guard]))
+                })
+                .collect()
+        }),
+        ..Recorder::default()
+    };
+    let refusal = drive_unit(&recorder, &GUARDED_UNIT).expect_err("the guard node is unknown");
+    let DriverRefusal::Fault(DriverFault::RequirementRecordUnresolved { occurrence, cause }) =
+        &refusal
+    else {
+        panic!("expected the unresolved-record fault, got {refusal:?}");
+    };
+    assert!(
+        matches!(cause, RequirementRecordUnresolvedCause::UnknownNode { node } if *node == missing()),
+        "{cause:?}"
+    );
+    assert_ne!(
+        *occurrence.node(),
+        missing(),
+        "the record's own key is named"
+    );
+    assert_eq!(refusal.code(), "runtime_invariant");
+    assert_eq!(refusal.stage(), DriverStage::Generation);
+    assert_eq!(refusal.kind(), OutcomeKind::Fault);
+    let calls = recorder.calls();
+    assert!(
+        !calls
+            .iter()
+            .any(|c| matches!(c, Call::Negotiate { .. } | Call::Generate { .. })),
+        "{calls:?}"
+    );
+}
+
 /// The `test/orders` model document of QSL's switch-transition example: a
 /// `Switch` with an `on` field and `set`/`adjust` operations. A `post` clause
 /// on one of them writes `operation-contract` requirement records.
@@ -4156,6 +4224,11 @@ fn a_guarded_item_generates_a_harness_assuming_its_guard_with_its_occurrence() {
                 let holds = requirement.path_condition[0].holds;
                 assert_eq!(assumes.len(), 1, "{}", harness.rust.contents);
                 assert_eq!(assumes[0].contains("!("), !holds, "{assumes:?}");
+                let text = &harness.rust.contents;
+                let inputs = text.rfind("kani::any").expect("symbolic inputs are drawn");
+                let assume = text.find(assumes[0]).expect("the guard assumption");
+                let call = text.find("let outcome = ").expect("the oracle call");
+                assert!(inputs < assume && assume < call, "{text}");
                 assert_eq!(
                     harness.identity.requirement_occurrence.as_ref(),
                     Some(&requirement.occurrence),
