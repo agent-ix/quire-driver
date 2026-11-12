@@ -220,9 +220,9 @@ implementation; FR-013 specifies the in-repository plugin host; FR-014 specifies
 | [FR-014](functional/FR-014-separate-the-user-cli-package.md) | Place the user CLI in a separate workspace package |
 | [FR-015](functional/FR-015-prepare-an-admitted-monitor-program.md) | Prepare one admitted monitor program for the runtime (planned until IR-721 lands) |
 | [FR-019](functional/FR-019-prepare-the-complete-monitor-program-under-one-budget.md) | Prepare the complete monitor program from one plan root under one preparation budget |
-| [FR-020](functional/FR-020-project-requirement-records-into-codegen-input.md) | Project each QSL requirement record into CG's typed routed-generation input (partial: AC-11, AC-13 wait on CG IR-304 slice (b)) |
+| [FR-020](functional/FR-020-project-requirement-records-into-codegen-input.md) | Project each QSL requirement record into CG's typed routed-generation input |
 | [TC-033](test-cases/TC-033-prepare-monitor-under-one-budget.md) | Prepare a monitor program from a plan root under one budget |
-| [TC-034](test-cases/TC-034-project-requirement-records-into-codegen.md) | Project QSL requirement records into CG's typed input (partial: AC-11, AC-13 wait on CG IR-304 slice (b)) |
+| [TC-034](test-cases/TC-034-project-requirement-records-into-codegen.md) | Project QSL requirement records into CG's typed input |
 | [TC-001](test-cases/TC-001-steps-run-in-order.md) | The steps run in ADR-011 T-13 order |
 | [TC-002](test-cases/TC-002-unknown-backend-refusal.md) | An unknown `BackendId` refuses the run before negotiation |
 | [TC-003](test-cases/TC-003-route-after-negotiation.md) | `route` runs after negotiation, for `supported` items only |

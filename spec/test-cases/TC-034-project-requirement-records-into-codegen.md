@@ -13,8 +13,7 @@ relationships:
 Verify that the driver hands CG each routed item's QSL requirement and the
 package's requirement records exactly, and refuses typed when it cannot.
 
-Scope: FR-020-AC-1 through FR-020-AC-15. AC-11 and AC-13 wait on IR-304
-slice (b); the guard-node half of AC-14 has no test because QSL's
+Scope: FR-020-AC-1 through FR-020-AC-15. The guard-node half of AC-14 has no test because QSL's
 `PathGuard` and `RequirementRecord` have no public constructor.
 FR-001-AC-17 keeps its own evidence in TC-017; this case reuses that vector
 for FR-020-AC-6 only.
@@ -42,10 +41,12 @@ for FR-020-AC-6 only.
 3. Reuse the FR-010-AC-4 partition vector, once as is and once with B's
    record removed from the map (AC-6).
 4. Tamper one record's result-bound node, run with real CG, and compare the
-   returned refusal (AC-8). Feed a fake CG error of each slice (a) mismatch
-   variant (AC-9) and of `GuardContextMissing` (AC-13).
+   returned refusal (AC-8). Feed a fake CG error of each mismatch
+   variant (AC-9). Remove a guard's `ContextRoot` position before real CG
+   generation and compare the `GuardContextMissing` refusal (AC-13).
 5. Run the guarded package through real CG with the Kani provider fixture
-   (AC-10 in slice (a), AC-11 after slice (b)).
+   and check the guard assumptions, the identity's occurrence and the
+   unlowerable-guard settlement (AC-11).
 
 ## Mutants
 
@@ -73,7 +74,9 @@ correct driver.
 | Report a CG record refusal at the Negotiation stage | AC-9, AC-13 stage |
 | Report a CG record refusal as outcome kind refusal | AC-9, AC-13 outcome kind |
 | Rewrite a CG refusal's request index, occurrence or mismatch | AC-9, AC-13 field equality |
-| Strip an unlowered guard | AC-10, AC-11 (no guard-free harness) |
+| Strip an unlowered guard | AC-11 (no guard-free harness) |
+| Skip the guard `ContextRoot` positions in `src/drive.rs` | AC-7, AC-12 position equality; AC-11 (the real CG refuses the call with `GuardContextMissing`, so the run fails) |
+| Map `RequirementRecord` with `GuardContextMissing` to another code, stage or kind | AC-13 |
 
 ## Expected Results
 

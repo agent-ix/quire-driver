@@ -2271,6 +2271,9 @@ mod tests {
                 item: Vec::new(),
                 record: Vec::new(),
             },
+            Mismatch::GuardContextMissing {
+                guard: requirement_occurrence(),
+            },
         ];
         let mut messages = std::collections::BTreeSet::new();
         for mismatch in mismatches {
@@ -2292,7 +2295,7 @@ mod tests {
             assert!(message.contains("request item 3"), "{message}");
             assert!(messages.insert(message), "{mismatch:?} has its own message");
         }
-        assert_eq!(messages.len(), 7);
+        assert_eq!(messages.len(), 8);
     }
 
     /// FR-020: the driver's own record faults are Generation-stage

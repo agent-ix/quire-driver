@@ -282,6 +282,13 @@ struct Recorder {
     read_evidence: RefCell<Option<CheckedPackageEvidence>>,
     /// Exact E7 lowered package and request-position projection passed to CG.
     generation_input: RefCell<Option<(ContractPackageV1, Vec<ContractRequestPosition>)>>,
+    /// `generate` hands CG these requirements in place of the driver's, and
+    /// the record set built from them, as a driver that put a guard in the
+    /// wrong item's context span would.
+    tampered_requirements: Option<(
+        Vec<(usize, quire_contract_codegen::RoutedRequirement)>,
+        RequirementRecords,
+    )>,
     /// The routed items, with the requirement the driver bound to each, and
     /// the requirement records of the Kani context CG generation received.
     generation_routed: RefCell<Vec<RoutedGenerationItem>>,
@@ -502,6 +509,33 @@ impl Upstream for Recorder {
                 .as_ref()
                 .is_some_and(|original| std::ptr::eq(source, original.as_ref())),
         );
+        if let Some((replacements, records)) = &self.tampered_requirements {
+            let routed = routed
+                .iter()
+                .map(|item| {
+                    replacements
+                        .iter()
+                        .find(|(index, _)| *index == item.request_index)
+                        .map_or_else(
+                            || item.clone(),
+                            |(_, requirement)| item.clone().with_requirement(requirement.clone()),
+                        )
+                })
+                .collect::<Vec<_>>();
+            let kani = contexts
+                .kani
+                .map(|kani| quire_contract_codegen::KaniGenerationContext {
+                    requirement_records: records,
+                    ..kani
+                });
+            return QslCg.generate(
+                source,
+                package,
+                positions,
+                &routed,
+                &GenerationContexts { kani },
+            );
+        }
         QslCg.generate(source, package, positions, routed, contexts)
     }
 }
@@ -4076,30 +4110,20 @@ fn a_disagreeing_result_bound_is_cg_s_refusal_returned_unchanged() {
     assert_eq!(refusal.kind(), OutcomeKind::Fault);
 }
 
-/// FR-020-AC-10 (slice (a)): an unguarded item generates a harness; a
-/// guarded item settles `unsupported` with `path_guard_not_lowered` and
-/// `guard_lowering_not_implemented`, and has no harness.
+/// FR-020-AC-11: each guarded item generates a harness whose guard
+/// `kani::assume` follows the symbolic inputs and whose identity carries the
+/// item's occurrence; a guard CG cannot lower settles `unsupported` with
+/// `path_guard_not_lowered` and no harness.
 #[test]
-#[trace("TC-034", "FR-020-AC-10")]
-fn a_guarded_item_settles_path_guard_not_lowered_and_has_no_harness() {
+#[trace("TC-034", "FR-020-AC-11")]
+fn a_guarded_item_generates_a_harness_assuming_its_guard_with_its_occurrence() {
     let source = unit(
         "function g using v(x: Int[0, 9]): Int[0, 10] pure { x + 1 }\n\
-         function f using v(y: Int[0, 9]): Int[0, 10] pure { if y > 5 then y + 1 else 0 }\n",
+         function f using v(y: Int[0, 9]): Int[0, 10] pure { if y > 5 then y + 1 else y + 1 }\n\
+         function k using v(z: Int[0, 9]): Int[0, 10] pure { if z + 1 > 5 then z + 1 else z + 1 }\n",
     );
     let recorder = Recorder::default();
     let driven = drive_unit(&recorder, &source).expect("the guarded package drives");
-    let records = value_validity_records(&driven);
-    let guarded = records
-        .iter()
-        .filter(|(_, _, record)| !record.path_condition().is_empty())
-        .map(|(index, ..)| *index)
-        .collect::<Vec<_>>();
-    let unguarded = records
-        .iter()
-        .filter(|(_, _, record)| record.path_condition().is_empty())
-        .map(|(index, ..)| *index)
-        .collect::<Vec<_>>();
-    assert!(!guarded.is_empty() && !unguarded.is_empty());
     let output = |index: usize| {
         driven
             .generation()
@@ -4108,35 +4132,147 @@ fn a_guarded_item_settles_path_guard_not_lowered_and_has_no_harness() {
             .find(|item| item.request_index == index)
             .map(|item| &item.output)
     };
-    for index in &guarded {
-        let Some(quire_contract_codegen::KindOutput::Kani { record, harness }) = output(*index)
+    let (mut lowered, mut refused) = (0, 0);
+    for (request_index, key, vv) in &value_validity_records(&driven) {
+        let requirement = expected_requirement(&driven, key, vv);
+        if requirement.path_condition.is_empty() {
+            continue;
+        }
+        let Some(quire_contract_codegen::KindOutput::Kani { record, harness }) =
+            output(*request_index)
         else {
-            panic!("guarded request {index} is routed to Kani");
+            panic!("request {request_index} is routed to Kani");
         };
-        assert!(harness.is_none(), "guarded request {index} has no harness");
-        assert!(
-            matches!(
-                &record.disposition,
-                ObligationDisposition::Unsupported {
-                    reason: UnsupportedObligation::PathGuardNotLowered {
-                        reason:
-                            quire_contract_codegen::PathGuardRefusal::GuardLoweringNotImplemented,
-                        ..
-                    }
-                }
-            ),
-            "request {index}: {:?}",
-            record.disposition
-        );
+        match harness {
+            Some(harness) => {
+                lowered += 1;
+                let assumes = harness
+                    .rust
+                    .contents
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| line.starts_with("kani::assume(") && line.contains("_native"))
+                    .collect::<Vec<_>>();
+                let holds = requirement.path_condition[0].holds;
+                assert_eq!(assumes.len(), 1, "{}", harness.rust.contents);
+                assert_eq!(assumes[0].contains("!("), !holds, "{assumes:?}");
+                assert_eq!(
+                    harness.identity.requirement_occurrence.as_ref(),
+                    Some(&requirement.occurrence),
+                    "the harness identity carries the item's occurrence"
+                );
+            }
+            None => {
+                refused += 1;
+                assert!(
+                    matches!(
+                        &record.disposition,
+                        ObligationDisposition::Unsupported {
+                            reason: UnsupportedObligation::PathGuardNotLowered {
+                                reason:
+                                    quire_contract_codegen::PathGuardRefusal::UnsupportedGuardForm,
+                                ..
+                            }
+                        }
+                    ),
+                    "request {request_index}: {:?}",
+                    record.disposition
+                );
+            }
+        }
     }
-    assert!(
-        unguarded.iter().any(|index| matches!(
-            output(*index),
-            Some(quire_contract_codegen::KindOutput::Kani {
-                harness: Some(_),
-                ..
-            })
-        )),
-        "an unguarded item generates a harness"
+    assert_eq!(
+        lowered, 2,
+        "the then and else items of `f` lower their guard"
     );
+    assert_eq!(
+        refused, 2,
+        "the then and else items of `k` keep an unlowerable guard"
+    );
+}
+
+/// FR-020-AC-13: a guard CG finds without a context root in its item's span
+/// refuses the whole call as `RequirementRecord` with `GuardContextMissing`,
+/// returned unchanged as a Generation-stage `runtime_invariant` fault.
+#[test]
+#[trace("TC-034", "FR-020-AC-13")]
+fn a_guard_without_a_context_root_is_cg_s_refusal_returned_unchanged() {
+    let source = unit(
+        "function f using v(y: Int[0, 9]): Int[0, 10] pure { if y > 5 then y + 1 else y + 1 }\n\
+         function h using v(w: Int[0, 9]): Int[0, 10] pure { if w > 3 then w + 1 else w + 1 }\n",
+    );
+    let reference = drive_unit(&Recorder::default(), &source).expect("the package drives");
+    let records = value_validity_records(&reference);
+    let requirements = records
+        .iter()
+        .map(|(index, key, vv)| (*index, expected_requirement(&reference, key, vv)))
+        .collect::<Vec<_>>();
+    let guards = requirements
+        .iter()
+        .filter_map(|(_, requirement)| requirement.path_condition.first())
+        .map(|guard| guard.occurrence.clone())
+        .collect::<Vec<_>>();
+    let first = guards[0].clone();
+    let other = guards
+        .into_iter()
+        .find(|guard| *guard != first)
+        .expect("a second guard exists");
+    // The first function's items name the second function's guard, in their
+    // requirement and in the record set alike, so only the context span is wrong.
+    let tampered = requirements
+        .into_iter()
+        .map(|(index, mut requirement)| {
+            if let Some(guard) = requirement.path_condition.first_mut() {
+                if guard.occurrence == first {
+                    guard.occurrence = other.clone();
+                }
+            }
+            (index, requirement)
+        })
+        .collect::<Vec<_>>();
+    let set = RequirementRecords::new(
+        tampered
+            .iter()
+            .map(|(_, requirement)| {
+                (
+                    requirement.occurrence.clone(),
+                    quire_contract_codegen::RequirementRecordInput {
+                        result_bound: requirement.result_bound.clone(),
+                        conversion_context: requirement.conversion_context.clone(),
+                        path_condition: requirement.path_condition.clone(),
+                    },
+                )
+            })
+            .collect(),
+    );
+    let recorder = Recorder {
+        tampered_requirements: Some((tampered.clone(), set)),
+        ..Recorder::default()
+    };
+    let result = drive_unit(&recorder, &source);
+    let refusal = result.expect_err("the guard has no context root");
+    let DriverRefusal::Generation(RoutedGenerationError::RequirementRecord {
+        request_index,
+        occurrence,
+        mismatch,
+    }) = &refusal
+    else {
+        panic!("expected CG's RequirementRecord refusal, got {refusal:?}");
+    };
+    let (_, requirement) = tampered
+        .iter()
+        .find(|(index, _)| index == request_index)
+        .expect("the refusal names a value-validity item");
+    assert_eq!(occurrence.as_ref(), Some(&requirement.occurrence));
+    assert!(
+        matches!(
+            mismatch.as_ref(),
+            quire_contract_codegen::RequirementRecordMismatch::GuardContextMissing { guard }
+                if *guard == requirement.path_condition[0].occurrence
+        ),
+        "{mismatch:?}"
+    );
+    assert_eq!(refusal.code(), "runtime_invariant");
+    assert_eq!(refusal.stage(), DriverStage::Generation);
+    assert_eq!(refusal.kind(), OutcomeKind::Fault);
 }
