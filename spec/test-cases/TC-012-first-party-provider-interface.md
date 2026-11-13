@@ -89,11 +89,14 @@ and FR-005-AC-20 through FR-005-AC-22.
     nonexistent launcher and crate. Verify the item's result is
     `KaniProviderFailure::NotTractable` carrying CG's
     `UnsupportedObligation::V2ClauseNotTractable` with the harness's node and
-    operation identity, 4 bits, the general route and the shipped measured row,
-    and that no launch was attempted (a launch attempt would be an `Execution`
-    refusal). Verify the same harness on the native route is not refused by
-    that row and reaches CG's execution (here, its `Execution` refusal for the
-    missing launcher). FR-005-AC-22.
+    operation identity, 4 bits, the general route and the shipped measured row;
+    a launch attempt would have been an `Execution` refusal. Then generate the
+    same source with CG's `generate_routed_native` (a genuine native-route
+    harness) and verify it is not refused by that row: CG's execution refuses
+    it as `HarnessNotInCrate` because the crate does not exist. Known gap: a
+    `NotTractable` item has no terminal record, so `outcome_bytes` fails the
+    whole batch as it does for an `Execution` refusal; CG ships no terminal map
+    for `DecidedRunRefusal` and the driver adds none. FR-005-AC-22.
 
 Test location: `src/registry.rs`, `src/drive.rs`, `src/provider.rs`,
 `quire-cli/src/backend_provider.rs`, `quire-cli/src/process_provider.rs`, and

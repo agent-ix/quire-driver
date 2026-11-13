@@ -15,7 +15,7 @@ Verify the available proved-provider terminal path uses QSL's canonical
 for every item in the CG request, including the routed scalar observation producer
 and report-claim guard, remains planned.
 
-Scope: FR-009-AC-1 through FR-009-AC-24 and FR-001-AC-23/24.
+Scope: FR-009-AC-1 through FR-009-AC-24 and FR-009-AC-26 and FR-001-AC-23/24.
 
 ## Test Procedure
 
@@ -36,6 +36,14 @@ different or absent diagnostic text does not. The preserved-evidence test is
 `src/provider.rs::falsified_scalar_does_not_guess_a_replay_settlement` verifies
 the optional replay settlement is passed to CG's map and no settlement is
 guessed when it is absent.
+
+FR-009-AC-26: drive a general-route scalar (`x + 1` over `Int[0, 9]`) through
+`drive` with `ScalarNativeInput` naming a nonexistent launcher. Verify the
+result is `DriverRefusal::ScalarNotTractable` carrying CG's
+`V2ClauseNotTractable` for the general route (a launch attempt would instead be
+`ScalarNative`). Drive the same source through a generation that uses CG's
+`generate_routed_native` and verify the paired runner is reached
+(`ScalarNative`, the launcher is missing). `src/drive.rs::scalar_native_tractability_tests`.
 
 The scalar producer/replay scenarios below remain planned. IR-879 owns the
 production driver composition that binds a real QSL call to its exact selected

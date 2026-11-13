@@ -2,6 +2,7 @@
 //! Linked provider interface and the built-in Kani execution adapter.
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use qsl_foundation::BackendId;
 use qsl_package::EmittedPackage;
@@ -300,22 +301,10 @@ impl KaniProvider {
         limits: &ProviderLimits<'_>,
         cancel: &Cancel,
     ) -> KaniProviderResults {
-        match TractabilityTable::shipped_general_route_scalar() {
-            Ok(table) => self.run_items_with_executor(request, limits, cancel, |execution| {
-                execute_kani_obligation_decided(execution, &table)
-            }),
-            Err(error) => ProviderResults {
-                items: request
-                    .items
-                    .iter()
-                    .map(|item| ProviderItemResult {
-                        request_index: item.request_index,
-                        backend: item.backend.clone(),
-                        result: Err(KaniProviderFailure::TractabilityUnavailable(error.clone())),
-                    })
-                    .collect(),
-            },
-        }
+        self.run_items_with_executor(request, limits, cancel, |execution| {
+            let table = shipped_table()?;
+            execute_kani_obligation_decided(execution, table).map_err(provider_failure)
+        })
     }
 
     /// Run provider items through the same execution-result path while allowing tests to supply
@@ -327,7 +316,7 @@ impl KaniProvider {
         cancel: &Cancel,
         mut execute: impl FnMut(
             &KaniExecutionRequest<'_>,
-        ) -> Result<KaniExecutionEvidence, DecidedRunRefusal>,
+        ) -> Result<KaniExecutionEvidence, KaniProviderFailure>,
     ) -> KaniProviderResults {
         let mut items = Vec::with_capacity(request.items.len());
         for item in request.items {
@@ -371,7 +360,7 @@ fn run_kani_item_with_executor(
     cancel: &Cancel,
     execute: &mut impl FnMut(
         &KaniExecutionRequest<'_>,
-    ) -> Result<KaniExecutionEvidence, DecidedRunRefusal>,
+    ) -> Result<KaniExecutionEvidence, KaniProviderFailure>,
 ) -> Result<KaniExecutionEvidence, KaniProviderFailure> {
     let has_harness = matches!(
         &item.output,
@@ -400,7 +389,19 @@ fn run_kani_item_with_executor(
         cancel,
         KaniExecutableHarness::from(&**harness),
     ))
-    .map_err(|refusal| match refusal {
+}
+
+/// The shipped general-route scalar table, parsed once (CG's embedded file).
+fn shipped_table() -> Result<&'static TractabilityTable, KaniProviderFailure> {
+    static TABLE: OnceLock<Result<TractabilityTable, TractabilityLoadError>> = OnceLock::new();
+    TABLE
+        .get_or_init(TractabilityTable::shipped_general_route_scalar)
+        .as_ref()
+        .map_err(|error| KaniProviderFailure::TractabilityUnavailable(error.clone()))
+}
+
+fn provider_failure(refusal: DecidedRunRefusal) -> KaniProviderFailure {
+    match refusal {
         DecidedRunRefusal::Execution(refusal) => KaniProviderFailure::Execution(refusal),
         DecidedRunRefusal::NotTractable {
             harness_path,
@@ -409,7 +410,7 @@ fn run_kani_item_with_executor(
             harness_path,
             refusal,
         },
-    })
+    }
 }
 
 fn kani_execution_request<'a>(
@@ -759,6 +760,10 @@ mod tests {
     }
 
     fn generated_routed_item() -> RoutedItemOutput {
+        generated_routed_item_with(&crate::QslCg)
+    }
+
+    fn generated_routed_item_with(upstream: &impl crate::Upstream) -> RoutedItemOutput {
         let source = format!(
             "language \"ix:native\" edition \"1-draft\";\n\
              profile v = \"{}\";\n\
@@ -775,7 +780,7 @@ mod tests {
         }])
         .expect("the real Kani provider manifest is admitted");
         crate::drive(
-            &crate::QslCg,
+            upstream,
             CompileInput {
                 source: SourceIdentity::new("driver-test", "provider.native"),
                 package_name: "provider",
@@ -971,21 +976,25 @@ mod tests {
         );
     }
 
-    /// The same harness on the native route is not refused by the general-route row: it proceeds
-    /// to CG's own execution refusals (the launcher does not exist).
+    /// A harness CG generated on the native-integer route (`generate_routed_native`) is not
+    /// refused by the general-route row: it proceeds to CG's own execution, whose first refusal
+    /// for a crate directory that does not contain the generated source is `HarnessNotInCrate`.
     #[trace("TC-012", "FR-005-AC-22")]
     #[test]
     fn native_route_scalar_harness_still_reaches_execution() {
-        let mut item = generated_routed_item();
+        let item = generated_routed_item_with(&crate::upstream::NativeRouteQslCg);
         let KindOutput::Kani {
             harness: Some(harness),
             ..
-        } = &mut item.output
+        } = &item.output
         else {
             panic!("generated fixture carries a Kani harness");
         };
-        harness.identity.integer_representation =
-            quire_contract_codegen::ScalarIntegerRepresentation::Native;
+        assert_eq!(
+            harness.identity.integer_representation,
+            quire_contract_codegen::ScalarIntegerRepresentation::Native,
+            "the fixture is a genuine native-route harness"
+        );
         let request = ProviderRequest::new(std::slice::from_ref(&item));
         let installation = KaniInstallation::new("/nonexistent/cargo-kani");
         let limits = nonexistent_launch_limits(&installation);
@@ -995,7 +1004,9 @@ mod tests {
         assert!(
             matches!(
                 results.items[0].result,
-                Err(KaniProviderFailure::Execution(_))
+                Err(KaniProviderFailure::Execution(
+                    quire_contract_codegen::KaniExecutionRefusal::HarnessNotInCrate { .. }
+                ))
             ),
             "{:?}",
             results.items[0].result

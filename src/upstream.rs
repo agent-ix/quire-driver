@@ -229,6 +229,71 @@ impl Upstream for QslCg {
     }
 }
 
+/// Test-only [`Upstream`] that is [`QslCg`] except that generation uses CG's native-integer route
+/// (`generate_routed_native`), so tests obtain a genuine native-route harness.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct NativeRouteQslCg;
+
+#[cfg(test)]
+impl Upstream for NativeRouteQslCg {
+    fn has_abstraction_relation(&self, package: &CheckedPackage) -> bool {
+        QslCg.has_abstraction_relation(package)
+    }
+    fn export_bindings(
+        &self,
+        package: &CheckedPackage,
+        items: &[OccurrenceKey],
+    ) -> Result<Vec<Result<BoundItem, ExportRefusal>>, ExportRefusal> {
+        QslCg.export_bindings(package, items)
+    }
+    fn compile(
+        &self,
+        source: SourceIdentity,
+        path: &str,
+        bytes: &[u8],
+        package_name: &str,
+        packages: &PackageInput,
+        limits: SpineLimits,
+        cancel: &Cancel,
+    ) -> Result<(CheckedUnit, AdmittedModels, EmittedUnit), DriverRefusal> {
+        QslCg.compile(source, path, bytes, package_name, packages, limits, cancel)
+    }
+    fn read_package(
+        &self,
+        emitted: &EmittedUnit,
+        limits: CheckedPackageReadLimits,
+        evidence: &CheckedPackageEvidence,
+    ) -> CheckedPackageDispatchResult {
+        QslCg.read_package(emitted, limits, evidence)
+    }
+    fn backend_kind(&self, descriptor: &BackendDescriptor) -> Option<BackendKind> {
+        QslCg.backend_kind(descriptor)
+    }
+    fn negotiate(
+        &self,
+        source: &CheckedPackageV2,
+        package: &ContractPackageV1,
+        positions: &[ContractRequestPosition],
+        envelope: &BackendProviderEnvelope,
+    ) -> Result<Vec<ContractItemSettlement>, Box<ContractNegotiationError>> {
+        QslCg.negotiate(source, package, positions, envelope)
+    }
+    fn route<'d>(&self, dispositions: &'d [Disposition]) -> Vec<Option<&'d Candidate>> {
+        QslCg.route(dispositions)
+    }
+    fn generate(
+        &self,
+        source: &CheckedPackageV2,
+        package: &ContractPackageV1,
+        positions: &[ContractRequestPosition],
+        routed: &[RoutedGenerationItem],
+        contexts: &GenerationContexts<'_>,
+    ) -> Result<RoutedGeneration, RoutedGenerationError> {
+        quire_contract_codegen::generate_routed_native(source, package, positions, routed, contexts)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use qsl_foundation::diagnostic::{LimitExceeded, StageFailure};
