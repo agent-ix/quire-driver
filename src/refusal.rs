@@ -941,7 +941,9 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
         | RoutedGenerationError::DuplicateHarness { .. }
         | RoutedGenerationError::KaniRecordCountMismatch { .. }
         | RoutedGenerationError::KaniDuplicatePositionOutOfRange { .. }
-        | RoutedGenerationError::Kani(KaniObligationError::EmptyRequest) => Code::RuntimeInvariant,
+        | RoutedGenerationError::Kani(
+            KaniObligationError::EmptyRequest | KaniObligationError::TractabilityTable(_),
+        ) => Code::RuntimeInvariant,
         RoutedGenerationError::Kani(KaniObligationError::TooManyItems { .. }) => {
             Code::ResourceExhausted
         }
@@ -1252,6 +1254,9 @@ fn kani_message(error: &KaniObligationError) -> String {
         KaniObligationError::InvalidSubjectPath => "the subject path is not a Rust path".to_owned(),
         KaniObligationError::InvalidUnwind { unwind } => {
             format!("unwind bound {unwind} is out of range")
+        }
+        KaniObligationError::TractabilityTable(error) => {
+            format!("internal fault: CG tractability table failed to load: {error:?}")
         }
     }
 }
