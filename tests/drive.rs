@@ -3816,10 +3816,15 @@ fn a_guard_whose_node_the_package_lacks_refuses_before_negotiation() {
         matches!(cause, RequirementRecordUnresolvedCause::UnknownNode { node } if *node == missing()),
         "{cause:?}"
     );
-    assert_ne!(
-        *occurrence.node(),
-        missing(),
-        "the record's own key is named"
+    let reference = drive_unit(&Recorder::default(), &GUARDED_UNIT).expect("the unit drives");
+    let keys = value_validity_records(&reference)
+        .into_iter()
+        .map(|(_, key, _)| key)
+        .collect::<Vec<_>>();
+    assert!(!keys.is_empty());
+    assert!(
+        keys.contains(occurrence),
+        "the fault names a rewritten value-validity record key, got {occurrence:?}"
     );
     assert_eq!(refusal.code(), "runtime_invariant");
     assert_eq!(refusal.stage(), DriverStage::Generation);
