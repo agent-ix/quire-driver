@@ -35,3 +35,18 @@ Spec changes are well placed and traceable; fix FND-001 together with the
 native-route test (SR-17940486709564847047958 FND-002). If the fix round gates
 the scalar native path (SR-17940486709564847047958 FND-001), its AC belongs in
 FR-009 next to FR-009-AC-7/AC-13, with its own TC-016 step.
+
+## New findings (disposition pass 1)
+
+| ID | Severity | Summary | Refs |
+|---|---|---|---|
+| FND-003 | low | The TC-016 FR-009-AC-26 step and the spec/tests.md row say the native-route drive reaches the runner "(`ScalarNative`, the launcher is missing)", but the test asserts only `ScalarNative(_)`. CG's runner validates, stages and runs `cargo generate-lockfile --offline` before it launches Kani, and each step returns `ScalarNative`, so the launcher being missing is not shown. The AC claim (the runner is reached) holds, because only the runner produces `ScalarNative`. Either drop the parenthetical or assert the variant. | spec/test-cases/TC-016-execute-replay-and-terminal-records.md:67-73, spec/tests.md:101, src/drive.rs:1302-1313 |
+
+## Dispositions
+
+Disposition pass 1, checked at d083388d against 9aca0720..d083388d.
+
+| FND | outcome | reason |
+|---|---|---|
+| FND-001 | fixed | TC-012 step 14 now describes a genuine `generate_routed_native` harness refused by CG as `HarnessNotInCrate`, and the spec/tests.md row matches. |
+| FND-002 | fixed | The FR-005-AC-22 row now follows the FR-005-AC-20..AC-21 row. |

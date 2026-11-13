@@ -56,3 +56,14 @@ which is what IR-1530's closing condition is about; it is fixable in this PR
 with driver code only. FND-002 should be fixed in the same round. FND-003 and
 FND-004 are optional. A test through `Provider::run` instead of `run_items` is
 not required: `run` is a one-line delegation that ignores `package`.
+
+## Dispositions
+
+Disposition pass 1, checked at d083388d against 9aca0720..d083388d.
+
+| FND | outcome | reason |
+|---|---|---|
+| FND-001 | fixed | `execute_scalar_items` now calls CG's `refuse_if_not_tractable(&KaniExecutableHarness::Scalar(harness), &shipped table)` before `execute_kani_scalar_native` and returns `DriverRefusal::ScalarNotTractable` with CG's refusal unchanged (code `unsupported_obligation/v2-clause-not-tractable`, stage Replay, kind Refused); `scalar_native_tractability_tests` cover both routes; the drive.rs Kani-lane receipt test moved to `NativeRouteQslCg` (src/drive.rs:539-557, 1198-1313, 1421-1424). |
+| FND-002 | fixed | The fixture is a genuine native-route harness from CG's `generate_routed_native` via test-only `NativeRouteQslCg`; the test asserts the representation is Native and the refusal is `Execution(HarnessNotInCrate)` (src/provider.rs:978-1013, src/upstream.rs:232-294). |
+| FND-003 | fixed | The table is loaded inside the executor closure, after the per-item preflight, and parsed once through a `OnceLock` (`shipped_table`, src/provider.rs:300-305, 395-401). |
+| FND-004 | accepted-no-change | Recorded as a known gap in TC-012 step 14 and the spec/tests.md FR-005-AC-22 row; consistent with AC-22's no-reclassification rule and CG shipping no terminal map for `DecidedRunRefusal`. |
