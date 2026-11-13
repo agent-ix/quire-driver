@@ -58,6 +58,8 @@ serde_json = "1.0.151"
 thiserror = "=2.0.20"
 
 [dev-dependencies]
+# FR-020-AC-14: `PathGuard::new` and `RequirementRecord::with_path_condition`.
+qsl-semantics = { git = "https://github.com/agent-ix/quire-spec-language", branch = "main", features = ["test-support"] }
 # Existing DeclarationKey fixture follows its extracted plain-value owner.
 quire-checked = { git = "https://github.com/agent-ix/quire-eval", branch = "main" }
 ix-trace-rs = { git = "https://github.com/agent-ix/ix-trace-rs", branch = "main" }

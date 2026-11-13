@@ -2060,12 +2060,8 @@ mod tests {
         })
     }
 
-    /// The five Kani-harness oracle failures a test can build, each with the
+    /// The six Kani-harness oracle failures a test can build, each with the
     /// code, kind and message fragment that belongs to it alone.
-    /// `KaniReaderCatalogUnavailable` wraps IR's `CatalogReadError`, whose
-    /// fields are `pub(super)` and which has no public constructor, so no test
-    /// can build one: its `RuntimeInvariant` mapping (shared with
-    /// `KaniReaderRefused` in `oracle_code`) is not pinned by any test.
     fn kani_oracle_cases() -> Vec<(
         &'static str,
         OracleGenerationError,
@@ -2080,6 +2076,15 @@ mod tests {
                 "runtime_invariant",
                 OutcomeKind::Fault,
                 "reader refused the retained package",
+            ),
+            (
+                "KaniReaderCatalogUnavailable",
+                OracleGenerationError::KaniReaderCatalogUnavailable(Box::new(
+                    quire_contract_model::CatalogReadError::new("operations/0", "unreadable"),
+                )),
+                "runtime_invariant",
+                OutcomeKind::Fault,
+                "could not read its operation catalog",
             ),
             (
                 "KaniReaderIncomplete",
@@ -2152,6 +2157,10 @@ mod tests {
     kani_oracle_case_test!(
         kani_reader_refused_is_a_runtime_invariant_fault,
         "KaniReaderRefused"
+    );
+    kani_oracle_case_test!(
+        kani_reader_catalog_unavailable_is_a_runtime_invariant_fault,
+        "KaniReaderCatalogUnavailable"
     );
     kani_oracle_case_test!(
         kani_reader_incomplete_is_a_stage_limit,
@@ -2271,7 +2280,27 @@ mod tests {
                 item: Vec::new(),
                 record: Vec::new(),
             },
+            Mismatch::GuardContextMissing {
+                guard: requirement_occurrence(),
+            },
         ];
+        // A wildcard-free match: a ninth CG variant does not compile here until
+        // it is added to the list above.
+        let variant = |mismatch: &Mismatch| match mismatch {
+            Mismatch::RequirementMissing => 0,
+            Mismatch::OccurrenceNotSelected => 1,
+            Mismatch::RecordMissing => 2,
+            Mismatch::ApplicationMismatch { .. } => 3,
+            Mismatch::ResultBoundMismatch { .. } => 4,
+            Mismatch::ConversionContextMismatch { .. } => 5,
+            Mismatch::PathConditionMismatch { .. } => 6,
+            Mismatch::GuardContextMissing { .. } => 7,
+        };
+        let covered = mismatches
+            .iter()
+            .map(variant)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(covered, (0..8).collect(), "every variant is exercised");
         let mut messages = std::collections::BTreeSet::new();
         for mismatch in mismatches {
             let refusal = DriverRefusal::Generation(RoutedGenerationError::RequirementRecord {
@@ -2292,7 +2321,7 @@ mod tests {
             assert!(message.contains("request item 3"), "{message}");
             assert!(messages.insert(message), "{mismatch:?} has its own message");
         }
-        assert_eq!(messages.len(), 7);
+        assert_eq!(messages.len(), 8);
     }
 
     /// FR-020: the driver's own record faults are Generation-stage

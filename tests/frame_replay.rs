@@ -141,18 +141,29 @@ impl Fixture {
             })
             .map(|(_, node)| &node.node_id)
             .expect("the original QSL clause selects its admitted document-held node");
-        let harness = cg::generate_state_frame_obligations(&cg::StateFrameRequest {
-            ceilings: cg::ProofCeilings {
-                memory_bytes: NonZeroU64::new(1024 * 1024).unwrap(),
-                wall_clock: Duration::from_secs(1),
+        let harness = cg::generate_state_frame_obligations(
+            &cg::StateFrameRequest {
+                ceilings: cg::ProofCeilings {
+                    memory_bytes: NonZeroU64::new(1024 * 1024).unwrap(),
+                    wall_clock: Duration::from_secs(1),
+                },
+                package: driven.checked(),
+                clause: clause_node,
+                state_path: "crate::State",
+                state_fields: &["balance"],
+                subject_path: "crate::touch",
+                unwind: 2,
             },
-            package: driven.checked(),
-            clause: clause_node,
-            state_path: "crate::State",
-            state_fields: &["balance"],
-            subject_path: "crate::touch",
-            unwind: 2,
-        })
+            cg::StateFrameRoleIdentities::new(
+                qsl_replay::ObligationIdentity::new(
+                    clause.site.node.clone(),
+                    None,
+                    u32::try_from(clause.site.occurrence.origin().ordinal()).unwrap(),
+                ),
+                located.site.obligation_identity().clone(),
+            )
+            .unwrap(),
+        )
         .unwrap()
         .frame
         .identity;
@@ -195,6 +206,7 @@ impl Fixture {
                 dependencies: vec![],
                 accounting_limits: default_accounting(1_000_000),
                 stage_limits: BTreeMap::new(),
+                supplied_limits: None,
                 declared_domains: vec![],
                 replay_limits: ReplayLimits::default(),
             },

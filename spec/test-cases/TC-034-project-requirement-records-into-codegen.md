@@ -13,9 +13,7 @@ relationships:
 Verify that the driver hands CG each routed item's QSL requirement and the
 package's requirement records exactly, and refuses typed when it cannot.
 
-Scope: FR-020-AC-1 through FR-020-AC-15. AC-11 and AC-13 wait on IR-304
-slice (b); the guard-node half of AC-14 has no test because QSL's
-`PathGuard` and `RequirementRecord` have no public constructor.
+Scope: FR-020-AC-1 through FR-020-AC-15.
 FR-001-AC-17 keeps its own evidence in TC-017; this case reuses that vector
 for FR-020-AC-6 only.
 
@@ -36,16 +34,18 @@ for FR-020-AC-6 only.
    run with a `RequirementMap` missing the routed
    item's `value-validity` record (AC-4), and with a record whose
    key node the admitted package does not hold, and with a record whose
-   key has an unmapped role (AC-14; the guard-node case cannot be built). Assert the fault
+   key has an unmapped role and with a record whose path guard names a node the package lacks (AC-14, built with QSL's `test-support` constructors). Assert the fault
    fields, code, stage, kind and that the recording seam saw no generation
    call.
 3. Reuse the FR-010-AC-4 partition vector, once as is and once with B's
    record removed from the map (AC-6).
 4. Tamper one record's result-bound node, run with real CG, and compare the
-   returned refusal (AC-8). Feed a fake CG error of each slice (a) mismatch
-   variant (AC-9) and of `GuardContextMissing` (AC-13).
+   returned refusal (AC-8). Feed a fake CG error of each mismatch
+   variant (AC-9). Remove a guard's `ContextRoot` position before real CG
+   generation and compare the `GuardContextMissing` refusal (AC-13).
 5. Run the guarded package through real CG with the Kani provider fixture
-   (AC-10 in slice (a), AC-11 after slice (b)).
+   and check the guard assumptions, the identity's occurrence and the
+   unlowerable-guard settlement (AC-11).
 
 ## Mutants
 
@@ -64,7 +64,7 @@ correct driver.
 | Fault at projection time for any bound item without a record | AC-15 (the run must complete with `InvalidRequest` settled); AC-4 (the fault must come only after negotiation, for the routed item) |
 | Skip the absent-record check for a routed item, or check items that are not routed | AC-4 (fault expected, no CG call); AC-15 (no fault expected) |
 | Fill an absent record from the item's own fields | AC-4 fault and no-generation-call assertions |
-| Skip a record that fails to resolve and continue | AC-14 fault and no-generation-call assertions |
+| Skip a record that fails to resolve, or skip resolving a guard node, and continue | AC-14 fault and no-generation-call assertions |
 | Attach a requirement at B's index, or fault on B's missing record | AC-6 `None` at index 1; completion with B's record removed |
 | Place guard roots before the conversion root, in reverse, or advance driver indices | AC-7 position order and next index |
 | Emit a shared guard root once for both items | AC-12 (the else span lacks the root) |
@@ -73,7 +73,9 @@ correct driver.
 | Report a CG record refusal at the Negotiation stage | AC-9, AC-13 stage |
 | Report a CG record refusal as outcome kind refusal | AC-9, AC-13 outcome kind |
 | Rewrite a CG refusal's request index, occurrence or mismatch | AC-9, AC-13 field equality |
-| Strip an unlowered guard | AC-10, AC-11 (no guard-free harness) |
+| Strip an unlowered guard | AC-11 (no guard-free harness) |
+| Skip the guard `ContextRoot` positions in `src/drive.rs` | AC-7, AC-12 position equality; AC-11 (the real CG refuses the call with `GuardContextMissing`, so the run fails) |
+| Map `RequirementRecord` with `GuardContextMissing` to another code, stage or kind | AC-13 |
 
 ## Expected Results
 

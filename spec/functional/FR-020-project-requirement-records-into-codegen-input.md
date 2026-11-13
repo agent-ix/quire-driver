@@ -29,10 +29,8 @@ driver fault, never a guess. CG owns the types and every comparison
 requirement records", "Frames" and "Where the checks run"); the driver owns
 the projection and the refusal when it cannot make it.
 
-The CG types are merged (IR-304 slice (a), on CG main) and the driver
-implements this requirement against them. AC-11 and AC-13 wait on IR-304
-slice (b), which CG has not landed; the guard-node half of AC-14 has no
-test (see the AC-14 row).
+The CG types and guard lowering are merged (IR-304 slices (a) and (b), on CG
+main) and the driver implements this requirement against them.
 
 ## Inputs
 
@@ -167,14 +165,12 @@ test (see the AC-14 row).
   occurrence, mismatch }` (any `RequirementRecordMismatch`:
   `RequirementMissing`, `OccurrenceNotSelected`, `RecordMissing`,
   `ApplicationMismatch`, `ResultBoundMismatch`, `ConversionContextMismatch`
-  or `PathConditionMismatch` from IR-304 slice (a), and `GuardContextMissing`
-  from IR-304 slice (b)) means the driver's
+  `PathConditionMismatch` or `GuardContextMissing`) means the driver's
   projection disagreed with the authenticated selection. The driver SHALL
   preserve it unchanged in `DriverRefusal::Generation`, with stage
   Generation, wire code `runtime_invariant` and outcome kind internal fault.
 - The driver SHALL preserve CG's per-item settlement of an item whose guard
-  CG does not lower (`path_guard_not_lowered`, and in slice (a)
-  `GuardLoweringNotImplemented`) unchanged; it SHALL NOT remove a guard to
+  CG does not lower (`path_guard_not_lowered`) unchanged; it SHALL NOT remove a guard to
   avoid that settlement.
 
 ## Acceptance Criteria
@@ -189,12 +185,12 @@ test (see the AC-14 row).
 | FR-020-AC-6 | For the FR-010-AC-4 vector, the projection returns a requirement for A (index 0) and C (index 2) and `None` at B's index 1, B's position is excluded, `RequirementRecords` still holds B's record, the run completes without a `DriverRefusal`, and the same holds with B's record removed from the map. FR-001-AC-17 keeps its own evidence in TC-017; this criterion asserts only the projection and the absence of a fault. | Test (TC-034) |
 | FR-020-AC-7 | For an item with two path guards and a conversion context, the request positions hold the conversion `ContextRoot`, then one `ContextRoot` per guard in outermost-first order, all inside the item's context span, and the next item's driver index is unchanged by them. | Test (TC-034) |
 | FR-020-AC-8 | Given a record whose QSL result-bound node differs from the type the IR result context selects, the driver passes the QSL node unchanged; CG refuses with `RequirementRecord` and `ResultBoundMismatch`, and the driver returns it unchanged in `DriverRefusal::Generation` with stage Generation, wire code `runtime_invariant` and kind internal fault. | Test (TC-034) |
-| FR-020-AC-9 | For each of the seven `RequirementRecordMismatch` variants IR-304 slice (a) defines (`RequirementMissing`, `OccurrenceNotSelected`, `RecordMissing`, `ApplicationMismatch`, `ResultBoundMismatch`, `ConversionContextMismatch`, `PathConditionMismatch`), a CG refusal carrying it is returned as `DriverRefusal::Generation` with the request index, occurrence and mismatch unchanged, stage Generation, wire code `runtime_invariant` and outcome kind internal fault. | Test (TC-034) |
-| FR-020-AC-10 | Slice (a) only: over the IR-304 guarded package, the unguarded item `g` generates a harness, and each guarded item (`f` then item, `h`) settles `unsupported` with `path_guard_not_lowered` and reason `guard_lowering_not_implemented`; no guarded item has a harness. This criterion retires when slice (b) lands, as CG FR-022-AC-38 does. | Test (TC-034) |
-| FR-020-AC-11 | After IR-304 slice (b): over the same package the `h` item generates a harness whose guard `Assume` follows the symbolic inputs, and its identity's `requirement_occurrence` equals the item's occurrence; an item with a guard CG cannot lower settles `unsupported` with `path_guard_not_lowered` and no harness omits a guard. | Test (TC-034; Planned until IR-304 slice (b) lands) |
+| FR-020-AC-9 | For each of the eight `RequirementRecordMismatch` variants CG defines (`RequirementMissing`, `OccurrenceNotSelected`, `RecordMissing`, `ApplicationMismatch`, `ResultBoundMismatch`, `ConversionContextMismatch`, `PathConditionMismatch`, `GuardContextMissing`), a CG refusal carrying it is returned as `DriverRefusal::Generation` with the request index, occurrence and mismatch unchanged, stage Generation, wire code `runtime_invariant` and outcome kind internal fault. | Test (TC-034) |
+| FR-020-AC-10 | ~~Retired by IR-304 slice (b): the interim `guard_lowering_not_implemented` settlement of slice (a) no longer exists. Its replacement outcomes are FR-020-AC-11.~~ | Inspection |
+| FR-020-AC-11 | Over the IR-304 guarded package, each item with a lowerable guard (`if y > 5 then y + 1 else y + 1`: a then item and an else item) generates a harness with one guard `kani::assume` that follows the symbolic inputs, precedes the oracle call, and is negated for the else item, and its identity's `requirement_occurrence` equals the item's occurrence; an item whose guard CG cannot lower (`if z + 1 > 5 then z + 1 else z + 1`) settles `unsupported` with `path_guard_not_lowered` and reason `unsupported_guard_form`, and no harness omits a guard. | Test (TC-034) |
 | FR-020-AC-12 | For `if p then x + 1 else x + 1`, whose then and else items are both guarded by the node of `p`, the positions hold a `ContextRoot` for `p` in the then item's span and another in the else item's span, and the root is not emitted once for both. | Test (TC-034) |
-| FR-020-AC-13 | After IR-304 slice (b): a CG refusal `RequirementRecord` with `GuardContextMissing` is returned as `DriverRefusal::Generation` with its request index, occurrence and guard unchanged, stage Generation, wire code `runtime_invariant` and outcome kind internal fault. | Test (TC-034; Planned until IR-304 slice (b) lands) |
-| FR-020-AC-14 | When a `value-validity` record of the package has a guard occurrence whose node the admitted package does not hold, the run refuses with `DriverFault::RequirementRecordUnresolved` naming the record's QSL occurrence key with cause `UnknownNode`; when a record's key has a role outside IR's occurrence vocabulary, the cause is `UnknownOccurrenceRole`. Each has stage Generation, wire code `runtime_invariant` and outcome kind internal fault, is raised even when no item routes to that record, and CG generation is not called. The `AmbiguousNode` cause is produced by the same node lookup FR-001 uses and cannot be built through IR admission, so no criterion constructs it. The guard-node case (the first example) is Planned: QSL's `PathGuard` and `RequirementRecord` have no public constructor, so no test can give a record a guard whose node the package lacks; the test covers the record-key node and role instead. | Test (TC-034; guard-node case Planned, QSL-owned) |
+| FR-020-AC-13 | When CG finds a path guard of a routed item without a `ContextRoot` in that item's context span, its refusal `RequirementRecord` with `GuardContextMissing` is returned as `DriverRefusal::Generation` with its request index, occurrence and guard unchanged, stage Generation, wire code `runtime_invariant` and outcome kind internal fault; end to end, real CG given an item whose requirement and record name a guard rooted only in another item's span refuses the whole call with it. | Test (TC-034) |
+| FR-020-AC-14 | When a `value-validity` record of the package has a guard occurrence whose node the admitted package does not hold, the run refuses with `DriverFault::RequirementRecordUnresolved` naming the record's QSL occurrence key with cause `UnknownNode`; when a record's key has a role outside IR's occurrence vocabulary, the cause is `UnknownOccurrenceRole`. Each has stage Generation, wire code `runtime_invariant` and outcome kind internal fault, is raised even when no item routes to that record, and CG generation is not called. The `AmbiguousNode` cause is produced by the same node lookup FR-001 uses and cannot be built through IR admission, so no criterion constructs it. The guard-node case gives a record a guard (built with QSL's `test-support` `PathGuard::new` and `RequirementRecord::with_path_condition`) whose node is absent; the record-key node and role cases rekey a record. | Test (TC-034) |
 | FR-020-AC-15 | For a bound item of another capability (a model-reading `operation-contract` item) whose occurrence has no `value-validity` record in the map, negotiation settles it `InvalidRequest` as before, it is absent from the generation items, the projection returns `None` at its index and adds no guard root for it, no `RequirementRecordAbsent` fault is raised at any step, and a `value-validity` item in the same request still receives its requirement. | Test (TC-034) |
 
 ## Dependencies
@@ -203,12 +199,10 @@ test (see the AC-14 row).
   `RequirementOccurrence`, `RequirementGuard`, `RequirementRecordInput`,
   `RequirementRecords`, `RoutedRequirement`, `RoutedGenerationItem::with_requirement`,
   `KaniGenerationContext.requirement_records` and
-  `RoutedGenerationError::RequirementRecord`. The spec and the slice (a) code are
-  merged on CG main, and the driver builds against them.
-- IR-304 slice (b) (ticket IR-304, reopened as its owner) lowers guards to
-  `Assume` statements and adds `GuardContextMissing` and the
-  `requirement_occurrence` identity field. The projection does not depend on
-  it; AC-11 and AC-13 do. CG main has not landed slice (b).
+  `RoutedGenerationError::RequirementRecord`. The spec and code, including IR-304
+  slice (b) (guard lowering to `Assume` statements, `GuardContextMissing` and
+  the `requirement_occurrence` identity field), are merged on CG main, and the
+  driver builds against them.
 - Other capabilities are unchanged: their items settle at negotiation as
   today and this requirement adds nothing for them.
 - IR-1504 owns how the driver tracks CG (both manifests) and the dependency
