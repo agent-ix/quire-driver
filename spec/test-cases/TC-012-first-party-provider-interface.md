@@ -16,7 +16,7 @@ used by non-Kani providers. Full routed invocation and process-provider
 terminal integration remain planned.
 
 Scope: FR-005-AC-1 through FR-005-AC-11, FR-005-AC-16 through FR-005-AC-17,
-and FR-005-AC-20 through FR-005-AC-21.
+and FR-005-AC-20 through FR-005-AC-22.
 
 ## Test Procedure
 
@@ -84,6 +84,19 @@ and FR-005-AC-20 through FR-005-AC-21.
     rather than reconstructing the descriptor. Verify a supplied `wire` value
     is retained byte-for-byte, and an empty advertised-capability list is
     refused before the registry can emit a descriptor.
+14. Submit a harness the driver generated on the general `rt::Integer` route
+    (`x + 1` over `Int[0, 9]`) to the provider's production run path with a
+    nonexistent launcher and crate. Verify the item's result is
+    `KaniProviderFailure::NotTractable` carrying CG's
+    `UnsupportedObligation::V2ClauseNotTractable` with the harness's node and
+    operation identity, 4 bits, the general route and the shipped measured row;
+    a launch attempt would have been an `Execution` refusal. Then generate the
+    same source with CG's `generate_routed_native` (a genuine native-route
+    harness) and verify it is not refused by that row: CG's execution refuses
+    it as `HarnessNotInCrate` because the crate does not exist. Known gap: a
+    `NotTractable` item has no terminal record, so `outcome_bytes` fails the
+    whole batch as it does for an `Execution` refusal; CG ships no terminal map
+    for `DecidedRunRefusal` and the driver adds none. FR-005-AC-22.
 
 Test location: `src/registry.rs`, `src/drive.rs`, `src/provider.rs`,
 `quire-cli/src/backend_provider.rs`, `quire-cli/src/process_provider.rs`, and
@@ -113,6 +126,8 @@ invocation and process-provider terminal integration remain planned.
   nor ambient environment to choose a failure cause or terminal.
 - CG maps cover-unsatisfied to `Proved { success_checks: 0 }` and timeout to
   `Incomplete(TimedOut)`; the driver does not reimplement that mapping.
+- A general-route scalar harness is refused with CG's typed measured row
+  before any Kani process starts; a native-route harness is not refused by it.
 - Kani execution limits and terminal mapping remain Kani-specific. The shared
   result carrier preserves generic non-Kani success and failure data, request
   indexes and backend identities. Plugin `proved` results remain unmapped

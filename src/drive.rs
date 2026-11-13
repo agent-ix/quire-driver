@@ -536,6 +536,24 @@ fn execute_scalar_items(
                 .oracle_artifacts
                 .as_deref()
                 .ok_or_else(|| DriverRefusal::Fault(DriverFault::NativeReceiptMismatch))?;
+            let table = cg::TractabilityTable::shipped_general_route_scalar().map_err(|error| {
+                DriverRefusal::Generation(cg::RoutedGenerationError::Kani(
+                    cg::KaniObligationError::TractabilityTable(error),
+                ))
+            })?;
+            cg::refuse_if_not_tractable(&cg::KaniExecutableHarness::Scalar(harness), &table)
+                .map_err(|refusal| match refusal {
+                    cg::DecidedRunRefusal::NotTractable {
+                        harness_path,
+                        refusal,
+                    } => DriverRefusal::ScalarNotTractable {
+                        harness_path,
+                        refusal,
+                    },
+                    cg::DecidedRunRefusal::Execution(_) => {
+                        DriverRefusal::Fault(DriverFault::NativeReceiptMismatch)
+                    }
+                })?;
             let receipt = cg::execute_kani_scalar_native(&KaniScalarNativeRequest {
                 cancel,
                 installation: native.installation,
@@ -1174,6 +1192,126 @@ mod scalar_receipt_tests {
     }
 }
 
+// IR-1530: the paired proof/native runner is a second Kani launch; it is gated by the same
+// tractability decision as the provider path. No test here launches Kani.
+#[cfg(test)]
+mod scalar_native_tractability_tests {
+    use super::*;
+    use ix_trace_rs::trace;
+    use qsl_replay::spine::{default_accounting, CallArgument};
+    use quire_contract_codegen::ProofCeilings;
+    use quire_exact::{Integer, Value};
+    use std::num::NonZeroU64;
+
+    fn run(upstream: &impl crate::Upstream) -> Result<Driven, DriverRefusal> {
+        let source = format!(
+            "language \"ix:native\" edition \"1-draft\";\nprofile v = \"{}\";\n\
+             function inc using v(x: Int[0, 9]): Int[0, 10] pure {{ x + 1 }}\n",
+            "quire.value.complete/v1"
+        );
+        let packages = BTreeMap::new();
+        let call = Call {
+            function: "inc".to_owned(),
+            arguments: vec![CallArgument {
+                parameter: "x".to_owned(),
+                value: Value::Integer(Integer::from(4_i64)),
+            }],
+            accounting: default_accounting(1_000_000),
+            supplied: Default::default(),
+            backend: Default::default(),
+        };
+        let environment = ObjectEnvironment::default();
+        let installation = KaniInstallation::new("/nonexistent/cargo-kani");
+        let target = Path::new("/nonexistent/target");
+        let registry = crate::build_registry(&[crate::ProviderManifest {
+            identity: "kani".to_owned(),
+            advertises: vec![(
+                Some("value-validity".to_owned()),
+                Some("bounded".to_owned()),
+            )],
+            domains: Some(vec!["integer".to_owned()]),
+            bounds: None,
+            wire: None,
+        }])
+        .expect("the Kani provider registers");
+        drive(
+            upstream,
+            CompileInput {
+                source: SourceIdentity::new("agent-ix", "ir-1530"),
+                package_name: "native-tractability",
+                path: "native-tractability.native",
+                bytes: source.as_bytes(),
+                packages: &packages,
+                limits: SpineLimits::default(),
+                cancel: Cancel::new(),
+            },
+            &registry,
+            None,
+            GenerationInput {
+                kani: Some(KaniInput {
+                    ceilings: ProofCeilings {
+                        memory_bytes: NonZeroU64::new(1 << 30).expect("positive limit"),
+                        wall_clock: std::time::Duration::from_secs(60),
+                    },
+                    subject_path: "crate::subject",
+                    unwind: 3,
+                }),
+                scalar_execution: Some(ScalarExecutionInput {
+                    call: &call,
+                    replay_limits: qsl_replay::ReplayLimits::default(),
+                    environment: &environment,
+                    native: Some(ScalarNativeInput {
+                        installation: &installation,
+                        target_directory: target,
+                    }),
+                }),
+            },
+        )
+    }
+
+    /// A general-route scalar harness is refused with CG's typed row before the paired runner
+    /// launches. The launcher does not exist: a launch attempt would be a `ScalarNative` error.
+    #[trace("TC-016", "FR-009-AC-26")]
+    #[test]
+    fn general_route_scalar_is_refused_before_the_paired_native_run() {
+        let refusal = run(&crate::QslCg).expect_err("the general route is not tractable");
+        let DriverRefusal::ScalarNotTractable {
+            harness_path,
+            refusal: row,
+        } = &refusal
+        else {
+            panic!("expected ScalarNotTractable, got {refusal:?}");
+        };
+        assert!(!harness_path.is_empty());
+        assert!(matches!(
+            row.as_ref(),
+            cg::UnsupportedObligation::V2ClauseNotTractable {
+                route: cg::IntegerRoute::General,
+                ..
+            }
+        ));
+        assert_eq!(
+            refusal.code(),
+            "unsupported_obligation/v2-clause-not-tractable"
+        );
+        assert_eq!(refusal.stage(), crate::DriverStage::Replay);
+        assert_eq!(refusal.kind(), crate::OutcomeKind::Refused);
+    }
+
+    /// A native-route harness is not refused by the general-route row: the paired runner is
+    /// reached and refuses on the missing launcher with its own typed error.
+    #[trace("TC-016", "FR-009-AC-26")]
+    #[test]
+    fn native_route_scalar_reaches_the_paired_native_run() {
+        let refusal =
+            run(&crate::upstream::NativeRouteQslCg).expect_err("the launcher does not exist");
+        assert!(
+            matches!(refusal, DriverRefusal::ScalarNative(_)),
+            "{refusal:?}"
+        );
+    }
+}
+
 // The native runner's memory enforcement requires Linux procfs.
 #[cfg(all(test, target_os = "linux"))]
 mod native_receipt_integration_tests {
@@ -1280,8 +1418,10 @@ mod native_receipt_integration_tests {
                 }),
             }),
         };
+        // The general `rt::Integer` route times out at 600 s on this form (IR-1530 measured
+        // not-tractable row), so the receipt path is proven on the native-integer route.
         let driven = drive(
-            &crate::upstream::QslCg,
+            &crate::upstream::NativeRouteQslCg,
             CompileInput {
                 source: SourceIdentity::new("agent-ix", "ir-773"),
                 package_name: "native-receipt",

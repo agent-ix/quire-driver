@@ -57,6 +57,16 @@ pub enum DriverRefusal {
     /// classification, retained without conversion.
     #[error(transparent)]
     ScalarNative(KaniScalarNativeError),
+    /// CG's tractability decider refused the routed scalar harness before the paired
+    /// proof/native runner would launch Kani (CG FR-056-AC-15). CG's
+    /// `UnsupportedObligation::V2ClauseNotTractable` is retained unchanged.
+    #[error("{harness_path} is a measured not-tractable Kani form: {refusal:?}")]
+    ScalarNotTractable {
+        /// The generated artifact path of the refused harness.
+        harness_path: String,
+        /// CG's typed refusal.
+        refusal: Box<quire_contract_codegen::UnsupportedObligation>,
+    },
     /// QSL stopped a lifecycle stage because the caller cancelled its handle.
     #[error("QSL {stage:?} lifecycle cancelled: {cause:?}")]
     Cancelled {
@@ -576,6 +586,9 @@ impl DriverRefusal {
                 }
             }
             Self::ScalarNative(error) => error.code().to_owned(),
+            Self::ScalarNotTractable { .. } => {
+                "unsupported_obligation/v2-clause-not-tractable".to_owned()
+            }
             Self::UnknownBackend { .. } => "invalid_capability/unknown-backend".to_owned(),
             Self::PackageRead(failure) => failure.diagnostic().code().to_owned(),
             Self::Envelope(refusal) => match refusal.as_ref() {
@@ -632,9 +645,10 @@ impl DriverRefusal {
             ) => DriverStage::Registry,
             Self::Compile(refusal) => DriverStage::Compile(refusal.stage()),
             Self::QslAdmissionEvidence(_) => DriverStage::Handoff,
-            Self::ScalarCall(_) | Self::ScalarBinding(_) | Self::ScalarNative(_) => {
-                DriverStage::Replay
-            }
+            Self::ScalarCall(_)
+            | Self::ScalarBinding(_)
+            | Self::ScalarNative(_)
+            | Self::ScalarNotTractable { .. } => DriverStage::Replay,
             Self::Cancelled { stage, .. } => DriverStage::Compile(*stage),
             Self::UnknownBackend { .. } | Self::Fault(DriverFault::VocabularyMismatch { .. }) => {
                 DriverStage::Conversion
@@ -707,6 +721,7 @@ impl DriverRefusal {
             Self::Fault(DriverFault::PackageReadDiagnostics(_)) | Self::PackageNegotiation(_) => {
                 OutcomeKind::Fault
             }
+            Self::ScalarNotTractable { .. } => OutcomeKind::Refused,
             Self::ScalarNative(error) => match error.class() {
                 KaniScalarNativeErrorClass::CompletionRefusal => OutcomeKind::Refused,
                 KaniScalarNativeErrorClass::EnvironmentFault => OutcomeKind::Fault,
@@ -941,7 +956,9 @@ fn generation_code(error: &RoutedGenerationError) -> Code {
         | RoutedGenerationError::DuplicateHarness { .. }
         | RoutedGenerationError::KaniRecordCountMismatch { .. }
         | RoutedGenerationError::KaniDuplicatePositionOutOfRange { .. }
-        | RoutedGenerationError::Kani(KaniObligationError::EmptyRequest) => Code::RuntimeInvariant,
+        | RoutedGenerationError::Kani(
+            KaniObligationError::EmptyRequest | KaniObligationError::TractabilityTable(_),
+        ) => Code::RuntimeInvariant,
         RoutedGenerationError::Kani(KaniObligationError::TooManyItems { .. }) => {
             Code::ResourceExhausted
         }
@@ -1252,6 +1269,9 @@ fn kani_message(error: &KaniObligationError) -> String {
         KaniObligationError::InvalidSubjectPath => "the subject path is not a Rust path".to_owned(),
         KaniObligationError::InvalidUnwind { unwind } => {
             format!("unwind bound {unwind} is out of range")
+        }
+        KaniObligationError::TractabilityTable(error) => {
+            format!("internal fault: CG tractability table failed to load: {error:?}")
         }
     }
 }
